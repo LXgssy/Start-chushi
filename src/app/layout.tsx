@@ -12,7 +12,9 @@ export const metadata: Metadata = {
   title: "初始 · Start",
   description: "极简、优雅、功能齐全的浏览器起始页：时钟 · 搜索 · 快捷链接 · 天气 · 待办 · 便签。",
   icons: {
-    icon: "/start.svg",
+    /* basePath 需手动前缀化（Next 不会自动处理 metadata 图标路径），
+       Pages 项目站部署于 /Start-chushi 子路径；默认构建 env 为空 → /start.svg */
+    icon: `${process.env.NEXT_PUBLIC_BASE_PATH ?? ""}/start.svg`,
   },
 };
 

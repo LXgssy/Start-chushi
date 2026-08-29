@@ -123,6 +123,15 @@ public/gallery/             # 本地化壁纸（全图 + 缩略图）
 docs/                       # README 预览图
 ```
 
+## 贡献者
+
+| 贡献者 | 角色 |
+|---|---|
+| **Super Z**（AI 智能体 · [Z.ai](https://z.ai) GLM） | 界面与动效设计、工程实现、发布工程、文档 |
+| **[LXgssy](https://github.com/LXgssy)** | 产品发起人、需求定义、验收 |
+
+后续版本迭代由 Super Z 以作者身份提交署名。
+
 ## 许可证
 
 - **源代码**：[MIT License](./LICENSE)

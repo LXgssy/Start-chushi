@@ -24,9 +24,12 @@ export interface GalleryPhoto {
 
 const q = (w: number) => `auto=format&fit=crop&w=${w}&q=80`;
 const u = (id: string, w: number) => `https://images.unsplash.com/photo-${id}?${q(w)}`;
+/* basePath 前缀：GitHub Pages 项目站挂在 /Start-chushi 子路径下（EXPORT_MODE 构建
+ * 注入 NEXT_PUBLIC_BASE_PATH），默认构建为空串不影响任何现有部署 */
+const BP = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
 const local = (id: string) => ({
-  url: `/gallery/wallpapers/${id}.jpg`,
-  thumb: `/gallery/thumbs/${id}.jpg`,
+  url: `${BP}/gallery/wallpapers/${id}.jpg`,
+  thumb: `${BP}/gallery/thumbs/${id}.jpg`,
 });
 
 export const GALLERY: GalleryPhoto[] = [
