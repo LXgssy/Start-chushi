@@ -45,6 +45,8 @@ export interface Settings {
   photoId: string;
   /** 最近一次手动选择的壁纸 id（关闭「每日一图」时回退到此；旧数据可能缺失，读取时需兜底） */
   photoLast: string;
+  /** 搜索建议：键入时搜索栏向下展开联想词下拉（含高度自适应动画） */
+  searchSuggest: boolean;
   pomodoro: PomodoroDurations;
 }
 
@@ -59,6 +61,7 @@ export const DEFAULT_SETTINGS: Settings = {
   accent: "#8b5cf6",
   photoId: "daily",
   photoLast: "mist-lake",
+  searchSuggest: true,
   pomodoro: DEFAULT_DURATIONS,
 };
 

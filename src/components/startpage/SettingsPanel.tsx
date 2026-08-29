@@ -542,6 +542,21 @@ function SettingsPanel({
 
       <div aria-hidden className="border-t border-zinc-900/5 dark:border-white/5" />
 
+      <Section title="搜索">
+        <Segmented
+          segKey="suggest"
+          label="搜索建议"
+          value={settings.searchSuggest ? "on" : "off"}
+          options={[
+            { value: "off", label: "隐藏" },
+            { value: "on", label: "显示" },
+          ]}
+          onChange={(v) => onPatch({ searchSuggest: v === "on" })}
+        />
+      </Section>
+
+      <div aria-hidden className="border-t border-zinc-900/5 dark:border-white/5" />
+
       <Section title="数据">
         <div className="flex flex-wrap gap-2 pt-1 pb-2">
           <button
