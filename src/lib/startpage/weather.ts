@@ -65,7 +65,14 @@ export interface ForecastResult {
 export async function fetchForecast(place: Place): Promise<ForecastResult> {
   if (place.lat == null || place.lon == null) throw new Error("缺少位置信息");
   const res = await fetch(FORECAST_URL(place.lat, place.lon));
-  if (!res.ok) throw new Error("天气服务暂不可用");
+  if (!res.ok) {
+    /* 429 = Open-Meteo 免费额度按出口 IP 共享，国内 CGNAT 下常见；
+       文案与网络故障区分开（快照回退见 page.tsx） */
+    if (res.status === 429) {
+      throw new Error("天气服务今日额度已用尽，将于稍后自动重试");
+    }
+    throw new Error("天气服务暂不可用");
+  }
   const j = await res.json();
 
   const current = j.current ?? {};
@@ -144,5 +151,40 @@ export async function reverseCity(lat: number, lon: number): Promise<string> {
     return (j.city || j.locality || j.principalSubdivision || "").toString();
   } catch {
     return "";
+  }
+}
+
+/* ---------- 本地天气快照（限流/断网回退） ----------
+ * Open-Meteo 免费额度按出口 IP 共享计，国内网络下 429 常态化；
+ * 每次成功拉取落一份 localStorage 快照，失败时回退展示并标注时间，
+ * 配合 page.tsx 的 30 分钟轮询与 online 事件自动重试。 */
+
+const SNAPSHOT_KEY = "start:weather-last";
+
+export interface WeatherSnapshot {
+  at: number;
+  data: ForecastResult;
+}
+
+export function readWeatherSnapshot(): WeatherSnapshot | null {
+  try {
+    const raw = localStorage.getItem(SNAPSHOT_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw) as WeatherSnapshot;
+    if (!s || typeof s.at !== "number" || !s.data || s.data.temp == null) {
+      return null;
+    }
+    return s;
+  } catch {
+    return null;
+  }
+}
+
+export function writeWeatherSnapshot(data: ForecastResult): void {
+  try {
+    const snap: WeatherSnapshot = { at: Date.now(), data };
+    localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(snap));
+  } catch {
+    /* 存储不可用（隐私模式等）时静默，不影响实时数据展示 */
   }
 }

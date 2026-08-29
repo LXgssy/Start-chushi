@@ -82,6 +82,8 @@ export interface WeatherState {
   wind: number | null;
   city: string;
   hours: WeatherHour[];
+  /** 非空 = 当前展示的是本地快照（限流/断网回退），值为快照时间戳 */
+  staleAt: number | null;
 }
 
 export const INITIAL_WEATHER: WeatherState = {
@@ -95,6 +97,7 @@ export const INITIAL_WEATHER: WeatherState = {
   wind: null,
   city: "",
   hours: [],
+  staleAt: null,
 };
 
 export interface Place {

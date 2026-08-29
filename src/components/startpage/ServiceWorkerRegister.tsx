@@ -13,6 +13,10 @@ export default function ServiceWorkerRegister() {
   useEffect(() => {
     if (process.env.NODE_ENV !== "production") return;
     if (!("serviceWorker" in navigator)) return;
+    /* 扩展页（chrome-extension:// 等）不支持页面 SW 注册，直接跳过 */
+    if (location.protocol !== "http:" && location.protocol !== "https:") {
+      return;
+    }
     const local = ["localhost", "127.0.0.1", "[::1]"].includes(
       location.hostname
     );

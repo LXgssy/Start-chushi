@@ -21,6 +21,32 @@ const SUG_MAX = 5;
  * 3s 超时/出错静默降级为无建议，不阻塞输入。
  */
 function fetchSuggest(q: string, cb: (list: string[]) => void) {
+  /* Edge/Chrome 扩展（chrome-extension://）：MV3 CSP script-src 'self'
+     禁止注入跨域脚本，JSONP 不可用 → 改 fetch 直取 sugrec（manifest
+     host_permissions 免 CORS），响应为 cb({...}) 包裹形式，剥壳解析 */
+  if (location.protocol === "chrome-extension:") {
+    const timer = window.setTimeout(() => cb([]), 3000);
+    fetch(
+      `https://www.baidu.com/sugrec?prod=pc&wd=${encodeURIComponent(q)}&cb=cb`
+    )
+      .then((r) => r.text())
+      .then((t) => {
+        window.clearTimeout(timer);
+        try {
+          const m = t.match(/\(([\s\S]*)\)\s*;?\s*$/);
+          const parsed = m ? JSON.parse(m[1]) : null;
+          const g = Array.isArray(parsed?.g) ? parsed.g : [];
+          cb(g.map((x) => String(x?.q ?? "")).filter(Boolean));
+        } catch {
+          cb([]);
+        }
+      })
+      .catch(() => {
+        window.clearTimeout(timer);
+        cb([]);
+      });
+    return;
+  }
   const name = `__chushi_sug_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
   const w = window as unknown as Record<string, unknown>;
   const script = document.createElement("script");

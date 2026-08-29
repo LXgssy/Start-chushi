@@ -102,8 +102,10 @@ function WeatherPanel({
       </div>
 
       {/* 详情行 */}
-      {(weather.humidity != null || weather.wind != null) && (
-        <div className="mb-3 flex gap-2 px-1 text-xs font-light tracking-wide text-zinc-500 dark:text-zinc-400">
+      {(weather.humidity != null ||
+        weather.wind != null ||
+        weather.staleAt != null) && (
+        <div className="mb-3 flex flex-wrap gap-2 px-1 text-xs font-light tracking-wide text-zinc-500 dark:text-zinc-400">
           <span className="glass-chip rounded-full px-2.5 py-1">
             湿度 {weather.humidity ?? "--"}%
           </span>
@@ -112,6 +114,12 @@ function WeatherPanel({
           </span>
           {weather.city && (
             <span className="glass-chip rounded-full px-2.5 py-1">{weather.city}</span>
+          )}
+          {weather.staleAt != null && (
+            <span className="glass-chip rounded-full px-2.5 py-1">
+              缓存 ·{" "}
+              {new Date(weather.staleAt).toTimeString().slice(0, 5)} 采集
+            </span>
           )}
         </div>
       )}

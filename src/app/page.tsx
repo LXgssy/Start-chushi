@@ -23,7 +23,7 @@ import {
   type TodoItem,
   type WeatherState,
 } from "@/lib/startpage/types";
-import { fetchForecast } from "@/lib/startpage/weather";
+import { fetchForecast, readWeatherSnapshot, writeWeatherSnapshot } from "@/lib/startpage/weather";
 import { getEngine } from "@/lib/startpage/engines";
 import { sampleCoverLuminance } from "@/lib/startpage/luminance";
 import { useToast } from "@/hooks/use-toast";
@@ -124,25 +124,43 @@ export default function Home() {
     }));
   }, []);
 
-  /* ---------- 天气获取 ---------- */
+  /* ---------- 天气获取（成功落快照，失败回退快照+自动重试） ---------- */
   useEffect(() => {
     if (!mounted) return;
     if (place.lat == null || place.lon == null) return;
     let cancelled = false;
 
     async function load() {
+      setWeather((w) => ({ ...w, loading: true }));
       try {
-        setWeather((w) => ({ ...w, loading: true }));
         const r = await fetchForecast(place);
         if (!cancelled) {
-          setWeather({ ...r, loading: false, error: null, city: place.name ?? "" });
+          writeWeatherSnapshot(r);
+          setWeather({
+            ...r,
+            loading: false,
+            error: null,
+            city: place.name ?? "",
+            staleAt: null,
+          });
         }
-      } catch {
-        if (!cancelled) {
+      } catch (e) {
+        if (cancelled) return;
+        /* 限流/断网回退：展示最近一次成功快照（面板标注缓存时间） */
+        const snap = readWeatherSnapshot();
+        if (snap) {
+          setWeather({
+            ...snap.data,
+            loading: false,
+            error: null,
+            city: place.name ?? "",
+            staleAt: snap.at,
+          });
+        } else {
           setWeather((w) => ({
             ...w,
             loading: false,
-            error: "天气获取失败，请检查网络后重试",
+            error: e instanceof Error ? e.message : "天气获取失败，请检查网络后重试",
           }));
         }
       }
@@ -150,9 +168,15 @@ export default function Home() {
 
     load();
     const t = setInterval(load, 30 * 60 * 1000);
+    /* 网络恢复即刻重试（限流回退态最常见的恢复路径） */
+    const onOnline = () => {
+      if (!cancelled) load();
+    };
+    window.addEventListener("online", onOnline);
     return () => {
       cancelled = true;
       clearInterval(t);
+      window.removeEventListener("online", onOnline);
     };
   }, [mounted, place]);
 
