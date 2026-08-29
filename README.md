@@ -42,7 +42,7 @@
 
 **方式二 · 开发者模式加载（立即可用）**
 
-1. 从 [GitHub Releases](https://github.com/LXgssy/Start-chushi/releases) 下载最新 `初始-ChuShi-新标签页-v*.zip` 并解压（或直接拖入第 3 步的页面）
+1. 从 [GitHub Releases](https://github.com/LXgssy/Start-chushi/releases) 下载最新 `ChuShi-NewTab-v*.zip` 并解压（或直接拖入第 3 步的页面）
 2. 打开 `edge://extensions`，开启左下角「**开发人员模式**」
 3. 点击「**加载解压缩的扩展**」，选择解压后的文件夹
 4. 打开一个新标签页，「初始」即刻呈现
