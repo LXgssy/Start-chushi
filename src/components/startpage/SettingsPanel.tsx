@@ -395,20 +395,22 @@ function SettingsPanel({
       </Section>
 
       {/* 掠影壁纸源：每日一图开关 / 官方图库 / 自定义上传
-          进出场：背景切到/切离「掠影」时雾化展开/收拢（高度+上边距+模糊同步缓动）。
+          进出场：背景切到/切离「掠影」时雾化展开/收拢（高度+下边距+模糊同步缓动）。
           AnimatePresence initial={false}：面板打开时若已是掠影则静态呈现，仅切换瞬间有动画；
           快速往返切换时同 key 反向续接，动画自然回弹不打断。
-          上边距纳入动画的原因：容器 space-y-5 会给本块固定 margin-top，若只动画高度，
-          收拢末端会残留 20px 空隙、挂载瞬间也会先砸出 20px 再展开——两者都是跳变；
-          由动画接管 margin（0↔20px，与 space-y-5 同值）后全程无级。区块内无 backdrop-filter
-          后代，动画 filter 不触发磨砂玻璃存活原则 */}
+          下边距纳入动画的原因：Tailwind 4 的 space-y-5 编译为「给非最后子元素设
+          margin-block-end:20px」（上邻间距来自前一块的 margin-block-end，恒定不动），
+          本块的 20px 间距恒在 margin-bottom 上；若只动画高度，收拢末端残留 20px、
+          卸载瞬间视口内容猛跳 20px（rAF 探针实测 sh 646→626），挂载瞬间也先砸出
+          20px 再展开；由动画接管 marginBottom（0↔20px，与编译值同向同量）后
+          全程零跳变。区块内无 backdrop-filter 后代，动画 filter 不触发磨砂玻璃存活原则 */}
       <AnimatePresence initial={false}>
         {settings.background === "photo" && (
           <motion.div
             key="gallery-section"
-            initial={{ height: 0, opacity: 0, marginTop: 0, filter: "blur(6px)" }}
-            animate={{ height: "auto", opacity: 1, marginTop: 20, filter: "blur(0px)" }}
-            exit={{ height: 0, opacity: 0, marginTop: 0, filter: "blur(6px)" }}
+            initial={{ height: 0, opacity: 0, marginBottom: 0, filter: "blur(6px)" }}
+            animate={{ height: "auto", opacity: 1, marginBottom: 20, filter: "blur(0px)" }}
+            exit={{ height: 0, opacity: 0, marginBottom: 0, filter: "blur(6px)" }}
             transition={{ duration: 0.42, ease: EASE }}
             style={{ overflow: "hidden" }}
           >
