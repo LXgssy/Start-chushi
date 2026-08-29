@@ -364,6 +364,18 @@ html.photo-mode .search-submit {
 html.photo-mode .search-hint {
   color: rgb(255 255 255 / 0.5);
 }
+/* 建议行：掠影玻璃恒深色（不分主题），浅色主题下建议行文字/高亮/分隔线
+   需白系覆盖（同 .search-input 的处理），否则深灰字压深玻璃不可读 */
+html.photo-mode .search-sug-row {
+  color: rgb(244 244 245 / 0.9);
+}
+html.photo-mode .search-sug-row[data-active="true"] {
+  background: rgb(255 255 255 / 0.12);
+  color: rgb(255 255 255);
+}
+html.photo-mode .search-sug-row:first-child {
+  border-top-color: rgb(255 255 255 / 0.1);
+}
 html.photo-mode .tile-label {
   color: rgb(255 255 255 / 0.85);
 }
@@ -511,6 +523,27 @@ html.photo-mode .dock-btn[data-active="true"] {
 }
 @media (prefers-reduced-motion: reduce) {
   .intro-rise {
+    animation: none;
+  }
+}
+
+/* ---------- dock 面板入场淡入：CSS 关键帧承载（勿还给 framer）。
+   framer v12 对 opacity 走 WAAPI 加速——内联值停在初始 0，动画结束后才在
+   主线程补写 1，中间存在空窗：真机上面板整板闪黑一拍（用户感知为
+   「进入动画卡一下然后复位」）。CSS 动画结束即自然回落级联值 1，零空窗 */
+@keyframes panel-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.panel-rise {
+  animation: panel-fade 0.3s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .panel-rise {
     animation: none;
   }
 }

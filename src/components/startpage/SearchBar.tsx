@@ -283,11 +283,12 @@ function SearchBar({
                     type="button"
                     role="option"
                     aria-selected={i === active}
+                    data-active={i === active ? "true" : undefined}
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={() => submit(false, s)}
                     onMouseEnter={() => setActive(i)}
                     style={{ height: SUG_ROW_H }}
-                    className={`flex w-full items-center gap-3 px-4 text-left text-[13px] font-light transition-colors duration-150 ${
+                    className={`search-sug-row flex w-full items-center gap-3 px-4 text-left text-[13px] font-light transition-colors duration-150 ${
                       i === 0
                         ? "border-t border-zinc-900/[0.07] dark:border-white/[0.07]"
                         : ""

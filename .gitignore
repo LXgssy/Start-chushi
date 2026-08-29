@@ -70,3 +70,4 @@ scripts/hd24/backfill/napi_test.json
 # 会话工具输出与临时打包目录(勿提交)
 tool-results/
 .pkgtmp/
+upload/

@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useRef, useState, useSyncExternalStore } from "react";
+import { memo, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   CheckSquare,
@@ -52,22 +52,19 @@ const SPRING = { type: "spring" as const, stiffness: 420, damping: 34 };
 
 /** 面板切换 = 单动作平滑形变：旧内容原地淡出 + 卡片高度弹簧到新内容高度 + 新内容淡入，
  *  三者重叠为一个连续动作（无先关后开、无两次动画）。
- *  退出面板绝对定位钉回内容盒原位（inset 0），在高度形变期间与新面板重叠溶解 */
-const panelVariants = {
-  initial: { opacity: 0 },
-  animate: {
-    opacity: 1,
-    transition: { duration: 0.3, ease: EASE },
-  },
-  exit: {
-    opacity: 0,
-    position: "absolute" as const,
-    left: 0,
-    right: 0,
-    top: 0,
-    pointerEvents: "none" as const,
-    transition: { duration: 0.2, ease: "easeOut" as const },
-  },
+ *  退出面板绝对定位钉回内容盒原位（inset 0），在高度形变期间与新面板重叠溶解。
+ *  ⚠ 入场淡入不在 framer 内（移交 .panel-rise CSS 关键帧，见 globals.css）：
+ *    framer v12 对 opacity 走 WAAPI 加速，内联停在初始 0、动画结束后才补写 1，
+ *    空窗期真机整板闪黑（进入动画卡一下复位）。退场保留 opacity：
+ *    退场终点是卸载，补写空窗不可见 */
+const PANEL_EXIT = {
+  opacity: 0,
+  position: "absolute" as const,
+  left: 0,
+  right: 0,
+  top: 0,
+  pointerEvents: "none" as const,
+  transition: { duration: 0.2, ease: [0.4, 0, 1, 1] as const },
 };
 
 const PANEL_TITLES: Record<Exclude<PanelId, null>, string> = {
@@ -120,18 +117,44 @@ const PanelStage = memo(function PanelStage({
      切换瞬间整卡内容被纵向压扁/拉伸，读起来像「旧卡压扁关闭 + 新卡撑开打开」两次动画；
      改为测量内容高度 + 高度 px 弹簧（reflow 形变），内容全程零畸变，视觉上只是
      「容器平滑地变成另一个面板的尺寸」。ResizeObserver 同时兜底面板内部高度变化
-     （待办增删、天气加载、设置分区展开），同样平滑跟随 */
+     （待办增删、天气加载、设置分区展开），同样平滑跟随。
+     ⚠ 首开路径（contentH 为 null）禁止在挂载帧回写：同步 setState 构成 Dock 顶部
+     ⚠ 所述「挂载后一帧内的二次渲染」，真机上叠加 v12 投影重测可打断入场。
+     推迟到入场结束（≈0.5s）后武装测高，期间高度盒 auto 直就位（视觉无差异）；
+     切换路径（contentH 已有值）立即测高，高度形变不受影响 */
   const [contentH, setContentH] = useState<number | null>(null);
+  /* 镜像到 ref 供稳定的 measureRef 回调读取（渲染期直接写 ref 违反 React Compiler 规则；
+     effect 时序依然正确：commit 阶段的 ref 回调读到的永远是上一次提交后的值） */
+  const contentHRef = useRef<number | null>(null);
+  useEffect(() => {
+    contentHRef.current = contentH;
+  }, [contentH]);
   const roRef = useRef<ResizeObserver | null>(null);
+  const armRef = useRef<number | null>(null);
   const measureRef = useCallback((el: HTMLDivElement | null) => {
     roRef.current?.disconnect();
     roRef.current = null;
+    if (armRef.current != null) {
+      window.clearTimeout(armRef.current);
+      armRef.current = null;
+    }
     if (!el) return;
-    const update = () => setContentH(el.offsetHeight);
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    roRef.current = ro;
+    const attach = () => {
+      const update = () => setContentH(el.offsetHeight);
+      update();
+      const ro = new ResizeObserver(update);
+      ro.observe(el);
+      roRef.current = ro;
+    };
+    if (contentHRef.current != null) {
+      attach();
+    } else {
+      armRef.current = window.setTimeout(() => {
+        armRef.current = null;
+        if (!el.isConnected) return;
+        attach();
+      }, 500);
+    }
   }, []);
 
   /* 面板关闭后清空测高缓存：否则关闭后再打开另一个面板，高度盒会先以旧面板高度
@@ -145,7 +168,7 @@ const PanelStage = memo(function PanelStage({
 
   return (
     /* 面板浮层：外层静态 wrapper 负责定位（fixed + CSS -translate-x-1/2 居中），
-        内层卡片由 framer 只做像素级变换（y/scale/opacity）——百分比 x 由 framer 接管时
+        内层卡片由 framer 只做像素级变换（y/scale，入场淡入走 .panel-rise CSS）——百分比 x 由 framer 接管时
         会与 v12 投影测量循环冲突，故居中变换永久留在 CSS，不进 framer。
         wrapper 自带 transform，成为卡片 absolute 子元素的包含块。
         高度形变不用 framer layout（transform scale 会压扁内容、读作两次动画），
@@ -159,8 +182,8 @@ const PanelStage = memo(function PanelStage({
             key="dock-panel"
             role="dialog"
             aria-label={`${PANEL_TITLES[panel]}面板`}
-            initial={{ opacity: 0, y: 14, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
+            initial={{ y: 14, scale: 0.96 }}
+            animate={{ y: 0, scale: 1 }}
             exit={{
               opacity: 0,
               y: 10,
@@ -169,8 +192,8 @@ const PanelStage = memo(function PanelStage({
               transition: { duration: 0.22, ease: [0.4, 0, 1, 1] },
             }}
             transition={SPRING}
-            style={{ transformOrigin: "bottom center", willChange: "transform, opacity" }}
-            className="glass-card backdrop-blur-2xl backdrop-saturate-150 pointer-events-auto relative w-[min(92vw,360px)] overflow-hidden rounded-2xl p-4 shadow-2xl"
+            style={{ transformOrigin: "bottom center", willChange: "transform" }}
+            className="glass-card backdrop-blur-2xl backdrop-saturate-150 panel-rise pointer-events-auto relative w-[min(92vw,360px)] overflow-hidden rounded-2xl p-4 shadow-2xl"
           >
           {/* 关闭按钮固定右上，不随内容重绘 */}
           <button
@@ -204,11 +227,8 @@ const PanelStage = memo(function PanelStage({
             <motion.div
               key={panel}
               ref={measureRef}
-              variants={panelVariants}
-              initial="initial"
-              animate="animate"
-              exit="exit"
-              className="flow-root"
+              exit={PANEL_EXIT}
+              className="flow-root panel-rise"
             >
               <header className="mb-3 flex items-center justify-between px-1 pr-7">
                 <h2 className="text-xs font-normal tracking-[0.22em] text-zinc-500 dark:text-zinc-400">
