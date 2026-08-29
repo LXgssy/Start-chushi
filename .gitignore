@@ -71,3 +71,7 @@ scripts/hd24/backfill/napi_test.json
 tool-results/
 .pkgtmp/
 upload/
+# 浏览器扩展构建产物(可由 scripts/build-extension.sh 重新生成,勿入库)
+download/初始-Edge新标签页/
+download/初始-Edge新标签页.zip
+download/edge-store/
