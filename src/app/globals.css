@@ -1,0 +1,619 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+/* ---------- 「初始」主题令牌：暖纸白 / 墨夜黑，点缀紫罗兰 ---------- */
+:root {
+  --radius: 0.75rem;
+  /* 强调色（由设置面板动态覆盖） */
+  --ui-accent: #8b5cf6;
+  --background: oklch(0.972 0.004 85);
+  --foreground: oklch(0.21 0.006 90);
+  --card: oklch(0.985 0.002 85);
+  --card-foreground: oklch(0.21 0.006 90);
+  --popover: oklch(0.988 0.002 85);
+  --popover-foreground: oklch(0.21 0.006 90);
+  --primary: oklch(0.23 0.008 80);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.952 0.004 85);
+  --secondary-foreground: oklch(0.24 0.006 88);
+  --muted: oklch(0.952 0.004 85);
+  --muted-foreground: oklch(0.50 0.01 86);
+  --accent: oklch(0.94 0.008 300);
+  --accent-foreground: oklch(0.25 0.02 300);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.89 0.006 85);
+  --input: oklch(0.89 0.006 85);
+  --ring: oklch(0.62 0.16 295);
+  --chart-1: oklch(0.65 0.18 165);
+  --chart-2: oklch(0.62 0.19 300);
+  --chart-3: oklch(0.75 0.14 82);
+  --chart-4: oklch(0.68 0.15 30);
+  --chart-5: oklch(0.55 0.12 220);
+  --sidebar: oklch(0.975 0.004 85);
+  --sidebar-foreground: oklch(0.21 0.006 90);
+  --sidebar-primary: oklch(0.23 0.008 80);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.94 0.008 300);
+  --sidebar-accent-foreground: oklch(0.25 0.02 300);
+  --sidebar-border: oklch(0.89 0.006 85);
+  --sidebar-ring: oklch(0.62 0.16 295);
+}
+
+.dark {
+  --background: oklch(0.148 0.007 300);
+  --foreground: oklch(0.955 0.005 92);
+  --card: oklch(0.185 0.008 297);
+  --card-foreground: oklch(0.955 0.005 92);
+  --popover: oklch(0.185 0.008 297);
+  --popover-foreground: oklch(0.955 0.005 92);
+  --primary: oklch(0.93 0.005 92);
+  --primary-foreground: oklch(0.17 0.008 298);
+  --secondary: oklch(0.235 0.01 296);
+  --secondary-foreground: oklch(0.955 0.005 92);
+  --muted: oklch(0.235 0.01 296);
+  --muted-foreground: oklch(0.71 0.01 91);
+  --accent: oklch(0.27 0.025 298);
+  --accent-foreground: oklch(0.95 0.01 300);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 14%);
+  --ring: oklch(0.66 0.155 297);
+  --chart-1: oklch(0.62 0.16 165);
+  --chart-2: oklch(0.64 0.17 300);
+  --chart-3: oklch(0.74 0.13 84);
+  --chart-4: oklch(0.66 0.14 32);
+  --chart-5: oklch(0.56 0.11 222);
+  --sidebar: oklch(0.185 0.008 297);
+  --sidebar-foreground: oklch(0.955 0.005 92);
+  --sidebar-primary: oklch(0.48 0.12 262);
+  --sidebar-primary-foreground: oklch(0.98 0 0);
+  --sidebar-accent: oklch(0.27 0.025 298);
+  --sidebar-accent-foreground: oklch(0.95 0.01 300);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.66 0.155 297);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    /* 全局禁用文字选择（输入场景例外），同时抑制移动端长按弹出菜单 */
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+  input,
+  textarea,
+  select,
+  [contenteditable="true"],
+  [contenteditable="true"] * {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family:
+      var(--font-geist-sans),
+      ui-sans-serif,
+      system-ui,
+      -apple-system,
+      "PingFang SC",
+      "Hiragino Sans GB",
+      "Noto Sans SC",
+      "Microsoft YaHei",
+      sans-serif;
+    overscroll-behavior: none;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--ui-accent) 24%, transparent);
+  }
+}
+
+/* ---------- 强调色工具类 ---------- */
+.accent-bg {
+  background-color: var(--ui-accent);
+}
+.accent-text {
+  color: var(--ui-accent);
+}
+.accent-ring:focus-visible {
+  --tw-ring-color: color-mix(in oklab, var(--ui-accent) 55%, transparent);
+}
+.accent-focus:focus {
+  border-color: color-mix(in oklab, var(--ui-accent) 45%, transparent);
+}
+.accent-hover:hover {
+  border-color: color-mix(in oklab, var(--ui-accent) 65%, transparent);
+}
+.accent-badge {
+  background: color-mix(in oklab, var(--ui-accent) 16%, transparent);
+  color: var(--ui-accent);
+}
+.accent-bar {
+  background-image: linear-gradient(
+    to top,
+    color-mix(in oklab, var(--ui-accent) 40%, transparent),
+    var(--ui-accent)
+  );
+}
+html.dark .accent-bar {
+  background-image: linear-gradient(
+    to top,
+    color-mix(in oklab, var(--ui-accent) 30%, transparent),
+    color-mix(in oklab, var(--ui-accent) 82%, white)
+  );
+}
+
+/* ================================================================
+   「初始」视觉层
+   ================================================================ */
+
+/* ---------- 玻璃拟态 ---------- */
+/* dock 内部片段（选框/分隔线）用变量三态适配：浅色主题黑系、深色白系；
+   掠影模式玻璃强制深色（不分主题），故也用白系——否则浅色主题下选框/分隔线在深玻璃上不可见 */
+.glass-pill {
+  background: rgba(255, 255, 255, 0.52);
+  border: 1px solid rgba(20, 20, 25, 0.08);
+  --pill-seg: rgba(20, 20, 25, 0.1);
+  --pill-seg-ring: rgba(20, 20, 25, 0.22);
+  --pill-line: rgba(20, 20, 25, 0.2);
+}
+.dark .glass-pill {
+  background: rgba(255, 255, 255, 0.055);
+  border-color: rgba(255, 255, 255, 0.09);
+  --pill-seg: rgba(255, 255, 255, 0.1);
+  --pill-seg-ring: rgba(255, 255, 255, 0.16);
+  --pill-line: rgba(255, 255, 255, 0.12);
+}
+
+.glass-card {
+  background: rgba(252, 251, 248, 0.92);
+  border: 1px solid rgba(20, 20, 25, 0.08);
+}
+.dark .glass-card {
+  background: rgba(22, 22, 27, 0.94);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.glass-chip {
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(20, 20, 25, 0.05);
+}
+.dark .glass-chip {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+/* ---------- 极光光斑（仅 transform 动画，GPU 合成友好） ---------- */
+.aurora-blob {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(96px) saturate(130%);
+  will-change: transform;
+  transition-property: opacity, background-color;
+  transition-duration: 2500ms;
+  pointer-events: none;
+}
+.aurora-a {
+  width: 55vmax;
+  height: 55vmax;
+  left: -18%;
+  top: -22%;
+  animation: drift-a 42s ease-in-out infinite alternate;
+}
+.aurora-b {
+  width: 46vmax;
+  height: 46vmax;
+  right: -14%;
+  top: 8%;
+  animation: drift-b 54s ease-in-out infinite alternate;
+}
+.aurora-c {
+  width: 38vmax;
+  height: 38vmax;
+  left: 22%;
+  bottom: -24%;
+  animation: drift-c 47s ease-in-out infinite alternate;
+}
+.aurora-d {
+  width: 30vmax;
+  height: 30vmax;
+  right: 16%;
+  bottom: -10%;
+  animation: drift-a 61s ease-in-out infinite alternate-reverse;
+}
+
+@keyframes drift-a {
+  from { transform: translate3d(-4%, -3%, 0) scale(1) rotate(0deg); }
+  to   { transform: translate3d(9%, 7%, 0) scale(1.14) rotate(11deg); }
+}
+@keyframes drift-b {
+  from { transform: translate3d(5%, 4%, 0) scale(1.05); }
+  to   { transform: translate3d(-8%, -6%, 0) scale(0.92) rotate(-8deg); }
+}
+@keyframes drift-c {
+  from { transform: translate3d(0%, 5%, 0) scale(0.95) rotate(4deg); }
+  to   { transform: translate3d(7%, -6%, 0) scale(1.12) rotate(-12deg); }
+}
+
+@media (max-width: 768px) {
+  .aurora-blob { filter: blur(56px) saturate(125%); }
+}
+
+/* ---------- 胶片颗粒与暗角（颗粒层独立合成，避免随下层重绘） ---------- */
+.grain {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.72' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  pointer-events: none;
+  transform: translateZ(0);
+}
+.vignette {
+  background:
+    radial-gradient(120% 90% at 50% 0%, rgba(255, 255, 255, 0.14), transparent 55%),
+    radial-gradient(140% 120% at 50% 115%, rgba(8, 8, 12, 0.16), transparent 60%);
+  pointer-events: none;
+}
+.dark .vignette {
+  background:
+    radial-gradient(120% 90% at 50% 0%, rgba(255, 255, 255, 0.045), transparent 55%),
+    radial-gradient(140% 120% at 50% 115%, rgba(0, 0, 0, 0.5), transparent 60%);
+}
+
+/* ---------- 摄影模式的缓慢呼吸缩放 ---------- */
+.kenburns {
+  animation: kenburns 80s ease-in-out infinite alternate;
+  will-change: transform;
+  backface-visibility: hidden;
+}
+@keyframes kenburns {
+  from { transform: scale(1.02) translate3d(0, 0, 0); }
+  to   { transform: scale(1.12) translate3d(0, -1.6%, 0); }
+}
+
+/* ---------- 掠影双层压暗遮罩：平底 + 上下渐变，保证前景可读 ---------- */
+.photo-scrim {
+  background:
+    linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.34),
+      rgba(0, 0, 0, 0.12) 30%,
+      rgba(0, 0, 0, 0.12) 60%,
+      rgba(0, 0, 0, 0.48)
+    ),
+    rgba(0, 0, 0, 0.18);
+}
+
+/* ---------- 掠影模式前景：白字 / 深磨砂药丸 ---------- */
+html.photo-mode .clock-text {
+  color: rgb(245 245 245);
+}
+html.photo-mode .clock-sub {
+  color: rgb(244 244 245 / 0.78);
+}
+html.photo-mode .clock-sub [aria-hidden] {
+  background: rgb(255 255 255 / 0.32);
+}
+html.photo-mode .glass-pill {
+  background: rgb(12 12 18 / 0.44);
+  border-color: rgb(255 255 255 / 0.14);
+  --pill-seg: rgba(255, 255, 255, 0.18);
+  --pill-seg-ring: rgba(255, 255, 255, 0.34);
+  --pill-line: rgba(255, 255, 255, 0.26);
+}
+html.photo-mode .search-input {
+  color: rgb(244 244 245);
+}
+html.photo-mode .search-input::placeholder {
+  color: rgb(255 255 255 / 0.45);
+}
+html.photo-mode .search-trigger {
+  color: rgb(255 255 255 / 0.62);
+}
+html.photo-mode .search-trigger:hover {
+  color: rgb(255 255 255 / 0.92);
+}
+html.photo-mode .search-submit {
+  background: rgb(255 255 255 / 0.92);
+  color: rgb(17 17 20);
+}
+html.photo-mode .search-hint {
+  color: rgb(255 255 255 / 0.5);
+}
+html.photo-mode .tile-label {
+  color: rgb(255 255 255 / 0.85);
+}
+html.photo-mode .tile-letter {
+  color: rgb(255 255 255 / 0.92);
+}
+html.photo-mode .dock-btn {
+  color: rgb(255 255 255 / 0.68);
+}
+html.photo-mode .dock-btn:hover {
+  color: rgb(255 255 255);
+}
+html.photo-mode .dock-btn[data-active="true"] {
+  color: rgb(255 255 255);
+}
+
+/* ---------- 编辑模式磁贴摇晃 ---------- */
+@keyframes jiggle {
+  0%, 100% { transform: rotate(-1.4deg) scale(1); }
+  50%      { transform: rotate(1.4deg) scale(1.03); }
+}
+.jiggle {
+  animation: jiggle 0.38s ease-in-out infinite;
+  transform-origin: center;
+}
+
+/* ---------- 仅无悬停设备（触屏）显示 ---------- */
+.touch-only {
+  display: none;
+}
+@media (hover: none) {
+  .touch-only {
+    display: flex;
+  }
+}
+
+/* ---------- 仅悬停设备（桌面）显示：悬浮编辑铅笔等 ---------- */
+.hover-only {
+  display: none;
+}
+@media (hover: hover) and (pointer: fine) {
+  .hover-only {
+    display: flex;
+  }
+}
+
+/* ---------- 启动呼吸点 ---------- */
+.pulse-dot {
+  animation: pulse-dot 1.6s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50%      { opacity: 1; transform: scale(1.35); }
+}
+
+/* ---------- 番茄钟呼吸灯（tab 栏分钟旁；强调色；计时中呼吸闪动，暂停时常亮） ---------- */
+.pomo-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--ui-accent, #8b5cf6);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--ui-accent, #8b5cf6) 55%, transparent);
+}
+.pomo-dot[data-running="true"] {
+  animation: pomo-breathe 2.4s ease-in-out infinite;
+}
+@keyframes pomo-breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.3; transform: scale(0.78); }
+}
+
+/* ---------- 时钟数字位（等宽数字） ---------- */
+.digit-slot {
+  min-width: 0.58em;
+  height: 1em;
+  text-align: center;
+  position: relative;
+}
+/* 冒号槽位：与 digit-slot 同构（overflow:hidden → 盒底落基线，盒顶严格对齐） */
+.colon-slot {
+  display: inline-block;
+  overflow: hidden;
+  position: relative;
+  vertical-align: baseline;
+}
+
+/* ---------- 待办划线动画 ---------- */
+.strike {
+  transform-origin: left center;
+  transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* ---------- 细滚动条 ---------- */
+.slim-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(128, 128, 138, 0.35) transparent;
+}
+.slim-scroll::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+.slim-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.slim-scroll::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 138, 0.35);
+  border-radius: 9999px;
+}
+
+/* ---------- 降低动效偏好 ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .aurora-blob,
+  .kenburns,
+  .pulse-dot,
+  .pomo-dot,
+  .jiggle,
+  .search-pill,
+  .dock-intro {
+    animation: none !important;
+  }
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+
+/* ---------- 入场上浮（结束后还原 filter:none，保证磨砂玻璃生效） ---------- */
+@keyframes intro-rise {
+  from {
+    opacity: 0;
+    transform: translateY(26px) scale(0.985);
+    filter: blur(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+.intro-rise {
+  animation: intro-rise 0.95s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .intro-rise {
+    animation: none;
+  }
+}
+
+/* ================================================================
+   磨砂玻璃存活原则（v22 病根根治）：
+   祖先元素 opacity<1 或 filter≠none 会成为 backdrop root，
+   令后代 backdrop-filter 采样不到壁纸——磨砂整体失效，
+   动画结束后才瞬跳恢复（reload 后数秒玻璃变平、禅模式进出同理的根因）。
+   故入场/禅雾化动画只允许落在：
+   ① 无玻璃子元素的区块（intro-rise 的 section、.zen-fade）
+   ② 玻璃元素自身（.search-pill / .zen-dock —— 自身 opacity/filter 不构成
+      自身 backdrop root，霜感随动画同步渐凝/渐散，全程无死亡期）
+   ================================================================ */
+
+/* ---------- 搜索药丸入场：自承载（与原 section 级 intro-rise 同参 0.95s/延迟 0.24s） ---------- */
+.search-pill {
+  animation: intro-rise 0.95s cubic-bezier(0.22, 1, 0.36, 1) 0.24s backwards;
+}
+
+/* ---------- dock 入场：自承载（原 page.tsx framer 包裹层 opacity 动画移除，同参 0.8s/延迟 0.55s）；
+   居中是 Tailwind v4 独立 translate 属性，与 keyframes 的 transform 合成不覆盖 ---------- */
+.dock-intro {
+  animation: dock-rise 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.55s backwards;
+}
+@keyframes dock-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+}
+
+/* ---------- 禅模式进出：内容雾化散场/聚拢（模糊语言与 intro-rise 同源 blur(12px)） ---------- */
+.zen-fade {
+  transition:
+    opacity 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+}
+html.zen .zen-fade {
+  opacity: 0;
+  filter: blur(12px);
+  transform: scale(0.985);
+}
+.zen-dock {
+  transition:
+    opacity 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+}
+html.zen .zen-dock {
+  opacity: 0;
+  filter: blur(12px);
+  transform: scale(0.985);
+  pointer-events: none;
+}
+/* 搜索药丸的禅雾化沿用其 transition-all 0.5s（不另设 transition 以免杀掉聚焦缩放/阴影过渡） */
+html.zen .search-pill {
+  opacity: 0;
+  filter: blur(12px);
+  transform: scale(0.985);
+  pointer-events: none;
+}
+
+/* ---------- 禅模式提示词/迷你番茄钟：掠影下随壁纸明暗自适应墨色 ----------
+ * data-tone 由 page.tsx 进禅时采样壁纸亮度后设定：
+ *   on-dark  = 深色背景 → 浅墨字 + 极轻暗晕（在复杂纹理上稳住笔画）
+ *   on-light = 浅色背景 → 深墨字 + 极轻亮晕
+ *   auto（辉光/纯净/采样失败）= 保持主题默认色，与历史样式完全一致
+ * html 前缀抬高特异性，压过 .dark 的主题默认色，避免覆盖判定结果 */
+.zen-hint {
+  color: rgb(161 161 170 / 0.9); /* zinc-400/90 —— 原浅色主题默认值 */
+  transition:
+    color 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+    text-shadow 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.dark .zen-hint {
+  color: rgb(113 113 122); /* zinc-500 —— 原深色主题默认值 */
+}
+html .zen-hint[data-tone="on-dark"] {
+  color: rgb(244 244 245 / 0.8);
+  text-shadow: 0 0 14px rgb(0 0 0 / 0.35);
+}
+html .zen-hint[data-tone="on-light"] {
+  color: rgb(63 63 70 / 0.82);
+  text-shadow: 0 0 14px rgb(255 255 255 / 0.4);
+}
+
+/* ---------- 禅模式迷你番茄钟行（计时运行时浮现，纯文字无玻璃底） ---------- */
+.zen-pomo {
+  color: rgb(161 161 170 / 0.9);
+  transition:
+    color 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+    text-shadow 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.dark .zen-pomo {
+  color: rgb(113 113 122);
+}
+html .zen-pomo[data-tone="on-dark"] {
+  color: rgb(244 244 245 / 0.8);
+  text-shadow: 0 0 14px rgb(0 0 0 / 0.35);
+}
+html .zen-pomo[data-tone="on-light"] {
+  color: rgb(63 63 70 / 0.82);
+  text-shadow: 0 0 14px rgb(255 255 255 / 0.4);
+}

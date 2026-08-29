@@ -1,0 +1,72 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+!.env.example
+
+# vercel
+.vercel
+
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+local-*
+.claude
+.z-ai-config
+*.log
+dev.log
+dev.out.log
+test
+prompt
+
+server.log
+# Skills directory
+/skills/
+# 本地恢复备份(勿提交)
+restore/
+download/*.tar.gz
+# hd24 溯源中间产物(保留 json/tsv/sh/py 清单,排除图片与页面快照)
+scripts/hd24/previews/
+scripts/hd24/final_dl/
+scripts/hd24/inspect/
+scripts/hd24/candidates/*.md
+scripts/hd24/*.md
+scripts/hd24/*.png
+scripts/hd24/*.jpg
+scripts/hd24/backfill/page_*
+scripts/hd24/backfill/ws_*
+scripts/hd24/backfill/napi_test.json
+# 会话工具输出与临时打包目录(勿提交)
+tool-results/
+.pkgtmp/
