@@ -8,7 +8,9 @@ import { ENGINES, getEngine, looksLikeUrl, toUrl } from "@/lib/startpage/engines
 import type { Settings } from "@/lib/startpage/types";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
-/** 建议行高：下拉总高 = 行数 × SUG_ROW_H，3/4/5 条对应平滑伸缩 */
+/** 建议行高恒定 40px；下拉总高 = 58 + 行数×SUG_ROW_H（58 = 内容 56 + 上下 1px 边框，
+ *  border-box）。显式公式而非 height:auto——聚焦态表单自带 scale(1.015)，
+ *  framer 对 auto 的一次性测量会被变换污染（实测偏大 4px、动画末尾回落突跳） */
 const SUG_ROW_H = 40;
 const SUG_MAX = 5;
 
@@ -108,7 +110,7 @@ function SearchBar({
 
   function navigate(url: string, newTab: boolean) {
     if (newTab) window.open(url, "_blank");
-    else window.location.href = url;
+    else window.location.assign(url);
   }
 
   function submit(newTab: boolean, word?: string) {
@@ -122,7 +124,7 @@ function SearchBar({
 
   return (
     <div className="relative w-[min(92vw,580px)]">
-      {/* 操作提示（建议开启时置于搜索框上方，与下方下拉的展开方向对称） */}
+      {/* 操作提示（建议开启时置于搜索框上方，与下拉的展开方向对称） */}
       {suggestOn && (
         <div className="pointer-events-none mb-3 flex h-4 justify-center">
           <AnimatePresence>
@@ -142,144 +144,168 @@ function SearchBar({
         </div>
       )}
 
-      <form
-        ref={formRef}
-        role="search"
-        onSubmit={(e) => {
-          e.preventDefault();
-          submit(false, active >= 0 ? sugs[active] : undefined);
-        }}
-        onKeyDown={(e) => {
-          /* Alt/⌘/Ctrl + Enter → 新标签页打开（SubmitEvent 不携带修饰键，改在键盘事件层判定） */
-          if (e.key === "Enter" && (e.altKey || e.metaKey || e.ctrlKey)) {
+      {/* 布局锚点：恒占搜索栏静息尺寸（h-14）。表单脱流绝对定位、自锚点向下生长——
+          下拉部分就是搜索栏本体的延伸（同一块玻璃面；圆角恒定 28px，56px 高时恰为
+          胶囊，拉开后自然成为软圆角面板），展开时直接覆盖在快捷服务上方，
+          页面布局零位移（快捷服务不再被推开，收起即恢复原样）。
+          展开目标 58+n×40：border-box 下内容恰为 56+n×40（输入行 56 + n 行建议），
+          收起 56 时输入行在 54px 内容盒中上下各溢 1px 空白带，无可见裁切 */}
+      <div className="relative h-14">
+        <motion.form
+          ref={formRef}
+          role="search"
+          initial={false}
+          animate={{ height: showDrop ? 58 + sugs.length * SUG_ROW_H : 56 }}
+          transition={{ duration: 0.32, ease: EASE }}
+          onSubmit={(e) => {
             e.preventDefault();
-            submit(true, active >= 0 ? sugs[active] : undefined);
-            return;
-          }
-          /* 建议键位：↑↓ 循环高亮，Esc 收起 */
-          if (e.key === "ArrowDown" && showDrop) {
-            e.preventDefault();
-            setActive((a) => (a + 1) % sugs.length);
-          } else if (e.key === "ArrowUp" && showDrop) {
-            e.preventDefault();
-            setActive((a) => (a - 1 + sugs.length) % sugs.length);
-          } else if (e.key === "Escape" && showDrop) {
-            setSugs([]);
-            setActive(-1);
-          }
-        }}
-        className={`glass-pill backdrop-blur-2xl backdrop-saturate-150 search-pill group flex h-14 items-center gap-2 rounded-full px-3 transition-all duration-500 ${
-          focused
-            ? "scale-[1.015] shadow-[0_10px_50px_-8px_rgba(0,0,0,0.25)] ring-1 ring-zinc-900/15 dark:ring-white/25"
-            : ""
-        }`}
-        style={{ transitionTimingFunction: "cubic-bezier(0.22,1,0.36,1)" }}
-      >
-        {/* 引擎选择 */}
-        <Popover.Root>
-          <Popover.Trigger
-            aria-label="切换搜索引擎"
-            className="search-trigger flex h-9 shrink-0 items-center gap-1 rounded-full px-3 text-xs font-normal tracking-wide text-zinc-500 transition-colors duration-300 hover:bg-zinc-900/5 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-100"
-          >
-            <span>{engine.name}</span>
-            <ChevronDown className="h-3 w-3 opacity-60" strokeWidth={1.5} />
-          </Popover.Trigger>
-          <Popover.Portal>
-            <Popover.Content
-              sideOffset={10}
-              align="start"
-              className="z-50 w-44 overflow-hidden rounded-xl border border-zinc-200/70 bg-white/85 shadow-xl backdrop-blur-2xl data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 dark:border-white/10 dark:bg-[#17171c]/90"
-            >
-              <div className="p-1.5">
-                {ENGINES.map((e) => (
-                  <Popover.Close
-                    key={e.id}
-                    onClick={() => onPatchSettings({ engineId: e.id })}
-                    className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-zinc-600 transition-colors duration-150 hover:bg-zinc-900/5 dark:text-zinc-300 dark:hover:bg-white/10"
-                  >
-                    <span className="font-light">{e.name}</span>
-                    {e.id === settings.engineId && (
-                      <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" strokeWidth={1.5} />
-                    )}
-                  </Popover.Close>
-                ))}
-              </div>
-            </Popover.Content>
-          </Popover.Portal>
-        </Popover.Root>
-
-        <span aria-hidden className="h-5 w-px shrink-0 bg-zinc-900/10 dark:bg-white/10" />
-
-        {/* 输入区域 */}
-        <input
-          ref={inputRef}
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          placeholder={engine.hint}
-          enterKeyHint="search"
-          autoComplete="off"
-          autoCapitalize="off"
-          spellCheck={false}
-          aria-label="搜索或输入网址"
-          aria-expanded={showDrop}
-          role="combobox"
-          className="search-input h-full min-w-0 flex-1 bg-transparent text-[15px] font-light text-zinc-900 outline-none placeholder:text-zinc-400/90 dark:text-zinc-50 dark:placeholder:text-zinc-500"
-        />
-
-        {/* 提交按钮 */}
-        <button
-          type="submit"
-          aria-label="开始搜索"
-          tabIndex={query.trim() ? 0 : -1}
-          className={`search-submit flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all duration-300 ${
-            query.trim()
-              ? "bg-zinc-900 text-zinc-50 opacity-100 hover:opacity-80 dark:bg-zinc-100 dark:text-zinc-900"
-              : "-mr-1 opacity-0"
+            submit(false, active >= 0 ? sugs[active] : undefined);
+          }}
+          onKeyDown={(e) => {
+            /* Alt/⌘/Ctrl + Enter → 新标签页打开（SubmitEvent 不携带修饰键，改在键盘事件层判定） */
+            if (e.key === "Enter" && (e.altKey || e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              submit(true, active >= 0 ? sugs[active] : undefined);
+              return;
+            }
+            /* 建议键位：↑↓ 循环高亮，Esc 收起 */
+            if (e.key === "ArrowDown" && showDrop) {
+              e.preventDefault();
+              setActive((a) => (a + 1) % sugs.length);
+            } else if (e.key === "ArrowUp" && showDrop) {
+              e.preventDefault();
+              setActive((a) => (a - 1 + sugs.length) % sugs.length);
+            } else if (e.key === "Escape" && showDrop) {
+              setSugs([]);
+              setActive(-1);
+            }
+          }}
+          className={`glass-pill backdrop-blur-2xl backdrop-saturate-150 search-pill group absolute inset-x-0 top-0 z-30 flex flex-col overflow-hidden rounded-[28px] transition duration-500 ${
+            focused
+              ? "scale-[1.015] shadow-[0_10px_50px_-8px_rgba(0,0,0,0.25)] ring-1 ring-zinc-900/15 dark:ring-white/25"
+              : ""
           }`}
+          style={{ transitionTimingFunction: "cubic-bezier(0.22,1,0.36,1)" }}
         >
-          <ArrowRight className="h-4 w-4" strokeWidth={1.5} />
-        </button>
-      </form>
-
-      {/* 搜索建议下拉：自搜索框底边向下雾化拉伸。
-          高度直接动画到「行数 × SUG_ROW_H」，3/4/5 条对应 3/4/5 行的长度平滑伸缩；
-          marginTop(0↔8) 全程纳入动画——Task 32 教训：残留 margin 会在卸载瞬间砸跳。
-          区块内无 backdrop-filter 后代，动画 filter 不触发磨砂玻璃存活原则 */}
-      <AnimatePresence initial={false}>
-        {showDrop && (
-          <motion.div
-            key="sug-drop"
-            initial={{ height: 0, opacity: 0, marginTop: 0, filter: "blur(6px)" }}
-            animate={{ height: sugs.length * SUG_ROW_H, opacity: 1, marginTop: 8, filter: "blur(0px)" }}
-            exit={{ height: 0, opacity: 0, marginTop: 0, filter: "blur(6px)" }}
-            transition={{ duration: 0.32, ease: EASE }}
-            style={{ overflow: "hidden" }}
-            className="rounded-2xl border border-zinc-200/70 bg-white/85 shadow-xl backdrop-blur-2xl dark:border-white/10 dark:bg-[#17171c]/90"
-          >
-            {sugs.map((s, i) => (
-              <button
-                key={s}
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => submit(false, s)}
-                onMouseEnter={() => setActive(i)}
-                style={{ height: SUG_ROW_H }}
-                className={`flex w-full items-center gap-3 px-4 text-left text-[13px] font-light transition-colors duration-150 ${
-                  i === active
-                    ? "bg-zinc-900/5 text-zinc-900 dark:bg-white/10 dark:text-zinc-50"
-                    : "text-zinc-700 dark:text-zinc-200"
-                }`}
+          {/* 输入行：恒居顶部、高度锁定；建议列表在其下，由表单 height 动画整体揭示。
+              transition 只含默认属性表（opacity/filter/transform/box-shadow，不含
+              height）——禅雾化与聚焦缩放/阴影照常，且不与 framer 逐帧内联 height 打架 */}
+          <div className="flex h-14 shrink-0 items-center gap-2 px-3">
+            {/* 引擎选择 */}
+            <Popover.Root>
+              <Popover.Trigger
+                aria-label="切换搜索引擎"
+                className="search-trigger flex h-9 shrink-0 items-center gap-1 rounded-full px-3 text-xs font-normal tracking-wide text-zinc-500 transition-colors duration-300 hover:bg-zinc-900/5 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-100"
               >
-                <Search className="h-3.5 w-3.5 shrink-0 opacity-40" strokeWidth={1.5} />
-                <span className="truncate">{s}</span>
-              </button>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
+                <span>{engine.name}</span>
+                <ChevronDown className="h-3 w-3 opacity-60" strokeWidth={1.5} />
+              </Popover.Trigger>
+              <Popover.Portal>
+                <Popover.Content
+                  sideOffset={10}
+                  align="start"
+                  className="z-50 w-44 overflow-hidden rounded-xl border border-zinc-200/70 bg-white/85 shadow-xl backdrop-blur-2xl data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 dark:border-white/10 dark:bg-[#17171c]/90"
+                >
+                  <div className="p-1.5">
+                    {ENGINES.map((e) => (
+                      <Popover.Close
+                        key={e.id}
+                        onClick={() => onPatchSettings({ engineId: e.id })}
+                        className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-zinc-600 transition-colors duration-150 hover:bg-zinc-900/5 dark:text-zinc-300 dark:hover:bg-white/10"
+                      >
+                        <span className="font-light">{e.name}</span>
+                        {e.id === settings.engineId && (
+                          <Check className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" strokeWidth={1.5} />
+                        )}
+                      </Popover.Close>
+                    ))}
+                  </div>
+                </Popover.Content>
+              </Popover.Portal>
+            </Popover.Root>
+
+            <span aria-hidden className="h-5 w-px shrink-0 bg-zinc-900/10 dark:bg-white/10" />
+
+            {/* 输入区域 */}
+            <input
+              ref={inputRef}
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              placeholder={engine.hint}
+              enterKeyHint="search"
+              autoComplete="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              aria-label="搜索或输入网址"
+              aria-expanded={showDrop}
+              aria-controls={showDrop ? "search-sug-list" : undefined}
+              role="combobox"
+              className="search-input h-full min-w-0 flex-1 bg-transparent text-[15px] font-light text-zinc-900 outline-none placeholder:text-zinc-400/90 dark:text-zinc-50 dark:placeholder:text-zinc-500"
+            />
+
+            {/* 提交按钮 */}
+            <button
+              type="submit"
+              aria-label="开始搜索"
+              tabIndex={query.trim() ? 0 : -1}
+              className={`search-submit flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all duration-300 ${
+                query.trim()
+                  ? "bg-zinc-900 text-zinc-50 opacity-100 hover:opacity-80 dark:bg-zinc-100 dark:text-zinc-900"
+                  : "-mr-1 opacity-0"
+              }`}
+            >
+              <ArrowRight className="h-4 w-4" strokeWidth={1.5} />
+            </button>
+          </div>
+
+          {/* 建议列表：搜索栏向下拉长的部分——直接成为搜索建议。
+              仅做雾化浮现，高度展开统一由表单 height 动画承载（overflow 揭示）；
+              列表自身无 margin 参与，卸载零残留（Task 32 教训）。
+              首行上缘 hairline 兼作输入行与建议区的分隔线 */}
+          <AnimatePresence initial={false}>
+            {showDrop && (
+              <motion.div
+                key="sug-list"
+                id="search-sug-list"
+                role="listbox"
+                aria-label="搜索建议"
+                initial={{ opacity: 0, filter: "blur(6px)" }}
+                animate={{ opacity: 1, filter: "blur(0px)" }}
+                exit={{ opacity: 0, filter: "blur(6px)", transition: { duration: 0.18 } }}
+                transition={{ duration: 0.3, ease: EASE }}
+              >
+                {sugs.map((s, i) => (
+                  <button
+                    key={s}
+                    type="button"
+                    role="option"
+                    aria-selected={i === active}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => submit(false, s)}
+                    onMouseEnter={() => setActive(i)}
+                    style={{ height: SUG_ROW_H }}
+                    className={`flex w-full items-center gap-3 px-4 text-left text-[13px] font-light transition-colors duration-150 ${
+                      i === 0
+                        ? "border-t border-zinc-900/[0.07] dark:border-white/[0.07]"
+                        : ""
+                    } ${
+                      i === active
+                        ? "bg-zinc-900/5 text-zinc-900 dark:bg-white/10 dark:text-zinc-50"
+                        : "text-zinc-700 dark:text-zinc-200"
+                    }`}
+                  >
+                    <Search className="h-3.5 w-3.5 shrink-0 opacity-40" strokeWidth={1.5} />
+                    <span className="truncate">{s}</span>
+                  </button>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.form>
+      </div>
 
       {/* 操作提示（建议关闭时保持原版形态：位于搜索框下方） */}
       {!suggestOn && (
