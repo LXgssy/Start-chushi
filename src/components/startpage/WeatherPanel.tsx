@@ -213,12 +213,16 @@ function WeatherPanel({
           />
         </div>
         {results && results.length === 0 && !searching && (
-          <p className="px-1 pt-2 text-xs font-light text-zinc-400">没有找到相关城市</p>
+          <p className="wresult-list px-1 pt-2 text-xs font-light text-zinc-400">没有找到相关城市</p>
         )}
         {results && results.length > 0 && (
-          <ul className="mt-1.5 space-y-0.5">
-            {results.map((c) => (
-              <li key={`${c.name}-${c.lat}`}>
+          <ul className="wresult-list mt-1.5 space-y-0.5">
+            {results.map((c, i) => (
+              <li
+                key={`${c.name}-${c.lat}`}
+                className="wresult-item"
+                style={{ "--i": i } as React.CSSProperties}
+              >
                 <button
                   type="button"
                   onClick={() => pickCity(c)}

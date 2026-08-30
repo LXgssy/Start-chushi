@@ -548,6 +548,55 @@ html.photo-mode .dock-btn[data-active="true"] {
   }
 }
 
+/* ---------- 天气面板：城市搜索结果进场（整体淡入下探 + 逐项级联） ----------
+   突兀感的另一半：结果列表 0 帧全量插入（2026-08-30 用户反馈）。整体
+   result-fade 与面板高度柔和过渡（Dock HEIGHT_GROW 0.45s）同曲线同起点，
+   逐项 36ms 级联让列表「生长」出来。位移取 -5px 向下滑入（列表在搜索框
+   下方追加，视觉上从框底长出）。动画落在列表自身：列表非玻璃元素且是
+   卡片后代，不构成卡片的 backdrop root，符合磨砂玻璃存活原则 */
+@keyframes result-fade {
+  from {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.wresult-list {
+  animation: result-fade 0.32s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+.wresult-item {
+  animation: result-fade 0.34s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(var(--i, 0) * 36ms);
+}
+@media (prefers-reduced-motion: reduce) {
+  .wresult-list,
+  .wresult-item {
+    animation: none;
+  }
+}
+
+/* ---------- dock 面板高度盒：CSS transition 两档高度过渡 ----------
+   framer v12 对 duration+ease 的 height 动画实测仍 2-3 帧冲线（参数被吞，
+   同 Task 37 opacity WAAPI 空窗同族的黑盒行为），高度移交 CSS：
+   默认档=面板切换/首测（0.25s 快曲线，近似原 SPRING 3-4 帧读感）；
+   data-soft=同一面板内内容增长（天气搜索结果/详情行/待办增删，
+   0.45s ease-out，与 wresult-list 淡入同曲线同步）。
+   高度是布局属性逐帧 reflow——盒上有 contain:layout 圈定失效范围 */
+.h-height {
+  transition: height 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.h-height[data-soft="true"] {
+  transition: height 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .h-height {
+    transition: none;
+  }
+}
+
 /* ================================================================
    磨砂玻璃存活原则（v22 病根根治）：
    祖先元素 opacity<1 或 filter≠none 会成为 backdrop root，
