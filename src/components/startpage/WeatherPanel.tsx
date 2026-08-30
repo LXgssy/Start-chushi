@@ -4,6 +4,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import { Loader2, MapPin, Search } from "lucide-react";
 import WeatherGlyph from "./WeatherGlyph";
 import {
+  CMA_FIRST,
   fetchForecast,
   geolocate,
   reverseCity,
@@ -226,6 +227,31 @@ function WeatherPanel({
             ))}
           </ul>
         )}
+        {/* 数据源署名：Open-Meteo 免费条款（CC-BY 4.0）要求在应用内以链接形式归属 */}
+        <p className="px-1 pt-2.5 text-[10px] font-light tracking-wide text-zinc-400 dark:text-zinc-500">
+          天气数据 ·{" "}
+          {CMA_FIRST && (
+            <>
+              <a
+                href="https://weather.cma.cn"
+                target="_blank"
+                rel="noreferrer"
+                className="transition-colors duration-300 hover:text-zinc-600 dark:hover:text-zinc-300"
+              >
+                中国气象局
+              </a>
+              {" / "}
+            </>
+          )}
+          <a
+            href="https://open-meteo.com"
+            target="_blank"
+            rel="noreferrer"
+            className="transition-colors duration-300 hover:text-zinc-600 dark:hover:text-zinc-300"
+          >
+            Open-Meteo
+          </a>
+        </p>
       </div>
     </div>
   );
