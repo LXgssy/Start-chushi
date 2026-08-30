@@ -29,7 +29,10 @@ function WeatherPanel({
   const [searching, setSearching] = useState(false);
   const [locating, setLocating] = useState(false);
   const [locError, setLocError] = useState(false);
-  const [searchId, setSearchId] = useState("");
+  /* 竞态守卫必须用 ref：用 state 的话，setTimeout 闭包捕获的是旧渲染的
+   * searchId，qid === searchId 恒为 false → setResults 永不执行，搜索
+   * 结果永远不渲染（2026-08-30 修复的城市切换 bug 根因） */
+  const searchIdRef = useRef("");
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function locate() {
@@ -59,11 +62,11 @@ function WeatherPanel({
       return;
     }
     const qid = uid();
-    setSearchId(qid);
+    searchIdRef.current = qid;
     debounce.current = setTimeout(async () => {
       setSearching(true);
       const list = await searchCity(query.trim());
-      if (qid === searchId) setResults(list);
+      if (qid === searchIdRef.current) setResults(list);
       setSearching(false);
     }, 350);
     return () => {
