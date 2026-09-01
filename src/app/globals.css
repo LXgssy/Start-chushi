@@ -548,6 +548,96 @@ html.photo-mode .dock-btn[data-active="true"] {
   }
 }
 
+/* ---------- dock 面板/对话框退场：CSS 关键帧承载（与 .panel-rise 对称，勿还给 framer）。
+   实测（v1.0.6）：退场 opacity 交由 framer 时，WAAPI 加速动画会在退出途中被
+   取消并回跳到内联值 1（面板滞留约 0.5s 后瞬间消失，采样：op 0.50→1.000→卸载），
+   视觉上等于没有关闭动画。退场视觉一律改走 CSS：animation 的级联优先级高于
+   内联值，WAAPI 被取消与否都不影响表现；framer 的 exit 仅保留 0.2s 计时职责
+   （到点卸载），时长与 CSS 严格一致 */
+@keyframes panel-sink {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+}
+.panel-sink {
+  animation: panel-sink 0.22s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+@keyframes dialog-sink {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-12px) scale(0.97);
+  }
+}
+.dialog-sink {
+  animation: dialog-sink 0.2s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+@keyframes overlay-sink {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+}
+.overlay-sink {
+  animation: overlay-sink 0.22s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+@keyframes veil-fade {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+/* 遮罩层退场淡出：0.25s（dock 遮罩）/ 0.28s（预设对话框背板） */
+.veil-out {
+  animation: veil-fade 0.25s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+.veil-out-slow {
+  animation: veil-fade 0.28s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+/* 视图交叉溶解退场：absolute 钉回内容盒原位 + 淡出（原 framer PANEL_EXIT/TAB_EXIT
+   的 position 钉位与 opacity 全部搬进 CSS，framer exit 只保留计时） */
+@keyframes view-dissolve {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+.view-exit {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  pointer-events: none;
+  animation: view-dissolve 0.2s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .panel-sink,
+  .dialog-sink,
+  .overlay-sink,
+  .veil-out,
+  .veil-out-slow,
+  .view-exit {
+    animation: none;
+    opacity: 0;
+  }
+}
+
 /* ================================================================
    磨砂玻璃存活原则（v22 病根根治）：
    祖先元素 opacity<1 或 filter≠none 会成为 backdrop root，
@@ -587,6 +677,22 @@ html.zen .zen-fade {
   opacity: 0;
   filter: blur(12px);
   transform: scale(0.985);
+}
+/* ---------- 预设角落小部件层：禅模式同步雾化散场（与 .zen-fade 同语言）。
+   ⚠ 不加 transform：wrapper 上的 transform 会成为 fixed 子盒的包含块，
+   雾化期间部件盒会整体跳位 —— 只用 opacity + filter 雾化即可 */
+.cl-widgets {
+  transition:
+    opacity 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+}
+html.zen .cl-widgets {
+  opacity: 0;
+  filter: blur(12px);
+  pointer-events: none;
+}
+html.zen .cl-widgets .cl-widget {
+  pointer-events: none;
 }
 .zen-dock {
   transition:

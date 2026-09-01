@@ -109,6 +109,7 @@
 | `scripts` | 沙箱 JS 脚本（≤3 个，每个 ≤8000 字符，v1.0.5 起） |
 | `animations` | 自定义 CSS 动画与面板样式（≤4 段，注入前净化，v1.0.6 起） |
 | `pages` | 整页自定义页面：完整 HTML 跑在沙箱里（≤3 页，v1.0.6 起） |
+| `widgets` | 常驻页面角落的沙箱小部件：倒数日、快捷信息等（≤3 个，v1.0.7 起） |
 | `layout` | 声明式布局覆写：隐藏区块 / 时钟缩放 / 磁贴列数（v1.0.6 起，删除预设即还原） |
 
 ### 动作白名单（`action`）
@@ -273,6 +274,41 @@
 
 多个预设都带 `layout` 时按安装顺序后者胜。`settings` 字段（v1.0.6 起白名单扩充）同理：导入时一次性合并，之后你随时可以在设置面板改回。
 
+### 角落小部件（`widgets`，v1.0.7 起）
+
+`widgets` 字段让预设常驻一块小卡片在页面四角——倒数日、快捷信息、打卡提示都可以。它与 `pages` 同一套沙箱隔离（唯一源宿主 → 不透明源 iframe），拿不到页面数据与扩展 API，删除预设即整块消失：
+
+```json
+"widgets": [
+  {
+    "id": "countdown",
+    "name": "倒数日",
+    "corner": "top-left",
+    "width": 200,
+    "height": 96,
+    "html": "<style>…</style><div>…</div><script>…</script>"
+  }
+]
+```
+
+| 字段 | 取值 | 说明 |
+|---|---|---|
+| `corner` | `top-left` / `top-right` / `bottom-left` / `bottom-right` | 停靠角，缺省左上 |
+| `width` | 120–420 | 卡片宽度 px，缺省 216 |
+| `height` | 40–320 | 初始高度 px，缺省 88，可用 `chushi.resize` 跟随内容 |
+| `html` | ≤12000 字符 | 文档片段，与 `pages` 同规则 |
+
+部件内的 `window.chushi`（比页面版多了存储与自适应）：
+
+| API | 说明 |
+|---|---|
+| `chushi.storage.get(key)` / `set(key, value)` | 读写本部件的持久化键值（宿主保存在浏览器本地，≤4000 字符/值，数据不离开设备） |
+| `chushi.resize(width, height)` | 调整卡片尺寸（高度夹紧 40–320） |
+| `chushi.notify({title, description})` | 弹系统通知条（与脚本同规） |
+| `chushi.open(url)` | 打开 https 网址（白名单复核） |
+
+部件文档会自动拿到宿主的**主题**（`html[data-theme="dark"|"light"]`）与**强调色**（`var(--w-accent)`），深浅色跟随起始页；CSS 钩子 `.cl-widgets`（层）与 `.cl-widget`（单块）可供 `animations` 进一步定制；禅模式部件与页面内容一同雾化隐去。官方示例「倒数日」预设（`examples/倒数日预设.json`）：点击卡片可改事件与日期，配置保存在本机。
+
 ### 预设包（`.cshz`）与本地文件导入（v1.0.6 起）
 
 「导入预设」除了粘贴 JSON，还支持本地文件：**`.json`**（单文件预设）与 **`.cshz`**（预设包，本质是 zip，按下面结构打包；普通 `.zip` 同样可导入）：
@@ -285,7 +321,7 @@ my-preset.cshz（zip）
 └── （其余文件一律忽略，如 README.md）
 ```
 
-- 资源引用：`pages[].html` 与 `animations[].css` 里写 `asset:文件名`，导入时自动替换为内联 data URL，装完无需保留包；
+- 资源引用：`pages[].html`、`widgets[].html` 与 `animations[].css` 里写 `asset:文件名`，导入时自动替换为内联 data URL，装完无需保留包；
 - 护栏：解压后总量 ≤4MB、≤64 个条目；单资源 ≤512KB，仅图片 / 音频 / 视频 / 字体；资源文件名仅限字母、数字、点、下划线、连字符；
 - `manifest.json` 复用与粘贴导入完全相同的校验（白名单动作、长度上限、引用完整性），任何一项不合法整体拒绝。
 

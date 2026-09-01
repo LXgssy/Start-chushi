@@ -143,6 +143,9 @@ export async function parsePack(file: File): Promise<PackParseResult> {
   if (preset.animations) {
     preset.animations = preset.animations.map((a) => ({ ...a, css: subst(a.css, `animations[${a.id}]`) }));
   }
+  if (preset.widgets) {
+    preset.widgets = preset.widgets.map((w) => ({ ...w, html: subst(w.html, `widgets[${w.id}]`) }));
+  }
 
   if (errors.length > 0) return { ok: false, errors };
 
@@ -152,6 +155,13 @@ export async function parsePack(file: File): Promise<PackParseResult> {
       if (p.html.length > PRESET_LIMITS.htmlLen + MAX_ASSET * 2) {
         /* data URL 允许超出原始 htmlLen（资源本身合法），只挡极端滥用 */
         return { ok: false, errors: [`pages[${p.id}]：资产内联后超出容量上限`] };
+      }
+    }
+  }
+  if (preset.widgets) {
+    for (const w of preset.widgets) {
+      if (w.html.length > PRESET_LIMITS.widgetHtmlLen + MAX_ASSET * 2) {
+        return { ok: false, errors: [`widgets[${w.id}]：资产内联后超出容量上限`] };
       }
     }
   }

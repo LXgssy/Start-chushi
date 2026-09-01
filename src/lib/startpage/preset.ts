@@ -91,6 +91,22 @@ export interface PresetPage {
   html: string;
 }
 
+/** 角落小部件（高阶模式，v1.0.7）：常驻页面角落的沙箱卡片（倒数日、快捷信息等），
+ *  结构与 pages 同源隔离（唯一源宿主 → 嵌套 srcdoc），提供 notify/open/storage/resize
+ *  受控 API；storage 由宿主持久化到 localStorage（数据不离开设备） */
+export interface PresetWidget {
+  id: string;
+  name?: string;
+  /** 停靠角（缺省 top-left） */
+  corner?: "top-left" | "top-right" | "bottom-left" | "bottom-right";
+  /** 卡片宽度 px（120–420，缺省 216） */
+  width?: number;
+  /** 卡片初始高度 px（40–320，缺省 88；可用 chushi.resize 在沙箱内调整） */
+  height?: number;
+  /** 文档片段（与 pages 同规则，可用 window.chushi 受控 API） */
+  html: string;
+}
+
 /** 声明式布局覆写：装了即生效，删除预设即还原（不写入用户设置） */
 export interface PresetLayout {
   hideClock?: boolean;
@@ -115,6 +131,7 @@ export interface PresetPayload {
   scripts?: PresetScript[];
   animations?: PresetAnimation[];
   pages?: PresetPage[];
+  widgets?: PresetWidget[];
   layout?: PresetLayout;
 }
 
@@ -148,6 +165,8 @@ export const PRESET_LIMITS = {
   cssTotalLen: 12000,
   pages: 3,
   htmlLen: 24000,
+  widgets: 3,
+  widgetHtmlLen: 12000,
 } as const;
 
 export const SCRIPT_ID_RE = /^[A-Za-z0-9_-]{1,32}$/;
@@ -420,6 +439,62 @@ export function parsePreset(raw: unknown): ParseResult {
     pages.push({ id: pid, name: cleanStr(po.name, PRESET_LIMITS.scriptNameLen) || pid, html });
   });
 
+  /* 角落小部件（高阶模式，v1.0.7）：与 pages 同源隔离，见 PresetWidgets 组件 */
+  const WIDGET_CORNERS = new Set(["top-left", "top-right", "bottom-left", "bottom-right"]);
+  const widgets: PresetWidget[] = [];
+  const widgetArr = parseArray(o.widgets).slice(0, PRESET_LIMITS.widgets);
+  if (parseArray(o.widgets).length > PRESET_LIMITS.widgets) {
+    errors.push(`widgets 超过上限（最多 ${PRESET_LIMITS.widgets} 个）`);
+  }
+  widgetArr.forEach((item, i) => {
+    const where = `widgets[${i}]`;
+    if (typeof item !== "object" || item == null) {
+      errors.push(`${where}：必须是对象`);
+      return;
+    }
+    const wo = item as Record<string, unknown>;
+    const wid = cleanStr(wo.id, PRESET_LIMITS.scriptIdLen);
+    if (!SCRIPT_ID_RE.test(wid)) {
+      errors.push(`${where}：id 只允许字母/数字/下划线/连字符（≤32 字符）`);
+      return;
+    }
+    if (scriptIds.has(wid)) {
+      errors.push(`${where}：id「${wid}」与脚本/动画/页面重复`);
+      return;
+    }
+    const html = asString(wo.html) ?? "";
+    if (!html.trim()) {
+      errors.push(`${where}：缺少 html`);
+      return;
+    }
+    if (html.length > PRESET_LIMITS.widgetHtmlLen) {
+      errors.push(`${where}：html 超过 ${PRESET_LIMITS.widgetHtmlLen} 字符上限（当前 ${html.length}）`);
+      return;
+    }
+    const corner = cleanStr(wo.corner, 16);
+    if (corner && !WIDGET_CORNERS.has(corner)) {
+      errors.push(`${where}：corner 必须是 top-left / top-right / bottom-left / bottom-right 之一`);
+      return;
+    }
+    const width =
+      typeof wo.width === "number" && Number.isFinite(wo.width)
+        ? Math.round(Math.min(420, Math.max(120, wo.width)))
+        : undefined;
+    const height =
+      typeof wo.height === "number" && Number.isFinite(wo.height)
+        ? Math.round(Math.min(320, Math.max(40, wo.height)))
+        : undefined;
+    scriptIds.add(wid); // 共享 id 命名空间（脚本/动画/页面/小部件互不重名）
+    widgets.push({
+      id: wid,
+      name: cleanStr(wo.name, PRESET_LIMITS.scriptNameLen) || wid,
+      corner: (corner as PresetWidget["corner"]) || "top-left",
+      width,
+      height,
+      html,
+    });
+  });
+
   /* 声明式布局覆写（高阶模式）：数值全部夹紧到安全区间 */
   let layout: PresetLayout | undefined;
   if (typeof o.layout === "object" && o.layout != null) {
@@ -521,12 +596,13 @@ export function parsePreset(raw: unknown): ParseResult {
     scripts.length === 0 &&
     animations.length === 0 &&
     pages.length === 0 &&
+    widgets.length === 0 &&
     layout == null
   ) {
     return {
       ok: false,
       errors: [
-        "预设里没有任何内容（commands / links / dock / settings / scripts / animations / pages / layout 至少写一项）",
+        "预设里没有任何内容（commands / links / dock / settings / scripts / animations / pages / widgets / layout 至少写一项）",
       ],
     };
   }
@@ -544,6 +620,7 @@ export function parsePreset(raw: unknown): ParseResult {
       scripts: scripts.length > 0 ? scripts : undefined,
       animations: animations.length > 0 ? animations : undefined,
       pages: pages.length > 0 ? pages : undefined,
+      widgets: widgets.length > 0 ? widgets : undefined,
       layout,
     },
   };
