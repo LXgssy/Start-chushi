@@ -27,6 +27,7 @@
   - 每日一图按日期自动轮换
   - 自定义壁纸（IndexedDB 本地存储，不上传）
 - **禅模式**：一键进入只留时钟与呼吸番茄钟的极简视野；进出有雾化散场/聚拢过渡；退出提示词按背景明暗自动切换墨色；番茄钟计时中会以同色系迷你时钟行浮现，停止计时不打扰
+- **预设**：声明式 JSON 预设（不执行代码），可给指令面板注册新命令、给底部栏加自定义按钮、批量导入磁贴；一段 JSON 复制给朋友，导入即用
 - **明暗主题**：跟随系统，也可手动切换
 - **动效**：入场、悬浮、进出禅模式全部使用同一套克制的动画语言，并尊重 `prefers-reduced-motion`
 
@@ -63,6 +64,55 @@
 | `images.unsplash.com` | 掠影壁纸在线图库 |
 
 所有偏好、链接、待办、笔记、壁纸依旧只存本地（localStorage / IndexedDB），**无任何上报与追踪**。
+
+## 预设（自定义你的起始页）
+
+「初始」支持**声明式预设**：一段纯 JSON，通过 ⌘K 指令面板 →「导入预设」粘贴即可。预设**不执行任何代码**，所有能力走白名单动作，因此可以放心安装别人分享的预设。
+
+### 能做什么
+
+| 预设字段 | 效果 |
+|---|---|
+| `commands` | 往 ⌘K 指令面板注册新命令（≤12 条） |
+| `dock` | 给底部栏加自定义按钮（≤3 个） |
+| `links` | 批量导入快捷链接磁贴（≤12 个，按网址去重） |
+| `settings` | 建议的外观设置（强调色 / 12 小时制 / 显示秒） |
+
+### 动作白名单（`action`）
+
+| type | 参数 | 效果 |
+|---|---|---|
+| `open` | `url`（仅 https） | 打开网址 |
+| `search` | `engine`（google/bing/baidu/ddg）、`q` | 用指定引擎搜索 |
+| `panel` | `id`（weather/todo/note/pomodoro/settings） | 打开内置面板 |
+| `theme` | `mode`（light/dark） | 切换主题 |
+| `copy` | `text`（≤200 字） | 复制文本到剪贴板 |
+
+### 示例
+
+在「导入预设」对话框点「填入示例」可直接试玩：
+
+```json
+{
+  "chushi": 1,
+  "name": "开发者工具箱",
+  "author": "初始",
+  "description": "示例预设：演示命令、磁贴与 tab 栏按钮的写法",
+  "commands": [
+    { "title": "打开 GitHub", "action": { "type": "open", "url": "https://github.com" } },
+    { "title": "搜索 MDN", "action": { "type": "search", "engine": "bing", "q": "MDN web docs" } },
+    { "title": "打开待办", "action": { "type": "panel", "id": "todo" } }
+  ],
+  "links": [
+    { "name": "MDN", "url": "https://developer.mozilla.org" }
+  ],
+  "dock": [
+    { "title": "GitHub", "icon": "github", "action": { "type": "open", "url": "https://github.com" } }
+  ]
+}
+```
+
+字段写错会被逐条指出（例如 url 不以 `https://` 开头），整包拒绝导入，不会装一半。已安装的预设可在「管理预设」中移除，移除后命令与按钮一并消失。
 
 ## 快速开始
 

@@ -11,11 +11,15 @@ import {
   Globe,
   Moon,
   NotebookPen,
+  Package,
+  PackagePlus,
   Plus,
   Settings2,
+  Sparkles,
   Sun,
 } from "lucide-react";
 import { ENGINES, looksLikeUrl, toUrl } from "@/lib/startpage/engines";
+import type { PresetAction } from "@/lib/startpage/preset";
 import type { StartLink } from "@/lib/startpage/types";
 
 const SPRING = { type: "spring" as const, stiffness: 460, damping: 38 };
@@ -37,6 +41,9 @@ function CommandPalette(props: {
   setPanel: (p: "weather" | "todo" | "note" | "settings") => void;
   openAddLink: () => void;
   exportData: () => void;
+  presetCommands: { title: string; action: PresetAction; key: string; presetName: string }[];
+  runPresetAction: (a: PresetAction) => void;
+  openPresetDialog: (tab: "import" | "manage") => void;
 }) {
   return <AnimatePresence>{props.open && <PaletteInner key="palette" {...props} />}</AnimatePresence>;
 }
@@ -50,6 +57,9 @@ function PaletteInner({
   setPanel,
   openAddLink,
   exportData,
+  presetCommands,
+  runPresetAction,
+  openPresetDialog,
 }: {
   open: boolean;
   onClose: () => void;
@@ -60,6 +70,9 @@ function PaletteInner({
   setPanel: (p: "weather" | "todo" | "note" | "settings") => void;
   openAddLink: () => void;
   exportData: () => void;
+  presetCommands: { title: string; action: PresetAction; key: string; presetName: string }[];
+  runPresetAction: (a: PresetAction) => void;
+  openPresetDialog: (tab: "import" | "manage") => void;
 }) {
   const [inputValue, setInputValue] = useState("");
 
@@ -192,8 +205,40 @@ function PaletteInner({
                     onSelect={() => exec(toggleTheme)}
                   />
                   <StaticItem icon={<Plus />} label="添加快捷链接" onSelect={() => exec(openAddLink)} />
+                  <StaticItem
+                    icon={<PackagePlus />}
+                    label="导入预设"
+                    onSelect={() => exec(() => openPresetDialog("import"))}
+                  />
+                  <StaticItem
+                    icon={<Package />}
+                    label="管理预设"
+                    onSelect={() => exec(() => openPresetDialog("manage"))}
+                  />
                   <StaticItem icon={<Download />} label="导出数据备份" onSelect={() => exec(exportData)} />
                 </CmdGroup>
+
+                {/* 预设命令：来自已安装预设（声明式白名单 action） */}
+                {presetCommands.length > 0 && (
+                  <CmdGroup heading="预设命令">
+                    {presetCommands.map((c) => (
+                      <Command.Item
+                        key={c.key}
+                        value={`preset-${c.presetName}-${c.title}`}
+                        onSelect={() => exec(() => runPresetAction(c.action))}
+                        className={ITEM_CLASS}
+                      >
+                        <span className="text-[var(--ui-accent)]">
+                          <Sparkles className="h-4 w-4" strokeWidth={1.5} />
+                        </span>
+                        {c.title}
+                        <span className="ml-auto hidden max-w-[45%] truncate text-xs font-extralight text-zinc-400 dark:text-zinc-600 sm:inline">
+                          {c.presetName}
+                        </span>
+                      </Command.Item>
+                    ))}
+                  </CmdGroup>
+                )}
 
                 {links.length > 0 && (
                   <CmdGroup heading="链接">

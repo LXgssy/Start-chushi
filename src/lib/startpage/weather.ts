@@ -223,15 +223,6 @@ async function fetchOpenMeteo(place: Place): Promise<ForecastResult> {
   };
 }
 
-/* 国家/地区显示归一化：Open-Meteo 把台湾/香港/澳门作为独立 country 字段
- * 返回（zh 下为「台湾」「香港」「澳门」），中文界面必须呈现为
- * 「中国台湾 / 中国香港 / 中国澳门」——原则问题，不能省。 */
-const CN_REGION: Record<string, string> = {
-  台湾: "中国台湾",
-  香港: "中国香港",
-  澳门: "中国澳门",
-};
-
 export async function searchCity(query: string): Promise<CityOption[]> {
   const url =
     `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}` +
@@ -241,19 +232,12 @@ export async function searchCity(query: string): Promise<CityOption[]> {
   const j = await res.json();
   const list = j.results ?? [];
   return list.map((r: Record<string, unknown>) => {
-    const countryRaw = r.country as string | undefined;
-    const country = countryRaw ? (CN_REGION[countryRaw] ?? countryRaw) : undefined;
-    const name = CN_REGION[r.name as string] ?? (r.name as string);
-    /* admin1 有两类噪音：Open-Meteo 数据 bug「臺灣省 or 台灣省」（含 " or "）；
-     * 台区条目省份与「中国台湾」前缀语义重复——归一化命中时一律不展示省份 */
-    let admin = r.admin1 as string | undefined;
-    if (admin?.includes(" or ")) admin = admin.split(" or ")[0];
-    const isCnRegion = countryRaw != null && CN_REGION[countryRaw] != null;
-    if (isCnRegion) admin = undefined;
-    const parts = [admin, country].filter(Boolean).filter((p) => p !== name);
+    const admin = r.admin1 as string | undefined;
+    const country = r.country as string | undefined;
+    const parts = [admin, country].filter(Boolean).filter((p) => p !== r.name);
     return {
-      name,
-      label: [name, ...parts].join(" · "),
+      name: r.name as string,
+      label: [r.name as string, ...parts].join(" · "),
       lat: r.latitude as number,
       lon: r.longitude as number,
     };

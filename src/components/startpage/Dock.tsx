@@ -21,6 +21,7 @@ import PomodoroPanel, {
 } from "./PomodoroPanel";
 import SettingsPanel from "./SettingsPanel";
 import { readLS } from "@/hooks/use-start";
+import { dockIcon, type PresetAction, type PresetDockItem } from "@/lib/startpage/preset";
 import type { Place, PanelId, Settings, TodoItem, WeatherState } from "@/lib/startpage/types";
 import { weatherText } from "@/lib/startpage/weather";
 
@@ -49,12 +50,6 @@ function getPomoRunning(): boolean {
 const EASE = [0.22, 1, 0.36, 1] as const;
 
 const SPRING = { type: "spring" as const, stiffness: 420, damping: 34 };
-
-/* 高度动画不交给 framer：v12 对 duration+ease 的 height 动画实测仍
-   2-3 帧冲线（transition 参数被吞，CSS 对比实验确认为 framer 黑盒行为，
-   同 Task 37 opacity WAAPI 空窗同族），改由 .h-height CSS transition 承载，
-   data-soft 切换快慢两档：切换面板 0.25s 快曲线（原 SPRING 3-4 帧读感），
-   面板内内容增长 0.45s ease-out 与结果列表淡入同步 */
 
 /** 面板切换 = 单动作平滑形变：旧内容原地淡出 + 卡片高度弹簧到新内容高度 + 新内容淡入，
  *  三者重叠为一个连续动作（无先关后开、无两次动画）。
@@ -129,9 +124,6 @@ const PanelStage = memo(function PanelStage({
      推迟到入场结束（≈0.5s）后武装测高，期间高度盒 auto 直就位（视觉无差异）；
      切换路径（contentH 已有值）立即测高，高度形变不受影响 */
   const [contentH, setContentH] = useState<number | null>(null);
-  /* 高度弹簧分级：false=切换面板快弹簧（SPRING），true=面板内内容增长柔和过渡
-     （HEIGHT_GROW）。由 measureRef 的测高来源驱动，见其注释 */
-  const [hSoft, setHSoft] = useState(false);
   /* 镜像到 ref 供稳定的 measureRef 回调读取（渲染期直接写 ref 违反 React Compiler 规则；
      effect 时序依然正确：commit 阶段的 ref 回调读到的永远是上一次提交后的值） */
   const contentHRef = useRef<number | null>(null);
@@ -149,21 +141,9 @@ const PanelStage = memo(function PanelStage({
     }
     if (!el) return;
     const attach = () => {
-      /* 两个测高入口 = 两种弹簧：attach 首测（面板切换 key 重挂/首开武装）
-         必须快弹簧（与新内容淡入同拍，慢了会拖面板切换节奏）；RO 后续触发
-         = 同一面板内内容增长（搜索结果/详情行/待办增删），用柔和过渡。
-         只在高度真变了时才改 hSoft——RO observe() 后必发一次初始回调，
-         若无条件重置会把首测刚设的快弹簧又改回慢弹簧（值相同 bailout
-         不会发生，setHSoft(false) 本身就是状态变更） */
-      const update = (soft: boolean) => {
-        const h = el.offsetHeight;
-        if (h !== contentHRef.current) {
-          setHSoft(soft);
-          setContentH(h);
-        }
-      };
-      update(false);
-      const ro = new ResizeObserver(() => update(true));
+      const update = () => setContentH(el.offsetHeight);
+      update();
+      const ro = new ResizeObserver(update);
       ro.observe(el);
       roRef.current = ro;
     };
@@ -233,15 +213,16 @@ const PanelStage = memo(function PanelStage({
             </svg>
           </button>
 
-          {/* 高度盒：CSS transition 驱动高度（无 layout scale），内容溢出由卡片
-              overflow-hidden 裁剪；首开 contentH 为 null → 不设 height（auto）
-              直接就位，不参与入场动画（CSS 对 auto↔px 亦不动画，同效）。
-              contain:layout 把逐帧 reflow 的失效范围圈在本盒内部，
+          {/* 高度盒：高度 px 弹簧（无 layout scale），内容溢出由卡片 overflow-hidden 裁剪；
+              首开 contentH 为 null → height auto 直接就位，不参与入场动画。
+              contain:layout 把弹簧逐帧 reflow 的失效范围圈在本盒内部，
               不再波及卡片以外任何布局（帧预算从整页降到面板盒） */}
-          <div
-            className="h-height relative"
-            data-soft={hSoft ? "true" : undefined}
-            style={{ contain: "layout", height: contentH == null ? undefined : contentH }}
+          <motion.div
+            className="relative"
+            style={{ contain: "layout" }}
+            initial={false}
+            animate={{ height: contentH == null ? "auto" : contentH }}
+            transition={SPRING}
           >
           <AnimatePresence initial={false}>
             <motion.div
@@ -275,7 +256,7 @@ const PanelStage = memo(function PanelStage({
               )}
             </motion.div>
           </AnimatePresence>
-          </div>
+          </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -299,6 +280,8 @@ export default function Dock({
   exportData,
   importData,
   resetAll,
+  presetDock,
+  onRunAction,
 }: {
   panel: PanelId;
   setPanel: (p: PanelId) => void;
@@ -315,6 +298,8 @@ export default function Dock({
   exportData: () => void;
   importData: (f: File) => void;
   resetAll: () => void;
+  presetDock: (PresetDockItem & { key: string })[];
+  onRunAction: (a: PresetAction) => void;
 }) {
   const undone = todos.filter((t) => !t.done).length;
 
@@ -454,6 +439,28 @@ export default function Dock({
         >
           <Settings2 className="h-[17px] w-[17px]" strokeWidth={1.5} />
         </DockButton>
+
+        {/* 预设注册的 tab 栏按钮（声明式，来自已安装预设，上限 3 个） */}
+        {presetDock.length > 0 && <Divider />}
+        {presetDock.map((d) => {
+          const Icon = dockIcon(d.icon);
+          return (
+            <DockButton
+              key={d.key}
+              active={false}
+              label={d.title}
+              onClick={() => onRunAction(d.action)}
+            >
+              {Icon ? (
+                <Icon className="h-[17px] w-[17px]" strokeWidth={1.5} />
+              ) : (
+                <span className="flex h-4 w-4 items-center justify-center rounded-full border border-current text-[9px] leading-none opacity-80">
+                  {d.title[0]}
+                </span>
+              )}
+            </DockButton>
+          );
+        })}
 
       </nav>
 

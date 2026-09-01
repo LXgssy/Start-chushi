@@ -1,7 +1,7 @@
 /* 「初始」起始页 — 主页面编排 */
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import AuroraBackground from "@/components/startpage/AuroraBackground";
 import Clock from "@/components/startpage/Clock";
@@ -11,6 +11,13 @@ import Dock from "@/components/startpage/Dock";
 import CommandPalette from "@/components/startpage/CommandPalette";
 import ZenPomodoro from "@/components/startpage/ZenPomodoro";
 import LinkDialog, { type LinkEditorState } from "@/components/startpage/LinkDialog";
+import PresetDialog, { type PresetDialogState } from "@/components/startpage/PresetDialog";
+import {
+  dockIcon,
+  type InstalledPreset,
+  type PresetAction,
+  type PresetPayload,
+} from "@/lib/startpage/preset";
 import { useMounted, useStored, uid } from "@/hooks/use-start";
 import {
   DEFAULT_SETTINGS,
@@ -34,6 +41,7 @@ const KEYS = {
   todos: "start:todos",
   note: "start:note",
   place: "start:place",
+  presets: "start:presets",
 };
 
 const DEFAULT_LINKS: StartLink[] = [
@@ -68,10 +76,12 @@ export default function Home() {
   const [todos, setTodos] = useStored<TodoItem[]>(KEYS.todos, []);
   const [note, setNote] = useStored<string>(KEYS.note, "");
   const [place, setPlace] = useStored<Place>(KEYS.place, {});
+  const [presets, setPresets] = useStored<InstalledPreset[]>(KEYS.presets, []);
 
   /* ---------- 界面状态 ---------- */
   const [panel, setPanel] = useState<PanelId>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [presetDialog, setPresetDialog] = useState<PresetDialogState>({ open: false, tab: "import" });
   const [editor, setEditor] = useState<LinkEditorState>({ open: false, editing: null });
   const [weather, setWeather] = useState<WeatherState>(INITIAL_WEATHER);
   const [isDark, setIsDark] = useState(true);
@@ -416,6 +426,98 @@ export default function Home() {
     [isDark, patchSettings]
   );
 
+  /* ---------- 预设系统（声明式，白名单 action，零代码执行） ----------
+     置于 runSearch/toggleTheme 等稳定回调之后：依赖数组在定义时求值，
+     放早了会 TDZ 崩页 */
+  const installPreset = useCallback(
+    (payload: PresetPayload) => {
+      setPresets((prev) => [
+        ...prev,
+        {
+          id: uid(),
+          name: payload.name,
+          author: payload.author,
+          installedAt: Date.now(),
+          raw: payload,
+        },
+      ]);
+      /* 磁贴一次性合入（url 去重，重复导入不产生副本） */
+      if (payload.links.length > 0) {
+        setLinks((prev) => {
+          const seen = new Set(prev.map((l) => l.url.replace(/\/+$/, "")));
+          const add = payload.links
+            .filter((l) => !seen.has(l.url.replace(/\/+$/, "")))
+            .map((l) => ({ id: uid(), name: l.name, url: l.url }));
+          return add.length > 0 ? [...prev, ...add] : prev;
+        });
+      }
+      /* 设置白名单字段一次性合并（用户可再改） */
+      if (payload.settings) patchSettings(payload.settings);
+      toast({
+        title: `预设「${payload.name}」已安装`,
+        description: `新增 ${payload.commands.length} 条命令、${payload.dock.length} 个栏按钮、${payload.links.length} 个磁贴`,
+      });
+    },
+    [setPresets, setLinks, patchSettings, toast]
+  );
+
+  const removePreset = useCallback(
+    (id: string) => {
+      setPresets((prev) => {
+        const target = prev.find((p) => p.id === id);
+        if (target) toast({ title: `预设「${target.name}」已移除` });
+        return prev.filter((p) => p.id !== id);
+      });
+    },
+    [setPresets, toast]
+  );
+
+  /* 预设命令/dock 项派生：装了即生效，删除即失效（无隐藏状态） */
+  const presetCommands = useMemo(
+    () =>
+      presets.flatMap((p) =>
+        p.raw.commands.map((c, i) => ({ ...c, key: `${p.id}:${i}`, presetName: p.name }))
+      ),
+    [presets]
+  );
+  const presetDock = useMemo(
+    () => presets.flatMap((p) => p.raw.dock.map((d, i) => ({ ...d, key: `${p.id}:d${i}` }))),
+    [presets]
+  );
+
+  const runPresetAction = useCallback(
+    (a: PresetAction) => {
+      switch (a.type) {
+        case "open":
+          window.location.href = a.url;
+          break;
+        case "search":
+          runSearch(a.engine, a.q);
+          break;
+        case "panel":
+          setPanel(a.id);
+          break;
+        case "theme":
+          patchSettings({ themeMode: a.mode });
+          break;
+        case "copy":
+          navigator.clipboard
+            .writeText(a.text)
+            .then(() => toast({ title: "已复制", description: a.text.slice(0, 30) + (a.text.length > 30 ? "…" : "") }))
+            .catch(() => toast({ title: "复制失败", description: "浏览器未授权剪贴板" }));
+          break;
+      }
+    },
+    [runSearch, patchSettings, toast]
+  );
+
+  const openPresetDialog = useCallback((tab: "import" | "manage") => {
+    setPresetDialog({ open: true, tab });
+  }, []);
+  const closePresetDialog = useCallback(() => {
+    setPresetDialog((s) => ({ ...s, open: false }));
+  }, []);
+
   /* ---------- 链接保存 / 删除 ---------- */
   const saveLink = useCallback(
     (link: StartLink) => {
@@ -502,6 +604,8 @@ export default function Home() {
         exportData={exportData}
         importData={importData}
         resetAll={resetAll}
+        presetDock={presetDock}
+        onRunAction={runPresetAction}
       />
       </div>
 
@@ -541,6 +645,18 @@ export default function Home() {
         setPanel={gotoPanel}
         openAddLink={openAddLink}
         exportData={exportData}
+        presetCommands={presetCommands}
+        runPresetAction={runPresetAction}
+        openPresetDialog={openPresetDialog}
+      />
+
+      {/* 预设导入 / 管理 */}
+      <PresetDialog
+        state={presetDialog}
+        onClose={closePresetDialog}
+        presets={presets}
+        onInstall={installPreset}
+        onRemove={removePreset}
       />
 
       {/* 链接编辑对话框 */}
