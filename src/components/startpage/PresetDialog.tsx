@@ -152,7 +152,8 @@ function DialogInner({
         {tab === "import" ? (
           <div className="p-4">
             <p className="mb-2.5 px-1 text-xs font-light leading-relaxed text-zinc-500 dark:text-zinc-400">
-              粘贴预设 JSON — 预设是纯声明式的（不执行代码），可包含指令面板命令、磁贴与 tab 栏按钮。
+              粘贴预设 JSON — 命令、磁贴与按钮均为声明式白名单动作；scripts 字段的沙箱脚本
+              运行在隔离沙箱中（拿不到页面数据与扩展 API），可放心安装可信来源的预设。
             </p>
             <textarea
               ref={taRef}
@@ -212,6 +213,7 @@ function DialogInner({
                     s.commands.length > 0 ? `${s.commands.length} 条命令` : null,
                     s.links.length > 0 ? `${s.links.length} 个磁贴` : null,
                     s.dock.length > 0 ? `${s.dock.length} 个栏按钮` : null,
+                    s.scripts && s.scripts.length > 0 ? `${s.scripts.length} 个脚本` : null,
                   ].filter(Boolean);
                   return (
                     <li

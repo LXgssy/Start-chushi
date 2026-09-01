@@ -1,14 +1,16 @@
-/* 「初始」预设系统 — 声明式预设（v1）
+/* 「初始」预设系统 — 声明式预设 + 沙箱 JS 高阶模式
  *
  * 设计原则：
- * 1. 零代码执行：预设是纯声明式 JSON，所有能力走白名单 action（open/copy/search/panel/theme），
- *    不存在 eval、不存在任意函数——安全边界由「类型 + 白名单 + 长度上限」三重护栏构成；
- * 2. 装了即生效：预设安装后，命令 → ⌘K 指令面板，dock 项 → 底部 tab 栏，磁贴 → 快捷链接区，
+ * 1. 声明式部分零代码执行：commands/dock/links/settings 走白名单 action
+ *    （open/copy/search/panel/theme/script）——安全边界由「类型 + 白名单 + 长度上限」三重护栏构成；
+ * 2. 沙箱 JS（scripts 字段，高阶模式）：脚本代码运行在唯一源沙箱 iframe 中
+ *    （网页版 = 不透明源 iframe；扩展版 = manifest sandbox 页，无扩展 API），
+ *    只能通过受控 chushi API（见 sandbox.js）产生副作用，宿主侧复核白名单；
+ *    script action 引用本预设内的脚本 id（导入期引用完整性校验），
+ *    运行时展开为 `${presetId}:${scriptId}` 复合键（见 page.tsx resolvePresetAction）；
+ * 3. 装了即生效：预设安装后，命令 → ⌘K 指令面板，dock 项 → 底部 tab 栏，磁贴 → 快捷链接区，
  *    全部从已安装列表派生（删除预设即全部失效，无隐藏状态）；
- * 3. 可分享：一段 JSON 复制给朋友，导入即用（与备份导出同一交互语言）。
- *
- * 沙箱 JS（高阶模式）为路线图第三步，届时以受控宿主 API + 沙箱解释器接入，
- * 本文件的类型边界（PresetAction）已为其预留演化空间。 */
+ * 4. 可分享：一段 JSON 复制给朋友，导入即用（与备份导出同一交互语言）。 */
 
 import type { Settings } from "./types";
 import { ENGINES } from "./engines";
@@ -20,7 +22,9 @@ export type PresetAction =
   | { type: "copy"; text: string }
   | { type: "search"; engine: string; q: string }
   | { type: "panel"; id: "weather" | "todo" | "note" | "pomodoro" | "settings" }
-  | { type: "theme"; mode: "light" | "dark" };
+  | { type: "theme"; mode: "light" | "dark" }
+  /** 触发本预设内脚本的入口（chushi.run）或由导入期校验引用完整性 */
+  | { type: "script"; id: string };
 
 export interface PresetCommand {
   title: string;
@@ -42,6 +46,16 @@ export interface PresetLink {
 /** 预设可携带的设置字段（白名单子集，导入时一次性合并，用户可再修改） */
 export type PresetSettings = Partial<Pick<Settings, "accent" | "hour12" | "showSeconds">>;
 
+/** 沙箱脚本（高阶模式）：在唯一源沙箱中执行，通过受控 chushi API 产生副作用 */
+export interface PresetScript {
+  /** 预设内唯一，^[A-Za-z0-9_-]{1,32}$；运行时复合键 = `${presetId}:${id}` */
+  id: string;
+  /** 展示名（缺省用 id） */
+  name?: string;
+  /** 脚本源码（沙箱内以 async IIFE 执行，支持顶层 await） */
+  code: string;
+}
+
 export interface PresetPayload {
   name: string;
   author?: string;
@@ -50,6 +64,7 @@ export interface PresetPayload {
   links: PresetLink[];
   dock: PresetDockItem[];
   settings?: PresetSettings;
+  scripts?: PresetScript[];
 }
 
 export interface InstalledPreset {
@@ -73,7 +88,13 @@ export const PRESET_LIMITS = {
   urlLen: 500,
   copyLen: 200,
   queryLen: 100,
+  scripts: 3,
+  scriptIdLen: 32,
+  scriptNameLen: 24,
+  codeLen: 8000,
 } as const;
+
+export const SCRIPT_ID_RE = /^[A-Za-z0-9_-]{1,32}$/;
 
 /* ---------- 校验 ---------- */
 
@@ -113,7 +134,12 @@ function safeUrl(v: unknown, errors: string[], where: string): string | null {
   return s;
 }
 
-function parseAction(v: unknown, errors: string[], where: string): PresetAction | null {
+function parseAction(
+  v: unknown,
+  errors: string[],
+  where: string,
+  scriptIds: Set<string>
+): PresetAction | null {
   if (typeof v !== "object" || v == null) {
     errors.push(`${where}：action 缺失`);
     return null;
@@ -160,9 +186,21 @@ function parseAction(v: unknown, errors: string[], where: string): PresetAction 
       }
       return { type: "theme", mode: a.mode };
     }
+    case "script": {
+      const sid = cleanStr(a.id, PRESET_LIMITS.scriptIdLen);
+      if (!SCRIPT_ID_RE.test(sid)) {
+        errors.push(`${where}：script id 只允许字母/数字/下划线/连字符（≤32 字符）`);
+        return null;
+      }
+      if (!scriptIds.has(sid)) {
+        errors.push(`${where}：引用了本预设中不存在的脚本 id「${sid}」（需先在 scripts 里定义）`);
+        return null;
+      }
+      return { type: "script", id: sid };
+    }
     default:
       errors.push(
-        `${where}：未知 action 类型「${cleanStr(a.type, 16) || "(空)"}」，可用：open / copy / search / panel / theme`
+        `${where}：未知 action 类型「${cleanStr(a.type, 16) || "(空)"}」，可用：open / copy / search / panel / theme / script`
       );
       return null;
   }
@@ -193,6 +231,42 @@ export function parsePreset(raw: unknown): ParseResult {
   const name = cleanStr(o.name, PRESET_LIMITS.nameLen);
   if (!name) errors.push("缺少预设名称 name");
 
+  /* 先解析 scripts（script action 的引用完整性需要先拿到全部脚本 id） */
+  const scripts: PresetScript[] = [];
+  const scriptIds = new Set<string>();
+  const scriptArr = parseArray(o.scripts).slice(0, PRESET_LIMITS.scripts);
+  if (parseArray(o.scripts).length > PRESET_LIMITS.scripts) {
+    errors.push(`scripts 超过上限（最多 ${PRESET_LIMITS.scripts} 个，已截断校验前 ${PRESET_LIMITS.scripts} 个）`);
+  }
+  scriptArr.forEach((item, i) => {
+    const where = `scripts[${i}]`;
+    if (typeof item !== "object" || item == null) {
+      errors.push(`${where}：必须是对象`);
+      return;
+    }
+    const so = item as Record<string, unknown>;
+    const sid = cleanStr(so.id, PRESET_LIMITS.scriptIdLen);
+    if (!SCRIPT_ID_RE.test(sid)) {
+      errors.push(`${where}：id 只允许字母/数字/下划线/连字符（≤32 字符）`);
+      return;
+    }
+    if (scriptIds.has(sid)) {
+      errors.push(`${where}：脚本 id「${sid}」重复`);
+      return;
+    }
+    const code = asString(so.code) ?? "";
+    if (!code.trim()) {
+      errors.push(`${where}：缺少 code（脚本代码）`);
+      return;
+    }
+    if (code.length > PRESET_LIMITS.codeLen) {
+      errors.push(`${where}：code 超过 ${PRESET_LIMITS.codeLen} 字符上限（当前 ${code.length}）`);
+      return;
+    }
+    scriptIds.add(sid);
+    scripts.push({ id: sid, name: cleanStr(so.name, PRESET_LIMITS.scriptNameLen) || sid, code });
+  });
+
   const commands: PresetCommand[] = [];
   const cmdArr = parseArray(o.commands).slice(0, PRESET_LIMITS.commands);
   cmdArr.forEach((c, i) => {
@@ -206,7 +280,7 @@ export function parsePreset(raw: unknown): ParseResult {
       errors.push(`${where}：缺少 title`);
       return;
     }
-    const action = parseAction((c as Record<string, unknown>).action, errors, where);
+    const action = parseAction((c as Record<string, unknown>).action, errors, where, scriptIds);
     if (action) commands.push({ title, action });
   });
 
@@ -239,7 +313,7 @@ export function parsePreset(raw: unknown): ParseResult {
       errors.push(`${where}：缺少 title`);
       return;
     }
-    const action = parseAction(dobj.action, errors, where);
+    const action = parseAction(dobj.action, errors, where, scriptIds);
     const icon = cleanStr(dobj.icon, 24) || undefined;
     if (action) dock.push({ title, icon, action });
   });
@@ -261,9 +335,13 @@ export function parsePreset(raw: unknown): ParseResult {
     commands.length === 0 &&
     links.length === 0 &&
     dock.length === 0 &&
-    settings == null
+    settings == null &&
+    scripts.length === 0
   ) {
-    return { ok: false, errors: ["预设里没有任何内容（commands / links / dock / settings 至少写一项）"] };
+    return {
+      ok: false,
+      errors: ["预设里没有任何内容（commands / links / dock / settings / scripts 至少写一项）"],
+    };
   }
 
   return {
@@ -276,6 +354,7 @@ export function parsePreset(raw: unknown): ParseResult {
       links,
       dock,
       settings,
+      scripts: scripts.length > 0 ? scripts : undefined,
     },
   };
 }
@@ -340,18 +419,27 @@ export const SAMPLE_PRESET = `{
   "chushi": 1,
   "name": "开发者工具箱",
   "author": "初始",
-  "description": "示例预设：演示命令、磁贴与 tab 栏按钮的写法",
+  "description": "示例预设：命令、磁贴、tab 栏按钮与沙箱脚本",
   "commands": [
     { "title": "打开 GitHub", "action": { "type": "open", "url": "https://github.com" } },
     { "title": "搜索 MDN", "action": { "type": "search", "engine": "bing", "q": "MDN web docs" } },
-    { "title": "打开待办", "action": { "type": "panel", "id": "todo" } }
+    { "title": "打开待办", "action": { "type": "panel", "id": "todo" } },
+    { "title": "每日一言", "action": { "type": "script", "id": "hitokoto" } }
   ],
   "links": [
     { "name": "MDN", "url": "https://developer.mozilla.org" },
     { "name": "V2EX", "url": "https://www.v2ex.com" }
   ],
   "dock": [
-    { "title": "GitHub", "icon": "github", "action": { "type": "open", "url": "https://github.com" } }
+    { "title": "GitHub", "icon": "github", "action": { "type": "open", "url": "https://github.com" } },
+    { "title": "一言", "icon": "heart", "action": { "type": "script", "id": "hitokoto" } }
   ],
-  "settings": { "hour12": false }
+  "settings": { "hour12": false },
+  "scripts": [
+    {
+      "id": "hitokoto",
+      "name": "每日一言",
+      "code": "chushi.run = async () => { try { const r = await chushi.fetchJSON('https://v1.hitokoto.cn/'); chushi.notify({ title: r.hitokoto, description: '—— ' + (r.from || '佚名') }); } catch (e) { chushi.notify({ title: '一言获取失败', description: String(e && e.message || e) }); } }; chushi.registerCommand({ id: 'quote', title: '来一句每日一言', run: () => chushi.run() });"
+    }
+  ]
 }`;

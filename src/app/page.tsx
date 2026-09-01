@@ -18,7 +18,12 @@ import {
   type PresetAction,
   type PresetPayload,
 } from "@/lib/startpage/preset";
-import { useMounted, useStored, uid } from "@/hooks/use-start";
+import {
+  sandboxBridge,
+  type SandboxCommandInfo,
+  type SandboxScript,
+} from "@/lib/startpage/sandbox";
+import { useMounted, useStored, readLS, writeLS, uid } from "@/hooks/use-start";
 import {
   DEFAULT_SETTINGS,
   DEFAULT_DURATIONS,
@@ -42,7 +47,13 @@ const KEYS = {
   note: "start:note",
   place: "start:place",
   presets: "start:presets",
+  sandboxFrozen: "start:sandbox-frozen",
 };
+
+/** 预设 action 中 script 类型的 id 展开为本预设内复合键（运行时再由桥路由到命令/入口） */
+function resolvePresetAction(a: PresetAction, presetId: string): PresetAction {
+  return a.type === "script" ? { type: "script", id: `${presetId}:${a.id}` } : a;
+}
 
 const DEFAULT_LINKS: StartLink[] = [
   { id: "gh", name: "GitHub", url: "https://github.com" },
@@ -87,10 +98,24 @@ export default function Home() {
   const [isDark, setIsDark] = useState(true);
   const [zen, setZen] = useState(false);
 
+  /* ---------- 沙箱 JS（高阶模式）状态：冻结标记持久化 + 运行时注册的命令 */
+  const [frozenScripts, setFrozenScripts] = useState<Record<string, boolean>>(() =>
+    readLS<Record<string, boolean>>(KEYS.sandboxFrozen, {})
+  );
+  const [scriptCmds, setScriptCmds] = useState<SandboxCommandInfo[]>([]);
+
   const patchSettings = useCallback(
     (patch: Partial<Settings>) => setSettings((prev) => ({ ...prev, ...patch })),
     [setSettings]
   );
+
+  const markFrozen = useCallback((key: string) => {
+    setFrozenScripts((prev) => {
+      const next = { ...prev, [key]: true };
+      writeLS(KEYS.sandboxFrozen, next);
+      return next;
+    });
+  }, []);
 
   /* ---------- 主题应用 ---------- */
   useEffect(() => {
@@ -468,21 +493,152 @@ export default function Home() {
         if (target) toast({ title: `预设「${target.name}」已移除` });
         return prev.filter((p) => p.id !== id);
       });
+      /* 顺手清理该预设脚本的冻结标记（重新导入即全新实例，自动解冻） */
+      setFrozenScripts((prev) => {
+        const next: Record<string, boolean> = {};
+        for (const k of Object.keys(prev)) if (!k.startsWith(`${id}:`)) next[k] = prev[k];
+        if (Object.keys(next).length !== Object.keys(prev).length) {
+          writeLS(KEYS.sandboxFrozen, next);
+          return next;
+        }
+        return prev;
+      });
     },
     [setPresets, toast]
   );
 
-  /* 预设命令/dock 项派生：装了即生效，删除即失效（无隐藏状态） */
-  const presetCommands = useMemo(
+  /* ---------- 沙箱 JS（高阶模式）：脚本派生 ----------
+     置于 presetCommands/presetDock 之前：依赖数组定义时求值（TDZ 律） */
+  const sandboxScripts = useMemo<SandboxScript[]>(
     () =>
       presets.flatMap((p) =>
-        p.raw.commands.map((c, i) => ({ ...c, key: `${p.id}:${i}`, presetName: p.name }))
+        (p.raw.scripts ?? []).map((sc) => ({
+          key: `${p.id}:${sc.id}`,
+          presetName: p.name,
+          name: sc.name ?? sc.id,
+          code: sc.code,
+        }))
       ),
     [presets]
   );
+  const activeSandboxScripts = useMemo(
+    () => sandboxScripts.filter((sc) => !frozenScripts[sc.key]),
+    [sandboxScripts, frozenScripts]
+  );
+  /** 激活脚本键集：声明式 script 命令/按钮只在此集合内的脚本上展示（冻结即隐藏） */
+  const activeScriptKeys = useMemo(
+    () => new Set(activeSandboxScripts.map((sc) => sc.key)),
+    [activeSandboxScripts]
+  );
+
+  /* 预设命令/dock 项派生：装了即生效，删除即失效（无隐藏状态）。
+     script action 在此展开为 `${presetId}:${scriptId}` 复合键；
+     引用未激活（冻结/无沙箱）脚本的项在此隐藏，避免幽灵命令 */
+  const presetCommands = useMemo(
+    () =>
+      presets.flatMap((p) =>
+        p.raw.commands.flatMap((c, i) => {
+          if (c.action.type === "script" && !activeScriptKeys.has(`${p.id}:${c.action.id}`)) {
+            return [];
+          }
+          return [
+            {
+              title: c.title,
+              action: resolvePresetAction(c.action, p.id),
+              key: `${p.id}:${i}`,
+              presetName: p.name,
+            },
+          ];
+        })
+      ),
+    [presets, activeScriptKeys]
+  );
   const presetDock = useMemo(
-    () => presets.flatMap((p) => p.raw.dock.map((d, i) => ({ ...d, key: `${p.id}:d${i}` }))),
-    [presets]
+    () =>
+      presets.flatMap((p) =>
+        p.raw.dock.flatMap((d, i) => {
+          if (d.action.type === "script" && !activeScriptKeys.has(`${p.id}:${d.action.id}`)) {
+            return [];
+          }
+          return [
+            {
+              title: d.title,
+              icon: d.icon,
+              action: resolvePresetAction(d.action, p.id),
+              key: `${p.id}:d${i}`,
+            },
+          ];
+        })
+      ),
+    [presets, activeScriptKeys]
+  );
+
+  /* ---------- 沙箱桥事件与同步生命周期 ---------- */
+  useEffect(() => {
+    sandboxBridge.onEvent = (ev) => {
+      switch (ev.kind) {
+        case "commands":
+          setScriptCmds((prev) => [
+            ...prev.filter((c) => c.scriptKey !== ev.scriptKey),
+            ...ev.commands,
+          ]);
+          break;
+        case "notify":
+          toast({ title: ev.title, description: ev.description || undefined });
+          break;
+        case "open":
+          if (/^https:\/\//i.test(ev.url)) window.location.href = ev.url;
+          break;
+        case "copy":
+          navigator.clipboard
+            .writeText(ev.text)
+            .then(() => toast({ title: "已复制", description: ev.text.slice(0, 30) + (ev.text.length > 30 ? "…" : "") }))
+            .catch(() => toast({ title: "复制失败", description: "浏览器未授权剪贴板" }));
+          break;
+        case "error":
+          toast({ title: "沙箱脚本", description: ev.message });
+          break;
+        case "frozen":
+          markFrozen(ev.key);
+          toast({
+            title: `脚本「${ev.name}」已自动停用`,
+            description: "启动超时（疑似死循环）；删除并重新导入该预设可恢复",
+            duration: 8000,
+          });
+          break;
+      }
+    };
+    return () => {
+      sandboxBridge.onEvent = null;
+    };
+  }, [toast, markFrozen]);
+
+  useEffect(() => {
+    sandboxBridge.sync(activeSandboxScripts);
+  }, [activeSandboxScripts]);
+
+  /* 预设变更后同步清理失主脚本（删除/冻结）的运行时命令条目 */
+  useEffect(() => {
+    setScriptCmds((prev) => {
+      const next = prev.filter((c) => activeScriptKeys.has(c.scriptKey));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [activeScriptKeys]);
+
+  /* 沙箱脚本运行时注册的命令 → ⌘K 派生项（与声明式命令同组展示） */
+  const sandboxDerivedCommands = useMemo(
+    () =>
+      scriptCmds.map((c) => ({
+        title: c.title,
+        action: { type: "script", id: `${c.scriptKey}:${c.id}` } as PresetAction,
+        key: `sc:${c.scriptKey}:${c.id}`,
+        presetName: c.presetName,
+      })),
+    [scriptCmds]
+  );
+  const allPresetCommands = useMemo(
+    () => [...presetCommands, ...sandboxDerivedCommands],
+    [presetCommands, sandboxDerivedCommands]
   );
 
   const runPresetAction = useCallback(
@@ -506,6 +662,18 @@ export default function Home() {
             .then(() => toast({ title: "已复制", description: a.text.slice(0, 30) + (a.text.length > 30 ? "…" : "") }))
             .catch(() => toast({ title: "复制失败", description: "浏览器未授权剪贴板" }));
           break;
+        case "script": {
+          /* id = `${presetId}:${scriptId}`（入口）或 `${presetId}:${scriptId}:${cmdId}`（命令），
+             由沙箱内统一路由（命令表优先，其次脚本入口 chushi.run） */
+          const ok = sandboxBridge.invoke(a.id);
+          if (!ok) {
+            toast({
+              title: "沙箱未运行",
+              description: "脚本已停用或初始化失败；删除并重新导入预设可恢复",
+            });
+          }
+          break;
+        }
       }
     },
     [runSearch, patchSettings, toast]
@@ -645,7 +813,7 @@ export default function Home() {
         setPanel={gotoPanel}
         openAddLink={openAddLink}
         exportData={exportData}
-        presetCommands={presetCommands}
+        presetCommands={allPresetCommands}
         runPresetAction={runPresetAction}
         openPresetDialog={openPresetDialog}
       />
