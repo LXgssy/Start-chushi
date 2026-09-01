@@ -9,26 +9,12 @@
 
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { PresenceClass } from "./PresenceClass";
 import { FileUp, PackageOpen, Plus, Trash2 } from "lucide-react";
 import { parsePreset, SAMPLE_PRESET, type InstalledPreset, type PresetPayload } from "@/lib/startpage/preset";
 import { parsePack } from "@/lib/startpage/pack";
 
 const SPRING = { type: "spring" as const, stiffness: 460, damping: 38 };
-const EXIT_EASE = [0.4, 0, 1, 1] as const;
-
-/** 视图退场：绝对定位钉回内容盒原位（inset 0），在高度形变期间与新视图重叠溶解。
- *  ⚠ 入场淡入不在 framer 内（移交 .panel-rise CSS 关键帧，见 globals.css）：
- *    framer v12 对 opacity 走 WAAPI 加速，内联停在初始 0、动画结束后才补写 1，
- *    空窗期真机整卡闪黑。退场保留 opacity：退场终点是卸载，补写空窗不可见 */
-const TAB_EXIT = {
-  opacity: 0,
-  position: "absolute" as const,
-  left: 0,
-  right: 0,
-  top: 0,
-  pointerEvents: "none" as const,
-  transition: { duration: 0.2, ease: EXIT_EASE },
-};
 
 export interface PresetDialogState {
   open: boolean;
@@ -194,11 +180,12 @@ function DialogInner({
   }
 
   return (
-    <motion.div
+    <PresenceClass
+      exitClass="veil-out-slow"
+      duration={0.28}
       className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 px-4 pt-[16vh] backdrop-blur-[6px]"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1, transition: { duration: 0.25, ease: "easeOut" } }}
-      exit={{ opacity: 0, transition: { duration: 0.28, ease: "easeInOut" } }}
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -206,16 +193,12 @@ function DialogInner({
       aria-modal="true"
       aria-label="预设管理"
     >
-      <motion.div
+      <PresenceClass
         initial={{ opacity: 0, y: -10, scale: 0.97 }}
         animate={{ opacity: 1, y: 0, scale: 1, transition: SPRING }}
-        exit={{
-          opacity: 0,
-          y: -12,
-          scale: 0.97,
-          transition: { duration: 0.2, ease: EXIT_EASE },
-        }}
         transition={SPRING}
+        exitClass="dialog-sink"
+        duration={0.2}
         className="glass-card backdrop-blur-2xl backdrop-saturate-150 w-full max-w-[560px] overflow-hidden rounded-2xl shadow-2xl"
         onKeyDown={(e) => {
           if (e.key === "Escape") {
@@ -266,7 +249,14 @@ function DialogInner({
           transition={SPRING}
         >
           <AnimatePresence initial={false}>
-            <motion.div key={tab} ref={measureRef} exit={TAB_EXIT} className="flow-root panel-rise">
+            <PresenceClass
+              key={tab}
+              ref={measureRef}
+              /* 退场视觉走 CSS .view-exit（absolute 钉位 + 淡出）；卸载由 PresenceClass 定时器接管 */
+              exitClass="view-exit"
+              duration={0.2}
+              className="flow-root panel-rise"
+            >
               {tab === "import" ? (
                 <div className="p-4">
                   <p className="mb-2.5 px-1 text-xs font-light leading-relaxed text-zinc-500 dark:text-zinc-400">
@@ -355,6 +345,7 @@ function DialogInner({
                           s.scripts && s.scripts.length > 0 ? `${s.scripts.length} 个脚本` : null,
                           s.animations && s.animations.length > 0 ? `${s.animations.length} 段样式` : null,
                           s.pages && s.pages.length > 0 ? `${s.pages.length} 个页面` : null,
+                          s.widgets && s.widgets.length > 0 ? `${s.widgets.length} 个小部件` : null,
                           s.layout ? "布局覆写" : null,
                         ].filter(Boolean);
                         return (
@@ -390,11 +381,11 @@ function DialogInner({
                   )}
                 </div>
               )}
-            </motion.div>
+            </PresenceClass>
           </AnimatePresence>
         </motion.div>
-      </motion.div>
-    </motion.div>
+      </PresenceClass>
+    </PresenceClass>
   );
 }
 

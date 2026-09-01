@@ -2,6 +2,7 @@
 
 import { memo, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { PresenceClass } from "./PresenceClass";
 import {
   CheckSquare,
   CloudSun,
@@ -54,19 +55,9 @@ const SPRING = { type: "spring" as const, stiffness: 420, damping: 34 };
 /** 面板切换 = 单动作平滑形变：旧内容原地淡出 + 卡片高度弹簧到新内容高度 + 新内容淡入，
  *  三者重叠为一个连续动作（无先关后开、无两次动画）。
  *  退出面板绝对定位钉回内容盒原位（inset 0），在高度形变期间与新面板重叠溶解。
- *  ⚠ 入场淡入不在 framer 内（移交 .panel-rise CSS 关键帧，见 globals.css）：
- *    framer v12 对 opacity 走 WAAPI 加速，内联停在初始 0、动画结束后才补写 1，
- *    空窗期真机整板闪黑（进入动画卡一下复位）。退场保留 opacity：
- *    退场终点是卸载，补写空窗不可见 */
-const PANEL_EXIT = {
-  opacity: 0,
-  position: "absolute" as const,
-  left: 0,
-  right: 0,
-  top: 0,
-  pointerEvents: "none" as const,
-  transition: { duration: 0.2, ease: [0.4, 0, 1, 1] as const },
-};
+ *  ⚠ 入场/退场淡入淡出均不在 framer 内（移交 .panel-rise / .panel-sink 等 CSS 关键帧，见 globals.css）：
+ *    framer v12 对 opacity 走 WAAPI 加速，入场空窗期真机整板闪黑，退场中途被取消
+ *    回跳 1 等于没有关闭动画。framer 的 initial/exit 仅保留 y/scale 与计时职责 */
 
 const PANEL_TITLES: Record<Exclude<PanelId, null>, string> = {
   weather: "天气",
@@ -162,13 +153,11 @@ const PanelStage = memo(function PanelStage({
   }, []);
 
   /* 面板关闭后清空测高缓存：否则关闭后再打开另一个面板，高度盒会先以旧面板高度
-     出现再弹簧撑开（入场混入高度动画）。渲染期重置模式（React 官方推荐），
-     同一次渲染内生效，覆盖所有关闭路径（dock 同 tab 再点、遮罩、X、page.tsx 的 setPanel(null)） */
-  const [prevPanel, setPrevPanel] = useState(panel);
-  if (panel !== prevPanel) {
-    setPrevPanel(panel);
-    if (panel === null) setContentH(null);
-  }
+     出现再弹簧撑开（入场混入高度动画）。重置放在 AnimatePresence 的
+     onExitComplete（退场完成后）：⚠ 不能用渲染期 setState 重置 —— 那会在退出
+     刚启动时同步触发二次渲染，打断 v12 的退场动画调度（实测是关闭动画失效的
+     直接根因之一）；互切路径（A→B）外层卡片不退场，不触发重置，正是所需 */
+  const resetContentH = useCallback(() => setContentH(null), []);
 
   return (
     /* 面板浮层：外层静态 wrapper 负责定位（fixed + CSS -translate-x-1/2 居中），
@@ -180,24 +169,18 @@ const PanelStage = memo(function PanelStage({
     <div
       className="pointer-events-none fixed bottom-[calc(max(1.25rem,env(safe-area-inset-bottom))+60px)] left-1/2 z-40 -translate-x-1/2"
     >
-      <AnimatePresence>
+      <AnimatePresence onExitComplete={resetContentH}>
         {panel && (
-          <motion.div
+          <PresenceClass
             key="dock-panel"
             role="dialog"
             aria-label={`${PANEL_TITLES[panel]}面板`}
             initial={{ y: 14, scale: 0.96 }}
             animate={{ y: 0, scale: 1 }}
-            exit={{
-              opacity: 0,
-              y: 10,
-              scale: 0.97,
-              /* 离场专用加速曲线：替代弹簧渐近尾（与指令面板退出同语言） */
-              transition: { duration: 0.22, ease: [0.4, 0, 1, 1] },
-            }}
             transition={SPRING}
             style={{ transformOrigin: "bottom center", willChange: "transform" }}
             data-panel={panel}
+            exitClass="panel-sink"
             className="glass-card backdrop-blur-2xl backdrop-saturate-150 panel-rise cl-panel pointer-events-auto relative w-[min(92vw,360px)] overflow-hidden rounded-2xl p-4 shadow-2xl"
           >
           {/* 关闭按钮固定右上，不随内容重绘 */}
@@ -229,10 +212,12 @@ const PanelStage = memo(function PanelStage({
             transition={SPRING}
           >
           <AnimatePresence initial={false}>
-            <motion.div
+            <PresenceClass
               key={panel}
               ref={measureRef}
-              exit={PANEL_EXIT}
+              /* 退场视觉走 CSS .view-exit（absolute 钉位 + 淡出）；卸载由 PresenceClass 定时器接管 */
+              exitClass="view-exit"
+              duration={0.2}
               className="flow-root panel-rise"
             >
               <header className="mb-3 flex items-center justify-between px-1 pr-7">
@@ -258,10 +243,10 @@ const PanelStage = memo(function PanelStage({
                   onReset={resetAll}
                 />
               )}
-            </motion.div>
+            </PresenceClass>
           </AnimatePresence>
           </motion.div>
-          </motion.div>
+          </PresenceClass>
         )}
       </AnimatePresence>
     </div>
@@ -324,16 +309,16 @@ export default function Dock({
 
   return (
     <>
-      {/* 关闭遮罩 */}
+      {/* 关闭遮罩：退场淡出走 CSS .veil-out（framer exit 仅计时） */}
       <AnimatePresence>
         {panel && (
-          <motion.div
+          <PresenceClass
             key="dock-overlay"
+            exitClass="veil-out"
+            duration={0.25}
             className="fixed inset-0 z-30"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.25 }}
             onClick={() => switchTo(null)}
             aria-hidden
           />

@@ -12,6 +12,7 @@ import CommandPalette from "@/components/startpage/CommandPalette";
 import ZenPomodoro from "@/components/startpage/ZenPomodoro";
 import LinkDialog, { type LinkEditorState } from "@/components/startpage/LinkDialog";
 import PresetDialog, { type PresetDialogState } from "@/components/startpage/PresetDialog";
+import PresetWidgets, { type ActiveWidget } from "@/components/startpage/PresetWidgets";
 import SandboxPage, { type ActivePage } from "@/components/startpage/SandboxPage";
 import {
   dockIcon,
@@ -628,6 +629,23 @@ export default function Home() {
     [presets, activeScriptKeys]
   );
 
+  /* 预设角落小部件派生：装了即生效，删除即失效（与命令/dock 同律） */
+  const presetWidgets = useMemo<ActiveWidget[]>(
+    () =>
+      presets.flatMap((p) =>
+        (p.raw.widgets ?? []).map((w) => ({
+          key: `${p.id}:${w.id}`,
+          presetName: p.name,
+          name: w.name ?? w.id,
+          corner: w.corner ?? ("top-left" as const),
+          width: w.width ?? 216,
+          height: w.height ?? 88,
+          html: w.html,
+        }))
+      ),
+    [presets]
+  );
+
   /* ---------- 沙箱桥事件与同步生命周期 ---------- */
   useEffect(() => {
     sandboxBridge.onEvent = (ev) => {
@@ -925,6 +943,15 @@ export default function Home() {
         onNotify={notifyFromPage}
         onOpenUrl={openUrlFromPage}
       />
+
+      {/* 预设角落小部件层（沙箱隔离，见 PresetWidgets / sandbox.js widgetMode） */}
+      <PresetWidgets
+        widgets={presetWidgets}
+        isDark={isDark}
+        accent={settings.accent}
+        onNotify={notifyFromPage}
+        onOpenUrl={openUrlFromPage}
+ />
 
       {/* 链接编辑对话框 */}
       <LinkDialog

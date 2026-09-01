@@ -11,6 +11,7 @@
 
 import { memo, useCallback, useEffect, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { PresenceClass } from "./PresenceClass";
 import { sandboxPageSrc } from "@/lib/startpage/sandbox";
 
 const SPRING = { type: "spring" as const, stiffness: 420, damping: 34 };
@@ -107,7 +108,7 @@ function SandboxPage(props: {
   return (
     <AnimatePresence>
       {props.page && (
-        <motion.div
+        <PresenceClass
           key="sandbox-page"
           role="dialog"
           aria-modal="true"
@@ -115,7 +116,8 @@ function SandboxPage(props: {
           className="fixed inset-0 z-[70]"
           initial={{ opacity: 0, scale: 0.985 }}
           animate={{ opacity: 1, scale: 1, transition: { duration: 0.28, ease: "easeOut" } }}
-          exit={{ opacity: 0, scale: 0.985, transition: { duration: 0.22, ease: [0.4, 0, 1, 1] } }}
+          /* 退场视觉走 CSS .overlay-sink；卸载由 PresenceClass 定时器接管（v12 WAAPI 退场取消回跳律） */
+          exitClass="overlay-sink"
           style={{ transformOrigin: "center" }}
         >
           <iframe
@@ -137,7 +139,7 @@ function SandboxPage(props: {
               <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
             </svg>
           </button>
-        </motion.div>
+        </PresenceClass>
       )}
     </AnimatePresence>
   );

@@ -176,6 +176,102 @@ function pageMode() {
   post({ type: "hello" });
 }
 
+/* ---------- 沙箱小部件模式（?mode=widget，v1.0.7）----------
+ * 作为角落小部件的「沙箱宿主」：接收应用层 renderWidget（含主题/强调色），
+ * 把 HTML 写进嵌套的 srcdoc iframe（sandbox="allow-scripts"，不透明源），并把
+ * 部件内 chushi API（notify/open/storage/resize）带上 widgetKey 中继回应用层；
+ * 应用层回传的 storage 结果与主题变更反向下发进部件。
+ * 两层隔离：应用层 → 本页（唯一源）→ 部件（不透明源），部件拿不到
+ * 主文档/localStorage/扩展 API；open/storage 均由应用层白名单复核。 */
+function widgetShim(theme, accent) {
+  var accentSet = /^#[0-9a-fA-F]{3,8}$/.test(accent || "")
+    ? "document.documentElement.style.setProperty('--w-accent','" + accent + "');"
+    : "";
+  return (
+    "<script>(function(){var seq=0,pending={};function post(m){try{parent.postMessage(m,'*')}catch(e){}}" +
+    "document.documentElement.dataset.theme='" + (theme === "dark" ? "dark" : "light") + "';" +
+    accentSet +
+    "window.chushi={notify:function(o){o=o||{};post({type:'widgetApi',op:'notify'," +
+    "title:String(o.title||'').slice(0,24),description:String(o.description||'').slice(0,60)})}," +
+    "open:function(u){post({type:'widgetApi',op:'open',url:String(u||'').slice(0,500)})}," +
+    "resize:function(w,h){post({type:'widgetApi',op:'resize',width:+w||0,height:+h||0})}," +
+    "storage:{get:function(k){return new Promise(function(res){var id=++seq;pending[id]={f:res,op:'storageGet'};" +
+    "post({type:'widgetApi',op:'storageGet',key:String(k||'').slice(0,64),reqId:id})})}," +
+    "set:function(k,v){return new Promise(function(res){var id=++seq;pending[id]={f:res,op:'storageSet'};var s='';" +
+    "try{var j=JSON.stringify(v);s=j==null?'':j}catch(e){}" +
+    "post({type:'widgetApi',op:'storageSet',key:String(k||'').slice(0,64),value:s.slice(0,4000),reqId:id})})}}};" +
+    "window.addEventListener('message',function(ev){var d=ev.data;if(!d||typeof d!=='object')return;" +
+    "if(d.type==='widgetStorage'){var p=pending[d.reqId];if(!p)return;delete pending[d.reqId];" +
+    "if(p.op==='storageGet'){var v=null;if(typeof d.value==='string'&&d.value.length){try{v=JSON.parse(d.value)}catch(e){v=d.value}}p.f(v)}else{p.f(d.ok===true)}};" +
+    "if(d.type==='widgetTheme'){document.documentElement.dataset.theme=d.theme==='dark'?'dark':'light';" +
+    "if(d.accent)document.documentElement.style.setProperty('--w-accent',d.accent)}});" +
+    "})();</script>"
+  );
+}
+
+function widgetMode() {
+  var widgetKey = "";
+  var inner = null;
+  var theme = "light";
+  var accent = "";
+  window.addEventListener("message", function (e) {
+    if (e.source !== parent) return; // 只接受应用层
+    var m = e.data;
+    if (!m || typeof m !== "object") return;
+    if (m.type === "renderWidget" && typeof m.html === "string") {
+      if (inner) return; // 一次挂载只渲染一份
+      widgetKey = str(m.key, 80);
+      theme = m.theme === "dark" ? "dark" : "light";
+      accent = typeof m.accent === "string" ? m.accent.slice(0, 9) : "";
+      inner = document.createElement("iframe");
+      inner.setAttribute("sandbox", "allow-scripts");
+      inner.setAttribute("title", "初始自定义小部件");
+      inner.style.cssText =
+        "position:fixed;inset:0;width:100%;height:100%;border:0;background:transparent";
+      inner.srcdoc = widgetShim(theme, accent) + m.html;
+      document.body.appendChild(inner);
+      window.addEventListener("message", function (ev) {
+        if (!inner || ev.source !== inner.contentWindow) return;
+        var d = ev.data;
+        if (d && typeof d === "object" && d.type === "widgetApi") {
+          post({
+            type: "widgetApi",
+            widgetKey: widgetKey,
+            op: str(d.op, 16),
+            key: str(d.key, 64),
+            value: str(d.value, 4000),
+            reqId: typeof d.reqId === "number" ? Math.min(1e9, Math.max(0, d.reqId | 0)) : 0,
+            width: +d.width || 0,
+            height: +d.height || 0,
+            title: str(d.title, 24),
+            description: str(d.description, 60),
+            url: str(d.url, 500),
+          });
+        }
+      });
+      return;
+    }
+    if (m.type === "widgetTheme" && inner && inner.contentWindow) {
+      theme = m.theme === "dark" ? "dark" : "light";
+      accent = typeof m.accent === "string" ? m.accent.slice(0, 9) : "";
+      try {
+        inner.contentWindow.postMessage({ type: "widgetTheme", theme: theme, accent: accent }, "*");
+      } catch (e) {
+        /* noop */
+      }
+      return;
+    }
+    if (m.type === "widgetStorage" && inner && inner.contentWindow) {
+      try {
+        inner.contentWindow.postMessage(m, "*");
+      } catch (e) {
+        /* noop */
+      }
+    }
+  });
+  post({ type: "hello" });
+}
+
 window.addEventListener("message", function (e) {
     if (e.source !== parent) return; // 只接受直接宿主
     var m = e.data;
@@ -229,9 +325,11 @@ window.addEventListener("message", function (e) {
     post({ type: "runtimeError", message: errMsg(ev && ev.reason) });
   });
 
-  /* 模式分发：页面模式自带 hello 握手与独立监听；脚本模式走原协议 */
+  /* 模式分发：页面/小部件模式自带 hello 握手与独立监听；脚本模式走原协议 */
   if (typeof location !== "undefined" && location.search.indexOf("mode=page") !== -1) {
     pageMode();
+  } else if (typeof location !== "undefined" && location.search.indexOf("mode=widget") !== -1) {
+    widgetMode();
   } else {
     post({ type: "hello" });
   }
