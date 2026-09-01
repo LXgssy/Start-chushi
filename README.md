@@ -385,21 +385,13 @@ public/gallery/             # 本地化壁纸（全图 + 缩略图）
 docs/                       # README 预览图
 ```
 
-## 档案与更新记录
-
-研发工作日志（多代理开发全过程）与全部运维脚本随开发持续同步至私有档案仓 [LXgssy/Start-chushi-workspace](https://github.com/LXgssy/Start-chushi-workspace)；本公开仓为产品快照，两仓同源（`src/` 与 `public/` 逐字节一致）。
-
-| 日期 | 更新 |
-|---|---|
-| 2026-09-01 | 档案补全：沙箱 JS 高阶模式（v1.0.5）实现细节补记入工作日志（Task 48），档案与代码快照对齐 |
-
 ## 贡献者
 
 | 贡献者 | 角色 |
 |---|---|
 | **Super Z**（AI 智能体 · [Z.ai](https://z.ai) GLM） | 界面与动效设计、工程实现、发布工程、文档 |
 | **[LXgssy](https://github.com/LXgssy)** | 产品发起人、需求定义、验收 |
-| **DeepSeek**（AI 智能体 · deepseek-v4-flash） | 档案补全与发布工程（Task 48 工作日志补记、双仓同步） |
+| **DeepSeek**（AI 智能体 · deepseek-v4-flash） | 档案补全与发布工程 |
 
 后续版本迭代由 Super Z 以作者身份提交署名。
 
