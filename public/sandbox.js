@@ -127,7 +127,56 @@
     }
   }
 
+  /* ---------- 沙箱页面模式（?mode=page）----------
+ * 作为自定义页面的「沙箱宿主」：接收应用层 renderPage，把 HTML 写进嵌套的
+ * srcdoc iframe（sandbox="allow-scripts"，不透明源），并把页面内 chushi API
+ * 消息（notify/close/open）带上 pageKey 中继回应用层。
+ * 两层隔离：应用层 → 本页（唯一源）→ 用户页面（不透明源），用户页面拿不到
+ * 主文档/localStorage/扩展 API，open 走应用层白名单（仅 https）。 */
+function pageMode() {
+  var pageKey = "";
+  var inner = null;
   window.addEventListener("message", function (e) {
+    if (e.source !== parent) return; // 只接受应用层
+    var m = e.data;
+    if (!m || typeof m !== "object") return;
+    if (m.type === "renderPage" && typeof m.html === "string") {
+      if (inner) return; // 一次挂载只渲染一份
+      pageKey = str(m.key, 80);
+      /* 前置 shim：为用户页面提供极简 chushi API（消息中继到宿主白名单） */
+      var shim =
+        "<script>(function(){function post(m){try{parent.postMessage(m,'*')}catch(e){}}" +
+        "window.chushi={notify:function(o){o=o||{};post({type:'pageApi',op:'notify'," +
+        "title:String(o.title||'').slice(0,24),description:String(o.description||'').slice(0,60)})}," +
+        "close:function(){post({type:'pageApi',op:'close'})}," +
+        "open:function(u){post({type:'pageApi',op:'open',url:String(u||'').slice(0,500)})}};})();</script>";
+      inner = document.createElement("iframe");
+      inner.setAttribute("sandbox", "allow-scripts");
+      inner.setAttribute("title", "初始自定义页面");
+      inner.style.cssText =
+        "position:fixed;inset:0;width:100vw;height:100vh;border:0;background:transparent";
+      inner.srcdoc = shim + m.html;
+      document.body.appendChild(inner);
+      window.addEventListener("message", function (ev) {
+        if (!inner || ev.source !== inner.contentWindow) return;
+        var d = ev.data;
+        if (d && typeof d === "object" && d.type === "pageApi") {
+          post({
+            type: "pageApi",
+            pageKey: pageKey,
+            op: d.op,
+            title: str(d.title, 24),
+            description: str(d.description, 60),
+            url: str(d.url, 500),
+          });
+        }
+      });
+    }
+  });
+  post({ type: "hello" });
+}
+
+window.addEventListener("message", function (e) {
     if (e.source !== parent) return; // 只接受直接宿主
     var m = e.data;
     if (!m || typeof m !== "object") return;
@@ -180,5 +229,10 @@
     post({ type: "runtimeError", message: errMsg(ev && ev.reason) });
   });
 
-  post({ type: "hello" });
+  /* 模式分发：页面模式自带 hello 握手与独立监听；脚本模式走原协议 */
+  if (typeof location !== "undefined" && location.search.indexOf("mode=page") !== -1) {
+    pageMode();
+  } else {
+    post({ type: "hello" });
+  }
 })();

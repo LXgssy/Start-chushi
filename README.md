@@ -105,8 +105,11 @@
 | `commands` | 往 ⌘K 指令面板注册新命令（≤12 条） |
 | `dock` | 给底部栏加自定义按钮（≤3 个） |
 | `links` | 批量导入快捷链接磁贴（≤12 个，按网址去重） |
-| `settings` | 建议的外观设置（强调色 / 12 小时制 / 显示秒） |
+| `settings` | 建议的外观设置（强调色 / 主题模式 / 背景模式 / 12 小时制 / 显示秒 / 搜索引擎 / 图标样式 / 搜索联想 / 称呼） |
 | `scripts` | 沙箱 JS 脚本（≤3 个，每个 ≤8000 字符，v1.0.5 起） |
+| `animations` | 自定义 CSS 动画与面板样式（≤4 段，注入前净化，v1.0.6 起） |
+| `pages` | 整页自定义页面：完整 HTML 跑在沙箱里（≤3 页，v1.0.6 起） |
+| `layout` | 声明式布局覆写：隐藏区块 / 时钟缩放 / 磁贴列数（v1.0.6 起，删除预设即还原） |
 
 ### 动作白名单（`action`）
 
@@ -118,10 +121,11 @@
 | `theme` | `mode`（light/dark） | 切换主题 |
 | `copy` | `text`（≤200 字） | 复制文本到剪贴板 |
 | `script` | `id`（本预设内 `scripts[].id`） | 触发脚本入口 `chushi.run`（v1.0.5 起） |
+| `page` | `id`（本预设内 `pages[].id`） | 全屏打开自定义沙箱页面（v1.0.6 起） |
 
 ### 示例
 
-在「导入预设」对话框点「填入示例」可直接试玩（含一条沙箱脚本命令）：
+在「导入预设」对话框点「填入示例」可直接试玩（含沙箱脚本命令、自定义动画与一个专注页）：
 
 ```json
 {
@@ -195,6 +199,95 @@
 - **顶层 `await` 可用**：脚本以 async 函数体执行；
 - **死循环保护**：启动 4 秒内未完成的脚本会被看门狗自动冻结停用（删除并重新导入预设即可恢复）；
 - **容量**：每预设 ≤3 个脚本，每个 ≤8000 字符，每脚本 ≤12 条命令。
+
+### 自定义动画与面板样式（`animations`，v1.0.6 起）
+
+预设可以携带 CSS，注入起始页本身——写新动画、调面板观感都行。CSS 无法执行脚本，最坏情况只是弄乱自己页面的视觉，因此这里没有沙箱，只有净化（`@import` 与 `javascript:` 会被剔除）与容量上限。
+
+起始页为预设暴露了一组**稳定的元素钩子类**，写 CSS 时挂在这几个类上即可：
+
+| 钩子类 | 元素 |
+|---|---|
+| `.cl-clock` | 时钟（含问候语） |
+| `.cl-search` | 搜索框区域 |
+| `.cl-links` | 快捷磁贴区域 |
+| `.cl-dock` | 底部栏 |
+| `.cl-panel` | 弹出面板卡片（配合 `[data-panel="weather"]` 等按面板区分） |
+
+```json
+{
+  "chushi": 1,
+  "name": "时钟呼吸",
+  "commands": [], "links": [], "dock": [],
+  "animations": [
+    {
+      "id": "breathe",
+      "name": "时钟呼吸",
+      "css": "@keyframes cl-breathe { 0%,100% { opacity: 1 } 50% { opacity: 0.55 } } .cl-clock { animation: cl-breathe 5s ease-in-out infinite }"
+    }
+  ]
+}
+```
+
+容量：每预设 ≤4 段，单段 ≤6000 字符，合计 ≤12000 字符。安装顺序即优先级，移除预设即整体消失。
+
+### 自定义页面（`pages`，v1.0.6 起）
+
+`pages` 字段可以往预设里放**整页 HTML**（含 `<style>` 与 `<script>`），通过命令 / 底部栏按钮的 `{"type":"page","id":"..."}` 全屏打开。页面运行在沙箱 iframe 中（与 `scripts` 同一套隔离模型），只能通过极简的 `window.chushi` 与宿主对话：
+
+| API | 说明 |
+|---|---|
+| `chushi.notify({ title, description })` | 弹出通知 |
+| `chushi.close()` | 关闭页面回到起始页 |
+| `chushi.open(url)` | 打开 https 网址（宿主复核） |
+
+```json
+{
+  "chushi": 1,
+  "name": "专注页",
+  "commands": [{ "title": "打开专注页", "action": { "type": "page", "id": "focus" } }],
+  "links": [], "dock": [],
+  "pages": [
+    {
+      "id": "focus",
+      "name": "专注页",
+      "html": "<style>html,body{margin:0;height:100%;display:grid;place-items:center;background:rgba(8,8,12,.82);color:#e4e4e7;font-family:system-ui}h1{font-weight:200;letter-spacing:.12em}</style><h1>深呼吸</h1><button onclick=\"chushi.close()\">返回</button>"
+    }
+  ]
+}
+```
+
+- 页面内**拿不到**主文档、localStorage、Cookie 与扩展 API；`Esc` 或右上角 × 也能随时退出；
+- 单页 HTML ≤24000 字符，每预设 ≤3 页。
+
+### 布局覆写（`layout`，v1.0.6 起）
+
+声明式调整起始页布局，**装了即生效、删除预设即还原**（不写入你的设置）：
+
+| 字段 | 取值 | 效果 |
+|---|---|---|
+| `hideClock` / `hideSearch` / `hideLinks` | `true` / `false` | 隐藏时钟 / 搜索框 / 快捷磁贴 |
+| `clockScale` | 0.5–2 | 时钟整体缩放 |
+| `linksColumns` | 3–12 | 磁贴每行列数上限 |
+| `verticalAlign` | `"center"` / `"top"` | 主内容垂直对齐 |
+
+多个预设都带 `layout` 时按安装顺序后者胜。`settings` 字段（v1.0.6 起白名单扩充）同理：导入时一次性合并，之后你随时可以在设置面板改回。
+
+### 预设包（`.cshz`）与本地文件导入（v1.0.6 起）
+
+「导入预设」除了粘贴 JSON，还支持本地文件：**`.json`**（单文件预设）与 **`.cshz`**（预设包，本质是 zip，按下面结构打包；普通 `.zip` 同样可导入）：
+
+```
+my-preset.cshz（zip）
+├── manifest.json     必需 —— 预设主体，与粘贴导入完全同一份 JSON 结构
+├── assets/           可选 —— 资源目录
+│   └── photo.jpg
+└── （其余文件一律忽略，如 README.md）
+```
+
+- 资源引用：`pages[].html` 与 `animations[].css` 里写 `asset:文件名`，导入时自动替换为内联 data URL，装完无需保留包；
+- 护栏：解压后总量 ≤4MB、≤64 个条目；单资源 ≤512KB，仅图片 / 音频 / 视频 / 字体；资源文件名仅限字母、数字、点、下划线、连字符；
+- `manifest.json` 复用与粘贴导入完全相同的校验（白名单动作、长度上限、引用完整性），任何一项不合法整体拒绝。
 
 
 ## 快速开始

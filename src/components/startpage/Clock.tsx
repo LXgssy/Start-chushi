@@ -120,7 +120,7 @@ function Clock({
   const name = settings.userName.trim();
 
   return (
-    <div className="flex flex-col items-center select-none">
+    <div className="cl-clock flex flex-col items-center select-none">
       {/* 时钟主体 */}
       <time
         dateTime={now.toISOString()}

@@ -133,13 +133,16 @@ const PanelStage = memo(function PanelStage({
   const roRef = useRef<ResizeObserver | null>(null);
   const armRef = useRef<number | null>(null);
   const measureRef = useCallback((el: HTMLDivElement | null) => {
+    /* 退场卸载（el=null）不清理：交叉溶解期共享 roRef 已指向新面板的观察器，
+       此处误断会让新面板内部高度变化失察（待办增删/天气加载/设置展开不再跟随）。
+       退场面板的 RO 随元素回收（ResizeObserver 对 target 为弱引用） */
+    if (!el) return;
     roRef.current?.disconnect();
     roRef.current = null;
     if (armRef.current != null) {
       window.clearTimeout(armRef.current);
       armRef.current = null;
     }
-    if (!el) return;
     const attach = () => {
       const update = () => setContentH(el.offsetHeight);
       update();
@@ -194,7 +197,8 @@ const PanelStage = memo(function PanelStage({
             }}
             transition={SPRING}
             style={{ transformOrigin: "bottom center", willChange: "transform" }}
-            className="glass-card backdrop-blur-2xl backdrop-saturate-150 panel-rise pointer-events-auto relative w-[min(92vw,360px)] overflow-hidden rounded-2xl p-4 shadow-2xl"
+            data-panel={panel}
+            className="glass-card backdrop-blur-2xl backdrop-saturate-150 panel-rise cl-panel pointer-events-auto relative w-[min(92vw,360px)] overflow-hidden rounded-2xl p-4 shadow-2xl"
           >
           {/* 关闭按钮固定右上，不随内容重绘 */}
           <button
@@ -338,7 +342,7 @@ export default function Dock({
 
       <nav
         aria-label="快捷操作"
-        className="glass-pill backdrop-blur-2xl backdrop-saturate-150 dock-intro zen-dock fixed bottom-[max(1.25rem,env(safe-area-inset-bottom))] left-1/2 z-40 flex -translate-x-1/2 items-center gap-0.5 rounded-full p-1.5 shadow-lg"
+        className="glass-pill backdrop-blur-2xl backdrop-saturate-150 dock-intro zen-dock cl-dock fixed bottom-[max(1.25rem,env(safe-area-inset-bottom))] left-1/2 z-40 flex -translate-x-1/2 items-center gap-0.5 rounded-full p-1.5 shadow-lg"
       >
         {/* 天气 */}
         <DockButton

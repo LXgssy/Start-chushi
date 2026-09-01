@@ -12,10 +12,12 @@ import CommandPalette from "@/components/startpage/CommandPalette";
 import ZenPomodoro from "@/components/startpage/ZenPomodoro";
 import LinkDialog, { type LinkEditorState } from "@/components/startpage/LinkDialog";
 import PresetDialog, { type PresetDialogState } from "@/components/startpage/PresetDialog";
+import SandboxPage, { type ActivePage } from "@/components/startpage/SandboxPage";
 import {
   dockIcon,
   type InstalledPreset,
   type PresetAction,
+  type PresetLayout,
   type PresetPayload,
 } from "@/lib/startpage/preset";
 import {
@@ -50,9 +52,12 @@ const KEYS = {
   sandboxFrozen: "start:sandbox-frozen",
 };
 
-/** 预设 action 中 script 类型的 id 展开为本预设内复合键（运行时再由桥路由到命令/入口） */
+/** 预设 action 中 script / page 类型的 id 展开为本预设内复合键（运行时再由桥/overlay 路由） */
 function resolvePresetAction(a: PresetAction, presetId: string): PresetAction {
-  return a.type === "script" ? { type: "script", id: `${presetId}:${a.id}` } : a;
+  if (a.type === "script" || a.type === "page") {
+    return { type: a.type, id: `${presetId}:${a.id}` } as PresetAction;
+  }
+  return a;
 }
 
 const DEFAULT_LINKS: StartLink[] = [
@@ -97,6 +102,8 @@ export default function Home() {
   const [weather, setWeather] = useState<WeatherState>(INITIAL_WEATHER);
   const [isDark, setIsDark] = useState(true);
   const [zen, setZen] = useState(false);
+  /** 正在展示的预设自定义页面（沙箱 overlay） */
+  const [activePage, setActivePage] = useState<ActivePage | null>(null);
 
   /* ---------- 沙箱 JS（高阶模式）状态：冻结标记持久化 + 运行时注册的命令 */
   const [frozenScripts, setFrozenScripts] = useState<Record<string, boolean>>(() =>
@@ -149,6 +156,41 @@ export default function Home() {
     if (!mounted) return;
     document.documentElement.style.setProperty("--ui-accent", settings.accent);
   }, [mounted, settings.accent]);
+
+  /* ---------- 预设自定义 CSS（animations 字段，导入时已净化）----------
+     单一 <style> 承载全部已装预设的样式，安装顺序即优先级；
+     删除预设即整体重算，无残留 */
+  const presetCss = useMemo(
+    () =>
+      presets
+        .flatMap((p) => (p.raw.animations ?? []).map((a) => `/* ${p.name} · ${a.name ?? a.id} */\n${a.css}`))
+        .join("\n"),
+    [presets]
+  );
+  useEffect(() => {
+    if (!mounted) return;
+    let el = document.getElementById("chushi-preset-css") as HTMLStyleElement | null;
+    if (!presetCss) {
+      el?.remove();
+      return;
+    }
+    if (!el) {
+      el = document.createElement("style");
+      el.id = "chushi-preset-css";
+      document.head.appendChild(el);
+    }
+    el.textContent = presetCss;
+  }, [mounted, presetCss]);
+
+  /* ---------- 预设布局覆写派生：安装顺序后者胜，删除预设即还原 ---------- */
+  const layout = useMemo<PresetLayout>(() => {
+    const merged: PresetLayout = {};
+    for (const p of presets) {
+      const l = p.raw.layout;
+      if (l) Object.assign(merged, l);
+    }
+    return merged;
+  }, [presets]);
 
   /* ---------- 旧版本设置字段迁移（缺失字段补默认值） ---------- */
   useEffect(() => {
@@ -322,6 +364,8 @@ export default function Home() {
         return;
       }
       if (e.key === "Escape") {
+        /* 自定义页面 overlay 自带 Esc 关闭，全局避让防双关 */
+        if (activePage != null) return;
         if (paletteOpen) {
           setPaletteOpen(false);
           return;
@@ -353,7 +397,7 @@ export default function Home() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [mounted, paletteOpen, editor.open, panel, zen]);
+  }, [mounted, paletteOpen, editor.open, panel, zen, activePage]);
 
   /* ---------- 首次访问提示 ---------- */
   useEffect(() => {
@@ -478,9 +522,20 @@ export default function Home() {
       }
       /* 设置白名单字段一次性合并（用户可再改） */
       if (payload.settings) patchSettings(payload.settings);
+      const extras = [
+        payload.scripts?.length ? `${payload.scripts.length} 个脚本` : null,
+        payload.animations?.length ? `${payload.animations.length} 段样式` : null,
+        payload.pages?.length ? `${payload.pages.length} 个页面` : null,
+        payload.layout ? "布局覆写" : null,
+      ].filter(Boolean);
       toast({
         title: `预设「${payload.name}」已安装`,
-        description: `新增 ${payload.commands.length} 条命令、${payload.dock.length} 个栏按钮、${payload.links.length} 个磁贴`,
+        description: [
+          `新增 ${payload.commands.length} 条命令、${payload.dock.length} 个栏按钮、${payload.links.length} 个磁贴`,
+          extras.length > 0 ? extras.join(" · ") : null,
+        ]
+          .filter(Boolean)
+          .join("；"),
       });
     },
     [setPresets, setLinks, patchSettings, toast]
@@ -674,9 +729,24 @@ export default function Home() {
           }
           break;
         }
+        case "page": {
+          /* id = `${presetId}:${pageId}`，从已装预设找回页面 HTML */
+          const sep = a.id.indexOf(":");
+          const presetId = sep > 0 ? a.id.slice(0, sep) : "";
+          const pageId = sep > 0 ? a.id.slice(sep + 1) : "";
+          const pg = presets
+            .find((p) => p.id === presetId)
+            ?.raw.pages?.find((x) => x.id === pageId);
+          if (!pg) {
+            toast({ title: "页面不存在", description: "预设可能已更新或删除，重新导入可恢复" });
+            break;
+          }
+          setActivePage({ key: a.id, name: pg.name ?? pageId, html: pg.html });
+          break;
+        }
       }
     },
-    [runSearch, patchSettings, toast]
+    [runSearch, patchSettings, toast, presets]
   );
 
   const openPresetDialog = useCallback((tab: "import" | "manage") => {
@@ -684,6 +754,16 @@ export default function Home() {
   }, []);
   const closePresetDialog = useCallback(() => {
     setPresetDialog((s) => ({ ...s, open: false }));
+  }, []);
+
+  /* ---------- 自定义页面 overlay 稳定回调 ---------- */
+  const closePage = useCallback(() => setActivePage(null), []);
+  const notifyFromPage = useCallback(
+    (title: string, description?: string) => toast({ title, description }),
+    [toast]
+  );
+  const openUrlFromPage = useCallback((url: string) => {
+    window.location.href = url;
   }, []);
 
   /* ---------- 链接保存 / 删除 ---------- */
@@ -726,31 +806,42 @@ export default function Home() {
           此包裹层绝不动画 opacity/filter——祖先 opacity<1 / filter≠none 会成为 backdrop root，
           令内部磨砂玻璃整体失效直至动画结束才瞬跳恢复（v21 前 reload/禅切换的病根） */}
       <div style={{ pointerEvents: zen ? ("none" as const) : undefined }}>
-      {/* 主内容 */}
-      <main className="relative z-10 mx-auto flex min-h-dvh w-full max-w-4xl flex-col items-center justify-center px-6 pt-[max(2.5rem,8vh)] pb-44">
+      {/* 主内容：布局覆写（layout）在此生效——隐藏区块 / 垂直对齐 / 时钟缩放 / 磁贴列数；
+          zoom 用于时钟整体缩放（影响布局不重叠，Firefox 126+/Chromium/WebKit 均已标准化） */}
+      <main
+        className={`relative z-10 mx-auto flex min-h-dvh w-full max-w-4xl flex-col items-center ${
+          layout.verticalAlign === "top" ? "justify-start" : "justify-center"
+        } px-6 pt-[max(2.5rem,8vh)] pb-44`}
+      >
         <div className="flex flex-col items-center">
-          <section
-            className="intro-rise zen-fade"
-            style={{ animationDelay: "0.1s" }}
-            aria-label="时间与问候"
-          >
-            <Clock settings={settings} />
-          </section>
+          {!layout.hideClock && (
+            <section
+              className="intro-rise zen-fade"
+              style={{ animationDelay: "0.1s", zoom: layout.clockScale ?? 1 }}
+              aria-label="时间与问候"
+            >
+              <Clock settings={settings} />
+            </section>
+          )}
 
           {/* 搜索：入场上浮移至 .search-pill 自身（玻璃元素祖先禁止 opacity/filter 动画） */}
-          <section className="mt-[clamp(1.8rem,6vh,3.5rem)] w-full" aria-label="搜索">
-            <div className="flex justify-center">
-              <SearchBar settings={settings} onPatchSettings={patchSettings} />
-            </div>
-          </section>
+          {!layout.hideSearch && (
+            <section className="mt-[clamp(1.8rem,6vh,3.5rem)] w-full" aria-label="搜索">
+              <div className="flex justify-center">
+                <SearchBar settings={settings} onPatchSettings={patchSettings} />
+              </div>
+            </section>
+          )}
 
-          <section
-            className="intro-rise zen-fade mt-[clamp(2rem,8vh,4.5rem)] w-full"
-            style={{ animationDelay: "0.38s" }}
-            aria-label="快捷链接"
-          >
-            <QuickLinks links={links} setLinks={setLinks} iconStyle={settings.iconStyle} />
-          </section>
+          {!layout.hideLinks && (
+            <section
+              className="intro-rise zen-fade mt-[clamp(2rem,8vh,4.5rem)] w-full"
+              style={{ animationDelay: "0.38s" }}
+              aria-label="快捷链接"
+            >
+              <QuickLinks links={links} setLinks={setLinks} iconStyle={settings.iconStyle} columns={layout.linksColumns} />
+            </section>
+          )}
         </div>
       </main>
 
@@ -825,6 +916,14 @@ export default function Home() {
         presets={presets}
         onInstall={installPreset}
         onRemove={removePreset}
+      />
+
+      {/* 自定义页面 overlay（沙箱隔离，见 SandboxPage / sandbox.js pageMode） */}
+      <SandboxPage
+        page={activePage}
+        onClose={closePage}
+        onNotify={notifyFromPage}
+        onOpenUrl={openUrlFromPage}
       />
 
       {/* 链接编辑对话框 */}

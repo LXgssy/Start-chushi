@@ -234,10 +234,14 @@ function QuickLinks({
   links,
   setLinks,
   iconStyle,
+  columns,
 }: {
   links: StartLink[];
   setLinks: (updater: (prev: StartLink[]) => StartLink[]) => void;
   iconStyle: IconStyle;
+  /** 预设 layout.linksColumns：限制每行磁贴数（磁贴 5rem + 间距 1rem + 容器内边距 2rem
+   *  → max-width = 6N+1 rem，border-box 下正好容纳 N 列；未设时保持默认宽度） */
+  columns?: number;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const dragFrom = useRef<number | null>(null);
@@ -296,8 +300,11 @@ function QuickLinks({
   }
 
   return (
-    <div ref={rootRef} className="flex flex-col items-center">
-      <div className="flex max-w-[680px] flex-wrap items-start justify-center gap-x-4 gap-y-6 px-4">
+    <div ref={rootRef} className="cl-links flex flex-col items-center">
+      <div
+        className="flex max-w-[680px] flex-wrap items-start justify-center gap-x-4 gap-y-6 px-4"
+        style={columns ? { maxWidth: `${6 * columns + 1}rem` } : undefined}
+      >
         <AnimatePresence mode="popLayout">
           {links.map((l, i) => (
             <Tile

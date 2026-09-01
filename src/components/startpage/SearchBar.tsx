@@ -149,7 +149,7 @@ function SearchBar({
   const showDrop = suggestOn && focused && sugs.length > 0;
 
   return (
-    <div className="relative w-[min(92vw,580px)]">
+    <div className="cl-search relative w-[min(92vw,580px)]">
       {/* 操作提示（建议开启时置于搜索框上方，与下拉的展开方向对称） */}
       {suggestOn && (
         <div className="pointer-events-none mb-3 flex h-4 justify-center">
