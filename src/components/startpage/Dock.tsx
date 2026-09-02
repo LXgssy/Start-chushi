@@ -171,14 +171,18 @@ const PanelStage = memo(function PanelStage({
             exit={{ height: 0, transition: { duration: 0.22, ease: EXIT_EASE } }}
             transition={SPRING}
           >
-          <AnimatePresence initial={false}>
+          {/* 视图互切：新视图 .content-focus 模糊聚拢、旧视图 .view-exit 钉位模糊散场。
+              不加 initial={false}——首次挂载（面板打开）也要让内容模糊聚拢进来，
+              与「开=容器拉伸 + 内容模糊聚拢」的语言一致（CSS 动画，无挂载帧 setState） */}
+          <AnimatePresence>
             <PresenceClass
               key={panel}
               ref={measureRef}
-              /* 退场视觉走 CSS .view-exit（absolute 钉位 + 淡出）；卸载由 PresenceClass 定时器接管 */
+              /* 退场视觉走 CSS .view-exit（absolute 钉位 + 模糊散场）；卸载由 PresenceClass 定时器接管。
+                 关闭路径不走本类：卡片 .panel-sink 级联令 .content-focus 模糊散场（globals.css） */
               exitClass="view-exit"
               duration={0.2}
-              className="flow-root panel-rise"
+              className="flow-root content-focus"
             >
               <header className="mb-3 flex items-center justify-between px-1 pr-7">
                 <h2 className="text-xs font-normal tracking-[0.22em] text-zinc-500 dark:text-zinc-400">

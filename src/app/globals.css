@@ -548,6 +548,38 @@ html.photo-mode .dock-btn[data-active="true"] {
   }
 }
 
+/* ---------- 玻璃层进显影（v1.0.8）：遮罩/对话框卡片的 opacity 入场由 CSS 承载
+   （framer v12 WAAPI 入场空窗律，同 panel-fade）。⚠ 必须声明在本文件退场区之前：
+   退场帧元素同时持有显影类与退场类（同特异性后者胜），退场类在后才能覆盖显影 */
+@keyframes veil-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.veil-in {
+  animation: veil-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+@keyframes card-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.card-in {
+  animation: card-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .veil-in,
+  .card-in {
+    animation: none;
+  }
+}
+
 /* ---------- dock 面板/对话框退场：CSS 关键帧承载（与 .panel-rise 对称，勿还给 framer）。
    实测（v1.0.6）：退场 opacity 交由 framer 时，WAAPI 加速动画会在退出途中被
    取消并回跳到内联值 1（面板滞留约 0.5s 后瞬间消失，采样：op 0.50→1.000→卸载），
@@ -601,27 +633,83 @@ html.photo-mode .dock-btn[data-active="true"] {
     opacity: 0;
   }
 }
-/* 遮罩层退场淡出：0.25s（dock 遮罩）/ 0.28s（预设对话框背板） */
+/* 遮罩层退场淡出：0.25s（dock 遮罩/指令面板磨砂遮罩）/ 0.28s（预设对话框背板）。
+   ⚠ 声明顺序律：.veil-out 必须在 .veil-in 之后（退场帧两者同在元素上，后者胜） */
 .veil-out {
   animation: veil-fade 0.25s cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 .veil-out-slow {
   animation: veil-fade 0.28s cubic-bezier(0.4, 0, 1, 1) forwards;
 }
-/* 遮罩/容器入场淡入（复用 panel-fade 关键帧）：替代 framer WAAPI opacity 入场——
-   v12 对 opacity 走 WAAPI，内联值滞留初始 0、主线程补写滞后（空窗闪黑律）；
-   CSS 动画结束即自然回落级联值 1，零空窗 */
-.veil-in {
-  animation: panel-fade 0.25s ease-out backwards;
+@media (prefers-reduced-motion: reduce) {
+  .panel-sink,
+  .dialog-sink,
+  .overlay-sink,
+  .veil-out,
+  .veil-out-slow {
+    animation: none;
+    opacity: 0;
+  }
 }
-/* 视图交叉溶解退场：absolute 钉回内容盒原位 + 淡出（原 framer PANEL_EXIT/TAB_EXIT
-   的 position 钉位与 opacity 全部搬进 CSS，framer exit 只保留计时） */
-@keyframes view-dissolve {
+
+/* ================================================================
+   内容模糊语言（v1.0.8）：
+   面板骨架（卡片/遮罩）沿用「拉伸/淡切」语言，面板内容（子元素整体）
+   的开/关/互切过场一律走「模糊聚拢 / 模糊散场」——与 intro-rise、
+   禅模式雾化同源 blur(9-12px)，全 app 只有一种内容过场词汇。
+   ⚠ 动画结束后 filter 自然还原 none（backwards 只作用于延迟期），
+     不触碰「磨砂玻璃存活原则」；内容盒内部玻璃片段仅在 0.3s 过场内
+     短暂失霜，可接受（intro-rise 同律）。
+   ================================================================ */
+
+/* 内容进：模糊聚拢（开面板 / 面板互切的新视图） */
+@keyframes content-focus {
+  from {
+    opacity: 0;
+    filter: blur(10px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+.content-focus {
+  animation: content-focus 0.32s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+/* 内容退：模糊散场 —— 关闭路径由卡片退场类级联触发（旧视图已在卡片内，
+   不走自身退场类）：特异性 (0,2,0) > (0,1,0)，压过进行中的 content-focus。
+   覆盖全部三种卡片退场：dock 面板 .panel-sink / 对话框 .dialog-sink /
+   指令面板 Q 弹 .palette-out */
+@keyframes content-defocus {
   from {
     opacity: 1;
+    filter: blur(0);
   }
   to {
     opacity: 0;
+    filter: blur(9px);
+  }
+}
+.panel-sink .content-focus,
+.dialog-sink .content-focus,
+.palette-out .content-focus {
+  animation: content-defocus 0.16s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+/* 视图交叉溶解退场：absolute 钉回内容盒原位 + 模糊散场（v1.0.8 起内容过场
+   统一「模糊语言」，替代原纯淡出 view-dissolve；framer exit 只保留计时）。
+   ⚠ 声明顺序律：必须在 .content-focus 之后——互切退场帧旧视图同时持有两个
+   动画类（flow-root content-focus view-exit），同特异性后者胜，退场才不会被
+   入场动画覆盖 */
+@keyframes view-defocus {
+  from {
+    opacity: 1;
+    filter: blur(0);
+  }
+  to {
+    opacity: 0;
+    filter: blur(9px);
   }
 }
 .view-exit {
@@ -630,21 +718,54 @@ html.photo-mode .dock-btn[data-active="true"] {
   right: 0;
   top: 0;
   pointer-events: none;
-  animation: view-dissolve 0.2s cubic-bezier(0.4, 0, 1, 1) forwards;
+  animation: view-defocus 0.2s cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 @media (prefers-reduced-motion: reduce) {
-  .panel-sink,
-  .dialog-sink,
-  .overlay-sink,
-  .veil-out,
-  .veil-out-slow,
-  .veil-in,
+  .content-focus {
+    animation: none;
+  }
   .view-exit {
     animation: none;
     opacity: 0;
   }
-  .veil-in {
+  .panel-sink .content-focus,
+  .dialog-sink .content-focus {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+/* ================================================================
+   指令面板专属开合（仅 ⌘K，不进面板通用语言）：
+   开 = Q 弹弹簧（framer 弹簧驱动 y/scale 过冲回弹，ζ≈0.5）+ CSS 快速显影
+   （.veil-in / .card-in，见入场区）；关 = 微胀再收的 Q 弹关键帧
+   （30% 处 scale 1.016 轻轻一顶再收走）。
+   内容模糊过场不经专用包裹层：视图自带 .content-focus，关闭时经
+   .palette-out .content-focus 级联散场（见内容模糊语言区）。
+   ⚠ opacity 一律 CSS 承载（framer v12 WAAPI 入场空窗律，见 panel-fade 注）；
+     framer 对卡片只保留 y/scale 弹簧与计时职责，与 .panel-sink 同构。
+   ================================================================ */
+@keyframes palette-out-kf {
+  0% {
     opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-5px) scale(1.016);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-14px) scale(0.93);
+  }
+}
+.palette-out {
+  animation: palette-out-kf 0.26s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .palette-out {
+    animation: none;
+    opacity: 0;
   }
 }
 

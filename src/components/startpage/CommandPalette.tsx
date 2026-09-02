@@ -5,11 +5,19 @@
  * 用户在指令列表选择「导入预设 / 管理预设」时不再先关后开，而是同一张
  * glass-card 内做视图交叉溶解 + 高度弹簧——指令面板连续地「缩小成」预设
  * 系统面板（与 dock 面板切换同一套形变语言，见 use-morph-height）。
- * 动效与 dock PanelStage 同律：淡入淡出全走 CSS 关键帧（framer v12 对 opacity
- * 的 WAAPI 加速在真机上闪黑/退场回跳），高度弹簧走 framer 逐帧样式；
- * 卡片与遮罩均不携带 backdrop-filter（玻璃 + opacity 动画 = Chromium 闪烁
- * 经典组合，且逐帧 backdrop 重采样是掉帧主力；卡片底色 92% 不透明，
- * 磨砂本就不可见）。 */
+ *
+ * 开合语言（⌘K 专属 Q 弹，不进 dock 面板通用语言）：
+ *   开 = framer 弹簧驱动 y/scale 过冲回弹（ζ≈0.46，可见一次回弹）+ CSS .card-in 显影；
+ *   关 = CSS .palette-out 关键帧（30% 处 scale 1.016 轻轻一顶再收走）。
+ *   开/关全程不走 dock 的高度 0 拉伸——高度盒 initial=false 直就位，仅服务视图互切。
+ * 内容模糊语言：视图挂载即 .content-focus 模糊聚拢，互切退场 .view-exit 钉位模糊散场，
+ *   关闭时 .palette-out 级联 .content-focus 模糊散场（globals.css 内容模糊语言区）。
+ * 遮罩为磨砂模糊（backdrop-blur-2xl 与全 app 玻璃语言同源），非黑色遮罩；
+ * 卡片本体不带 backdrop-filter（玻璃×opacity 动画 = Chromium 闪烁经典组合，
+ * 且逐帧 backdrop 重采样是掉帧主力；glass-card 底色 92% 不透明，磨砂本就不可见）。
+ * opacity 一律 CSS 承载（framer v12 对 opacity 走 WAAPI 加速——入场空窗闪黑、
+ *   退场被取消回跳）；framer 对卡片只保留 y/scale 弹簧与计时职责。
+ */
 
 import { memo, useEffect, useRef, useState } from "react";
 import { Command } from "cmdk";
@@ -36,10 +44,9 @@ import { ENGINES, looksLikeUrl, toUrl } from "@/lib/startpage/engines";
 import type { InstalledPreset, PresetAction, PresetPayload } from "@/lib/startpage/preset";
 import type { StartLink } from "@/lib/startpage/types";
 
-const SPRING = { type: "spring" as const, stiffness: 460, damping: 38 };
-
-/* 退场加速曲线（与 globals.css 的 .dialog-sink/.veil-out-slow 同参） */
-const EXIT_EASE = [0.4, 0, 1, 1] as const;
+/* ⌘K 专属 Q 弹弹簧（过冲回弹），高度互切用重阻尼弹簧（不过冲，dock 同参） */
+const SPRING_CARD = { type: "spring" as const, stiffness: 480, damping: 19, mass: 0.9 };
+const SPRING_HEIGHT = { type: "spring" as const, stiffness: 460, damping: 38 };
 
 const ITEM_CLASS =
   "group flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm font-light text-zinc-600 outline-none transition-colors duration-150 data-[selected=true]:bg-zinc-900/[0.06] data-[selected=true]:text-zinc-900 dark:text-zinc-300 dark:data-[selected=true]:bg-white/10 dark:data-[selected=true]:text-zinc-50";
@@ -104,7 +111,7 @@ function PaletteInner({
 
   /* 挂载时聚焦输入框；卸载时有条件归还焦点（合并两代修复）：
      ① 仅当焦点仍在面板内（或已无焦点）才归还——若后续视图（如快捷链接编辑器）
-        已接管焦点，无条件还原会把它抢走，导致该视图键盘全部失效（远端 bb1e0d6 实测）；
+        已接管焦点，无条件还原会把它抢走，导致该视图键盘全部失效；
      ② 归还后若命中 :focus-visible（ESC/⌘K 键盘路径关闭后的程序化 focus 会被
         Chrome 判定为键盘聚焦），主动 blur —— 否则 tab 栏 ⌘K 出现蓝色聚焦框 */
   useEffect(() => {
@@ -138,14 +145,18 @@ function PaletteInner({
   const q = inputValue.trim();
 
   /* PaletteInner 仅在 open 时由外层 AnimatePresence 挂载，退出动画经 PresenceContext
-     传达给下方 PresenceClass 节点；不在此处再套 AnimatePresence（双层 presence 会让退出时机竞争） */
+     传达给下方 PresenceClass 节点；不在此处再套 AnimatePresence（双层 presence 会让退出时机竞争）。
+     遮罩：磨砂模糊（backdrop-blur-2xl + 极轻底色保对比），进 .veil-in / 出 .veil-out，
+     opacity 全程 CSS 承载（WAAPI 律）。⚠ globals.css 声明顺序律：.veil-in 必须在
+     .veil-out 之前——退场帧两者同在元素上，后者胜；若顺序颠倒，关闭时播放的是
+     淡入而非淡出（v1.0.8 线上实证：用户感知=「遮罩没有关闭动画」） */
   return (
     <PresenceClass
       key="palette-overlay"
       ref={overlayRef}
-      exitClass="veil-out-slow"
-      duration={0.28}
-      className="veil-in fixed inset-0 z-50 flex items-start justify-center bg-black/40 px-4 pt-[16vh]"
+      exitClass="veil-out"
+      duration={0.25}
+      className="veil-in fixed inset-0 z-50 flex items-start justify-center bg-white/20 px-4 pt-[16vh] backdrop-blur-2xl backdrop-saturate-150 dark:bg-black/20"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -153,12 +164,19 @@ function PaletteInner({
       aria-modal="true"
       aria-label="指令面板"
     >
+      {/* 卡片：Q 弹弹簧只驱动 y/scale（origin top center，自输入行展开）；
+          显影交给 .card-in，退场交给 .palette-out（30% 处微胀再收）。
+          遮罩 0.25s / 卡片 0.26s：两个 PresenceClass 共享同一退出 PresenceContext，
+          最先到点的 safeToRemove（+150ms 余量）在 400ms 触发整体卸载，
+          两条 CSS 退场（250/260ms）均已播完 */}
       <PresenceClass
-        exitClass="dialog-sink"
-        /* 卡片 timer 对齐遮罩 0.28s：两个 PresenceClass 共享同一退出 PresenceContext，
-           最先到点的 safeToRemove 触发整体卸载——短了会截断遮罩 .veil-out-slow 淡出 */
-        duration={0.28}
-        className="glass-card panel-rise w-full max-w-[560px] overflow-hidden rounded-2xl shadow-2xl"
+        initial={reduceMotion ? false : { y: -20, scale: 0.88 }}
+        animate={{ y: 0, scale: 1 }}
+        transition={SPRING_CARD}
+        exitClass="palette-out"
+        duration={0.26}
+        style={{ transformOrigin: "top center", willChange: "transform" }}
+        className="card-in glass-card w-full max-w-[560px] overflow-hidden rounded-2xl shadow-2xl"
         onKeyDown={(e) => {
           if (e.key === "Escape") {
             e.stopPropagation();
@@ -166,23 +184,27 @@ function PaletteInner({
           }
         }}
       >
-        {/* 高度盒：打开从 0 展开 / 视图切换（指令列表⇄预设系统）px 弹簧 / 关闭折回 0 */}
+        {/* 高度盒：仅服务「指令列表 ⇄ 预设系统」视图互切的 px 弹簧（⌘K 开/关不走
+            高度 0 拉伸——那是 dock 面板的语言；⌘K 专属 Q 弹见文件头注）。
+            contain:layout 把弹簧逐帧 reflow 的失效范围圈在本盒内部 */}
         <motion.div
           className="relative"
           style={{ contain: "layout" }}
-          initial={reduceMotion ? false : { height: 0 }}
+          initial={false}
           animate={{ height: contentH == null ? "auto" : contentH }}
-          exit={{ height: 0, transition: { duration: 0.2, ease: EXIT_EASE } }}
-          transition={SPRING}
+          transition={SPRING_HEIGHT}
         >
-          <AnimatePresence initial={false}>
+          {/* 视图互切：新视图 .content-focus 模糊聚拢、旧视图 .view-exit 钉位模糊散场。
+              不加 initial={false}——首次挂载（面板打开）也要让指令列表模糊聚拢进来，
+              与「开=内容模糊聚拢」的语言一致 */}
+          <AnimatePresence>
             {presetView == null ? (
               <PresenceClass
                 key="cmds"
                 ref={measureRef}
                 exitClass="view-exit"
                 duration={0.2}
-                className="flow-root panel-rise"
+                className="flow-root content-focus"
               >
                 <Command label="指令面板" loop shouldFilter>
                   <div className="flex items-center gap-2 border-b border-zinc-900/5 px-4 dark:border-white/5">
@@ -327,7 +349,7 @@ function PaletteInner({
                 ref={measureRef}
                 exitClass="view-exit"
                 duration={0.2}
-                className="flow-root panel-rise"
+                className="flow-root content-focus"
               >
                 <PresetPanel
                   tab={presetView}
