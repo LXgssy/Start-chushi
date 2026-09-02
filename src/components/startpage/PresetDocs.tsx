@@ -11,10 +11,11 @@
  *   不得穿透到 ⌘K 全局链把指令面板一起关掉（v1.1.1 律）。
  */
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence } from "framer-motion";
 import { PresenceClass } from "./PresenceClass";
-import { X } from "lucide-react";
+import { ArrowLeft, X } from "lucide-react";
 
 /* ---------- 排版辅助（紧凑文档字号，与 ⌘K 面板字号语言一致） ---------- */
 
@@ -134,6 +135,18 @@ export default function PresetDocs({
   open: boolean;
   onClose: () => void;
 }) {
+  /* portal 挂载点：v1.1.1 时本文档嵌在 ⌘K 卡片 DOM 里——⌘K 卡是带
+   * will-change:transform + overflow-hidden 的 motion 盒，fixed inset-0 被
+   * 当成该盒的包含块且被裁剪，文档大面积被遮挡（用户实测）。portal 到
+   * body 后彻底逃出形变舞台的堆叠/裁剪上下文，同时也是右键菜单
+   * 「开发者文档」入口（⌘K 关闭时）的挂载形态。
+   * 惰性初始化（非 effect + setState，react-hooks 律）：SSR 渲染期
+   * document 不存在 → null（组件渲染空）；客户端首渲染即拿到 body。
+   * open=false 时 portal 内无任何 DOM 节点，水合零差异。 */
+  const [host] = useState<HTMLElement | null>(() =>
+    typeof document === "undefined" ? null : document.body
+  );
+
   /* Esc 捕获拦截：文档开着时 Esc 只关文档，不穿透 ⌘K 全局链 */
   useEffect(() => {
     if (!open) return;
@@ -148,7 +161,8 @@ export default function PresetDocs({
     return () => window.removeEventListener("keydown", onKey, true);
   }, [open, onClose]);
 
-  return (
+  if (!host) return null;
+  return createPortal(
     <AnimatePresence>
       {open && (
         <PresenceClass
@@ -168,13 +182,21 @@ export default function PresetDocs({
             duration={0.2}
             className="card-in glass-card slim-scroll flex max-h-[86dvh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl shadow-2xl"
           >
-            {/* 顶栏 */}
+            {/* 顶栏：返回上一级（回导入预设 / 主页面）+ 关闭 */}
             <div className="flex items-center gap-2 border-b border-zinc-900/5 px-5 py-3 dark:border-white/5">
+              <button
+                type="button"
+                onClick={onClose}
+                className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-light text-zinc-500 transition-colors duration-150 hover:bg-zinc-900/5 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-100"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" strokeWidth={1.5} />
+                返回上一级
+              </button>
               <p className="text-sm font-light tracking-wide text-zinc-800 dark:text-zinc-100">
                 预设开发文档
               </p>
               <p className="hidden text-[10px] font-extralight tracking-wider text-zinc-400 dark:text-zinc-500 sm:inline">
-                适用于预设系统 2.0 · v1.1.1
+                适用于预设系统 2.0
               </p>
               <button
                 type="button"
@@ -344,15 +366,17 @@ export default function PresetDocs({
                 <T
                   head={["参数", "范围（缺省）", "说明"]}
                   rows={[
-                    [<K>refraction</K>, "0–1.5（0.6）", "边缘折射位移上限系数，越大弯曲越明显"],
+                    [<K>refraction</K>, "0–1.5（0.75）", "边缘折射位移上限系数，越大弯曲越明显"],
                     [<K>bezel</K>, "0.2–0.7（0.5）", "边缘折射区占比，越大弯曲带越宽"],
-                    [<K>blur</K>, "0–20 px（6）", "折射层叠加的背景模糊"],
-                    [<K>saturation</K>, "80–300%（170）", "折射层叠加的色彩饱和"],
+                    [<K>blur</K>, "0–20 px（3）", "折射层叠加的背景模糊（模糊在后、折射在先，弯曲保持锐利）"],
+                    [<K>saturation</K>, "80–300%（180）", "折射层叠加的色彩饱和"],
                   ]}
                 />
                 <P>
-                  实现基于 SVG feDisplacementMap 位移折射，目前仅 Chromium 系浏览器支持；其它浏览器
-                  自动保持磨砂现状（降级安全）。示例：<Code>{`"effects": { "glass": { "refraction": 0.6, "bezel": 0.5, "blur": 6, "saturation": 170 } }`}</Code>
+                  激活后宿主会自动把玻璃底色调透（磨砂下的高不透明度会把弯曲全部洗掉），
+                  并叠加边缘高光与镜面高光，让折射透过玻璃体可见。实现基于 SVG feDisplacementMap
+                  位移折射，目前仅 Chromium 系浏览器支持；其它浏览器自动保持磨砂现状（降级安全）。
+                  示例：<Code>{`"effects": { "glass": { "refraction": 0.75, "bezel": 0.5, "blur": 3, "saturation": 180 } }`}</Code>
                 </P>
               </Sec>
 
@@ -511,6 +535,7 @@ export default function PresetDocs({
           </PresenceClass>
         </PresenceClass>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    host
   );
 }

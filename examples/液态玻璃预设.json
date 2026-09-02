@@ -5,10 +5,10 @@
   "description": "全站磨砂玻璃切换为液态玻璃：背景折射、边缘透镜弯曲、镜面高光",
   "effects": {
     "glass": {
-      "refraction": 0.6,
+      "refraction": 0.75,
       "bezel": 0.5,
-      "blur": 6,
-      "saturation": 170
+      "blur": 3,
+      "saturation": 180
     }
   },
   "commands": [

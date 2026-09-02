@@ -770,6 +770,52 @@ html.photo-mode .dock-btn[data-active="true"] {
 }
 
 /* ================================================================
+   右键菜单专属开合（v1.1.2）：「从鼠标点长出来」
+   开 = 以鼠标点为原点回弹放大（scale 0.4→1，back-out 过冲即 Q 弹；
+     transformOrigin 由组件按翻转方向内联设定：右下展开→top left、
+     左下→top right、右上→bottom left、左上→bottom right）；
+   关 = 向原点缩回淡出。
+   ⚠ 声明顺序律：.ctx-out 必须在 .ctx-in 之后——退场帧两动画类同在
+     元素上（ctx-in glass-card … ctx-out），同特异性后者胜。
+   ⚠ 菜单自身是玻璃元素：opacity/transform 自承载不违反磨砂玻璃
+     存活原则（只禁玻璃元素的祖先携带）。 */
+@keyframes ctx-in-kf {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+.ctx-in {
+  animation: ctx-in-kf 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+}
+@keyframes ctx-out-kf {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+}
+.ctx-out {
+  animation: ctx-out-kf 0.12s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ctx-in {
+    animation: none;
+  }
+  .ctx-out {
+    animation: none;
+    opacity: 0;
+  }
+}
+
+/* ================================================================
    磨砂玻璃存活原则（v22 病根根治）：
    祖先元素 opacity<1 或 filter≠none 会成为 backdrop root，
    令后代 backdrop-filter 采样不到壁纸——磨砂整体失效，
@@ -890,10 +936,11 @@ html .zen-pomo[data-tone="on-light"] {
 
 /* ================================================================
    液态玻璃（html.liquid-glass，v1.1.0 预设 effects.glass 声明驱动）
-   折射本体由引擎（liquid-glass.ts）内联 backdrop-filter: url(#filter)
+   折射本体由引擎（liquid-glass.ts）内联 backdrop-filter: blur() url(#filter)
    承载；此处只做配套材质：
-   ① 卡片玻璃底调透（glass-card 原 92–94% 不透明，磨砂/折射均不可见，
-      液态下调至 ~62% 让位移折射可见；面板文字对比度由高光与阴影补偿）
+   ① 卡片玻璃底调透（v1.1.2：原 0.62/0.66 把折射全部洗掉——用户实测
+      「折射不在玻璃里」；降至 0.40/0.48 让位移弯曲透过玻璃体可见，
+      面板文字对比度由 saturate 提鲜与高光阴影补偿）
    ② 边缘高光（::before 多层 inset shadow，模拟玻璃厚度反光）——
       用伪层而非覆写 box-shadow，避免砸掉各元素的投影（shadow-2xl 等）
    ③ 镜面高光（::after 跟随 --lg-mx/--lg-my 的 radial gradient，
@@ -903,10 +950,10 @@ html .zen-pomo[data-tone="on-light"] {
    ⚠ 声明顺序：本区块置于文件末尾，html.liquid-glass 前缀特异性压过
       .glass-pill/.glass-card 的主题默认底色，删除类名即整体还原。 */
 html.liquid-glass .glass-card {
-  background: rgb(252 251 248 / 0.62);
+  background: rgb(252 251 248 / 0.4);
 }
 html.liquid-glass.dark .glass-card {
-  background: rgb(22 22 27 / 0.66);
+  background: rgb(22 22 27 / 0.48);
 }
 /* 伪层宿主：search-pill(absolute)/cl-dock(fixed)/cl-panel(relative) 自带定位，
    ⚠ 绝不可对它们设 position（曾把 fixed dock 打回文档流出视口）——
@@ -971,8 +1018,8 @@ html.liquid-glass .glass-card:hover::after {
 }
 /* 液态下 glass-pill 底色随液体薄透（搜索药丸/dock 与折射叠色更自然） */
 html.liquid-glass .glass-pill {
-  background: rgb(255 255 255 / 0.38);
+  background: rgb(255 255 255 / 0.24);
 }
 html.liquid-glass.dark .glass-pill {
-  background: rgb(255 255 255 / 0.05);
+  background: rgb(255 255 255 / 0.04);
 }
