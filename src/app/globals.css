@@ -553,45 +553,63 @@ html.photo-mode .dock-btn[data-active="true"] {
    取消并回跳到内联值 1（面板滞留约 0.5s 后瞬间消失，采样：op 0.50→1.000→卸载），
    视觉上等于没有关闭动画。退场视觉一律改走 CSS：animation 的级联优先级高于
    内联值，WAAPI 被取消与否都不影响表现；framer 的 exit 仅保留 0.2s 计时职责
-   （到点卸载），时长与 CSS 严格一致 */
+   （到点卸载），时长与 CSS 严格一致。
+   ⚠ v1.0.8 新戒律（真机实测教训）：backdrop-filter 玻璃元素上禁止 transform 动画
+   —— transform 每帧改 border-box，模糊采样区逐帧重算（掉帧），且 Chromium 对
+   玻璃元素的 transform 动画存在 backdrop 未合成完就闪底的帧（真机持续闪烁）。
+   玻璃元素只允许：opacity（本处 CSS 承载）+ 高度形变（弹簧/transition）。
+   退场 = 纯淡出 + 高度塌缩（.panel-hbox），与入场拉伸对称；运动感全部来自
+   高度本身的收缩，不再需要 translateY/scale 补动作 */
 @keyframes panel-sink {
   from {
     opacity: 1;
-    transform: translateY(0) scale(1);
   }
   to {
     opacity: 0;
-    transform: translateY(10px) scale(0.97);
   }
 }
 .panel-sink {
-  animation: panel-sink 0.22s cubic-bezier(0.4, 0, 1, 1) forwards;
+  animation: panel-sink 0.26s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+/* 关闭对称拉伸：高度盒塌缩回 dock（打开是 0→内容高弹簧，关闭是内容高→0）。
+   !important 压过 framer 内联高度——弹簧中途关闭也直接接管，无竞争帧；
+   transition 起点 = 类生效瞬间的当前计算值（中途关闭则从中间高度收） */
+.panel-sink .panel-hbox {
+  height: 0 !important;
+  transition: height 0.26s cubic-bezier(0.22, 1, 0.36, 1);
 }
 @keyframes dialog-sink {
   from {
     opacity: 1;
-    transform: translateY(0) scale(1);
   }
   to {
     opacity: 0;
-    transform: translateY(-12px) scale(0.97);
   }
 }
 .dialog-sink {
   animation: dialog-sink 0.2s cubic-bezier(0.4, 0, 1, 1) forwards;
 }
+/* 对话框高度盒同步塌缩（顶部锚定 → 向上收拢），0.2s 与淡出同速 */
+.dialog-sink .panel-hbox {
+  height: 0 !important;
+  transition: height 0.2s cubic-bezier(0.4, 0, 1, 1);
+}
 @keyframes overlay-sink {
   from {
     opacity: 1;
-    transform: scale(1);
   }
   to {
     opacity: 0;
-    transform: scale(0.985);
   }
 }
 .overlay-sink {
   animation: overlay-sink 0.22s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+/* 遮罩/容器入场淡入（复用 panel-fade 关键帧）：替代 framer WAAPI opacity 入场
+   —— v12 对 opacity 走 WAAPI，内联值滞留初始 0、主线程补写滞后，全屏
+   backdrop-blur 遮罩上尤其昂贵；CSS 动画结束即自然回落级联值 1，零空窗 */
+.veil-in {
+  animation: panel-fade 0.25s ease-out backwards;
 }
 @keyframes veil-fade {
   from {
@@ -632,9 +650,18 @@ html.photo-mode .dock-btn[data-active="true"] {
   .overlay-sink,
   .veil-out,
   .veil-out-slow,
+  .veil-in,
   .view-exit {
     animation: none;
     opacity: 0;
+  }
+  .veil-in {
+    opacity: 1;
+  }
+  /* 塌缩瞬完成（全局 transition-duration 0.01ms 已兜底，此处显式声明高度终点） */
+  .panel-sink .panel-hbox,
+  .dialog-sink .panel-hbox {
+    height: 0 !important;
   }
 }
 

@@ -55,9 +55,15 @@ const SPRING = { type: "spring" as const, stiffness: 420, damping: 34 };
 /** 面板切换 = 单动作平滑形变：旧内容原地淡出 + 卡片高度弹簧到新内容高度 + 新内容淡入，
  *  三者重叠为一个连续动作（无先关后开、无两次动画）。
  *  退出面板绝对定位钉回内容盒原位（inset 0），在高度形变期间与新面板重叠溶解。
+ *  ⚠ v1.0.8 统一「拉伸」语言：打开 = 高度 0→内容高弹簧（首开/重开与互切同一语言），
+ *    关闭 = 高度→0 塌缩（.panel-sink .panel-hbox，CSS transition）+ 淡出。
  *  ⚠ 入场/退场淡入淡出均不在 framer 内（移交 .panel-rise / .panel-sink 等 CSS 关键帧，见 globals.css）：
  *    framer v12 对 opacity 走 WAAPI 加速，入场空窗期真机整板闪黑，退场中途被取消
- *    回跳 1 等于没有关闭动画。framer 的 initial/exit 仅保留 y/scale 与计时职责 */
+ *    回跳 1 等于没有关闭动画。framer 仅保留高度弹簧与计时职责。
+ *  ⚠ 玻璃卡上禁 transform 动画（v1.0.8 戒律）：transform 每帧改 border-box →
+ *    backdrop 采样区逐帧重算（掉帧），且 Chromium 对 backdrop-filter 元素的
+ *    transform 动画存在未合成完闪底的帧（真机「一直闪」的根源）——
+ *    原 y/scale 入场与 .panel-sink 的 translateY/scale 已全部移除 */
 
 const PANEL_TITLES: Record<Exclude<PanelId, null>, string> = {
   weather: "天气",
@@ -110,10 +116,9 @@ const PanelStage = memo(function PanelStage({
      改为测量内容高度 + 高度 px 弹簧（reflow 形变），内容全程零畸变，视觉上只是
      「容器平滑地变成另一个面板的尺寸」。ResizeObserver 同时兜底面板内部高度变化
      （待办增删、天气加载、设置分区展开），同样平滑跟随。
-     ⚠ 首开路径（contentH 为 null）禁止在挂载帧回写：同步 setState 构成 Dock 顶部
-     ⚠ 所述「挂载后一帧内的二次渲染」，真机上叠加 v12 投影重测可打断入场。
-     推迟到入场结束（≈0.5s）后武装测高，期间高度盒 auto 直就位（视觉无差异）；
-     切换路径（contentH 已有值）立即测高，高度形变不受影响 */
+     ⚠ 首开拉伸不需要测高：高度盒 initial height 0 + animate 目标 auto（framer 自动
+     测量），挂载帧零 setState；首开 arming（≈0.5s）后回写的 contentH 与 auto 解析值
+     相同，无跳变。切换路径（contentH 已有值）立即测高，高度形变不受影响 */
   const [contentH, setContentH] = useState<number | null>(null);
   /* 镜像到 ref 供稳定的 measureRef 回调读取（渲染期直接写 ref 违反 React Compiler 规则；
      effect 时序依然正确：commit 阶段的 ref 回调读到的永远是上一次提交后的值） */
@@ -175,13 +180,10 @@ const PanelStage = memo(function PanelStage({
             key="dock-panel"
             role="dialog"
             aria-label={`${PANEL_TITLES[panel]}面板`}
-            initial={{ y: 14, scale: 0.96 }}
-            animate={{ y: 0, scale: 1 }}
-            transition={SPRING}
-            style={{ transformOrigin: "bottom center", willChange: "transform" }}
             data-panel={panel}
             exitClass="panel-sink"
-            className="glass-card backdrop-blur-2xl backdrop-saturate-150 panel-rise cl-panel pointer-events-auto relative w-[min(92vw,360px)] overflow-hidden rounded-2xl p-4 shadow-2xl"
+            duration={0.26}
+            className="glass-card backdrop-blur-xl backdrop-saturate-150 panel-rise cl-panel pointer-events-auto relative w-[min(92vw,360px)] overflow-hidden rounded-2xl p-4 shadow-2xl"
           >
           {/* 关闭按钮固定右上，不随内容重绘 */}
           <button
@@ -200,14 +202,15 @@ const PanelStage = memo(function PanelStage({
             </svg>
           </button>
 
-          {/* 高度盒：高度 px 弹簧（无 layout scale），内容溢出由卡片 overflow-hidden 裁剪；
-              首开 contentH 为 null → height auto 直接就位，不参与入场动画。
+          {/* 高度盒（panel-hbox）：高度 px 弹簧（无 layout scale），内容溢出由卡片 overflow-hidden 裁剪；
+              initial height 0 → 每次打开（首开/重开）都从 dock 拔起拉伸到内容高，与互切同语言；
+              关闭时 .panel-sink .panel-hbox 用 CSS transition 塌缩回 0（对称）。
               contain:layout 把弹簧逐帧 reflow 的失效范围圈在本盒内部，
               不再波及卡片以外任何布局（帧预算从整页降到面板盒） */}
           <motion.div
-            className="relative"
+            className="panel-hbox relative"
             style={{ contain: "layout" }}
-            initial={false}
+            initial={{ height: 0 }}
             animate={{ height: contentH == null ? "auto" : contentH }}
             transition={SPRING}
           >
@@ -297,9 +300,8 @@ export default function Dock({
   const pomoRunning = useSyncExternalStore(subscribePomo, getPomoRunning, () => false);
 
   /* 面板互切只有淡切一条路径，无需方向状态。
-     ⚠ 挂载后一帧内的二次渲染会让 framer-motion v12 layout 投影重测量并把卡片
-     transform 重置为 none（x/y/scale 全灭、面板失去居中），已用二分法实证——
-     任何面板相关状态都不可在挂载后再补一帧回写 */
+     ⚠ 挂载后一帧内的二次渲染会让 framer-motion v12 投影重测量（历史教训，
+     v1.0.6 二分法实证）；现架构首开拉伸走 auto 目标，挂载帧零 setState */
   function switchTo(p: PanelId) {
     setPanel(p);
   }
@@ -309,21 +311,15 @@ export default function Dock({
 
   return (
     <>
-      {/* 关闭遮罩：退场淡出走 CSS .veil-out（framer exit 仅计时） */}
-      <AnimatePresence>
-        {panel && (
-          <PresenceClass
-            key="dock-overlay"
-            exitClass="veil-out"
-            duration={0.25}
-            className="fixed inset-0 z-30"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            onClick={() => switchTo(null)}
-            aria-hidden
-          />
-        )}
-      </AnimatePresence>
+      {/* 关闭遮罩：纯点击捕获层（无视觉），不做任何动画——原 framer opacity 入场 +
+          veil-out 退场是隐形 div 上的纯 WAAPI 开销；卸载时机随 panel 状态即时切换 */}
+      {panel && (
+        <div
+          className="fixed inset-0 z-30"
+          onClick={() => switchTo(null)}
+          aria-hidden
+        />
+      )}
 
       <nav
         aria-label="快捷操作"

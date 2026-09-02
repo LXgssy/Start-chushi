@@ -113,12 +113,10 @@ function SandboxPage(props: {
           role="dialog"
           aria-modal="true"
           aria-label={`自定义页面：${props.page.name}`}
-          className="fixed inset-0 z-[70]"
-          initial={{ opacity: 0, scale: 0.985 }}
-          animate={{ opacity: 1, scale: 1, transition: { duration: 0.28, ease: "easeOut" } }}
-          /* 退场视觉走 CSS .overlay-sink；卸载由 PresenceClass 定时器接管（v12 WAAPI 退场取消回跳律） */
+          className="veil-in fixed inset-0 z-[70]"
+          /* 退场视觉走 CSS .overlay-sink（v1.0.8 起纯 opacity，无 scale）；卸载由
+             PresenceClass 定时器接管（v12 WAAPI 退场取消回跳律） */
           exitClass="overlay-sink"
-          style={{ transformOrigin: "center" }}
         >
           <iframe
             ref={frameRef}
