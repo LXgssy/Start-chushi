@@ -608,6 +608,12 @@ html.photo-mode .dock-btn[data-active="true"] {
 .veil-out-slow {
   animation: veil-fade 0.28s cubic-bezier(0.4, 0, 1, 1) forwards;
 }
+/* 遮罩/容器入场淡入（复用 panel-fade 关键帧）：替代 framer WAAPI opacity 入场——
+   v12 对 opacity 走 WAAPI，内联值滞留初始 0、主线程补写滞后（空窗闪黑律）；
+   CSS 动画结束即自然回落级联值 1，零空窗 */
+.veil-in {
+  animation: panel-fade 0.25s ease-out backwards;
+}
 /* 视图交叉溶解退场：absolute 钉回内容盒原位 + 淡出（原 framer PANEL_EXIT/TAB_EXIT
    的 position 钉位与 opacity 全部搬进 CSS，framer exit 只保留计时） */
 @keyframes view-dissolve {
@@ -632,9 +638,13 @@ html.photo-mode .dock-btn[data-active="true"] {
   .overlay-sink,
   .veil-out,
   .veil-out-slow,
+  .veil-in,
   .view-exit {
     animation: none;
     opacity: 0;
+  }
+  .veil-in {
+    opacity: 1;
   }
 }
 
