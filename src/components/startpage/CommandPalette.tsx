@@ -1,8 +1,9 @@
 "use client";
 
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { Command } from "cmdk";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence } from "framer-motion";
+import { PresenceClass } from "./PresenceClass";
 import {
   CheckSquare,
   CloudSun,
@@ -22,11 +23,10 @@ import { ENGINES, looksLikeUrl, toUrl } from "@/lib/startpage/engines";
 import type { PresetAction } from "@/lib/startpage/preset";
 import type { StartLink } from "@/lib/startpage/types";
 
-const SPRING = { type: "spring" as const, stiffness: 460, damping: 38 };
-
-/* 退出专用：入场用弹簧（有生命感），离场用加速曲线（干脆利落）。
-   卡片 0.2s 先走，遮罩 0.28s 后散——backdrop-blur 随不透明度渐隐而非卸载瞬跳（生硬感根源） */
-const EXIT_EASE = [0.4, 0, 1, 1] as const;
+/* 动效（v1.0.8 玻璃戒律）：遮罩与卡片入场淡入走 CSS .veil-in / .panel-rise（framer WAAPI
+   opacity 在全屏 backdrop-blur 遮罩上空窗且昂贵）；卡片退场 .dialog-sink 纯淡出（0.2s）先走，
+   遮罩 .veil-out-slow（0.28s）后散——两个 PresenceClass 共享同一退出 PresenceContext，
+   卸载由最先到点的 safeToRemove 触发，故卡片 timer 也对齐 0.28s，避免截断遮罩淡出 */
 
 const ITEM_CLASS =
   "group flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm font-light text-zinc-600 outline-none transition-colors duration-150 data-[selected=true]:bg-zinc-900/[0.06] data-[selected=true]:text-zinc-900 dark:text-zinc-300 dark:data-[selected=true]:bg-white/10 dark:data-[selected=true]:text-zinc-50";
@@ -75,16 +75,23 @@ function PaletteInner({
   openPresetDialog: (tab: "import" | "manage") => void;
 }) {
   const [inputValue, setInputValue] = useState("");
+  const overlayRef = useRef<HTMLDivElement | null>(null);
 
-  /* 挂载时聚焦输入框；卸载时归还焦点（无 setState） */
+  /* 挂载时聚焦输入框；卸载时归还焦点（仅当焦点仍在面板内时才归还——
+     若后续视图（如预设对话框）已接管焦点，无条件还原会把它抢走，
+     导致对话框内键盘/Esc 全部失效（v1.0.8 实测修复） */
   useEffect(() => {
+    const overlayEl = overlayRef.current;
     const prev = document.activeElement as HTMLElement | null;
     const t = setTimeout(() => {
       document.querySelector<HTMLInputElement>("[cmdk-input]")?.focus();
     }, 30);
     return () => {
       clearTimeout(t);
-      prev?.focus?.();
+      const stolen = overlayEl && document.activeElement && overlayEl.contains(document.activeElement);
+      if (stolen || !document.activeElement || document.activeElement === document.body) {
+        prev?.focus?.();
+      }
     };
   }, []);
 
@@ -96,14 +103,14 @@ function PaletteInner({
   const q = inputValue.trim();
 
   /* PaletteInner 仅在 open 时由外层 AnimatePresence 挂载，退出动画经 PresenceContext
-     传达给下方 motion 节点；不在此处再套 AnimatePresence（双层 presence 会让退出时机竞争） */
+     传达给下方两个 PresenceClass；不在此处再套 AnimatePresence（双层 presence 会让退出时机竞争） */
   return (
-    <motion.div
+    <PresenceClass
       key="palette-overlay"
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 px-4 pt-[16vh] backdrop-blur-[6px]"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1, transition: { duration: 0.25, ease: "easeOut" } }}
-      exit={{ opacity: 0, transition: { duration: 0.28, ease: "easeInOut" } }}
+      ref={overlayRef}
+      exitClass="veil-out-slow"
+      duration={0.28}
+      className="veil-in fixed inset-0 z-50 flex items-start justify-center bg-black/30 px-4 pt-[16vh] backdrop-blur-[6px]"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -111,24 +118,17 @@ function PaletteInner({
       aria-modal="true"
       aria-label="指令面板"
     >
-      <motion.div
-        initial={{ opacity: 0, y: -10, scale: 0.97 }}
-        animate={{ opacity: 1, y: 0, scale: 1, transition: SPRING }}
-        exit={{
-          opacity: 0,
-          y: -12,
-          scale: 0.97,
-          transition: { duration: 0.2, ease: EXIT_EASE },
+      <PresenceClass
+        exitClass="dialog-sink"
+        duration={0.28}
+        className="glass-card backdrop-blur-xl backdrop-saturate-150 panel-rise w-full max-w-[560px] overflow-hidden rounded-2xl shadow-2xl"
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.stopPropagation();
+            onClose();
+          }
         }}
-        transition={SPRING}
-            className="glass-card backdrop-blur-2xl backdrop-saturate-150 w-full max-w-[560px] overflow-hidden rounded-2xl shadow-2xl"
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                e.stopPropagation();
-                onClose();
-              }
-            }}
-          >
+      >
             <Command label="指令面板" loop shouldFilter>
               <div className="flex items-center gap-2 border-b border-zinc-900/5 px-4 dark:border-white/5">
                 <Compass
@@ -264,8 +264,8 @@ function PaletteInner({
                 )}
               </Command.List>
             </Command>
-      </motion.div>
-    </motion.div>
+      </PresenceClass>
+    </PresenceClass>
   );
 }
 

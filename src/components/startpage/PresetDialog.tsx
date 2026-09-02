@@ -1,10 +1,14 @@
 "use client";
 
 /* 预设导入 / 管理对话框 — 声明式预设的用户入口。
- * 视觉与动效语言对齐指令面板（glass-card + 弹簧入场 + 加速退场），
+ * 视觉与动效语言对齐指令面板（glass-card；入场淡入 .panel-rise、退场 .dialog-sink，
+ * v1.0.8 玻璃戒律：玻璃卡上禁 transform/WAAPI opacity，见 globals.css），
  * 遮罩点击 / ESC 关闭；导入/管理两个视图的切换复用 dock 面板栏的
  * 「单动作形变」：旧内容原地淡出 + 卡片高度弹簧到新内容高度 + 新内容淡入，
  * 三者重叠为一个连续动作（无先关后开、无两次动画），结构与 PanelStage 同构。
+ * 高度盒 initial 0 → 每次打开都向下拉伸就位；关闭时 .dialog-sink .panel-hbox 塌缩。
+ * 两个 PresenceClass 共享同一退出 PresenceContext：卡片 timer 对齐 0.28s，
+ * 避免先到点截断遮罩 .veil-out-slow（0.28s）淡出。
  * 导入支持：粘贴 JSON / 本地文件（.json 预设、.cshz/.zip 预设包，见 pack.ts）。 */
 
 import { memo, useCallback, useEffect, useRef, useState } from "react";
@@ -68,14 +72,21 @@ function DialogInner({
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
+  const overlayRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
+  /* 卸载时归还焦点（仅当焦点仍在对话框内才归还——对话框关闭时若焦点
+     已被其它视图接管，无条件还原会抢走焦点，同 CommandPalette v1.0.8 修复） */
   useEffect(() => {
+    const overlayEl = overlayRef.current;
     const prev = document.activeElement as HTMLElement | null;
     const t = setTimeout(() => taRef.current?.focus(), 30);
     return () => {
       clearTimeout(t);
-      prev?.focus?.();
+      const stolen = overlayEl && document.activeElement && overlayEl.contains(document.activeElement);
+      if (stolen || !document.activeElement || document.activeElement === document.body) {
+        prev?.focus?.();
+      }
     };
   }, []);
 
@@ -181,11 +192,10 @@ function DialogInner({
 
   return (
     <PresenceClass
+      ref={overlayRef}
       exitClass="veil-out-slow"
       duration={0.28}
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 px-4 pt-[16vh] backdrop-blur-[6px]"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1, transition: { duration: 0.25, ease: "easeOut" } }}
+      className="veil-in fixed inset-0 z-50 flex items-start justify-center bg-black/30 px-4 pt-[16vh] backdrop-blur-[6px]"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -194,12 +204,9 @@ function DialogInner({
       aria-label="预设管理"
     >
       <PresenceClass
-        initial={{ opacity: 0, y: -10, scale: 0.97 }}
-        animate={{ opacity: 1, y: 0, scale: 1, transition: SPRING }}
-        transition={SPRING}
         exitClass="dialog-sink"
-        duration={0.2}
-        className="glass-card backdrop-blur-2xl backdrop-saturate-150 w-full max-w-[560px] overflow-hidden rounded-2xl shadow-2xl"
+        duration={0.28}
+        className="glass-card backdrop-blur-xl backdrop-saturate-150 panel-rise w-full max-w-[560px] overflow-hidden rounded-2xl shadow-2xl"
         onKeyDown={(e) => {
           if (e.key === "Escape") {
             e.stopPropagation();
@@ -237,14 +244,14 @@ function DialogInner({
           </button>
         </div>
 
-        {/* 高度盒：视图切换 = 高度 px 弹簧 + 新旧内容重叠溶解（无 layout scale，
-            内容全程零畸变）；溢出由卡片 overflow-hidden 裁剪；首开 contentH 为
-            null → height auto 直接就位，不参与入场动画。contain:layout 把弹簧
-            逐帧 reflow 圈在本盒内部 */}
+        {/* 高度盒（panel-hbox）：视图切换 = 高度 px 弹簧 + 新旧内容重叠溶解（无 layout scale，
+            内容全程零畸变）；溢出由卡片 overflow-hidden 裁剪；initial height 0 →
+            每次打开都向下拉伸就位（与 dock 面板同语言），关闭时随 .dialog-sink 塌缩。
+            contain:layout 把弹簧逐帧 reflow 圈在本盒内部 */}
         <motion.div
-          className="relative"
+          className="panel-hbox relative"
           style={{ contain: "layout" }}
-          initial={false}
+          initial={{ height: 0 }}
           animate={{ height: contentH == null ? "auto" : contentH }}
           transition={SPRING}
         >
