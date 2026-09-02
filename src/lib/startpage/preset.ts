@@ -107,6 +107,26 @@ export interface PresetWidget {
   html: string;
 }
 
+/** 液态玻璃参数（声明式白名单，数值全部夹紧；宿主内建引擎读取并渲染，
+ *  预设不携带任何代码） */
+export interface PresetGlassEffect {
+  /** 折射强度 0–1.5（缺省 0.6）：边缘透镜弯曲的位移上限系数 */
+  refraction?: number;
+  /** 边缘折射区占比 0.2–0.7（缺省 0.5）：越大边缘弯曲带越宽 */
+  bezel?: number;
+  /** 背景模糊 px 0–20（缺省 6）：折射层叠加的毛玻璃模糊 */
+  blur?: number;
+  /** 饱和度 % 80–300（缺省 170）：折射层叠加的色彩饱和 */
+  saturation?: number;
+}
+
+/** 声明式视觉效果（高阶模式，v1.1.0）：宿主内建渲染引擎读取声明并激活，
+ *  预设本身不携带任何代码——与 layout 同律，安装即生效、删除预设即还原。
+ *  首个引擎：液态玻璃（liquid glass）——SVG feDisplacementMap 背景折射 */
+export interface PresetEffects {
+  glass?: PresetGlassEffect;
+}
+
 /** 声明式布局覆写：装了即生效，删除预设即还原（不写入用户设置） */
 export interface PresetLayout {
   hideClock?: boolean;
@@ -133,6 +153,7 @@ export interface PresetPayload {
   pages?: PresetPage[];
   widgets?: PresetWidget[];
   layout?: PresetLayout;
+  effects?: PresetEffects;
 }
 
 export interface InstalledPreset {
@@ -495,6 +516,25 @@ export function parsePreset(raw: unknown): ParseResult {
     });
   });
 
+  /* 声明式视觉效果（高阶模式）：数值夹紧，与 layout 同律（安装即生效、删除即还原） */
+  let effects: PresetEffects | undefined;
+  if (typeof o.effects === "object" && o.effects != null) {
+    const ef = o.effects as Record<string, unknown>;
+    const patch: PresetEffects = {};
+    if (typeof ef.glass === "object" && ef.glass != null) {
+      const g = ef.glass as Record<string, unknown>;
+      const glass: PresetGlassEffect = {};
+      const num = (v: unknown, min: number, max: number) =>
+        typeof v === "number" && Number.isFinite(v) ? Math.min(max, Math.max(min, v)) : undefined;
+      glass.refraction = num(g.refraction, 0, 1.5);
+      glass.bezel = num(g.bezel, 0.2, 0.7);
+      glass.blur = num(g.blur, 0, 20);
+      glass.saturation = num(g.saturation, 80, 300);
+      patch.glass = glass;
+    }
+    if (Object.keys(patch).length > 0) effects = patch;
+  }
+
   /* 声明式布局覆写（高阶模式）：数值全部夹紧到安全区间 */
   let layout: PresetLayout | undefined;
   if (typeof o.layout === "object" && o.layout != null) {
@@ -597,12 +637,13 @@ export function parsePreset(raw: unknown): ParseResult {
     animations.length === 0 &&
     pages.length === 0 &&
     widgets.length === 0 &&
-    layout == null
+    layout == null &&
+    effects == null
   ) {
     return {
       ok: false,
       errors: [
-        "预设里没有任何内容（commands / links / dock / settings / scripts / animations / pages / widgets / layout 至少写一项）",
+        "预设里没有任何内容（commands / links / dock / settings / scripts / animations / pages / widgets / layout / effects 至少写一项）",
       ],
     };
   }
@@ -622,6 +663,7 @@ export function parsePreset(raw: unknown): ParseResult {
       pages: pages.length > 0 ? pages : undefined,
       widgets: widgets.length > 0 ? widgets : undefined,
       layout,
+      effects,
     },
   };
 }
@@ -703,6 +745,7 @@ export const SAMPLE_PRESET = `{
     { "title": "一言", "icon": "heart", "action": { "type": "script", "id": "hitokoto" } }
   ],
   "layout": { "clockScale": 1.1, "linksColumns": 6 },
+  "effects": { "glass": { "refraction": 0.6, "bezel": 0.5, "blur": 6, "saturation": 170 } },
   "settings": { "hour12": false },
   "animations": [
     {

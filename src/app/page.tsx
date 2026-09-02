@@ -17,9 +17,11 @@ import {
   dockIcon,
   type InstalledPreset,
   type PresetAction,
+  type PresetEffects,
   type PresetLayout,
   type PresetPayload,
 } from "@/lib/startpage/preset";
+import { activateLiquidGlass, deactivateLiquidGlass } from "@/lib/startpage/liquid-glass";
 import {
   sandboxBridge,
   type SandboxCommandInfo,
@@ -190,6 +192,32 @@ export default function Home() {
     }
     return merged;
   }, [presets]);
+
+  /* ---------- 预设视觉效果派生（effects）：与 layout 同律，安装顺序后者胜 ---------- */
+  const effects = useMemo<PresetEffects>(() => {
+    const merged: PresetEffects = {};
+    for (const p of presets) {
+      const e = p.raw.effects;
+      if (e) Object.assign(merged, e);
+    }
+    return merged;
+  }, [presets]);
+
+  /* ---------- 液态玻璃引擎：声明式激活，参数变化即重算，删除预设即还原。
+     引擎为宿主内建（不执行预设代码）；不支持 backdrop-filter: url() 的
+     浏览器返回 false，保持磨砂现状（降级安全） ---------- */
+  useEffect(() => {
+    if (!mounted) return;
+    if (effects.glass) {
+      activateLiquidGlass(effects.glass);
+    } else {
+      deactivateLiquidGlass();
+    }
+    return () => {
+      /* 严格模式双挂载防线：卸载时彻底还原，重挂载时 effect 重新激活 */
+      deactivateLiquidGlass();
+    };
+  }, [mounted, effects]);
 
   /* ---------- 旧版本设置字段迁移（缺失字段补默认值） ---------- */
   useEffect(() => {
@@ -525,7 +553,9 @@ export default function Home() {
         payload.scripts?.length ? `${payload.scripts.length} 个脚本` : null,
         payload.animations?.length ? `${payload.animations.length} 段样式` : null,
         payload.pages?.length ? `${payload.pages.length} 个页面` : null,
+        payload.widgets?.length ? `${payload.widgets.length} 个小部件` : null,
         payload.layout ? "布局覆写" : null,
+        payload.effects?.glass ? "液态玻璃" : null,
       ].filter(Boolean);
       toast({
         title: `预设「${payload.name}」已安装`,
