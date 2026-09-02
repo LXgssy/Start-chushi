@@ -269,21 +269,16 @@ export default function Dock({
 
   return (
     <>
-      {/* 关闭遮罩：退场淡出走 CSS .veil-out（framer exit 仅计时） */}
-      <AnimatePresence>
-        {panel && (
-          <PresenceClass
-            key="dock-overlay"
-            exitClass="veil-out"
-            duration={0.25}
-            className="fixed inset-0 z-30"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            onClick={() => switchTo(null)}
-            aria-hidden
-          />
-        )}
-      </AnimatePresence>
+      {/* 关闭遮罩：纯点击捕获层（无视觉），不做任何动画——原 framer opacity 入场 +
+          veil-out 退场是隐形 div 上的纯 WAAPI 开销（合并自远端 bb1e0d6）；
+          卸载时机随 panel 状态即时切换 */}
+      {panel && (
+        <div
+          className="fixed inset-0 z-30"
+          onClick={() => switchTo(null)}
+          aria-hidden
+        />
+      )}
 
       <nav
         aria-label="快捷操作"

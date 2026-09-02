@@ -3,6 +3,7 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Trash2 } from "lucide-react";
+import { PresenceClass } from "./PresenceClass";
 import { normalizeUrl } from "@/lib/startpage/link-utils";
 import type { StartLink } from "@/lib/startpage/types";
 
@@ -56,23 +57,28 @@ function DialogForm({
   const [error, setError] = useState<string | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const urlRef = useRef<HTMLInputElement>(null);
+  const overlayRef = useRef<HTMLDivElement | null>(null);
 
-  /* 挂载时聚焦对应输入框；卸载时归还焦点（无 setState） */
+  /* 挂载时聚焦对应输入框；卸载时有条件归还焦点（同指令面板 v1.0.8 合并修复：
+     焦点已被其它视图接管时不抢回；归还命中 :focus-visible 时主动 blur） */
   useEffect(() => {
+    const overlayEl = overlayRef.current;
     const prev = document.activeElement as HTMLElement | null;
     const t = setTimeout(() => {
       (editing ? urlRef : nameRef).current?.focus();
     }, 60);
     return () => {
       clearTimeout(t);
-      /* 归还焦点；键盘路径（ESC 关闭）后的程序化 focus 会命中 :focus-visible
-         产生聚焦框，检测到即主动移出（与指令面板同律，见 CommandPalette） */
-      if (prev && prev.isConnected) {
-        prev.focus?.();
-        try {
-          if (prev.matches(":focus-visible")) prev.blur();
-        } catch {
-          /* 老内核不支持 :focus-visible 匹配：忽略 */
+      const stolen =
+        overlayEl && document.activeElement && overlayEl.contains(document.activeElement);
+      if (stolen || !document.activeElement || document.activeElement === document.body) {
+        if (prev && prev.isConnected) {
+          prev.focus?.();
+          try {
+            if (prev.matches(":focus-visible")) prev.blur();
+          } catch {
+            /* 老内核不支持 :focus-visible 匹配：忽略 */
+          }
         }
       }
     };
@@ -94,13 +100,14 @@ function DialogForm({
   }
 
   return (
-    <motion.div
+    <PresenceClass
       key="link-overlay"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.22 }}
+      ref={overlayRef}
+      /* 入场淡入 .veil-in / 退场淡出 .veil-out 全走 CSS（framer WAAPI opacity 空窗/取消回跳律，
+         与指令面板同律）；卸载由 PresenceClass 定时器接管 */
+      exitClass="veil-out"
+      duration={0.25}
+      className="veil-in fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -109,11 +116,12 @@ function DialogForm({
       aria-label={editing ? "编辑链接" : "添加链接"}
     >
       <motion.div
-        initial={{ opacity: 0, scale: 0.96, y: 8 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.97, y: 6 }}
+        /* 卡片只保留 transform 弹簧（淡入淡出由遮罩/卡片 CSS 承载，无 exit prop——
+           整体随遮罩淡出） */
+        initial={{ scale: 0.96, y: 8 }}
+        animate={{ scale: 1, y: 0 }}
         transition={SPRING}
-        className="glass-card w-full max-w-[400px] rounded-2xl p-5 shadow-2xl"
+        className="glass-card panel-rise w-full max-w-[400px] rounded-2xl p-5 shadow-2xl"
         onKeyDown={(e) => {
           if (e.key === "Escape") {
             e.stopPropagation();
@@ -197,7 +205,7 @@ function DialogForm({
               </div>
             </div>
           </motion.div>
-    </motion.div>
+    </PresenceClass>
   );
 }
 

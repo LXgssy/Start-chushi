@@ -11,7 +11,7 @@
  * 经典组合，且逐帧 backdrop 重采样是掉帧主力；卡片底色 92% 不透明，
  * 磨砂本就不可见）。 */
 
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { Command } from "cmdk";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { PresenceClass } from "./PresenceClass";
@@ -96,29 +96,35 @@ function PaletteInner({
   const [inputValue, setInputValue] = useState("");
   /* null = 指令列表视图；否则为预设系统视图（导入/管理），指令面板形变为 PresetPanel */
   const [presetView, setPresetView] = useState<PresetTab | null>(null);
+  const overlayRef = useRef<HTMLDivElement | null>(null);
   /* 高度形变舞台（与 dock PanelStage 同构）：260ms 武装——指令列表过滤后的
      高度弹簧尽早生效，同时避开挂载帧 setState */
   const { contentH, measureRef } = useMorphHeight(260);
   const reduceMotion = useReducedMotion();
 
-  /* 挂载时聚焦输入框；卸载时归还焦点（无 setState） */
+  /* 挂载时聚焦输入框；卸载时有条件归还焦点（合并两代修复）：
+     ① 仅当焦点仍在面板内（或已无焦点）才归还——若后续视图（如快捷链接编辑器）
+        已接管焦点，无条件还原会把它抢走，导致该视图键盘全部失效（远端 bb1e0d6 实测）；
+     ② 归还后若命中 :focus-visible（ESC/⌘K 键盘路径关闭后的程序化 focus 会被
+        Chrome 判定为键盘聚焦），主动 blur —— 否则 tab 栏 ⌘K 出现蓝色聚焦框 */
   useEffect(() => {
+    const overlayEl = overlayRef.current;
     const prev = document.activeElement as HTMLElement | null;
     const t = setTimeout(() => {
       document.querySelector<HTMLInputElement>("[cmdk-input]")?.focus();
     }, 30);
     return () => {
       clearTimeout(t);
-      /* 归还焦点给打开前的元素（通常是 tab 栏 ⌘K 按钮）。键盘路径（ESC / ⌘K 关闭）
-         之后的程序化 focus 会被 Chrome 判定为键盘聚焦而命中 :focus-visible，
-         tab 栏 ⌘K 上出现蓝色聚焦框——检测到即主动移出焦点（焦点回 body，
-         不影响 Tab 焦点序；鼠标路径的 refocus 不命中 :focus-visible，保持原状） */
-      if (prev && prev.isConnected) {
-        prev.focus?.();
-        try {
-          if (prev.matches(":focus-visible")) prev.blur();
-        } catch {
-          /* 老内核不支持 :focus-visible 匹配：忽略 */
+      const stolen =
+        overlayEl && document.activeElement && overlayEl.contains(document.activeElement);
+      if (stolen || !document.activeElement || document.activeElement === document.body) {
+        if (prev && prev.isConnected) {
+          prev.focus?.();
+          try {
+            if (prev.matches(":focus-visible")) prev.blur();
+          } catch {
+            /* 老内核不支持 :focus-visible 匹配：忽略 */
+          }
         }
       }
     };
@@ -136,11 +142,10 @@ function PaletteInner({
   return (
     <PresenceClass
       key="palette-overlay"
+      ref={overlayRef}
       exitClass="veil-out-slow"
       duration={0.28}
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 px-4 pt-[16vh]"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1, transition: { duration: 0.25, ease: "easeOut" } }}
+      className="veil-in fixed inset-0 z-50 flex items-start justify-center bg-black/40 px-4 pt-[16vh]"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -150,7 +155,9 @@ function PaletteInner({
     >
       <PresenceClass
         exitClass="dialog-sink"
-        duration={0.2}
+        /* 卡片 timer 对齐遮罩 0.28s：两个 PresenceClass 共享同一退出 PresenceContext，
+           最先到点的 safeToRemove 触发整体卸载——短了会截断遮罩 .veil-out-slow 淡出 */
+        duration={0.28}
         className="glass-card panel-rise w-full max-w-[560px] overflow-hidden rounded-2xl shadow-2xl"
         onKeyDown={(e) => {
           if (e.key === "Escape") {
