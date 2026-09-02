@@ -104,10 +104,11 @@ function DialogForm({
       key="link-overlay"
       ref={overlayRef}
       /* 入场淡入 .veil-in / 退场淡出 .veil-out 全走 CSS（framer WAAPI opacity 空窗/取消回跳律，
-         与指令面板同律）；卸载由 PresenceClass 定时器接管 */
+         与指令面板同律）；卸载由 PresenceClass 定时器接管。
+         遮罩与指令面板同款磨砂模糊（backdrop-blur-2xl + 极轻底色），非黑色遮罩 */
       exitClass="veil-out"
       duration={0.25}
-      className="veil-in fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
+      className="veil-in fixed inset-0 z-50 flex items-center justify-center bg-white/20 px-4 backdrop-blur-2xl backdrop-saturate-150 dark:bg-black/20"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -133,6 +134,9 @@ function DialogForm({
           }
         }}
       >
+        {/* 内容模糊语言：表单内容随面板开关模糊聚拢/散场（.panel-rise 显影卡片，
+           内容层自持 .content-focus；关闭随遮罩整体淡出，无额外散场级联需求） */}
+        <div className="content-focus">
             <h2 className="mb-4 text-center text-xs font-normal tracking-[0.25em] text-zinc-500 dark:text-zinc-400">
               {editing ? "编辑链接" : "添加链接"}
             </h2>
@@ -204,6 +208,7 @@ function DialogForm({
                 </button>
               </div>
             </div>
+        </div>
           </motion.div>
     </PresenceClass>
   );

@@ -142,14 +142,16 @@ export default function PresetPanel({
         </button>
       </div>
 
-      {/* 视图交叉溶解：退场视图 absolute 钉位淡出（.view-exit），高度由宿主形变舞台跟随 */}
+      {/* 视图交叉溶解：新视图 .content-focus 模糊聚拢，退场视图 .view-exit 钉位模糊散场，
+          高度由宿主形变舞台跟随。initial={false}：首个 tab 不重复动画——宿主（指令面板）
+          的视图包裹层已播 .content-focus，避免双重模糊 */}
       <div className="relative">
         <AnimatePresence initial={false}>
           <PresenceClass
             key={tab}
             exitClass="view-exit"
             duration={0.2}
-            className="flow-root panel-rise"
+            className="flow-root content-focus"
           >
             {tab === "import" ? (
               <div className="p-4">
