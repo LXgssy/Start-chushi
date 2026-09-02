@@ -34,16 +34,18 @@ export const GLASS_DEFAULTS: Required<LiquidGlassOpts> = {
 };
 
 /** 玻璃容器白名单：搜索栏 / dock / dock 面板卡片 / 各 glass-card（⌘K 卡、链接对话框卡、
- *  面板卡） / ⌘K 与链接对话框的全屏磨砂遮罩。选择器是产品契约的一部分，
- *  新增玻璃容器必须同步此处（见 README「自定义动画与面板样式」元素钩子表） */
+ *  面板卡）。选择器是产品契约的一部分，新增玻璃容器必须同步此处
+ *  （见 README「自定义动画与面板样式」元素钩子表）。
+ *
+ *  ⚠ 全屏磨砂遮罩（⌘K / 链接对话框的 aria-label 层）**不进白名单**：幕布不是
+ *  玻璃块——①边缘折射需要越界采样，全屏贴图边缘位移可达数百 px，背景被拉丝
+ *  擦除（v1.1.0 实证：⌘K 打开后主页面组件被折射扭曲到不可辨）；②遮罩自身的
+ *  CSS 轻雾化（backdrop-blur-md）就是它的材质，引擎不碰。 */
 const TARGET_SELECTOR = [
   ".search-pill",
   ".cl-dock",
   ".cl-panel",
   ".glass-card",
-  '[aria-label="指令面板"]',
-  '[aria-label="添加链接"]',
-  '[aria-label="编辑链接"]',
 ].join(", ");
 
 /** 注册上限保护：白名单选择器在正常布局下的元素数远小于此（防病态 DOM 放大） */
@@ -210,6 +212,9 @@ function applyBackdrop(el: HTMLElement, id: string) {
 function register(el: HTMLElement) {
   if (entries.some((g) => g.el === el)) return;
   if (entries.length >= MAX_TARGETS) return;
+  // 防御性护栏：全屏幕布（fixed inset-0 且盖满视口）永不折射——幕布不是玻璃块
+  const r = el.getBoundingClientRect();
+  if (r.width >= window.innerWidth - 2 && r.height >= window.innerHeight - 2) return;
   const id = `chushi-lg-${uid++}`;
   const filter = document.createElementNS(SVG_NS, "filter") as SVGFilterElement;
   filter.setAttribute("id", id);

@@ -105,10 +105,11 @@ function DialogForm({
       ref={overlayRef}
       /* 入场淡入 .veil-in / 退场淡出 .veil-out 全走 CSS（framer WAAPI opacity 空窗/取消回跳律，
          与指令面板同律）；卸载由 PresenceClass 定时器接管。
-         遮罩与指令面板同款磨砂模糊（backdrop-blur-2xl + 极轻底色），非黑色遮罩 */
+         遮罩与指令面板同款轻雾化（backdrop-blur-md + 极轻底色）——全屏幕布不做强模糊，
+         主页面在雾中仍可辨认（v1.1.1 实证 blur-2xl 糊到用户感知为「主页被隐藏」） */
       exitClass="veil-out"
       duration={0.25}
-      className="veil-in fixed inset-0 z-50 flex items-center justify-center bg-white/20 px-4 backdrop-blur-2xl backdrop-saturate-150 dark:bg-black/20"
+      className="veil-in fixed inset-0 z-50 flex items-center justify-center bg-white/10 px-4 backdrop-blur-md backdrop-saturate-150 dark:bg-black/10"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}

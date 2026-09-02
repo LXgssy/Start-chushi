@@ -146,7 +146,9 @@ function PaletteInner({
 
   /* PaletteInner 仅在 open 时由外层 AnimatePresence 挂载，退出动画经 PresenceContext
      传达给下方 PresenceClass 节点；不在此处再套 AnimatePresence（双层 presence 会让退出时机竞争）。
-     遮罩：磨砂模糊（backdrop-blur-2xl + 极轻底色保对比），进 .veil-in / 出 .veil-out，
+     遮罩：轻雾化（backdrop-blur-md + 极轻底色保对比）——幕布只做轻度模糊，
+     主页面组件在雾中仍可辨认（v1.1.1 实证：blur-2xl 40px 会把主页面糊到
+     用户感知为「所有组件被隐藏」；全屏幕布不是玻璃块，模糊须克制），进 .veil-in / 出 .veil-out，
      opacity 全程 CSS 承载（WAAPI 律）。⚠ globals.css 声明顺序律：.veil-in 必须在
      .veil-out 之前——退场帧两者同在元素上，后者胜；若顺序颠倒，关闭时播放的是
      淡入而非淡出（v1.0.8 线上实证：用户感知=「遮罩没有关闭动画」） */
@@ -156,7 +158,7 @@ function PaletteInner({
       ref={overlayRef}
       exitClass="veil-out"
       duration={0.25}
-      className="veil-in fixed inset-0 z-50 flex items-start justify-center bg-white/20 px-4 pt-[16vh] backdrop-blur-2xl backdrop-saturate-150 dark:bg-black/20"
+      className="veil-in fixed inset-0 z-50 flex items-start justify-center bg-white/10 px-4 pt-[16vh] backdrop-blur-md backdrop-saturate-150 dark:bg-black/10"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -357,6 +359,7 @@ function PaletteInner({
                   onInstall={onInstall}
                   onRemove={onRemove}
                   onClose={onClose}
+                  onBack={() => setPresetView(null)}
                 />
               </PresenceClass>
             )}
