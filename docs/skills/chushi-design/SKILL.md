@@ -49,6 +49,8 @@ description: 「初始」(Start-chushi) 起始页的设计理念与动效工程�
 | 指令面板 ⌘K（仅此一处） | Q 弹：弹簧 ζ≈0.46 开（y/scale 自顶部展开）、30% 微胀再收的 `palette-out` 关；高度盒 initial=false 不参与开合 | framer 弹簧只驱动 y/scale，opacity 仍走 CSS；视图自带 .content-focus，关闭经 .palette-out 级联散场 |
 
 - **面板互切 = 「单动作形变」**：旧内容模糊散场（.view-exit 钉位）+ 高度 px 弹簧到新内容高度 + 新内容模糊聚拢（.content-focus），三者重叠为一个连续动作。禁止先关后开的两次动画；禁止 framer layout（transform scale 会把内容压扁，读作两次动画）。
+- **幕布不是玻璃块（v1.1.1）**：全屏遮罩的模糊必须克制（`backdrop-blur-md` 12px + 10% 底色）——blur-2xl 40px 会把主页面糊到用户感知为「所有组件被隐藏」（线上实证）；全屏幕布也**永不进液态玻璃折射白名单**（全屏贴图边缘位移可达数百 px，背景被拉丝擦除），引擎侧另有几何护栏（宽高≥视口−2 直接拒登记）。
+- **右键菜单（v1.1.1）**：浏览器默认菜单一律拦截，除三处让路：输入区（input/textarea/contenteditable）、文字选区（复制/翻译是系统级能力）、沙箱自定义页。菜单是 glass-card 小卡随液态玻璃折射；打开坐标由宿主记录传入，边界 clamp/翻转在渲染期统一计算（打开与换位两路共享）；菜单挂全局 ESC 链，优先级仅次于沙箱页避让（后开先关）。
 - **指令面板内嵌预设系统（morph 架构）**：⌘K 是双视图单卡片——指令列表 ⇄ PresetPanel，选「导入/管理预设」不关面板，原地形变过去（use-morph-height 测高 hook 与 dock PanelStage 共用，含零高毒化防护与武装延迟）。新浮层要「长」进这张卡片时，优先做成内嵌视图而不是新对话框。
 - 测高用 ResizeObserver→contentH；首开禁止挂载帧二次渲染（会让 v12 投影重测打断入场），测高推迟武装（dock 0.5s / ⌘K 0.26s）；contentH 重置只能放 `onExitComplete`。
 - 入场视图不要写 `initial={false}`（首次挂载也要模糊聚拢）；内嵌视图的内部 tab 区才用 `initial={false}` 避免双重模糊。
@@ -84,8 +86,8 @@ framer v12 对 opacity 走 WAAPI 加速：**入场**有空窗闪黑；**退场**
   到打开前的元素；归还后命中 `:focus-visible` 立即 blur（ESC/⌘K 属键盘事件，程序化
   focus 会被启发式判定为键盘聚焦，令 tab 栏按钮出现蓝框，v1.0.8 实证）。
   无条件归还的变体：会抢走后续视图（如链接编辑器）已接管的焦点，令其键盘全失效。
-  全局 ESC 链必须覆盖所有浮层（palette → 编辑器 → dock 面板 → 禅模式例外），
-  新增浮层必须挂进 page.tsx 全局 Escape 分支与 `locked` 打字屏蔽。
+  全局 ESC 链必须覆盖所有浮层（沙箱页避让 → 右键菜单 → 指令面板 → 编辑器 → dock 面板
+  → 禅模式例外），新增浮层必须挂进 page.tsx 全局 Escape 分支与 `locked` 打字屏蔽。
 - 点击遮罩关闭用 `e.target === e.currentTarget` 判定；aria：浮层 role=dialog +
   aria-modal + 中文 aria-label；dock 按钮 aria-label 随数据态变化时测试用宽松选择器。
 - dock 数字显示用 `digit-slot`（overflow:hidden + leading-none）构造性居中，
@@ -93,7 +95,8 @@ framer v12 对 opacity 走 WAAPI 加速：**入场**有空窗闪黑；**退场**
 
 ## 五、工程铁律
 
-- **E2E 金标准**：`scripts/verify-preset.sh`（20 断言）与 pw-lab 探针必须全绿才算完成。
+- **E2E 金标准**：`scripts/verify-preset.sh`（20 断言）与 pw-lab 探针（verify-blur 36 /
+  verify-liquid 27 / verify-v111 26）必须全绿才算完成。
   headless 下动画断言用**状态差/类名/计算样式**，绝不采样帧序列（rAF 节流失真）。
 - 版本节奏：动一次用户可见行为 = bump `scripts/extension-manifest.json` 版本 →
   `build-extension.sh` → 三仓同步（公开仓 github-sync / Pages deploy-pages /

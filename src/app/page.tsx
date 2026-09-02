@@ -9,6 +9,7 @@ import SearchBar from "@/components/startpage/SearchBar";
 import QuickLinks, { emitEditLink } from "@/components/startpage/QuickLinks";
 import Dock from "@/components/startpage/Dock";
 import CommandPalette from "@/components/startpage/CommandPalette";
+import ContextMenu, { CM_ICONS, type ContextMenuAction } from "@/components/startpage/ContextMenu";
 import ZenPomodoro from "@/components/startpage/ZenPomodoro";
 import LinkDialog, { type LinkEditorState } from "@/components/startpage/LinkDialog";
 import PresetWidgets, { type ActiveWidget } from "@/components/startpage/PresetWidgets";
@@ -103,6 +104,9 @@ export default function Home() {
   const [weather, setWeather] = useState<WeatherState>(INITIAL_WEATHER);
   const [isDark, setIsDark] = useState(true);
   const [zen, setZen] = useState(false);
+  /** 「初始」专属右键菜单（见 ContextMenu；contextmenu 事件里记录坐标后置 open） */
+  const [ctxMenu, setCtxMenu] = useState(false);
+  const [ctxPos, setCtxPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   /** 正在展示的预设自定义页面（沙箱 overlay） */
   const [activePage, setActivePage] = useState<ActivePage | null>(null);
 
@@ -300,14 +304,15 @@ export default function Home() {
         ) ||
         panel != null ||
         editor.open ||
-        paletteOpen
+        paletteOpen ||
+        ctxMenu
       )
         return;
       setZen((z) => !z);
     };
     window.addEventListener("dblclick", onDblClick);
     return () => window.removeEventListener("dblclick", onDblClick);
-  }, [mounted, panel, editor.open, paletteOpen]);
+  }, [mounted, panel, editor.open, paletteOpen, ctxMenu]);
 
   /* ---------- 进入禅模式时收起所有浮层 ---------- */
   useEffect(() => {
@@ -315,8 +320,36 @@ export default function Home() {
       setPanel(null);
       setPaletteOpen(false);
       setEditor({ open: false, editing: null });
+      setCtxMenu(false);
     }
   }, [zen]);
+
+  /* ---------- 「初始」专属右键菜单：拦截浏览器默认菜单 ----------
+   * 触发判定与 ContextMenu 组件内换位判定同律：输入区/文字选区让路给
+   * 浏览器（复制/翻译/拼写检查是系统级能力），沙箱自定义页让路
+   * （页面自己决定）；其余一律 preventDefault 弹「初始」菜单。
+   * 浮层（⌘K/面板/对话框）打开时照常弹出：菜单 z-[70] 高于浮层 z-50，
+   * glass-card 同源材质不破相。 */
+  useEffect(() => {
+    if (!mounted) return;
+    const onCtx = (e: MouseEvent) => {
+      if (activePage != null) return;
+      const t = e.target as Element | null;
+      if (t?.closest("input, textarea, select, [contenteditable='true']")) return;
+      if (
+        t &&
+        typeof t.closest === "function" &&
+        window.getSelection()?.toString() &&
+        t.closest("p, span, h1, h2, h3, a")
+      )
+        return;
+      e.preventDefault();
+      setCtxPos({ x: e.clientX, y: e.clientY });
+      setCtxMenu(true);
+    };
+    window.addEventListener("contextmenu", onCtx);
+    return () => window.removeEventListener("contextmenu", onCtx);
+  }, [mounted, activePage]);
   /* ---------- 禅模式挂 html.zen 类：雾化散场/聚拢由 CSS 各自承载（见 globals.css 磨砂玻璃存活原则） ---------- */
   useEffect(() => {
     document.documentElement.classList.toggle("zen", zen);
@@ -387,12 +420,18 @@ export default function Home() {
       // ⌘K / Ctrl+K 切换命令面板
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
+        setCtxMenu(false);
         setPaletteOpen((o) => !o);
         return;
       }
       if (e.key === "Escape") {
-        /* 自定义页面 overlay 自带 Esc 关闭，全局避让防双关 */
+        /* 自定义页面 overlay 自带 Esc 关闭，全局避让防双关；
+           右键菜单后开先关（z 最高），优先级仅次于 activePage 避让 */
         if (activePage != null) return;
+        if (ctxMenu) {
+          setCtxMenu(false);
+          return;
+        }
         if (paletteOpen) {
           setPaletteOpen(false);
           return;
@@ -408,7 +447,7 @@ export default function Home() {
         return;
       }
       // 「/」聚焦搜索；任意可打印字符直接开始搜索
-      const locked = paletteOpen || editor.open || panel != null;
+      const locked = paletteOpen || editor.open || panel != null || ctxMenu;
       if (locked || isTypingTarget(document.activeElement)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
@@ -424,7 +463,7 @@ export default function Home() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [mounted, paletteOpen, editor.open, panel, zen, activePage]);
+  }, [mounted, paletteOpen, editor.open, panel, zen, activePage, ctxMenu]);
 
   /* ---------- 首次访问提示 ---------- */
   useEffect(() => {
@@ -520,6 +559,22 @@ export default function Home() {
         themeMode: isDark ? ("light" as const) : ("dark" as const),
       }),
     [isDark, patchSettings]
+  );
+
+  /* ---------- 右键菜单动作清单（与 CM_ICONS 同源；run 后菜单自动关闭） ---------- */
+  const closeCtxMenu = useCallback(() => setCtxMenu(false), []);
+  const openZen = useCallback(() => setZen(true), []);
+  const openSettings = useCallback(() => gotoPanel("settings"), [gotoPanel]);
+  const ctxActions = useMemo<ContextMenuAction[]>(
+    () => [
+      { id: "palette", label: "指令面板", icon: CM_ICONS.palette, run: openPalette },
+      { id: "add-link", label: "添加链接", icon: CM_ICONS.addLink, run: openAddLink },
+      { id: "theme", label: "明暗切换", icon: CM_ICONS.theme, run: toggleTheme, sep: true },
+      { id: "zen", label: "禅模式", icon: CM_ICONS.zen, run: openZen },
+      { id: "settings", label: "设置", icon: CM_ICONS.settings, run: openSettings, sep: true },
+      { id: "export", label: "导出备份", icon: CM_ICONS.export, run: exportData },
+    ],
+    [openPalette, openAddLink, toggleTheme, openZen, openSettings, exportData]
   );
 
   /* ---------- 预设系统（声明式，白名单 action，零代码执行） ----------
@@ -976,6 +1031,14 @@ export default function Home() {
         onClose={closeEditor}
         onSave={saveLink}
         onDelete={deleteLink}
+      />
+
+      {/* 「初始」专属右键菜单（拦截浏览器默认菜单，见 ContextMenu） */}
+      <ContextMenu
+        open={ctxMenu}
+        pos={ctxPos}
+        actions={ctxActions}
+        onClose={closeCtxMenu}
       />
 
       {/* 右下角落款 */}

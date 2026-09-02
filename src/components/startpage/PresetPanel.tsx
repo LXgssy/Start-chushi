@@ -13,7 +13,8 @@
 import { useEffect, useRef, useState } from "react";
 import { AnimatePresence } from "framer-motion";
 import { PresenceClass } from "./PresenceClass";
-import { FileUp, PackageOpen, Plus, Trash2 } from "lucide-react";
+import PresetDocs from "./PresetDocs";
+import { ArrowLeft, BookOpen, FileUp, PackageOpen, Plus, Trash2 } from "lucide-react";
 import { parsePreset, SAMPLE_PRESET, type InstalledPreset, type PresetPayload } from "@/lib/startpage/preset";
 import { parsePack } from "@/lib/startpage/pack";
 
@@ -25,6 +26,7 @@ export default function PresetPanel({
   onInstall,
   onRemove,
   onClose,
+  onBack,
 }: {
   tab: PresetTab;
   presets: InstalledPreset[];
@@ -32,8 +34,11 @@ export default function PresetPanel({
   onRemove: (id: string) => void;
   /** 关闭宿主浮层（指令面板 / 对话框） */
   onClose: () => void;
+  /** 返回指令列表视图（⌘K 形变回指令面板；非 ⌘K 宿主可不传则不展示返回钮） */
+  onBack?: () => void;
 }) {
   const [tab, setTab] = useState<PresetTab>(initialTab);
+  const [docsOpen, setDocsOpen] = useState(false);
   /* 宿主再次请求另一视图（导入↔管理）时同步内部 tab */
   useEffect(() => {
     setTab(initialTab);
@@ -140,6 +145,17 @@ export default function PresetPanel({
             <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
           </svg>
         </button>
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="返回指令面板"
+            title="返回指令面板"
+            className="rounded-full p-1.5 text-zinc-400 opacity-70 transition-all duration-200 hover:bg-zinc-900/5 hover:opacity-100 dark:text-zinc-500 dark:hover:bg-white/10"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" strokeWidth={1.5} />
+          </button>
+        )}
       </div>
 
       {/* 视图交叉溶解：新视图 .content-focus 模糊聚拢，退场视图 .view-exit 钉位模糊散场，
@@ -205,6 +221,16 @@ export default function PresetPanel({
                     <span className="inline-flex items-center gap-1.5">
                       <Plus className="h-3 w-3" strokeWidth={1.5} />
                       填入示例
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDocsOpen(true)}
+                    className="ml-auto rounded-full px-3 py-1.5 text-xs font-light text-zinc-500 transition-colors duration-150 hover:bg-zinc-900/5 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-100"
+                  >
+                    <span className="inline-flex items-center gap-1.5">
+                      <BookOpen className="h-3 w-3" strokeWidth={1.5} />
+                      开发者文档
                     </span>
                   </button>
                   <input
@@ -281,6 +307,9 @@ export default function PresetPanel({
           </PresenceClass>
         </AnimatePresence>
       </div>
+
+      {/* 预设开发文档 overlay（全屏，高于宿主卡片；Esc 捕获拦截见组件内） */}
+      <PresetDocs open={docsOpen} onClose={() => setDocsOpen(false)} />
     </div>
   );
 }
