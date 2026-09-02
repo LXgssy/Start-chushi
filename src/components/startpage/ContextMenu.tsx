@@ -16,6 +16,7 @@ import { useEffect, useRef, useState } from "react";
 import { AnimatePresence } from "framer-motion";
 import { PresenceClass } from "./PresenceClass";
 import {
+  BookOpen,
   Command,
   Download,
   Images,
@@ -89,13 +90,19 @@ export default function ContextMenu({
   }, [open, onClose]);
 
   /* 边界翻转：右/下缘放不下时向左/上展开（预留估宽 176px、估高按动作数，
-   * clamp 到 8px 边距）。渲染期计算——宿主打开与组件内换位两路都经此收敛 */
+   * clamp 到 8px 边距）。渲染期计算——宿主打开与组件内换位两路都经此收敛。
+   * 翻转方向同时决定弹出动画的 transformOrigin（v1.1.2）：菜单总是
+   * 「从鼠标点长出来」——向下展开用 top 原点、向上展开用 bottom、
+   * 向右展开用 left、向左展开用 right。 */
   const estW = 176;
   const estH = actions.length * 34 + 12;
   const vw = typeof window === "undefined" ? 1280 : window.innerWidth;
   const vh = typeof window === "undefined" ? 800 : window.innerHeight;
-  const left = pos.x + estW > vw - 8 ? Math.max(8, pos.x - estW) : pos.x;
-  const top = pos.y + estH > vh - 8 ? Math.max(8, pos.y - estH) : pos.y;
+  const flipX = pos.x + estW > vw - 8;
+  const flipY = pos.y + estH > vh - 8;
+  const left = flipX ? Math.max(8, pos.x - estW) : pos.x;
+  const top = flipY ? Math.max(8, pos.y - estH) : pos.y;
+  const origin = `${flipY ? "bottom" : "top"} ${flipX ? "right" : "left"}`;
 
   return (
     <AnimatePresence>
@@ -117,8 +124,8 @@ export default function ContextMenu({
             ref={menuRef}
             exitClass="ctx-out"
             duration={0.12}
-            className="card-in glass-card fixed z-[71] w-44 rounded-xl p-1 shadow-xl"
-            style={{ left, top, transformOrigin: "top left" }}
+            className="ctx-in glass-card fixed z-[71] w-44 rounded-xl p-1 shadow-xl"
+            style={{ left, top, transformOrigin: origin }}
             role="menu"
             aria-label="初始快捷菜单"
           >
@@ -157,4 +164,5 @@ export const CM_ICONS = {
   wallpaper: <Images strokeWidth={1.5} />,
   settings: <Settings2 strokeWidth={1.5} />,
   export: <Download strokeWidth={1.5} />,
+  docs: <BookOpen strokeWidth={1.5} />,
 };

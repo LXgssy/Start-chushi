@@ -745,7 +745,7 @@ export const SAMPLE_PRESET = `{
     { "title": "一言", "icon": "heart", "action": { "type": "script", "id": "hitokoto" } }
   ],
   "layout": { "clockScale": 1.1, "linksColumns": 6 },
-  "effects": { "glass": { "refraction": 0.6, "bezel": 0.5, "blur": 6, "saturation": 170 } },
+  "effects": { "glass": { "refraction": 0.75, "bezel": 0.5, "blur": 3, "saturation": 180 } },
   "settings": { "hour12": false },
   "animations": [
     {

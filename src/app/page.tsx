@@ -10,6 +10,7 @@ import QuickLinks, { emitEditLink } from "@/components/startpage/QuickLinks";
 import Dock from "@/components/startpage/Dock";
 import CommandPalette from "@/components/startpage/CommandPalette";
 import ContextMenu, { CM_ICONS, type ContextMenuAction } from "@/components/startpage/ContextMenu";
+import PresetDocs from "@/components/startpage/PresetDocs";
 import ZenPomodoro from "@/components/startpage/ZenPomodoro";
 import LinkDialog, { type LinkEditorState } from "@/components/startpage/LinkDialog";
 import PresetWidgets, { type ActiveWidget } from "@/components/startpage/PresetWidgets";
@@ -107,6 +108,8 @@ export default function Home() {
   /** 「初始」专属右键菜单（见 ContextMenu；contextmenu 事件里记录坐标后置 open） */
   const [ctxMenu, setCtxMenu] = useState(false);
   const [ctxPos, setCtxPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  /** 开发者文档（右键菜单直达入口；组件内部 portal 到 body，不在 ⌘K 宿主内） */
+  const [devDocs, setDevDocs] = useState(false);
   /** 正在展示的预设自定义页面（沙箱 overlay） */
   const [activePage, setActivePage] = useState<ActivePage | null>(null);
 
@@ -321,6 +324,7 @@ export default function Home() {
       setPaletteOpen(false);
       setEditor({ open: false, editing: null });
       setCtxMenu(false);
+      setDevDocs(false);
     }
   }, [zen]);
 
@@ -421,15 +425,21 @@ export default function Home() {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setCtxMenu(false);
+        setDevDocs(false);
         setPaletteOpen((o) => !o);
         return;
       }
       if (e.key === "Escape") {
         /* 自定义页面 overlay 自带 Esc 关闭，全局避让防双关；
-           右键菜单后开先关（z 最高），优先级仅次于 activePage 避让 */
+           右键菜单后开先关（z 最高），开发者文档自带捕获拦截（通常
+           到不了这里，此处兜底）；之后依次 ⌘K → 链接编辑器 → 面板 */
         if (activePage != null) return;
         if (ctxMenu) {
           setCtxMenu(false);
+          return;
+        }
+        if (devDocs) {
+          setDevDocs(false);
           return;
         }
         if (paletteOpen) {
@@ -447,7 +457,7 @@ export default function Home() {
         return;
       }
       // 「/」聚焦搜索；任意可打印字符直接开始搜索
-      const locked = paletteOpen || editor.open || panel != null || ctxMenu;
+      const locked = paletteOpen || editor.open || panel != null || ctxMenu || devDocs;
       if (locked || isTypingTarget(document.activeElement)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
@@ -463,7 +473,7 @@ export default function Home() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [mounted, paletteOpen, editor.open, panel, zen, activePage, ctxMenu]);
+  }, [mounted, paletteOpen, editor.open, panel, zen, activePage, ctxMenu, devDocs]);
 
   /* ---------- 首次访问提示 ---------- */
   useEffect(() => {
@@ -565,6 +575,7 @@ export default function Home() {
   const closeCtxMenu = useCallback(() => setCtxMenu(false), []);
   const openZen = useCallback(() => setZen(true), []);
   const openSettings = useCallback(() => gotoPanel("settings"), [gotoPanel]);
+  const openDevDocs = useCallback(() => setDevDocs(true), []);
   const ctxActions = useMemo<ContextMenuAction[]>(
     () => [
       { id: "palette", label: "指令面板", icon: CM_ICONS.palette, run: openPalette },
@@ -572,9 +583,10 @@ export default function Home() {
       { id: "theme", label: "明暗切换", icon: CM_ICONS.theme, run: toggleTheme, sep: true },
       { id: "zen", label: "禅模式", icon: CM_ICONS.zen, run: openZen },
       { id: "settings", label: "设置", icon: CM_ICONS.settings, run: openSettings, sep: true },
+      { id: "dev-docs", label: "开发者文档", icon: CM_ICONS.docs, run: openDevDocs },
       { id: "export", label: "导出备份", icon: CM_ICONS.export, run: exportData },
     ],
-    [openPalette, openAddLink, toggleTheme, openZen, openSettings, exportData]
+    [openPalette, openAddLink, toggleTheme, openZen, openSettings, openDevDocs, exportData]
   );
 
   /* ---------- 预设系统（声明式，白名单 action，零代码执行） ----------
@@ -1040,6 +1052,9 @@ export default function Home() {
         actions={ctxActions}
         onClose={closeCtxMenu}
       />
+
+      {/* 开发者文档（右键菜单直达；portal 到 body，与 ⌘K 内入口同一组件） */}
+      <PresetDocs open={devDocs} onClose={() => setDevDocs(false)} />
 
       {/* 右下角落款 */}
       <footer

@@ -26,11 +26,14 @@ export interface LiquidGlassOpts {
   saturation: number;
 }
 
+/** 缺省参数（v1.1.2 重调）：折射是主角，霜感只是配角——
+ *  blur 6 会把边缘弯曲糊成雾（用户实测「折射看不见」），降到 3；
+ *  折射强度提到 0.75 让透镜弯曲一眼可辨。 */
 export const GLASS_DEFAULTS: Required<LiquidGlassOpts> = {
-  refraction: 0.6,
+  refraction: 0.75,
   bezel: 0.5,
-  blur: 6,
-  saturation: 170,
+  blur: 3,
+  saturation: 180,
 };
 
 /** 玻璃容器白名单：搜索栏 / dock / dock 面板卡片 / 各 glass-card（⌘K 卡、链接对话框卡、
@@ -203,7 +206,10 @@ function updateAll() {
 }
 
 function applyBackdrop(el: HTMLElement, id: string) {
-  const v = `url(#${id}) blur(${opts.blur}px) saturate(${opts.saturation}%)`;
+  /* 链序律（v1.1.2）：blur 在前、位移在后——先霜化背景再重采样折射，
+   * 边缘弯曲保持锐利；url 在前会被后续 blur 把弯曲糊掉（v1.1.0 实测）。
+   * saturate 收尾提鲜，让弯曲带色彩可辨。 */
+  const v = `blur(${opts.blur}px) url(#${id}) saturate(${opts.saturation}%)`;
   el.style.backdropFilter = v;
   el.style.setProperty("-webkit-backdrop-filter", v);
   el.classList.add("lg-on");
