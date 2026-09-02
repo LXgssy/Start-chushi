@@ -131,7 +131,8 @@ function PresetWidgets(props: {
         break;
       }
       case "resize": {
-        const h = Math.round(+m.height || 0);
+        const raw = m.height as unknown;
+        const h = Math.round(typeof raw === "number" && Number.isFinite(raw) ? raw : 0);
         if (h < H_MIN || h > H_MAX) return;
         setHeights((prev) => (prev[wkey] === h ? prev : { ...prev, [wkey]: h }));
         break;
