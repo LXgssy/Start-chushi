@@ -1,8 +1,9 @@
 "use client";
 
-import { memo, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { memo, useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { PresenceClass } from "./PresenceClass";
+import { useMorphHeight } from "./use-morph-height";
 import {
   CheckSquare,
   CloudSun,
@@ -52,18 +53,20 @@ const EASE = [0.22, 1, 0.36, 1] as const;
 
 const SPRING = { type: "spring" as const, stiffness: 420, damping: 34 };
 
-/** 面板切换 = 单动作平滑形变：旧内容原地淡出 + 卡片高度弹簧到新内容高度 + 新内容淡入，
- *  三者重叠为一个连续动作（无先关后开、无两次动画）。
+/* 退场加速曲线（与 globals.css 的 .panel-sink/.veil-out 同参） */
+const EXIT_EASE = [0.4, 0, 1, 1] as const;
+
+/** 面板打开 / 切换 / 关闭 = 同一套高度形变语言（用户认可的「拉伸」）：
+ *  打开：高度盒从 0 弹簧展开到内容高度（initial height 0）+ 卡片 .panel-rise 淡入；
+ *  切换：高度盒弹簧到新内容高度 + 新旧内容交叉溶解；
+ *  关闭：高度盒折回 0（exit height→0，JS 逐帧写样式非 WAAPI，无取消回跳风险）
+ *        + 卡片 .panel-sink 淡出，与打开严格对称。
  *  退出面板绝对定位钉回内容盒原位（inset 0），在高度形变期间与新面板重叠溶解。
- *  ⚠ v1.0.8 统一「拉伸」语言：打开 = 高度 0→内容高弹簧（首开/重开与互切同一语言），
- *    关闭 = 高度→0 塌缩（.panel-sink .panel-hbox，CSS transition）+ 淡出。
  *  ⚠ 入场/退场淡入淡出均不在 framer 内（移交 .panel-rise / .panel-sink 等 CSS 关键帧，见 globals.css）：
  *    framer v12 对 opacity 走 WAAPI 加速，入场空窗期真机整板闪黑，退场中途被取消
- *    回跳 1 等于没有关闭动画。framer 仅保留高度弹簧与计时职责。
- *  ⚠ 玻璃卡上禁 transform 动画（v1.0.8 戒律）：transform 每帧改 border-box →
- *    backdrop 采样区逐帧重算（掉帧），且 Chromium 对 backdrop-filter 元素的
- *    transform 动画存在未合成完闪底的帧（真机「一直闪」的根源）——
- *    原 y/scale 入场与 .panel-sink 的 translateY/scale 已全部移除 */
+ *    回跳 1 等于没有关闭动画。卡片本体不再持有 framer 入场动画（y/scale 并入高度展开语言）
+ *  ⚠ 卡片不再带 backdrop-filter：磨砂玻璃 + opacity 动画是 Chromium 闪烁的经典组合，
+ *    且逐帧重采样 backdrop 是掉帧主力；glass-card 底色 92% 不透明，磨砂本就不可见（v1.0.8 实证修复） */
 
 const PANEL_TITLES: Record<Exclude<PanelId, null>, string> = {
   weather: "天气",
@@ -110,59 +113,13 @@ const PanelStage = memo(function PanelStage({
   importData: (f: File) => void;
   resetAll: () => void;
 }) {
-  /* 面板内容真实高度：卡片高度动画的驱动源。
+  /* 面板内容真实高度：卡片高度动画的驱动源（测高/RO 兜底/零高毒化防护见 hook 注释）。
      为什么不用 framer layout：layout 用 transform scale 缩放卡片盒子，内部内容无反向补偿，
      切换瞬间整卡内容被纵向压扁/拉伸，读起来像「旧卡压扁关闭 + 新卡撑开打开」两次动画；
      改为测量内容高度 + 高度 px 弹簧（reflow 形变），内容全程零畸变，视觉上只是
-     「容器平滑地变成另一个面板的尺寸」。ResizeObserver 同时兜底面板内部高度变化
-     （待办增删、天气加载、设置分区展开），同样平滑跟随。
-     ⚠ 首开拉伸不需要测高：高度盒 initial height 0 + animate 目标 auto（framer 自动
-     测量），挂载帧零 setState；首开 arming（≈0.5s）后回写的 contentH 与 auto 解析值
-     相同，无跳变。切换路径（contentH 已有值）立即测高，高度形变不受影响 */
-  const [contentH, setContentH] = useState<number | null>(null);
-  /* 镜像到 ref 供稳定的 measureRef 回调读取（渲染期直接写 ref 违反 React Compiler 规则；
-     effect 时序依然正确：commit 阶段的 ref 回调读到的永远是上一次提交后的值） */
-  const contentHRef = useRef<number | null>(null);
-  useEffect(() => {
-    contentHRef.current = contentH;
-  }, [contentH]);
-  const roRef = useRef<ResizeObserver | null>(null);
-  const armRef = useRef<number | null>(null);
-  const measureRef = useCallback((el: HTMLDivElement | null) => {
-    /* 退场卸载（el=null）不清理：交叉溶解期共享 roRef 已指向新面板的观察器，
-       此处误断会让新面板内部高度变化失察（待办增删/天气加载/设置展开不再跟随）。
-       退场面板的 RO 随元素回收（ResizeObserver 对 target 为弱引用） */
-    if (!el) return;
-    roRef.current?.disconnect();
-    roRef.current = null;
-    if (armRef.current != null) {
-      window.clearTimeout(armRef.current);
-      armRef.current = null;
-    }
-    const attach = () => {
-      const update = () => setContentH(el.offsetHeight);
-      update();
-      const ro = new ResizeObserver(update);
-      ro.observe(el);
-      roRef.current = ro;
-    };
-    if (contentHRef.current != null) {
-      attach();
-    } else {
-      armRef.current = window.setTimeout(() => {
-        armRef.current = null;
-        if (!el.isConnected) return;
-        attach();
-      }, 500);
-    }
-  }, []);
-
-  /* 面板关闭后清空测高缓存：否则关闭后再打开另一个面板，高度盒会先以旧面板高度
-     出现再弹簧撑开（入场混入高度动画）。重置放在 AnimatePresence 的
-     onExitComplete（退场完成后）：⚠ 不能用渲染期 setState 重置 —— 那会在退出
-     刚启动时同步触发二次渲染，打断 v12 的退场动画调度（实测是关闭动画失效的
-     直接根因之一）；互切路径（A→B）外层卡片不退场，不触发重置，正是所需 */
-  const resetContentH = useCallback(() => setContentH(null), []);
+     「容器平滑地变成另一个面板的尺寸 */
+  const { contentH, measureRef, reset: resetContentH } = useMorphHeight();
+  const reduceMotion = useReducedMotion();
 
   return (
     /* 面板浮层：外层静态 wrapper 负责定位（fixed + CSS -translate-x-1/2 居中），
@@ -180,10 +137,10 @@ const PanelStage = memo(function PanelStage({
             key="dock-panel"
             role="dialog"
             aria-label={`${PANEL_TITLES[panel]}面板`}
+            style={{ transformOrigin: "bottom center", willChange: "transform" }}
             data-panel={panel}
             exitClass="panel-sink"
-            duration={0.26}
-            className="glass-card backdrop-blur-xl backdrop-saturate-150 panel-rise cl-panel pointer-events-auto relative w-[min(92vw,360px)] overflow-hidden rounded-2xl p-4 shadow-2xl"
+            className="glass-card panel-rise cl-panel pointer-events-auto relative w-[min(92vw,360px)] overflow-hidden rounded-2xl p-4 shadow-2xl"
           >
           {/* 关闭按钮固定右上，不随内容重绘 */}
           <button
@@ -202,16 +159,16 @@ const PanelStage = memo(function PanelStage({
             </svg>
           </button>
 
-          {/* 高度盒（panel-hbox）：高度 px 弹簧（无 layout scale），内容溢出由卡片 overflow-hidden 裁剪；
-              initial height 0 → 每次打开（首开/重开）都从 dock 拔起拉伸到内容高，与互切同语言；
-              关闭时 .panel-sink .panel-hbox 用 CSS transition 塌缩回 0（对称）。
-              contain:layout 把弹簧逐帧 reflow 的失效范围圈在本盒内部，
-              不再波及卡片以外任何布局（帧预算从整页降到面板盒） */}
+          {/* 高度盒：打开从 0 弹簧展开（initial height 0）+ 切换 px 弹簧 + 关闭折回 0
+              （exit 交给 framer 逐帧写样式，height 非 WAAPI 加速属性，无取消回跳风险），
+              内容溢出由卡片 overflow-hidden 裁剪；contain:layout 把弹簧逐帧 reflow
+              的失效范围圈在本盒内部（帧预算从整页降到面板盒） */}
           <motion.div
-            className="panel-hbox relative"
+            className="relative"
             style={{ contain: "layout" }}
-            initial={{ height: 0 }}
+            initial={reduceMotion ? false : { height: 0 }}
             animate={{ height: contentH == null ? "auto" : contentH }}
+            exit={{ height: 0, transition: { duration: 0.22, ease: EXIT_EASE } }}
             transition={SPRING}
           >
           <AnimatePresence initial={false}>
@@ -300,8 +257,9 @@ export default function Dock({
   const pomoRunning = useSyncExternalStore(subscribePomo, getPomoRunning, () => false);
 
   /* 面板互切只有淡切一条路径，无需方向状态。
-     ⚠ 挂载后一帧内的二次渲染会让 framer-motion v12 投影重测量（历史教训，
-     v1.0.6 二分法实证）；现架构首开拉伸走 auto 目标，挂载帧零 setState */
+     ⚠ 挂载后一帧内的二次渲染会让 framer-motion v12 layout 投影重测量并把卡片
+     transform 重置为 none（x/y/scale 全灭、面板失去居中），已用二分法实证——
+     任何面板相关状态都不可在挂载后再补一帧回写 */
   function switchTo(p: PanelId) {
     setPanel(p);
   }
@@ -311,15 +269,21 @@ export default function Dock({
 
   return (
     <>
-      {/* 关闭遮罩：纯点击捕获层（无视觉），不做任何动画——原 framer opacity 入场 +
-          veil-out 退场是隐形 div 上的纯 WAAPI 开销；卸载时机随 panel 状态即时切换 */}
-      {panel && (
-        <div
-          className="fixed inset-0 z-30"
-          onClick={() => switchTo(null)}
-          aria-hidden
-        />
-      )}
+      {/* 关闭遮罩：退场淡出走 CSS .veil-out（framer exit 仅计时） */}
+      <AnimatePresence>
+        {panel && (
+          <PresenceClass
+            key="dock-overlay"
+            exitClass="veil-out"
+            duration={0.25}
+            className="fixed inset-0 z-30"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            onClick={() => switchTo(null)}
+            aria-hidden
+          />
+        )}
+      </AnimatePresence>
 
       <nav
         aria-label="快捷操作"

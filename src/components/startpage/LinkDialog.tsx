@@ -65,7 +65,16 @@ function DialogForm({
     }, 60);
     return () => {
       clearTimeout(t);
-      prev?.focus?.();
+      /* 归还焦点；键盘路径（ESC 关闭）后的程序化 focus 会命中 :focus-visible
+         产生聚焦框，检测到即主动移出（与指令面板同律，见 CommandPalette） */
+      if (prev && prev.isConnected) {
+        prev.focus?.();
+        try {
+          if (prev.matches(":focus-visible")) prev.blur();
+        } catch {
+          /* 老内核不支持 :focus-visible 匹配：忽略 */
+        }
+      }
     };
   }, []);
 
@@ -87,7 +96,7 @@ function DialogForm({
   return (
     <motion.div
       key="link-overlay"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4 backdrop-blur-[6px]"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -104,7 +113,7 @@ function DialogForm({
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.97, y: 6 }}
         transition={SPRING}
-        className="glass-card backdrop-blur-2xl backdrop-saturate-150 w-full max-w-[400px] rounded-2xl p-5 shadow-2xl"
+        className="glass-card w-full max-w-[400px] rounded-2xl p-5 shadow-2xl"
         onKeyDown={(e) => {
           if (e.key === "Escape") {
             e.stopPropagation();

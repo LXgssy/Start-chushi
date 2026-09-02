@@ -11,7 +11,6 @@ import Dock from "@/components/startpage/Dock";
 import CommandPalette from "@/components/startpage/CommandPalette";
 import ZenPomodoro from "@/components/startpage/ZenPomodoro";
 import LinkDialog, { type LinkEditorState } from "@/components/startpage/LinkDialog";
-import PresetDialog, { type PresetDialogState } from "@/components/startpage/PresetDialog";
 import PresetWidgets, { type ActiveWidget } from "@/components/startpage/PresetWidgets";
 import SandboxPage, { type ActivePage } from "@/components/startpage/SandboxPage";
 import {
@@ -98,7 +97,6 @@ export default function Home() {
   /* ---------- 界面状态 ---------- */
   const [panel, setPanel] = useState<PanelId>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [presetDialog, setPresetDialog] = useState<PresetDialogState>({ open: false, tab: "import" });
   const [editor, setEditor] = useState<LinkEditorState>({ open: false, editing: null });
   const [weather, setWeather] = useState<WeatherState>(INITIAL_WEATHER);
   const [isDark, setIsDark] = useState(true);
@@ -767,12 +765,8 @@ export default function Home() {
     [runSearch, patchSettings, toast, presets]
   );
 
-  const openPresetDialog = useCallback((tab: "import" | "manage") => {
-    setPresetDialog({ open: true, tab });
-  }, []);
-  const closePresetDialog = useCallback(() => {
-    setPresetDialog((s) => ({ ...s, open: false }));
-  }, []);
+  /* 预设导入/管理入口 = 指令面板内嵌视图（PresetPanel）：指令面板原地形变为
+     预设系统面板，无独立对话框 */
 
   /* ---------- 自定义页面 overlay 稳定回调 ---------- */
   const closePage = useCallback(() => setActivePage(null), []);
@@ -911,7 +905,7 @@ export default function Home() {
         )}
       </AnimatePresence>
 
-      {/* 命令面板 */}
+      {/* 命令面板（内嵌预设系统视图，见 PresetPanel） */}
       <CommandPalette
         open={paletteOpen}
         onClose={closePalette}
@@ -924,13 +918,6 @@ export default function Home() {
         exportData={exportData}
         presetCommands={allPresetCommands}
         runPresetAction={runPresetAction}
-        openPresetDialog={openPresetDialog}
-      />
-
-      {/* 预设导入 / 管理 */}
-      <PresetDialog
-        state={presetDialog}
-        onClose={closePresetDialog}
         presets={presets}
         onInstall={installPreset}
         onRemove={removePreset}
