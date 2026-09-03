@@ -4,6 +4,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, Check, ChevronDown, Search } from "lucide-react";
+import { FxIcon } from "./FxIcon";
 import { ENGINES, getEngine, looksLikeUrl, toUrl } from "@/lib/startpage/engines";
 import type { Settings } from "@/lib/startpage/types";
 
@@ -324,7 +325,7 @@ function SearchBar({
                         : "text-zinc-700 dark:text-zinc-200"
                     }`}
                   >
-                    <Search className="h-3.5 w-3.5 shrink-0 opacity-40" strokeWidth={1.5} />
+                    <FxIcon slot="searchbar" fallback={Search} className="h-3.5 w-3.5 shrink-0 opacity-40" strokeWidth={1.5} />
                     <span className="truncate">{s}</span>
                   </button>
                 ))}

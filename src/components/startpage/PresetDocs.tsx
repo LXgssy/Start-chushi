@@ -366,7 +366,8 @@ export default function PresetDocs({
                 <P>
                   液态玻璃这类视觉效果<b>不由宿主内建</b>：宿主只提供一块受控的「作用面」（fx API），
                   效果的<b>全部实现代码住在预设包的 scripts 里</b>——安装即生效、删除预设（或脚本被冻结）
-                  即整组回收。官方「液态玻璃预设」就是照这套接口写出来的，把它当参考实现最直接。
+                  即整组回收。官方「液态玻璃预设」就是照这套接口写出来的（v1.3.0 起为 WebGL 物理透镜引擎，
+                  折射模型忠实移植 martin65536/liquid-glass-webgl ← Kyant0/AndroidLiquidGlass，Apache-2.0）。
                 </P>
                 <T
                   head={["API / 钩子", "说明"]}
@@ -379,7 +380,23 @@ export default function PresetDocs({
                     [<K>chushi.fx.unmount(id)</K>, "摘除一个挂载"],
                     [
                       <K>chushi.fx.onResize(cb)</K>,
-                      "订阅玻璃容器尺寸快照（cb 收 [{fx, key, w, h, radius}]），返回退订函数；折射贴图按它重生成",
+                      "订阅玻璃容器几何快照（cb 收 [{fx, key, w, h, radius, x, y, cv}]，含视口坐标与画布存活标志），返回退订函数；订阅即推全量",
+                    ],
+                    [
+                      <K>chushi.fx.onPositions(cb)</K>,
+                      "v1.3.0：transform 动画期元素视口位置推送（[{fx,x,y}]，rAF 跟踪变化才推）——折射采样坐标据此与壁纸逐帧对齐",
+                    ],
+                    [
+                      <K>chushi.fx.attachCanvas(fx)</K>,
+                      "v1.3.0：在玻璃元素内创建透明占位画布（z-index:-1，位于背景与内容之下）；返回 Promise",
+                    ],
+                    [
+                      <K>chushi.fx.pushFrame(fx, bitmap, w, h)</K>,
+                      "v1.3.0：引擎本地自绘（WebGL/2D 均可）后把 ImageBitmap 交宿主 blit 上屏；宿主只搬运像素不做视觉计算，通道跨内核可靠",
+                    ],
+                    [
+                      <K>chushi.fx.getBackdrop()</K>,
+                      "v1.3.0：背景事实数据 {kind:'photo',scrim,bitmap?} / {kind:'glow',base,blobs} / {kind:'flat',base} + vw/vh/dark；photo 壁纸位图由宿主代取后转移（零 CORS/零污染负担）",
                     ],
                     [
                       <K>[data-fx=&quot;fxN&quot;]</K>,
@@ -395,29 +412,30 @@ export default function PresetDocs({
                 <P>
                   安全校界：mount 的 html 只接受 &lt;style&gt; / &lt;svg&gt; 顶层结构（禁 script、
                   事件属性、foreignObject 与外链资源）；全屏幕布（⌘K / 对话框遮罩）永不打 data-fx
-                  标记——幕布不是玻璃块。骨架示例：
+                  标记——幕布不是玻璃块。WebGL 引擎骨架：
                 </P>
-                <Code>{`chushi.fx.onResize((items) => {
-  for (const it of items) {
-    // it = { fx, key, w, h, radius }：按 w/h 生成位移贴图与 <svg><filter>…
-    chushi.fx.mount("g" + it.fx, svgHtml(it));
-  }
-});
-// CSS 里：[data-fx="fx1"] { backdrop-filter: blur(3px) url(#g-fx1) saturate(180%) }`}</Code>
+                <Code>{`// 新元素：占位画布 + 本地 WebGL 画布
+const r = await chushi.fx.attachCanvas(it.fx);
+const local = document.createElement("canvas");
+const gl = local.getContext("webgl", { alpha: true,
+  premultipliedAlpha: true, preserveDrawingBuffer: true });
+// 背景事实 → 纹理
+const bg = await chushi.fx.getBackdrop();
+// 画一帧 → 交宿主上屏
+const bmp = await createImageBitmap(local);
+await chushi.fx.pushFrame(it.fx, bmp, W, H);`}</Code>
                 <P>
-                  ⚠ <b>材质即顺序</b>：backdrop-filter 引用 SVG 滤镜时，<b>blur 在前、url(#filter) 在后</b>
-                  （先霜化再折射，弯曲锐利）；写反了折射会被模糊糊掉。目前仅 Chromium 系支持
-                  backdrop-filter: url()，其它内核自动保持磨砂现状。
+                  ⚠ <b>WebGL 通道律（v1.3.0）</b>：本地画布必须 <b>preserveDrawingBuffer: true</b>
+                  （否则 createImageBitmap 读到空帧）；位图上屏走 ImageBitmap 通道——
+                  OffscreenCanvas 直转移在 Chromium 下多次发送后回包不可靠，已废弃；沙箱 iframe 是隐藏文档
+                  <b>禁用 requestAnimationFrame</b>（渲染循环不触发），调度一律 setTimeout；
+                  WebGL/背景不可用时降级纯 CSS 材质（blur+saturate）。
                 </P>
                 <P>
-                  ⚠ <b>布局动画防闪（v1.2.0）</b>：玻璃元素在布局尺寸连续变化（面板高度弹簧、窗口拖拽）期间，
-                  SVG 位移滤镜逐帧重栅格化且贴图错帧 = 闪动。律：尺寸变动期退化为纯 blur/saturate，
-                  稳定约 160ms 后再生成贴图换全链（官方引擎已内置）。
-                </P>
-                <P>
-                  <b>物理透镜贴图（对齐 Apple 边缘折射）</b>：方向取 SDF 梯度（边缘外法线），不要指向几何中心；
-                  边缘环带向外取样，显示被压缩进来的<b>玻璃外世界</b>（纸镇/鱼缸效应）——滤镜域需外扩 pad；
-                  剖面用 smoothstep² 集中在边缘窄带。v1.2.0 起官方引擎即按此实现。
+                  <b>物理透镜模型（对齐 Apple 边缘折射）</b>：剖面取圆弧 circleMap(t)=1−√(1−t²)
+                  （球面透镜投影，越靠边越陡）；方向沿 SDF 梯度（边缘外法线），位移量取负 →
+                  边缘向玻璃内采样 = <b>凸透镜放大</b>（与 Apple/Kyant 默认 −24dp 同向）；
+                  可选七通道色散、Vogel 金角螺旋高斯盘霜化、边缘高光。v1.3.0 起官方引擎即按此实现。
                 </P>
                 <P>
                   <b>settings 设置面（v1.2.0）：把调节项贡献进设置面板</b>。声明后宿主渲染出分区，
@@ -488,6 +506,35 @@ chushi.settings.onChange((values) => { /* 整组热更新 */ });`}</Code>
 ]`}</Code>
               </Sec>
 
+              <Sec n="08.5" title="图标替换与主题令牌覆写（焕新作用面）">
+                <P>
+                  两个「整页焕新」作用面：替换内置图标、覆写设计令牌——<b>删除预设即整组还原</b>。
+                </P>
+                <P>
+                  <b>图标替换</b>：<K>chushi.icons.override(&#123;slot: url&#125;)</K>——槽位名 → 图片地址
+                  （仅允许 https / data:image；&lt;img&gt; 渲染不执行 SVG 内脚本）。槽位契约随版本扩充：
+                  <K>dock-weather</K> / <K>dock-todo</K> / <K>dock-note</K> / <K>dock-pomodoro</K> / 
+                  <K>dock-cmdk</K> / <K>dock-settings</K>（底部栏固定按钮）、<K>dock-close</K>（面板关闭）、
+                  <K>searchbar</K>（搜索图标）。
+                </P>
+                <Code>{`chushi.icons.override({
+  "dock-todo": "data:image/svg+xml;utf8,<svg …/></svg>",
+  "searchbar": "https://example.com/my-icon.png",
+});
+chushi.icons.override({}); // 空 map = 清除本预设全部覆写`}</Code>
+                <P>
+                  <b>主题令牌覆写</b>：<K>chushi.theme.override(&#123;light, dark&#125;)</K>——亮/暗双域分别给出
+                  CSS 令牌覆写（键白名单整体拒绝制；值限颜色格式）。白名单 28 项（与 globals.css 同步维护）：
+                  --ui-accent / --radius / --background / --foreground / --card / --popover / --primary /
+                  --secondary / --muted / --accent / --destructive / --border / --input / --ring / --sidebar…
+                  light 组以 !important 生效（压过设置面板 inline 强调色）。
+                </P>
+                <Code>{`chushi.theme.override({
+  light: { "--ui-accent": "#00c896", "--border": "rgba(0,0,0,.08)" },
+  dark: { "--background": "oklch(0.12 0.01 260)" },
+});`}</Code>
+              </Sec>
+
               <Sec n="10" title="scripts 沙箱脚本与 chushi API">
                 <P>
                   脚本运行在唯一源沙箱 iframe 里：拿不到主文档、页面数据与扩展 API，只能用受控
@@ -510,14 +557,22 @@ chushi.settings.onChange((values) => { /* 整组热更新 */ });`}</Code>
                     [<K>chushi.copy(text)</K>, "复制文本到剪贴板"],
                     [<K>chushi.fetchJSON(url, init?)</K>, "受限 fetch：仅 https，10 秒超时，返回解析好的 JSON"],
                     [
-                      <K>chushi.fx.mount / unmount / onResize</K>,
-                      "视觉效果作用面：注入 style/svg、订阅玻璃容器尺寸（详见 §08）",
+                      <K>chushi.fx.mount / unmount / onResize / onPositions / attachCanvas / pushFrame / getBackdrop</K>,
+                      "视觉效果作用面：注入 style/svg、订阅几何/位置快照、占位画布与位图帧上屏、背景事实数据（详见 §08）",
                     ],
                     [
                       <>
                         <K>chushi.settings.define / get / onChange</K>
                       </>,
                       "设置面：向设置面板贡献调节项（slider/toggle/select）并接收热更新（详见 §08 settings 小节）",
+                    ],
+                    [
+                      <K>chushi.icons.override(map)</K>,
+                      "v1.3.0 图标替换：槽位 → 图片白名单（详见 §08.5）",
+                    ],
+                    [
+                      <K>chushi.theme.override(&#123;light, dark&#125;)</K>,
+                      "v1.3.0 主题令牌覆写：亮/暗双域令牌白名单（详见 §08.5）",
                     ],
                   ]}
                 />

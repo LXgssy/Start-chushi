@@ -79,7 +79,9 @@
 >
 > v1.1.3 起，架构纠偏：液态玻璃不再内建在宿主里——宿主只提供 fx 受控作用面（`chushi.fx.mount / onResize`、`[data-fx]` 标记、`--fx-mx/--fx-my` 指针变量），折射引擎的全部代码（位移贴图、SVG 滤镜、材质高光）都住在官方「液态玻璃」预设包的脚本里，删除预设即整组回收；同一批修复 ⌘K 两个交互隐患：① toast 通知竖带在显示期间拦截 ⌘K 遮罩点击（「删预设返回后点空白关不掉」的实证根因）；② cmdk 选中高光在指针离开面板后常驻（改为三态门控：指针在面板内/方向键导航才显示）。
 >
-> v1.2.0 起，液态玻璃对齐 Apple 物理透镜观感并开放热调：①折射重写为「SDF 梯度方向 + 外绕边缘窄带 + 滤镜域外扩」，边缘环带显示被压缩进来的玻璃外世界（纸镇/鱼缸效应），不再向中心歪折；②新增 **chushi.settings 设置面作用面**——预设脚本可向设置面板贡献自己的调节项，官方液态玻璃预设的折射强度/边缘带宽/霜化/饱和/透亮/边缘色散/镜面高光均可热调并持久化；③根治「面板开合动画期间液态玻璃闪动」（布局尺寸连续变化期自动退化为纯磨砂，稳定后重建贴图）；④导入预设支持拖拽文件；⑤右键菜单项与开发者文档分区开/关均增加级联模糊过场。
+> v1.2.0 起，液态玻璃对齐 Apple 物理透镜观感并开放热调：折射重写为「SDF 梯度方向 + 外绕边缘窄带 + 滤镜域外扩」；新增 **chushi.settings 设置面作用面**（预设向设置面板贡献调节项，液态玻璃七参数可热调并持久化）；根治面板开合动画期闪动；导入预设支持拖拽文件；右键菜单与开发者文档分区开/关增加级联模糊过场。
+>
+> v1.3.0 起，液态玻璃升级为 **WebGL 物理透镜**并对齐 Apple 观感（折射模型忠实移植 [martin65536/liquid-glass-webgl](https://github.com/martin65536/liquid-glass-webgl) ← Kyant0/AndroidLiquidGlass，Apache-2.0）：圆弧透镜剖面 + SDF 梯度方向 + 向内采样（凸透镜放大）、可选七通道色散与边缘高光；引擎整体住预设包，经新增 `attachCanvas` / `pushFrame` / `getBackdrop` / `onPositions` 作用面在沙箱本地 WebGL 自绘后上屏，布局/弹簧动画期天然无闪动。同批新增两个「整页焕新」作用面：**图标替换**（`chushi.icons.override`，Dock/搜索等槽位换图）与**主题令牌覆写**（`chushi.theme.override`，亮/暗双域 28 项令牌白名单），删除预设即整组还原。
 
 ## 右键菜单
 
@@ -337,26 +339,30 @@
 
 部件文档会自动拿到宿主的**主题**（`html[data-theme="dark"|"light"]`）与**强调色**（`var(--w-accent)`），深浅色跟随起始页；CSS 钩子 `.cl-widgets`（层）与 `.cl-widget`（单块）可供 `animations` 进一步定制；禅模式部件与页面内容一同雾化隐去。官方示例「倒数日」预设（`examples/倒数日预设.json`）：点击卡片可改事件与日期，配置保存在本机。
 
-### 视觉效果（fx 作用面，v1.1.3 起）与设置面（v1.2.0 起）
+### 视觉效果（fx 作用面，v1.1.3 起）、设置面（v1.2.0 起）与焕新作用面（v1.3.0 起）
 
-液态玻璃这类视觉效果**不由宿主内建**：宿主只提供一块受控的「作用面」（fx API），效果的**全部实现代码住在预设包的 `scripts` 里**——安装即生效、删除预设（或脚本被冻结）即整组回收。官方「液态玻璃」预设（`examples/液态玻璃预设.json`）就是照这套接口写出的参考实现：canvas 生成圆角矩形 SDF 物理位移贴图（梯度方向沿边缘外法线、外绕窄带、滤镜域外扩取到元素外世界），SVG `feDisplacementMap` 实时折射背景，CSS 叠加边缘高光与跟随指针的镜面高光；并通过下表 `chushi.settings` 把折射强度/霜化/色散等调节项贡献进设置面板热调。
+液态玻璃这类视觉效果**不由宿主内建**：宿主只提供一块受控的「作用面」（fx API），效果的**全部实现代码住在预设包的 `scripts` 里**——安装即生效、删除预设（或脚本被冻结）即整组回收。官方「液态玻璃」预设（`examples/液态玻璃预设.json`）就是照这套接口写出的参考实现（**v1.3.0 起为 WebGL 物理透镜引擎**，忠实移植 [martin65536/liquid-glass-webgl](https://github.com/martin65536/liquid-glass-webgl) ← [Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass) 的折射模型，Apache-2.0）：把玻璃视为带圆角倒边的凸透镜，剖面取圆弧 `circleMap(t)=1−√(1−t²)`（球面透镜投影，越靠边越陡，与 Apple 观感同源）；折射方向沿 SDF 梯度（边缘外法线），位移向内采样（凸透镜放大）；可选七通道色散、Vogel 金角螺旋高斯盘霜化、边缘高光；背景事实（壁纸位图/辉光描述）由宿主陈述、引擎在沙箱本地自绘后经位图通道上屏。调节项经 `chushi.settings` 贡献进设置面板热调。
 
 | API / 钩子 | 说明 |
 |---|---|
 | `chushi.fx.mount(id, html)` | 把纯视觉结构（`<style>` / `<svg>`）幂等挂进宿主隐藏容器 `#chushi-fx-root`；同 id 重复挂载为替换。单次 ≤192KB |
 | `chushi.fx.unmount(id)` | 摘除一个挂载 |
-| `chushi.fx.onResize(cb)` | 订阅玻璃容器尺寸快照（`cb` 收 `[{fx, key, w, h, radius}]`），返回退订函数 |
+| `chushi.fx.onResize(cb)` | 订阅玻璃容器几何快照（`cb` 收 `[{fx, key, w, h, radius, x, y, cv}]`，含视口坐标与画布存活标志），返回退订函数 |
+| `chushi.fx.onPositions(cb)` | v1.3.0：transform 动画期元素视口位置推送（`[{fx,x,y}]`，rAF 跟踪，变化才推）——折射采样坐标据此与壁纸逐帧对齐 |
+| `chushi.fx.attachCanvas(fx)` | v1.3.0：在玻璃元素内创建透明占位画布（z-index:-1，位于背景与内容之下）；返回 `{ok}` |
+| `chushi.fx.pushFrame(fx, bitmap, w, h)` | v1.3.0：引擎本地自绘（WebGL/2D 均可）后把 ImageBitmap 交宿主 blit 上屏；宿主只搬运像素不做视觉计算；ImageBitmap 通道跨内核可靠 |
+| `chushi.fx.getBackdrop()` | v1.3.0：背景事实数据 `{kind:'photo', scrim, bitmap?}` / `{kind:'glow', base, blobs[]}` / `{kind:'flat', base}` + `vw/vh/dark`；photo 的壁纸位图由宿主代取后转移（沙箱零 CORS/零污染负担） |
 | `[data-fx="fxN"]` | 宿主打在白名单玻璃容器（`.search-pill` / `.cl-dock` / `.cl-panel` / `.glass-card`）上的稳定标记，预设 CSS 用它触达真实元素 |
 | `--fx-mx` / `--fx-my` | 指针在玻璃容器内移动时宿主写在容器上的相对坐标（%），CSS 用 `var()` 做镜面高光 |
 | `chushi.settings.define(schema)` | v1.2.0 设置面：预设向设置面板贡献一个分区（≤12 个 slider/toggle/select 控件，schema 整体白名单校验） |
 | `chushi.settings.get()` | 读取当前设置值（Promise；宿主按 schema 校验 localStorage 持久化值并补默认值） |
 | `chushi.settings.onChange(cb)` | 用户在设置面板改动时回调整组值（热生效），返回退订函数；删除预设即连分区带持久化值一并回收 |
+| `chushi.icons.override(map)` | v1.3.0 图标替换：槽位 → 图片（`https:` / `data:image`）白名单，页面在 FxIcon 渲染点替换内置图标；空 map = 清除。槽位契约见开发者文档 |
+| `chushi.theme.override({light, dark})` | v1.3.0 主题令牌覆写：亮/暗双域 CSS 令牌（`--ui-accent` / `--background` / `--card` / `--border` / `--ring` 等 28 项白名单），整体拒绝制；删除预设即整组还原 |
 
-安全边界：mount 的 html 只接受 `<style>` / `<svg>` 顶层结构（禁 `script`、事件属性、foreignObject 与外链资源）；全屏幕布（⌘K / 对话框遮罩）永不打标——幕布不是玻璃块。
+安全边界：mount 的 html 只接受 `<style>` / `<svg>` 顶层结构（禁 `script`、事件属性、foreignObject 与外链资源）；全屏幕布（⌘K / 对话框遮罩）永不打标——幕布不是玻璃块；图标覆写只接受 https / data:image（`<img>` 渲染不执行 SVG 内脚本）；主题令牌名与值双白名单。
 
-⚠ **材质即顺序（链序律）**：`backdrop-filter` 引用 SVG 滤镜时必须 `blur` 在前、`url(#filter)` 在后（先霜化再折射，弯曲锐利）；写反了折射会被模糊糊掉。需要 Chromium 系浏览器（`backdrop-filter: url()`），Firefox / Safari 自动保持普通磨砂。
-
-⚠ **布局动画防闪律（v1.2.0）**：玻璃元素在布局尺寸连续变化（面板高度弹簧、窗口拖拽缩放）期间，SVG 位移滤镜会逐帧重栅格化且贴图尺寸滞后错帧，表现为闪动——引擎须在尺寸变动期退化为纯 `blur/saturate`（标准滤镜函数无此病），稳定约 160ms 后再生成贴图换全链。官方液态玻璃预设已内置该策略，写同类效果请照抄。
+⚠ **WebGL 通道律（v1.3.0）**：引擎在沙箱本地画布自绘（`preserveDrawingBuffer` 保证 `createImageBitmap` 可读），位图经 `pushFrame` 交宿主 blit——OffscreenCanvas 直转移在 Chromium 下多次发送后回包不可靠，已废弃；WebGL / OffscreenCanvas 不可用时降级纯 CSS 材质（`blur+saturate`），官方预设已内置该降级链。位置跟踪由宿主 rAF 兜底（ResizeObserver 不触发 transform 动画），引擎按 `onPositions` 更新采样原点重绘即可。
 
 ### 预设包（`.cshz`）与本地文件导入（v1.0.6 起）
 

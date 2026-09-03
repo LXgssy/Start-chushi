@@ -15,6 +15,7 @@ import ZenPomodoro from "@/components/startpage/ZenPomodoro";
 import LinkDialog, { type LinkEditorState } from "@/components/startpage/LinkDialog";
 import PresetWidgets, { type ActiveWidget } from "@/components/startpage/PresetWidgets";
 import SandboxPage, { type ActivePage } from "@/components/startpage/SandboxPage";
+import { IconOverrideContext } from "@/components/startpage/FxIcon";
 import {
   dockIcon,
   type InstalledPreset,
@@ -130,6 +131,12 @@ export default function Home() {
   const [presetSchemas, setPresetSchemas] = useState<
     Record<string, { presetName: string; schema: PresetSettingsSchema }>
   >({});
+  /* ---------- 焕新作用面（v1.3.0）：图标覆写 + 主题令牌覆写 ----------
+   * 脚本经 chushi.icons.override / chushi.theme.override 声明，桥校验后转入；
+   * 图标合并后经 IconOverrideContext 下发 FxIcon 渲染点；主题经 style 元素
+   * （:root/.dark 双域，!important 压过 inline accent）挂 head，随 cleanup 回收 */
+  const [iconOv, setIconOv] = useState<Record<string, Record<string, string>>>({});
+  const themeStyleRef = useRef<Map<string, HTMLStyleElement>>(new Map());
 
   const patchSettings = useCallback(
     (patch: Partial<Settings>) => setSettings((prev) => ({ ...prev, ...patch })),
@@ -143,6 +150,56 @@ export default function Home() {
       return next;
     });
   }, []);
+
+  /* 主题令牌覆写：每脚本一条 style（:root/.dark 双域，!important 使预设
+   * 覆写在设置面板 inline accent 之上仍生效）；删除预设即整条移除还原 */
+  const applyThemeStyle = useCallback(
+    (
+      key: string,
+      groups: { light?: Record<string, string>; dark?: Record<string, string> }
+    ) => {
+      if (typeof document === "undefined") return;
+      const css = (dom: string, o: Record<string, string>) =>
+        `${dom}{` +
+        Object.entries(o)
+          .map(([k, v]) => `${k}:${v}!important`)
+          .join(";") +
+        `}`;
+      let text = "";
+      if (groups.light && Object.keys(groups.light).length) text += css(":root", groups.light);
+      if (groups.dark && Object.keys(groups.dark).length) text += css(".dark", groups.dark);
+      const id = `chushi-theme-${key}`;
+      let el = document.getElementById(id) as HTMLStyleElement | null;
+      if (!text) {
+        el?.remove();
+        themeStyleRef.current.delete(key);
+        return;
+      }
+      if (!el) {
+        el = document.createElement("style");
+        el.id = id;
+        document.head.appendChild(el);
+        themeStyleRef.current.set(key, el);
+      }
+      el.textContent = text;
+    },
+    []
+  );
+  const removeThemeStyle = useCallback((key: string) => {
+    const el = themeStyleRef.current.get(key);
+    if (el) {
+      el.remove();
+      themeStyleRef.current.delete(key);
+    }
+  }, []);
+
+  /* 图标覆写合并视图：按 scriptKey 稳定排序合并（后激活脚本覆盖先激活） */
+  const iconOverrides = useMemo(() => {
+    const keys = Object.keys(iconOv).sort();
+    const merged: Record<string, string> = {};
+    for (const k of keys) Object.assign(merged, iconOv[k]);
+    return merged;
+  }, [iconOv]);
 
   /* ---------- 主题应用 ---------- */
   useEffect(() => {
@@ -767,10 +824,27 @@ export default function Home() {
             [ev.scriptKey]: { presetName: ev.presetName, schema: ev.schema },
           }));
           break;
+        case "iconsOverride":
+          setIconOv((prev) => ({ ...prev, [ev.scriptKey]: ev.map }));
+          break;
+        case "themeOverride":
+          applyThemeStyle(ev.scriptKey, ev.groups);
+          break;
+        case "cleanup":
+          setIconOv((prev) => {
+            if (!(ev.scriptKey in prev)) return prev;
+            const next = { ...prev };
+            delete next[ev.scriptKey];
+            return next;
+          });
+          removeThemeStyle(ev.scriptKey);
+          break;
       }
     };
     return () => {
       sandboxBridge.onEvent = null;
+      themeStyleRef.current.forEach((el) => el.remove());
+      themeStyleRef.current.clear();
     };
   }, [toast, markFrozen]);
 
@@ -938,6 +1012,7 @@ export default function Home() {
   }
 
   return (
+    <IconOverrideContext.Provider value={iconOverrides}>
     <div className="relative min-h-dvh">
       <AuroraBackground mode={settings.background} photoId={settings.photoId} />
 
@@ -1098,5 +1173,6 @@ export default function Home() {
         初 始
       </footer>
     </div>
+    </IconOverrideContext.Provider>
   );
 }
