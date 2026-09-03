@@ -78,3 +78,28 @@ Stage Summary:
 - 交付：文叔叔 v1.2.0 合并交付包 → https://c.wss.ink/f/ks97ijpd21f（1 天过期）
 - 焕新评估结论（已写入文档 §15）：材质/内容/排版/动画四维已可整页焕新；图标替换与主题令牌覆写是下一批最值得补的作用面
 - 待办：Edge 商店提交材料仍未做
+
+---
+Task ID: 56
+Agent: main (Super Z)
+Task: 用户指令「液态玻璃换成 https://github.com/martin65536/liquid-glass-webgl 接口不够继续加；补一下图标替换与主题令牌覆写的API」
+
+Work Log:
+- 【调研】liquid-glass-webgl = Kyant0/AndroidLiquidGlass 的 WebGL 移植（Apache-2.0 可用）。element shader 核心提炼：circleMap(t)=1−√(1−t²) 圆弧透镜剖面（球面透镜投影，比 v1.2.0 smoothstep² 更物理）、SDF 梯度方向 + **负 amount 向内采样 = 凸透镜放大**（对齐 Apple/Kyant 默认 refractionAmount −24dp——v1.2.0 的「外绕」方向其实与 Apple 相反，本轮纠正）、7 通道 ROYGBV 色散、Vogel 金角螺旋 16-tap 高斯盘、边缘 stroke 高光（plus 混合）、premultiplied 输出
+- 【架构决策】它是 canvas 全页自绘体系，「初始」是 DOM 应用 → 采用「每玻璃元素叠加画布」方案。**OffscreenCanvas 直转移（transferControlToOffscreen + postMessage transfer）实证不可靠：第 3 个起回包稳定丢失**（dbg-transfer/dbg-file 双重复现）→ 改 ImageBitmap 通道：引擎沙箱本地 canvas 自绘（preserveDrawingBuffer:true 保证可读）→ createImageBitmap → pushFrame → 宿主 2d.drawImage blit——宿主只搬运像素不做视觉计算（架构律保持），实测 100% 可靠且 Firefox 兼容
+- 【宿主新作用面】fx.ts：快照升级（+x/y 视口坐标、+cv 画布存活标志）、attachCanvas（普通占位画布，static 父自动补 relative）、frame()（位图 blit）、backdrop()（photo: fetch→blob→createImageBitmap 宿主代取转移，glow: 光斑程序化描述 GLOW_BLOBS 契约常量、flat、+vw/vh/dark）、rAF 位置跟踪（transform 动画期 RO 不触发，变化才推 fxPositions）；sandbox.ts：fxCanvas/fxFrame/fxBackdrop 路由 + iconsOverride/themeOverride 校验（ICON_URL_RE 只收 https/data:image、THEME_TOKENS 28 项白名单）+ cleanup 事件；sandbox.js：chushi.fx.attachCanvas/pushFrame/getBackdrop/onPositions + chushi.icons.override + chushi.theme.override + fxFrameResult/fxPositions 兑现
+- 【引擎 v3】scripts/pw-lab/lg-engine-v3.js（17745 字符→打包 15258<16000）：GLSL 精简版（折射+色散+blur+cctl+高光+coverUv，taps JS 展开 16/6 双档）、快照串行队列（snapChain 防并发）、bgCanvas 60s 复用+引用比对重传、位置推送 16ms 合帧、降级链（WebGL/背景不可用→纯 CSS blur+saturate）
+- 【失同步自愈】React remount 连带销毁宿主画布而引擎 els 残留 → 快照 cv:false 时弃置重建；**失败分级**：单元素临时失败（快照过期）continue 重试不株连全局，仅 API 缺失/背景失败才 breakGl
+- 【调试实录】①Bash 工具显示层会吞 [m.s 字节序列（grep 输出 pendingFxReq[m.seq] 显示成 .seq]）——差点误判文件损坏，Read 工具为准；②dev server Fast Refresh 会在编辑代码后打断测试（边改边测=自我干扰）→ production 构建验证才作数；③python patch 静默失败两次（锚点缩进不匹配/部分生效），教训：patch 后必须 grep 验证关键标识落盘
+- 【焕新 API】chushi.icons.override：FxIcon 组件（IconOverrideContext）+ Dock 7 槽位（weather/todo/note/pomodoro/cmdk/settings/close）+ searchbar；chushi.theme.override：亮暗双域 style 元素（:root/.dark !important 压 inline accent），cleanup 即还原
+- 【验证】verify-v13.mjs 27 项全过（production standalone）：canvas 挂载×3（search/dock/⌘K 卡 fx4）、z-index=-1、无降级、⌘K 开合重建、设置分区 5 滑杆、拖拽导入、图标覆写生效（img 替换）、主题覆写生效（accent #00c896）、删除全回收（canvas/图标/主题/磨砂）、pageerror=0；浅色/深色双主题折射截图在 shots/
+- 【发布】main 85b60ba；gh-pages e0583bb（.nojekyll 三件套+线上核验：index 一致、ebcda285 chunk 含 v=115+iconsOverride、sandbox.js 含 pushFrame）；Release v1.3.0（id 381899327）+ ChuShi-NewTab-v1.3.0.zip（11.7MB）已传；build-extension.py 重建为 REF_ZIP 动解压（/tmp 清理免疫）；sandboxSrc v=115
+- 【文档】README（版本注记 v1.3.0 段+fx 作用面表全量重写+WebGL 通道律）；docs/PRESET_DEV.md（§08 WebGL 骨架+通道律+物理模型、§08.5 图标/主题、§10 API 表、§15 六维焕新结论）；PresetDocs.tsx 页内同步
+- 【交付】文叔叔 v1.3.0 合并交付包（更新说明+开发者文档+液态玻璃预设+扩展 zip）→ https://c.wss.ink/f/ksarhg4soy5（1 天过期）
+
+Stage Summary:
+- 架构律（新增）：①跨上下文位图通道用 ImageBitmap（OffscreenCanvas transfer 在 Chromium 多发后回包丢失，实证废弃）；②引擎状态与宿主 DOM 会因 React remount 失同步——快照必须带宿主侧存活标志（cv）驱动重建；③失败分级：临时失败（快照过期）元素级重试，永久失败（API 缺失）才全局降级
+- 物理律（修正）：Apple 液态玻璃边缘折射 = circleMap 圆弧剖面 × SDF 梯度 × 负 amount 内采样（凸透镜放大）——v1.2.0 的外绕方向与 Apple 相反，本轮纠正
+- 环境律：①Bash 工具显示层吞 [m.s 序列，文件内容以 Read 为准；②边改代码边跑 dev 测试=Fast Refresh 自我干扰，production 构建验证才作数；③gh-token 文件可从 git remote URL 重建
+- 交付：https://c.wss.ink/f/ksarhg4soy5（1 天过期）
+- 待办：Edge 商店提交材料仍未做
