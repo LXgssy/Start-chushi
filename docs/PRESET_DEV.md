@@ -12,7 +12,7 @@
 5. [dock 按钮图标名](#05-dock-按钮图标名)
 6. [settings 设置白名单](#06-settings-设置白名单)
 7. [layout 布局覆写](#07-layout-布局覆写)
-8. [effects 液态玻璃](#08-effects-液态玻璃声明式视觉效果)
+8. [fx 视觉效果接口（预设包自带引擎）](#08-fx-视觉效果接口预设包自带引擎)
 9. [animations 自定义样式与元素钩子](#09-animations-自定义样式与元素钩子)
 10. [scripts 沙箱脚本与 chushi API](#10-scripts-沙箱脚本与-chushi-api)
 11. [pages 沙箱整页](#11-pages-沙箱整页)
@@ -49,7 +49,7 @@
 }
 ```
 
-`chushi: 1` 是格式版本标记（必需，缺了会直接拒绝）；`name` 必填；`commands / links / dock` 至少写一项——十个内容字段（commands / links / dock / settings / scripts / animations / pages / widgets / layout / effects）全空同样会被拒绝。
+`chushi: 1` 是格式版本标记（必需，缺了会直接拒绝）；`name` 必填；`commands / links / dock` 至少写一项——九个内容字段（commands / links / dock / settings / scripts / animations / pages / widgets / layout）全空同样会被拒绝。
 
 ## 03 顶层字段与容量上限
 
@@ -63,12 +63,11 @@
 | `links` | 数组 ≤12 | 快捷磁贴（name ≤20 字 + https url） |
 | `dock` | 数组 ≤3 | 底部栏按钮（见 §04–§05） |
 | `settings` | 对象 | 设置白名单字段一次性合并（见 §06） |
-| `scripts` | 数组 ≤3 | 沙箱脚本，单段 code ≤8000 字符（见 §10） |
+| `scripts` | 数组 ≤3 | 沙箱脚本，单段 code ≤16000 字符（见 §10） |
 | `animations` | 数组 ≤4 | CSS 注入，单段 ≤6000、合计 ≤12000 字符（见 §09） |
 | `pages` | 数组 ≤3 | 沙箱整页，单页 html ≤24000 字符（见 §11） |
 | `widgets` | 数组 ≤3 | 角落小部件，单块 html ≤12000 字符（见 §12） |
 | `layout` | 对象 | 声明式布局覆写（见 §07） |
-| `effects` | 对象 | 声明式视觉效果，当前支持液态玻璃（见 §08） |
 
 所有 `id` 字段统一规则：`^[A-Za-z0-9_-]{1,32}$`，且脚本 / 动画 / 页面 / 小部件**共享同一个 id 命名空间**，互不重名。磁贴 `links[].url` 必须以 `https://` 开头（杜绝 javascript:/data: 注入面）。
 
@@ -133,22 +132,31 @@
 | `linksColumns` | 3–12 | 磁贴列数 |
 | `verticalAlign` | `"center" \| "top"` | 主内容垂直对齐 |
 
-## 08 effects 液态玻璃（声明式视觉效果）
+## 08 fx 视觉效果接口（预设包自带引擎）
 
-`effects.glass` 把全站磨砂玻璃切换为「液态玻璃」：搜索栏、底部栏、面板卡片与 ⌘K 卡片的边缘出现真实的背景折射透镜弯曲。这是**宿主内建引擎**渲染的声明参数，预设不携带任何代码；数值自动夹紧，删除预设即还原。
+液态玻璃这类视觉效果**不由宿主内建**：宿主只提供一块受控的「作用面」（fx API），效果的**全部实现代码住在预设包的 scripts 里**——安装即生效、删除预设（或脚本被冻结）即整组回收。官方「液态玻璃预设」（`examples/液态玻璃预设.json`）就是照这套接口写出来的参考实现。
 
-| 参数 | 范围（缺省） | 说明 |
-| --- | --- | --- |
-| `refraction` | 0–1.5（0.75） | 边缘折射位移上限系数，越大弯曲越明显 |
-| `bezel` | 0.2–0.7（0.5） | 边缘折射区占比，越大弯曲带越宽 |
-| `blur` | 0–20 px（3） | 折射层叠加的背景模糊（模糊在后、折射在先，弯曲保持锐利） |
-| `saturation` | 80–300%（180） | 折射层叠加的色彩饱和 |
+| API / 钩子 | 说明 |
+| --- | --- |
+| `chushi.fx.mount(id, html)` | 把纯视觉结构（`<style>` / `<svg>`）幂等挂进宿主隐藏容器 `#chushi-fx-root`；同 id 重复挂载为替换（贴图更新不闪断）。单次 ≤192KB |
+| `chushi.fx.unmount(id)` | 摘除一个挂载 |
+| `chushi.fx.onResize(cb)` | 订阅玻璃容器尺寸快照（cb 收 `[{fx, key, w, h, radius}]`），返回退订函数；折射贴图按它重生成 |
+| `[data-fx="fxN"]` | 宿主给白名单玻璃容器（`.search-pill` / `.cl-dock` / `.cl-panel` / `.glass-card`）打的稳定标记，预设 CSS 用它触达真实元素 |
+| `--fx-mx` / `--fx-my` | 指针在玻璃容器内移动时，宿主写在容器上的相对坐标（%），CSS 用 `var()` 做镜面高光 |
 
-激活后宿主会自动把玻璃底色调透（磨砂下的高不透明度会把弯曲全部洗掉），并叠加边缘高光与镜面高光，让折射透过玻璃体可见。实现基于 SVG feDisplacementMap 位移折射，目前仅 Chromium 系浏览器支持；其它浏览器自动保持磨砂现状（降级安全）。
+安全边界：mount 的 html 只接受 `<style>` / `<svg>` 顶层结构（禁 script、事件属性、foreignObject 与外链资源）；全屏幕布（⌘K / 对话框遮罩）永不打 data-fx 标记——幕布不是玻璃块。骨架示例：
 
-```json
-"effects": { "glass": { "refraction": 0.75, "bezel": 0.5, "blur": 3, "saturation": 180 } }
+```js
+chushi.fx.onResize((items) => {
+  for (const it of items) {
+    // it = { fx, key, w, h, radius }：按 w/h 生成位移贴图与 <svg><filter>…
+    chushi.fx.mount("g" + it.fx, svgHtml(it));
+  }
+});
+// CSS 里：[data-fx="fx1"] { backdrop-filter: blur(3px) url(#g-fx1) saturate(180%) }
 ```
+
+⚠ **材质即顺序**：backdrop-filter 引用 SVG 滤镜时，**blur 在前、url(#filter) 在后**（先霜化再折射，弯曲锐利）；写反了折射会被模糊糊掉。目前仅 Chromium 系支持 backdrop-filter: url()，其它内核自动保持磨砂现状。
 
 ## 09 animations 自定义样式与元素钩子
 
@@ -162,6 +170,7 @@ CSS 直接注入起始页本体，可以写动画、调玻璃观感。注入前�
 | `.cl-dock` | 底部栏 |
 | `.cl-panel` | 弹出面板卡片，可配合 `[data-panel="weather"]` 等按面板区分 |
 | `.cl-widgets` / `.cl-widget` | 角落小部件层 / 单块小部件 |
+| `[data-fx="fxN"]` | 玻璃容器稳定标记（fx 预设的触达点，见 §08） |
 
 ⚠ **磨砂玻璃存活原则**：不要给玻璃元素的**祖先**加 `opacity < 1` 或 `filter`——那会让祖先成为 backdrop root，后代所有磨砂玻璃瞬间失效，动画结束才瞬跳恢复；也不要用 transform 包裹 fixed 定位的面板（会成为包含块导致跳位）。动画请落在玻璃元素自身或无玻璃后代的区块上。
 
@@ -197,6 +206,7 @@ CSS 直接注入起始页本体，可以写动画、调玻璃观感。注入前�
 | `chushi.open(url)` | 打开 https:// 网址（当前标签页跳转） |
 | `chushi.copy(text)` | 复制文本到剪贴板 |
 | `chushi.fetchJSON(url, init?)` | 受限 fetch：仅 https，10 秒超时，返回解析好的 JSON |
+| `chushi.fx.mount / unmount / onResize` | 视觉效果作用面：注入 style/svg、订阅玻璃容器尺寸（详见 §08） |
 
 ## 11 pages 沙箱整页
 

@@ -934,92 +934,27 @@ html .zen-pomo[data-tone="on-light"] {
   text-shadow: 0 0 14px rgb(255 255 255 / 0.4);
 }
 
+
 /* ================================================================
-   液态玻璃（html.liquid-glass，v1.1.0 预设 effects.glass 声明驱动）
-   折射本体由引擎（liquid-glass.ts）内联 backdrop-filter: blur() url(#filter)
-   承载；此处只做配套材质：
-   ① 卡片玻璃底调透（v1.1.2：原 0.62/0.66 把折射全部洗掉——用户实测
-      「折射不在玻璃里」；降至 0.40/0.48 让位移弯曲透过玻璃体可见，
-      面板文字对比度由 saturate 提鲜与高光阴影补偿）
-   ② 边缘高光（::before 多层 inset shadow，模拟玻璃厚度反光）——
-      用伪层而非覆写 box-shadow，避免砸掉各元素的投影（shadow-2xl 等）
-   ③ 镜面高光（::after 跟随 --lg-mx/--lg-my 的 radial gradient，
-      引擎 pointermove 写入变量；opacity 过渡淡入淡出）
-   ⚠ 磨砂玻璃存活原则：这里不产生任何 backdrop root（无 opacity/filter
-      动画），::before/::after 均不影响背景采样。
-   ⚠ 声明顺序：本区块置于文件末尾，html.liquid-glass 前缀特异性压过
-      .glass-pill/.glass-card 的主题默认底色，删除类名即整体还原。 */
-html.liquid-glass .glass-card {
-  background: rgb(252 251 248 / 0.4);
+   ⌘K 选项选中高光门控（v1.1.3）
+   cmdk 恒有一个 data-selected 项作为键盘导航锚点；不加门控的话，
+   指针离开面板后高光常驻（观感 = 「鼠标不在面板上也一直选中一个选项」）。
+   data-nav 三态由 CommandPalette 写在 Command 根上：
+   idle = 指针不在面板内且未用键盘 → 不显示任何选中高光；
+   mouse = 指针在面板内 → 高光跟随悬停选中；
+   kbd = 方向键导航 → 高光可见（键盘可达性不回退）。 */
+[data-nav="mouse"] [cmdk-item][data-selected="true"],
+[data-nav="kbd"] [cmdk-item][data-selected="true"] {
+  background: rgb(24 24 27 / 0.06);
+  color: rgb(24 24 27);
 }
-html.liquid-glass.dark .glass-card {
-  background: rgb(22 22 27 / 0.48);
+.dark [data-nav="mouse"] [cmdk-item][data-selected="true"],
+.dark [data-nav="kbd"] [cmdk-item][data-selected="true"] {
+  background: rgb(255 255 255 / 0.1);
+  color: rgb(244 244 245);
 }
-/* 伪层宿主：search-pill(absolute)/cl-dock(fixed)/cl-panel(relative) 自带定位，
-   ⚠ 绝不可对它们设 position（曾把 fixed dock 打回文档流出视口）——
-   仅给可能 static 的 .glass-card（⌘K 卡等）垫 relative（无偏移，不影响布局） */
-html.liquid-glass .glass-card {
-  position: relative;
-}
-html.liquid-glass .search-pill::before,
-html.liquid-glass .cl-dock::before,
-html.liquid-glass .cl-panel::before,
-html.liquid-glass .glass-card::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  z-index: 2;
-  box-shadow:
-    inset 0 0 0 1px rgb(255 255 255 / 0.32),
-    inset 1.8px 3px 0 -2px rgb(255 255 255 / 0.8),
-    inset -2px -2px 0 -2px rgb(255 255 255 / 0.8),
-    inset -3px -9px 1px -6px rgb(255 255 255 / 0.5),
-    inset 3px 9px 1px -6px rgb(255 255 255 / 0.32),
-    inset 0 -1px 5px 0 rgb(0 0 0 / 0.1);
-}
-html.liquid-glass.dark .search-pill::before,
-html.liquid-glass.dark .cl-dock::before,
-html.liquid-glass.dark .cl-panel::before,
-html.liquid-glass.dark .glass-card::before {
-  box-shadow:
-    inset 0 0 0 1px rgb(255 255 255 / 0.14),
-    inset 1.8px 3px 0 -2px rgb(255 255 255 / 0.42),
-    inset -2px -2px 0 -2px rgb(255 255 255 / 0.42),
-    inset -3px -9px 1px -6px rgb(255 255 255 / 0.22),
-    inset 3px 9px 1px -6px rgb(255 255 255 / 0.14),
-    inset 0 -1px 5px 0 rgb(0 0 0 / 0.28);
-}
-/* 镜面高光：引擎在 pointermove 时写 --lg-mx/--lg-my（百分比） */
-html.liquid-glass .search-pill::after,
-html.liquid-glass .cl-dock::after,
-html.liquid-glass .cl-panel::after,
-html.liquid-glass .glass-card::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  z-index: 2;
-  opacity: 0;
-  transition: opacity 0.35s;
-  background: radial-gradient(
-    220px circle at var(--lg-mx, 50%) var(--lg-my, 50%),
-    rgb(255 255 255 / 0.24),
-    transparent 65%
-  );
-}
-html.liquid-glass .search-pill:hover::after,
-html.liquid-glass .cl-dock:hover::after,
-html.liquid-glass .cl-panel:hover::after,
-html.liquid-glass .glass-card:hover::after {
-  opacity: 1;
-}
-/* 液态下 glass-pill 底色随液体薄透（搜索药丸/dock 与折射叠色更自然） */
-html.liquid-glass .glass-pill {
-  background: rgb(255 255 255 / 0.24);
-}
-html.liquid-glass.dark .glass-pill {
-  background: rgb(255 255 255 / 0.04);
+/* ↩ 执行提示与高光同律：仅在 mouse/kbd 模式随选中项显示 */
+[data-nav="mouse"] [cmdk-item][data-selected="true"] .enter-hint,
+[data-nav="kbd"] [cmdk-item][data-selected="true"] .enter-hint {
+  display: inline;
 }
