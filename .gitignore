@@ -75,3 +75,21 @@ upload/
 download/初始-Edge新标签页/
 download/初始-Edge新标签页.zip
 download/edge-store/
+
+# Pages/扩展构建产物误入仓库根的防护（产物只允许存在于 out/ 与 download/）
+/.nojekyll
+/404.html
+/index.html
+/index.txt
+/sw.js
+/robots.txt
+/logo.svg
+/start.svg
+/sandbox.html
+/sandbox.js
+/manifest.json
+/__next.*.txt
+/_next/
+/_not-found/
+/api
+/gallery

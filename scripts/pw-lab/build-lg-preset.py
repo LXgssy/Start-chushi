@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""把 lg-engine.js 打包进「液态玻璃」预设包 JSON（全部引擎代码住预设包里）。
+"""把 lg-engine.js（薄调用脚本）打包进「液态玻璃」预设包 JSON。
+引擎自 v1.4.0 内建于宿主（liquid-glass.ts），预设只注册设置并调用 chushi.glass。
 用法: python3 scripts/pw-lab/build-lg-preset.py
 输出: examples/液态玻璃预设.json （并校验 code 长度 ≤ PRESET_LIMITS.codeLen=16000）
 """
@@ -21,19 +22,19 @@ preset = {
     "chushi": 1,
     "name": "液态玻璃",
     "author": "初始",
-    "description": "自带引擎的液态玻璃：物理透镜边缘折射、外绕环绕、可选色散，折射/霜化等可在设置面板热调",
+    "description": "调用「初始」内建实时液态玻璃引擎：物理透镜边缘折射（负量内采样，对齐 Apple 观感）、可选色散；折射/霜化/覆盖范围等八项可在设置面板热调",
     "commands": [
         {
             "title": "什么是液态玻璃",
             "action": {
                 "type": "copy",
-                "text": "液态玻璃：本预设包自带完整引擎——canvas 生成物理透镜位移贴图"
-                "（SDF 梯度方向 + 外绕边缘窄带 + 滤镜域外扩），SVG feDisplacementMap 实时折射背景，"
-                "设置面板可热调折射/霜化/色散等七项（Chromium 系完整生效，其余内核自动保持磨砂）。",
+                "text": "液态玻璃：引擎内建于「初始」并在可见文档中以 rAF 实时渲染——物理透镜位移贴图"
+                "（SDF 梯度方向 + 负量内采样凸透镜折射 + 边缘窄带），布局/弹簧动画期间折射全程在线不冻结；"
+                "本预设向设置面板贡献八项调节（Chromium 系完整生效，其余内核自动保持磨砂）。",
             },
         }
     ],
-    "scripts": [{"id": "engine", "name": "液态玻璃引擎", "code": code}],
+    "scripts": [{"id": "engine", "name": "液态玻璃", "code": code}],
 }
 
 OUT.write_text(

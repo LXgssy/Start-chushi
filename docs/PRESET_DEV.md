@@ -12,7 +12,7 @@
 5. [dock 按钮图标名](#05-dock-按钮图标名)
 6. [settings 设置白名单](#06-settings-设置白名单)
 7. [layout 布局覆写](#07-layout-布局覆写)
-8. [液态玻璃引擎（chushi.glass）、fx 通用作用面与设置面](#08-液态玻璃引擎chushiglassv130fx-通用作用面与设置面)
+8. [液态玻璃引擎（chushi.glass，v1.4.0）、fx 通用作用面与设置面](#08-液态玻璃引擎chushiglassv140fx-通用作用面与设置面)
 9. [animations 自定义样式与元素钩子](#09-animations-自定义样式与元素钩子)
 10. [scripts 沙箱脚本与 chushi API](#10-scripts-沙箱脚本与-chushi-api)
 11. [pages 沙箱整页](#11-pages-沙箱整页)
@@ -133,9 +133,9 @@
 | `linksColumns` | 3–12 | 磁贴列数 |
 | `verticalAlign` | `"center" \| "top"` | 主内容垂直对齐 |
 
-## 08 液态玻璃引擎（chushi.glass，v1.3.0）、fx 通用作用面与设置面
+## 08 液态玻璃引擎（chushi.glass，v1.4.0）、fx 通用作用面与设置面
 
-液态玻璃引擎自 v1.3.0 起**内建于宿主**。为什么改架构：引擎住预设包（v1.1.3–v1.2.0）时跑在沙箱 iframe 里——沙箱文档 `display:none`，Chromium 对隐藏文档暂停渲染循环（**rAF 永不触发**），贴图只能靠消息桥往返 + 定时器合帧事后重建，布局动画期间只能退化纯磨砂，用户感知即「玻璃不实时」。引擎内建后在可见文档中以 rAF 逐帧追踪玻璃几何，**折射全程在线**：几何变动期贴图以 1/4 分辨率 30fps 实时重建，稳定约 160ms 后换半分辨率精贴图；新贴图经 Image 预解码后原子换 href，无空窗帧。预设包只负责「调用」：
+液态玻璃引擎自 v1.4.0 起**内建于宿主**。为什么改架构：引擎住预设包（v1.1.3–v1.3.0，含 v1.3.0 的 WebGL 画布方案）时跑在沙箱 iframe 里——沙箱文档 `display:none`，Chromium 对隐藏文档暂停渲染循环（**rAF 永不触发**），贴图只能靠消息桥往返事后搬运/重建，布局动画期间只能退化纯磨砂，用户感知即「玻璃不实时」。引擎内建后在可见文档中以 rAF 逐帧追踪玻璃几何，**折射全程在线**：几何变动期贴图以 1/4 分辨率 30fps 实时重建，稳定约 160ms 后换半分辨率精贴图；新贴图经 Image 预解码后原子换 href，无空窗帧。预设包只负责「调用」：
 
 | API | 说明 |
 | --- | --- |
@@ -156,64 +156,36 @@ if (first && first.ok === false) chushi.notify({ title: "液态玻璃", descript
 chushi.settings.onChange((x) => chushi.glass.patch(x));
 ```
 
-### 物理透镜（引擎内置，对齐 Apple 边缘折射）
+### 物理透镜（引擎内置，对齐 Apple / Kyant0 修正律）
 
 - **方向 = SDF 梯度（边缘外法线）**：长边中部的弯曲垂直于边缘，与真实透镜一致；不指向几何中心（长边上会斜向歪折）。
-- **真环绕折射（v1.3.0）**：backdrop-filter 的输入被裁剪在元素 border-box 内——只外扩滤镜域拿到的仍是边缘像素拉伸（假环绕）。引擎对基础四区用**边框外扩法**：`border: var(--lg-pad) solid transparent` + 负 margin + 宽度补偿（`--lg-ww/--lg-ow` 由引擎逐帧回写），border-box 外扩 pad 而内容盒与绝对定位子元素（锚定 padding-box）纹丝不动，backdrop 取样域随之扩到玻璃足迹之外——边缘环带折进的是**玻璃外的真实世界**（纸镇/鱼缸效应），pad 环位移渐隐防硬边；overflow 裁剪在 padding-box = 原玻璃边界，子元素溢出视觉不变。
-- **剖面 = smoothstep²(t)**：t 从玻璃深处 0 → 边缘 1，弯曲集中在边缘窄带（半短边的 20–30%），带内越靠边越陡；贴图变动期 1/4 分辨率、稳定后半分辨率（梯度场平滑，拉伸插值无损）。
-- **可选色散**：三通道分层位移（feColorMatrix 隔离 R/G/B 后各自 feDisplacementMap，再 arithmetic feComposite 合成），边缘出彩虹棱边。
+- **负量内采样（v1.3.0 修正，v1.4.0 引擎内置）**：位移沿外法线取**负**——边缘采样点向玻璃内偏 = 凸透镜放大（与 Apple / Kyant0 默认 refractionAmount −24dp 同向；v1.2.0 的「外绕」方向与 Apple 相反，已纠正）。引擎经 SVG `feDisplacementMap` **负 scale** 实现，无需 canvas 自绘。
+- **剖面 = smoothstep²(t)**：t 从玻璃深处 0 → 边缘 1，弯曲集中在边缘窄带（半短边的 20–30%），带内越靠边越陡（v1.3.0 WebGL 方案的 circleMap 弧剖面同思想：越靠边越陡的球面透镜投影）；贴图变动期 1/4 分辨率、稳定后半分辨率（梯度场平滑，拉伸插值无损）。
+- **可选色散**：三通道分层位移（feColorMatrix 隔离 R/G/B 后各自 feDisplacementMap，再 arithmetic feComposite 合成），边缘出彩虹棱边（WebGL 方案可做七通道 ROYGBV）。
 - **链序律（材质即顺序）**：`blur` 在前、`url(#disp)` 在后、`saturate` 收尾——先霜化再折射，弯曲锐利。引擎已内置；仅 Chromium 系支持 `backdrop-filter: url()`，其它内核自动保持磨砂现状。
+- **实时渲染律（v1.4.0）**：折射贴图是几何的函数——几何变化必须重建贴图。内建引擎 rAF 逐帧追踪（变动期 1/4 分辨率 30fps、稳定半分辨率、预解码原子换 href 无空窗帧）。
 
-### fx 通用作用面（自定义视觉仍走这里）
+### fx 通用作用面与位图通道（自定义视觉 / 自绘引擎仍走这里）
 
-预设自带的自定义 `<style>`/`<svg>` 视觉经 fx 作用面挂载，与内建引擎互不干扰：
+预设自带的自定义 `<style>`/`<svg>` 视觉经 fx 作用面挂载，与内建引擎互不干扰；自绘类引擎（WebGL 等）走 attachCanvas 位图通道：
 
 | API / 钩子 | 说明 |
 | --- | --- |
 | `chushi.fx.mount(id, html)` | 把纯视觉结构（`<style>` / `<svg>`）幂等挂进宿主隐藏容器 `#chushi-fx-root`；同 id 重复挂载为替换。单次 ≤192KB |
 | `chushi.fx.unmount(id)` | 摘除一个挂载 |
-| `chushi.fx.onResize(cb)` | 订阅玻璃容器尺寸快照（cb 收 `[{fx, key, w, h, radius}]`），返回退订函数 |
+| `chushi.fx.onResize(cb)` | 订阅玻璃容器几何快照（cb 收 `[{fx, key, w, h, radius, x, y, cv}]`，含视口坐标与画布存活标志），返回退订函数；订阅即推全量 |
+| `chushi.fx.onPositions(cb)` | v1.3.0：transform 动画期元素视口位置推送（`[{fx, x, y}]`；ResizeObserver 不触发 transform 动画，宿主 rAF 跟踪，变化才推） |
+| `chushi.fx.attachCanvas(fx)` | v1.3.0：在玻璃元素内创建透明占位画布（z-index:-1，位于背景与内容之下；元素 static 时自动补 relative）；返回 Promise<{ok}> |
+| `chushi.fx.pushFrame(fx, bitmap, w, h)` | v1.3.0：引擎本地自绘（WebGL/2D 均可）后把 ImageBitmap 交宿主 blit 到占位画布；宿主只搬运像素不做视觉计算；ImageBitmap 通道跨内核可靠 |
+| `chushi.fx.getBackdrop()` | v1.3.0：背景事实数据 Promise<{ok, desc, bitmap?}>——`{kind:'photo', scrim}`（壁纸位图随消息转移，宿主代取）/ `{kind:'glow', base, blobs}`（辉光光斑程序化描述）/ `{kind:'flat', base}`；另有 `vw/vh/dark` |
 | `[data-fx="fxN"]` | 宿主给白名单玻璃容器（同上注册表 + `.glass-chip`）打的稳定标记，预设 CSS 用它触达真实元素 |
 | `--fx-mx` / `--fx-my` | 指针在玻璃容器内移动时，宿主写在容器上的相对坐标（%），CSS 用 `var()` 做镜面高光 |
 
-安全边界：mount 的 html 只接受 `<style>` / `<svg>` 顶层结构（禁 script、事件属性、foreignObject 与外链资源）。骨架示例：
+安全边界：mount 的 html 只接受 `<style>` / `<svg>` 顶层结构（禁 script、事件属性、foreignObject 与外链资源）；全屏幕布（⌘K / 对话框遮罩）永不打 data-fx 标记——幕布不是玻璃块。
 
-```js
-chushi.fx.onResize((items) => {
-  for (const it of items) {
-    // it = { fx, key, w, h, radius }：按 w/h 生成位移贴图与 <svg><filter>…
-    chushi.fx.mount("g" + it.fx, svgHtml(it));
-  }
-});
-// CSS 里：[data-fx="fx1"] { backdrop-filter: blur(3px) url(#g-fx1) saturate(180%) }
-```
+⚠ 自写折射效果请遵守**链序律**（blur 在前、url 在后）与**实时渲染律**（几何变化即重建贴图；注意沙箱 iframe 内 rAF 永不触发，定时器合帧 + 几何签名判重是底线方案）。
 
-⚠ 自写同类折射效果时请遵守**链序律**（blur 在前、url 在后）与**实时渲染律**（几何变化即重建贴图；注意沙箱 iframe 内 rAF 永不触发，定时器合帧 + 几何签名判重是底线方案）。
-
-### settings 设置面（v1.2.0）：把调节项贡献进设置面板
-
-预设脚本可向宿主设置面板贡献自己的分区，用户改动**热生效**并持久化（删除预设即分区与持久化值一并回收）：
-
-```js
-chushi.settings.define({
-  title: "液态玻璃",
-  controls: [
-    { type: "slider", key: "refPct", label: "折射强度", min: 0, max: 300, step: 5, def: 145, unit: "%" },
-    { type: "toggle", key: "specular", label: "镜面高光", def: true },
-  ],
-});
-const cfg = await chushi.settings.get();            // 启动期取初值（宿主按 schema 校验 LS 值并补默认）
-chushi.settings.onChange((values) => { /* 整组热更新 */ });
-```
-
-| API | 说明 |
-| --- | --- |
-| `chushi.settings.define(schema)` | 声明设置分区：`title`（≤24 字）+ `controls`（1–12 个）；控件类型 `slider`（min/max/step/def/unit）/ `toggle` / `select`（options 2–6 项）；schema 整体白名单校验，不合法整组忽略 |
-| `chushi.settings.get()` | Promise<values>：启动期同步取值；消息有序，define 先于 get 到达宿主，回执必然按本脚本 schema 合并 |
-| `chushi.settings.onChange(cb)` | 用户改动时回调整组值，返回退订函数 |
-
-同一分区同一控件键在整个 schema 内唯一；值类型由宿主按 schema 夹紧（越界/类型不符一律回默认），脚本拿到的值永远合法。官方液态玻璃预设的折射强度/边缘带宽/霜化/饱和/透亮/边缘色散/镜面高光/覆盖范围八项即由此实现。
-
+⚠ **位图通道律（v1.3.0，自绘引擎适用）**：本地 WebGL 画布必须 `preserveDrawingBuffer: true`；位图上屏走 **ImageBitmap 通道**（`pushFrame`，OffscreenCanvas 直转移在 Chromium 下回包不可靠已废弃）；快照 `cv:false` 表示宿主画布已被 React remount 销毁，须弃置状态重建；WebGL/背景不可用时降级纯 CSS 材质（`blur+saturate`）。
 ## 09 animations 自定义样式与元素钩子
 
 CSS 直接注入起始页本体，可以写动画、调玻璃观感。注入前净化（剥除 `@import` 与 `javascript:`），CSS 无法执行脚本。请挂在下面这些**稳定元素钩子类**上：
@@ -262,9 +234,11 @@ CSS 直接注入起始页本体，可以写动画、调玻璃观感。注入前�
 | `chushi.open(url)` | 打开 https:// 网址（当前标签页跳转） |
 | `chushi.copy(text)` | 复制文本到剪贴板 |
 | `chushi.fetchJSON(url, init?)` | 受限 fetch：仅 https，10 秒超时，返回解析好的 JSON |
-| `chushi.glass.enable / patch / disable` | v1.3.0 液态玻璃引擎调用面：引擎内建于宿主（实时 rAF 渲染 + 真环绕折射），预设只传材质配置（详见 §08） |
-| `chushi.fx.mount / unmount / onResize` | 视觉效果作用面：注入 style/svg、订阅玻璃容器尺寸（详见 §08） |
+| `chushi.glass.enable / patch / disable` | v1.4.0 液态玻璃引擎调用面：引擎内建于宿主（实时 rAF 渲染），预设只传材质配置（详见 §08） |
+| `chushi.fx.mount / unmount / onResize / onPositions / attachCanvas / pushFrame / getBackdrop` | 视觉效果作用面：注入 style/svg、订阅几何/位置快照、占位画布与位图帧上屏、背景事实数据（详见 §08） |
 | `chushi.settings.define / get / onChange` | 设置面：向设置面板贡献调节项并接收热更新（详见 §08 settings 小节） |
+| `chushi.icons.override(map)` | v1.3.0 图标替换：槽位 → 图片白名单（详见 §08.5） |
+| `chushi.theme.override({light, dark})` | v1.3.0 主题令牌覆写：亮/暗双域令牌白名单（详见 §08.5） |
 
 ## 11 pages 沙箱整页
 
@@ -337,22 +311,26 @@ manifest 里的 `pages[].html` / `animations[].css` / `widgets[].html` 可以写
 
 ## 15 整页焕新能力评估（API 现状与路线）
 
-「能不能靠预设系统把整个页面焕新一遍？」——按 v1.2.0 的作用面清单逐项盘点：
+「能不能靠预设系统把整个页面焕新一遍？」——按 v1.4.0 的作用面清单逐项盘点：
 
 **已能焕新的维度**：
 
 - **内容与功能**：命令/磁贴/栏按钮/角落小部件/沙箱整页（`commands/links/dock/widgets/pages`）——新增功能入口已经是全量的；
 - **排版**：`layout` 布局覆写（隐藏区块/时钟缩放/磁贴列数/垂直对齐）+ `animations` CSS 注入可重排 `.cl-*` 元素钩子——常规排版改造已可声明完成；
 - **色彩与材质**：`settings` 白名单（强调色/主题/背景模式）+ `animations` 重写玻璃底色/描边 + fx 作用面整套材质替换 + `chushi.glass` 直接换全站玻璃物理材质（液态玻璃预设就是实证）；
-- **动画**：`animations` 注入 @keyframes 可覆盖/新增元素动画；玻璃容器的折射类效果走 fx 自带引擎；
+- **动画**：`animations` 注入 @keyframes 可覆盖/新增元素动画；玻璃折射材质走 `chushi.glass` 一句调用（v1.4.0 引擎内建）；
 - **设置面板扩展**：`chushi.settings` 让预设拥有自己的调节项——焕新方案自带可调参数。
+
+**v1.3.0 已补齐的维度**：
+
+- **图标替换**（`chushi.icons.override`）：Dock 固定按钮/面板关闭/搜索图标按槽位换图（槽位清单随版本扩充）；
+- **主题令牌覆写**（`chushi.theme.override`）：亮/暗双域 28 项设计令牌声明式覆写（整体拒绝制 + 删除即还原），比 `animations` 写 `:root` 变通更安全。
 
 **尚未覆盖、需要后续新增作用面的维度**（按性价比排序）：
 
-1. **图标替换**：磁贴/dock 图标目前只有字母/站点图标与 20 个 lucide 白名单名，缺「预设自带图标资源」的作用面（可沿 .cshz assets + 图标白名单扩展）；
-2. **主题令牌覆写**：圆角/字体/墨色等设计令牌（CSS 变量）尚无声明式覆写字段——现阶段可用 `animations` 写 `:root { --radius: … }` 变通，但缺校验与夹紧；
-3. **动效语言替换**：面板开合/⌘K 弹簧等宿主动效参数未暴露给预设（可评估声明式 motion token 覆写）；
-4. **时钟/问候语格式**：文案模板与格式未开放；
-5. **新增面板**：dock 面板槽位固定五枚，预设只能开整页 overlay，不能往面板区注册新面板（评估面较大，优先级靠后）。
+1. **磁贴/快捷链接图标**：用户自定义磁贴的站点图标替换（现走字母/站点图标，可评估 .cshz assets 通道）；
+2. **动效语言替换**：面板开合/⌘K 弹簧等宿主动效参数未暴露给预设（可评估声明式 motion token 覆写）；
+3. **时钟/问候语格式**：文案模板与格式未开放；
+4. **新增面板**：dock 面板槽位固定五枚，预设只能开整页 overlay，不能往面板区注册新面板（评估面较大，优先级靠后）。
 
-结论：**材质、内容、排版、动画四维已可整页焕新**（液态玻璃预设 + 倒数日预设分别是「换材质」与「加功能」的样板）；图标与主题令牌是下一批最值得补的作用面。
+结论：**材质、内容、排版、动画、图标、主题令牌六维已可整页焕新**（液态玻璃预设 + 倒数日预设分别是「换材质」与「加功能」的样板）；动效语言与时钟格式是下一批候选。

@@ -1,35 +1,32 @@
 /* ============================================================
- * 「初始」液态玻璃引擎（v1.3.0 · 宿主内建 · 实时渲染）
+ * 「初始」液态玻璃引擎（v1.4.0 · 宿主内建 · 实时渲染）
  * ============================================================
- * 定位（架构律 v1.3.0 修订）：液态玻璃引擎**内建于宿主**——引擎在宿主
+ * 定位（架构律 v1.4.0 定稿）：液态玻璃引擎**内建于宿主**——引擎在宿主
  * 可见文档中跑 rAF 渲染循环，逐帧追踪玻璃几何并实时重建位移贴图；
  * 预设包只经 chushi.glass.enable/patch/disable **调用**引擎并经
- * chushi.settings 向设置面板贡献调节项。此前（v1.1.3–v1.2.0）引擎住在
- * 沙箱脚本里：display:none 的沙箱文档禁 rAF、60ms 合帧、busy/settle
- * 退化纯模糊——布局动画期间玻璃冻结成磨砂，用户感知即「不实时渲染」。
- * 宿主内建后以上全部消失：rAF 全速、几何逐帧追踪、折射永不下线。
+ * chushi.settings 向设置面板贡献调节项。此前（v1.1.3–v1.3.0，含 v1.3.0
+ * WebGL 画布方案）引擎住在沙箱脚本里：display:none 的沙箱文档禁 rAF、
+ * 消息桥往返、贴图事后搬运——布局动画期间玻璃冻结成磨砂，用户感知即
+ * 「不实时渲染」。宿主内建后以上全部消失：rAF 全速、几何逐帧追踪、
+ * 折射永不下线。
  *
- * 物理模型（对齐 Apple 液态玻璃边缘透镜）：
+ * 物理模型（对齐 Apple / Kyant0 AndroidLiquidGlass 修正律）：
  *   ① 方向 = SDF 梯度（边缘外法线），长边弯曲垂直于边缘；
- *   ② 剖面 = smoothstep²(t)，弯曲集中在边缘窄带；
- *   ③ **真环绕折射（v1.3.0 新物理）**：backdrop-filter 的输入被裁剪在
- *      元素 border-box 内——v1.2.0 的滤镜域外扩拿到的只是边缘像素拉伸
- *      （假环绕）。本版对 search/dock/panel/card 四类玻璃改用「边框
- *      外扩法」：border: var(--lg-pad) solid transparent + 负 margin +
- *      宽度补偿，border-box 外扩 pad 而内容盒/绝对定位子元素（锚定
- *      padding-box）纹丝不动——backdrop 取样域随之扩到玻璃足迹之外，
- *      边缘环带折进来的是**玻璃外的真实世界**（环绕/纸镇效应），
- *      pad 环位移渐隐防硬边；overflow 裁剪在 padding-box = 原玻璃
- *      边界，子元素溢出视觉不变。
- *   ④ 链序律（材质即顺序）：blur 在前、url(#disp) 在后、saturate 收尾
+ *   ② **负量内采样（凸透镜放大）**：位移沿外法线取负——边缘采样点向
+ *      玻璃内偏，与 Apple/Kyant 默认 refractionAmount −24dp 同向
+ *      （v1.2.0 的「外绕」方向与 Apple 相反，v1.3.0 纠正、本引擎内置）。
+ *      经 SVG feDisplacementMap **负 scale** 实现，无需 canvas 自绘；
+ *   ③ 剖面 = smoothstep²(t)，弯曲集中在边缘窄带；
+ *   ④ 贴图域外扩 pad：贴图在元素域外渐隐归零防硬边（贴图域 ≠ 取样域）；
+ *   ⑤ 链序律（材质即顺序）：blur 在前、url(#disp) 在后、saturate 收尾
  *      ——先霜化再折射，弯曲保持锐利。
  *
- * 实时性（v1.3.0）：
+ * 实时性（v1.4.0）：
  *   - rAF 逐帧 getBoundingClientRect（transform/spring/transition 全覆盖）；
- *   - 几何变化期：贴图以 1/4 分辨率 30fps 重建（折射全程在线，永退化为
+ *   - 几何变化期：贴图以 1/4 分辨率 30fps 重建（折射全程在线，永不退化为
  *     纯模糊）；几何稳定 ~160ms 后换半分辨率精贴图；
  *   - 贴图经 Image 预解码后原子换 href——旧贴图保持显示直到新贴图就绪，
- *     无空窗帧（v1.2.0 的闪动根因已随架构消失）。
+ *     无空窗帧。
  *
  * 安全边界：引擎只读玻璃容器几何、写自身 CSS 变量与 SVG 滤镜；不触碰
  *   预设脚本代码；全屏幕布永不打标；沙箱冻结/预设删除/桥关停即整体回收。
@@ -78,12 +75,8 @@ const CORE_TARGETS: { key: string; sel: string }[] = [
 ];
 const FULL_EXTRA: { key: string; sel: string }[] = [{ key: "chip", sel: ".glass-chip" }];
 
-/** 真环绕折射（边框外扩法）适用的语义键——其余键折射不外扩（小元素
- *  外扩环会与邻接元素互相渗透，如天气芯片成排） */
-const EXPAND_KEYS = new Set(["search", "dock", "panel", "card"]);
-
 const MAX_LENSED = 24; /* 同屏透镜上限（性能护栏） */
-const PAD_MAX = 14; /* 外扩环上限 px */
+const PAD_MAX = 14; /* 贴图渐隐环上限 px */
 const STABLE_MS = 160; /* 几何稳定判定：换精贴图 */
 const MOTION_MIN_MS = 34; /* 变动期贴图重建最小间隔（≈30fps） */
 
@@ -253,15 +246,7 @@ class LiquidGlassEngine {
   }
 
   private clearVars(el: HTMLElement) {
-    const names = [
-      "--lg-bf",
-      "--lg-pad",
-      "--lg-radius",
-      "--lg-ww",
-      "--lg-ow",
-      "--lg-mx",
-      "--lg-my",
-    ];
+    const names = ["--lg-bf", "--lg-radius", "--lg-mx", "--lg-my"];
     for (const n of names) el.style.removeProperty(n);
   }
 
@@ -304,7 +289,8 @@ class LiquidGlassEngine {
   private lens(el: HTMLElement, wRaw: number, h: number, now: number) {
     if (!this.defs) return;
     let rec = this.recs.get(el);
-    const origW = rec ? wRaw - rec.pad * 2 : wRaw;
+    /* 引擎不改元素几何（v1.4.0 起无外扩），实测宽即原始宽 */
+    const origW = wRaw;
     const key =
       (this.cfg.coverage === "core" ? CORE_TARGETS : [...CORE_TARGETS, ...FULL_EXTRA]).find(
         (t) => el.matches(t.sel)
@@ -331,12 +317,6 @@ class LiquidGlassEngine {
       this.recs.set(el, rec);
       el.dataset.lg = rec.id;
       el.dataset.lgKey = key;
-      /* 原始 max-width 补偿基准（外扩前读取；none 不写，CSS var 缺省 9999px） */
-      const mw = getComputedStyle(el).maxWidth;
-      if (mw !== "none" && mw.endsWith("px")) {
-        rec.vars["--lg-ow"] = mw;
-        el.style.setProperty("--lg-ow", mw);
-      }
     }
     rec.key = key;
     el.dataset.lgKey = key;
@@ -354,10 +334,10 @@ class LiquidGlassEngine {
     rec.w = origW;
     rec.h = h;
 
-    /* pad：边缘位移上限外扩 +2 渐隐，夹 4..PAD_MAX；真环绕键才外扩 */
+    /* 贴图渐隐环（仅影响贴图域，不改元素几何）：边缘位移上限外扩 +2，夹 4..PAD_MAX */
     const bandPx = Math.max(2, (Math.min(origW, h) / 2) * (this.cfg.band / 100));
     const maxDisp = (this.cfg.refraction / 100) * bandPx;
-    const pad = EXPAND_KEYS.has(key) && maxDisp >= 0.5 ? Math.min(PAD_MAX, Math.max(4, Math.ceil(maxDisp) + 2)) : 0;
+    const pad = maxDisp >= 0.5 ? Math.min(PAD_MAX, Math.max(4, Math.ceil(maxDisp) + 2)) : 0;
     rec.pad = pad;
 
     const sig = `${origW}|${h}|${rec.radius}|${this.cfgSig}|${pad}`;
@@ -367,17 +347,13 @@ class LiquidGlassEngine {
       rec.stableAt = now;
     }
 
-    /* CSS 变量：折射链 / 外扩几何 / （真环绕键）宽度补偿 */
+    /* CSS 变量：折射链 + 圆角（镜面 ::before/::after 对齐玻璃边界用） */
     const chainParts = [`blur(${this.cfg.frost}px)`];
     if (maxDisp >= 0.5) chainParts.push(`url(#lg-${rec.id})`);
     chainParts.push(`saturate(${this.cfg.saturation}%)`);
     if (this.cfg.brightness !== 100) chainParts.push(`brightness(${this.cfg.brightness}%)`);
     this.setVar(el, rec, "--lg-bf", chainParts.join(" "));
-    this.setVar(el, rec, "--lg-pad", `${pad}px`);
     this.setVar(el, rec, "--lg-radius", `${rec.radius}px`);
-    if (EXPAND_KEYS.has(key) && key !== "search") {
-      this.setVar(el, rec, "--lg-ww", `${origW}px`);
-    }
 
     /* 贴图重建：稳定期精贴图，变动期 1/4 分辨率 30fps（折射永在线） */
     if (rec.sig !== rec.builtSig && !rec.rebuilding) {
@@ -557,7 +533,9 @@ class LiquidGlassEngine {
       }
       const sMul = [1, 1.14, 1.28];
       rec.disp.forEach((dm, idx) => {
-        dm.setAttribute("scale", (map.scale * (structSig === "d" ? sMul[idx] : 1)).toFixed(2));
+        /* 负量内采样（凸透镜放大）：scale 取负（Apple/Kyant 修正律） */
+        const mul = structSig === "d" ? sMul[idx] : 1;
+        dm.setAttribute("scale", (-map.scale * mul).toFixed(2));
       });
       rec.builtSig = sig;
     };
@@ -588,7 +566,7 @@ class LiquidGlassEngine {
     ];
     if (c.specular) {
       css.push(
-        "[data-lg]::before{content:\"\";position:absolute;inset:var(--lg-pad,0px);border-radius:var(--lg-radius,16px);pointer-events:none;z-index:2;" +
+        "[data-lg]::before{content:\"\";position:absolute;inset:0;border-radius:var(--lg-radius,16px);pointer-events:none;z-index:2;" +
           "box-shadow:inset 0 0 0 1px rgb(255 255 255/.32),inset 1.8px 3px 0 -2px rgb(255 255 255/.8)," +
           "inset -2px -2px 0 -2px rgb(255 255 255/.8),inset -3px -9px 1px -6px rgb(255 255 255/.5)," +
           "inset 3px 9px 1px -6px rgb(255 255 255/.32),inset 0 -1px 5px 0 rgb(0 0 0/.1)}",
@@ -596,34 +574,12 @@ class LiquidGlassEngine {
           "inset 1.8px 3px 0 -2px rgb(255 255 255/.42),inset -2px -2px 0 -2px rgb(255 255 255/.42)," +
           "inset -3px -9px 1px -6px rgb(255 255 255/.22),inset 3px 9px 1px -6px rgb(255 255 255/.14)," +
           "inset 0 -1px 5px 0 rgb(0 0 0/.28)}",
-        "[data-lg]::after{content:\"\";position:absolute;inset:var(--lg-pad,0px);border-radius:var(--lg-radius,16px);pointer-events:none;z-index:2;" +
+        "[data-lg]::after{content:\"\";position:absolute;inset:0;border-radius:var(--lg-radius,16px);pointer-events:none;z-index:2;" +
           "opacity:0;transition:opacity .35s;background:radial-gradient(220px circle at var(--lg-mx,50%) var(--lg-my,50%)," +
           "rgb(255 255 255/.24),transparent 65%)}",
         "[data-lg]:hover::after{opacity:1}"
       );
     }
-    /* 真环绕折射：边框外扩法。border 透明环 + 负 margin 回拉布局；
-     * 背景裁到 padding-box（原玻璃域）；overflow 裁剪同域；圆角外移 pad。 */
-    const expandSel = [...EXPAND_KEYS]
-      .map((k) => (k === "search" ? "[data-lg].search-pill" : k === "dock" ? "[data-lg].cl-dock" : k === "panel" ? "[data-lg].cl-panel" : "[data-lg].glass-card"))
-      .join(",");
-    css.push(
-      `${expandSel}{border:var(--lg-pad,0px) solid transparent!important;` +
-        `margin:calc(-1*var(--lg-pad,0px))!important;` +
-        `border-radius:calc(var(--lg-radius,16px) + var(--lg-pad,0px))!important;` +
-        `background-clip:padding-box!important}`
-    );
-    /* 宽度补偿（border-box 因 border 外扩 2×pad；search 走 inset 定位自动补偿） */
-    css.push(
-      "[data-lg].cl-dock,[data-lg].cl-panel,[data-lg].glass-card{" +
-        "width:calc(var(--lg-ww,0px) + 2*var(--lg-pad,0px))!important;" +
-        "max-width:calc(var(--lg-ow,9999px) + 2*var(--lg-pad,0px))!important}"
-    );
-    /* 阴影补偿：Tailwind 阴影自 border-box 量取，外扩后回拉 spread 防影环变胖 */
-    css.push(
-      "[data-lg].cl-dock{box-shadow:0 10px 15px calc(-3px - var(--lg-pad,0px)) rgb(0 0 0/.1),0 4px 6px calc(-4px - var(--lg-pad,0px)) rgb(0 0 0/.1)!important}",
-      "[data-lg].glass-card{box-shadow:0 25px 50px calc(-12px - var(--lg-pad,0px)) rgb(0 0 0/.25)!important}"
-    );
     return css.join("");
   }
 

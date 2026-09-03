@@ -44,14 +44,20 @@ export type SandboxEvent =
       scriptKey: string;
       presetName: string;
       schema: PresetSettingsSchema;
-    };
+    }
+  | { kind: "iconsOverride"; scriptKey: string; presetName: string; map: Record<string, string> }
+  | { kind: "themeOverride"; scriptKey: string; presetName: string; groups: { light?: Record<string, string>; dark?: Record<string, string> } }
+  | { kind: "cleanup"; scriptKey: string };
 
 /** fx 视觉效果面（v1.1.3）：mount/unmount/subscribe 由 fxHost 执行，
  *  结果经 fxResult 回报沙箱；预设卸载/脚本冻结时挂载与订阅全部回收。
  *  液态玻璃引擎（v1.3.0）：**内建于宿主**（liquid-glass.ts，rAF 实时渲染），
  *  预设脚本经 chushi.glass.enable/patch/disable 调用，配置白名单校验后转入。
  *  设置面（v1.2.0）：settingsDefine/settingsGet 由桥校验与回执，
- *  schema 白名单与持久化工具见 preset-settings.ts。 */
+ *  schema 白名单与持久化工具见 preset-settings.ts。
+ *  v1.3.0：fxBackdrop（背景事实数据+位图 transfer）/ fxCanvas（画布
+ *  绘制权移交）；图标覆写与主题令牌覆写经事件转交页面（iconsOverride /
+ *  themeOverride），回收经 cleanup 事件通知页面。 */
 import { fxHost } from "./fx";
 import {
   liquidGlass,
@@ -61,6 +67,22 @@ import {
 import { validateSettingSchema, type PresetSettingsSchema } from "./preset-settings";
 
 const FX_OPS = new Set(["fxMount", "fxUnmount", "fxSubscribe", "fxUnsubscribe"]);
+
+/** 图标覆写：值仅允许 https URL 或 data:image/*（img 渲染不执行 SVG 内脚本） */
+const ICON_URL_RE = /^(https:\/\/\S{1,500}|data:image\/(png|jpeg|webp|gif|svg\+xml)[;,][\s\S]{1,102400})$/i;
+const ICON_KEY_RE = /^[a-z][a-z0-9-]{0,31}$/i;
+const ICON_SLOTS_MAX = 48;
+
+/** 主题令牌白名单（与 globals.css :root/.dark 令牌集同步维护）+ 值格式护栏 */
+const THEME_TOKENS = new Set([
+  "--ui-accent", "--radius", "--background", "--foreground", "--card", "--card-foreground",
+  "--popover", "--popover-foreground", "--primary", "--primary-foreground",
+  "--secondary", "--secondary-foreground", "--muted", "--muted-foreground",
+  "--accent", "--accent-foreground", "--destructive", "--border", "--input", "--ring",
+  "--sidebar", "--sidebar-foreground", "--sidebar-primary", "--sidebar-primary-foreground",
+  "--sidebar-accent", "--sidebar-accent-foreground", "--sidebar-border", "--sidebar-ring",
+]);
+const THEME_VALUE_RE = /^(#[0-9a-fA-F]{3,8}|[a-z()%,0-9 .\/]{1,80})$/i;
 
 /** 消息层 op 名 → fxHost 裸 op 名（fxHost.apply 的 switch 用 mount/unmount/…） */
 const FX_OP_MAP: Record<string, string> = {
@@ -85,19 +107,19 @@ const caps = {
  *  ?v= 供部署后冲掉 SW cache-first 旧缓存 */
 function sandboxSrc(): string {
   const base = (process.env.NEXT_PUBLIC_BASE_PATH as string | undefined) ?? "";
-  return `${base}/sandbox.html?v=115`;
+  return `${base}/sandbox.html?v=116`;
 }
 
 /** 沙箱页面模式地址（自定义页 overlay 用）：mode=page 下运行时仅充当页面宿主 */
 export function sandboxPageSrc(): string {
   const base = (process.env.NEXT_PUBLIC_BASE_PATH as string | undefined) ?? "";
-  return `${base}/sandbox.html?mode=page&v=115`;
+  return `${base}/sandbox.html?mode=page&v=116`;
 }
 
 /** 沙箱小部件模式地址（角落小部件用）：mode=widget 下运行时仅充当部件宿主 */
 export function sandboxWidgetSrc(): string {
   const base = (process.env.NEXT_PUBLIC_BASE_PATH as string | undefined) ?? "";
-  return `${base}/sandbox.html?mode=widget&v=115`;
+  return `${base}/sandbox.html?mode=widget&v=116`;
 }
 
 type Msg = { type?: unknown } & Record<string, unknown>;
@@ -185,11 +207,10 @@ class SandboxBridge {
     }
   }
 
-  private post(msg: Record<string, unknown>) {
+  private post(msg: Record<string, unknown>, transfer?: Transferable[]) {
     try {
-      this.iframe?.contentWindow?.postMessage(msg, "*");
-    } catch {
-      /* noop */
+      this.iframe?.contentWindow?.postMessage(msg, "*", transfer ?? []);
+    } catch (e) {
     }
   }
 
@@ -226,6 +247,7 @@ class SandboxBridge {
         fxHost.cleanup(k);
         liquidGlass.release(k);
         this.settingsSchemas.delete(k);
+        this.emit({ kind: "cleanup", scriptKey: k });
       }
     }
     if (typeof window === "undefined" || scripts.length === 0) return;
@@ -332,6 +354,7 @@ class SandboxBridge {
     fxHost.cleanup(script.key);
     liquidGlass.release(script.key);
     this.settingsSchemas.delete(script.key);
+    this.emit({ kind: "cleanup", scriptKey: script.key });
     const rest = this.scripts.filter((x) => x.key !== script.key);
     this.signature = JSON.stringify(rest.map((x) => [x.key, x.code]));
     this.reboot(rest);
@@ -428,6 +451,66 @@ class SandboxBridge {
         this.post({ type: "glassResult", scriptKey: gk, gid, ok: gr.ok, message: gr.message ?? "" });
         break;
       }
+      case "iconsOverride": {
+        /* 图标覆写（v1.3.0）：槽位→图片 URL 白名单校验（整体拒绝），
+         * 转交页面 FxIcon 渲染；空 map = 清除本脚本全部覆写 */
+        const ik = s(m.scriptKey, 80);
+        if (!ik || !this.scripts.some((x) => x.key === ik)) return;
+        const raw = m.map && typeof m.map === "object" ? m.map : null;
+        if (!raw) return;
+        const map: Record<string, string> = {};
+        let bad = false;
+        for (const [k, v] of Object.entries(raw).slice(0, ICON_SLOTS_MAX * 2)) {
+          if (
+            typeof k === "string" &&
+            typeof v === "string" &&
+            ICON_KEY_RE.test(k) &&
+            ICON_URL_RE.test(v) &&
+            Object.keys(map).length < ICON_SLOTS_MAX
+          ) {
+            map[k] = v;
+          } else if (k.length > 0) {
+            bad = true;
+          }
+        }
+        if (bad && Object.keys(map).length === 0) {
+          this.emit({ kind: "error", message: `脚本「${this.current?.name ?? ik}」的图标覆写校验未通过（仅允许 https/data:image 值）` });
+          return;
+        }
+        const presetName = this.scripts.find((x) => x.key === ik)?.presetName ?? "";
+        this.emit({ kind: "iconsOverride", scriptKey: ik, presetName, map });
+        break;
+      }
+      case "themeOverride": {
+        /* 主题令牌覆写（v1.3.0）：亮/暗双域令牌白名单校验（整体拒绝）
+         * 后转交页面应用（light 组 setProperty，dark 组注入 .dark 样式） */
+        const tk = s(m.scriptKey, 80);
+        if (!tk || !this.scripts.some((x) => x.key === tk)) return;
+        const groupsRaw = m.groups && typeof m.groups === "object" ? m.groups : null;
+        if (!groupsRaw) return;
+        const groups: { light?: Record<string, string>; dark?: Record<string, string> } = {};
+        let themeBad = false;
+        for (const domain of ["light", "dark"] as const) {
+          const g = groupsRaw[domain];
+          if (!g || typeof g !== "object") continue;
+          const out: Record<string, string> = {};
+          for (const [k, v] of Object.entries(g).slice(0, 64)) {
+            if (typeof k === "string" && typeof v === "string" && THEME_TOKENS.has(k) && THEME_VALUE_RE.test(v) && v.length <= 80) {
+              out[k] = v;
+            } else {
+              themeBad = true;
+            }
+          }
+          if (Object.keys(out).length > 0) groups[domain] = out;
+        }
+        if (themeBad && Object.keys(groups).length === 0) {
+          this.emit({ kind: "error", message: `脚本「${this.current?.name ?? tk}」的主题覆写校验未通过（令牌名或值不合法）` });
+          return;
+        }
+        const presetName = this.scripts.find((x) => x.key === tk)?.presetName ?? "";
+        this.emit({ kind: "themeOverride", scriptKey: tk, presetName, groups });
+        break;
+      }
       default: {
         if (FX_OPS.has(op)) {
           /* fx 调用可能在 boot 期（脚本顶层）或回调期（onResize）发生：
@@ -436,6 +519,44 @@ class SandboxBridge {
           if (!key || !this.scripts.some((x) => x.key === key)) return;
           const r = fxHost.apply(key, FX_OP_MAP[op] ?? op, s(m.fxId, 32), typeof m.html === "string" ? m.html : undefined);
           this.post({ type: "fxResult", scriptKey: key, fxId: s(m.fxId, 32), ok: r.ok, message: r.message ?? "" });
+        } else if (op === "fxCanvas") {
+          /* 占位画布创建（v1.3.0）：宿主建普通 canvas，位图由引擎经
+           * fxFrame 持续供给（ImageBitmap 通道，跨内核可靠） */
+          const cKey = s(m.scriptKey, 80);
+          if (!cKey || !this.scripts.some((x) => x.key === cKey)) return;
+          const fxId = s(m.fxId, 32);
+          const seq = typeof m.seq === "number" ? m.seq : 0;
+          const r = fxHost.attachCanvas(cKey, fxId);
+          this.post({ type: "fxCanvas", scriptKey: cKey, fxId, seq, ok: r.ok, message: r.message ?? "" });
+        } else if (op === "fxFrame") {
+          /* 位图帧上屏（v1.3.0）：引擎本地自绘后交宿主 blit；bitmap 随消息 transfer */
+          const fKey = s(m.scriptKey, 80);
+          if (!fKey || !this.scripts.some((x) => x.key === fKey)) return;
+          const fxId = s(m.fxId, 32);
+          const seq = typeof m.seq === "number" ? m.seq : 0;
+          const bmp = m.bitmap instanceof ImageBitmap ? m.bitmap : null;
+          if (!bmp) {
+            this.post({ type: "fxFrameResult", scriptKey: fKey, fxId, seq, ok: false, message: "缺 bitmap" });
+            return;
+          }
+          const w = typeof m.w === "number" ? m.w : bmp.width;
+          const h = typeof m.h === "number" ? m.h : bmp.height;
+          const r = fxHost.frame(fKey, fxId, bmp, w, h);
+          this.post({ type: "fxFrameResult", scriptKey: fKey, fxId, seq, ok: r.ok, message: r.message ?? "" });
+        } else if (op === "fxBackdrop") {
+          /* 背景事实数据（v1.3.0）：photo 位图随消息 transfer（宿主代取，
+           * 沙箱零 CORS/零污染负担）；glow/flat 只给程序化描述 */
+          const bKey = s(m.scriptKey, 80);
+          if (!bKey || !this.scripts.some((x) => x.key === bKey)) return;
+          const seq = typeof m.seq === "number" ? m.seq : 0;
+          fxHost.backdrop().then((r) => {
+            if (!this.scripts.some((x) => x.key === bKey)) return;
+            const transfer: Transferable[] = r.bitmap ? [r.bitmap] : [];
+            this.post(
+              { type: "fxBackdrop", scriptKey: bKey, seq, ok: r.ok, message: r.message ?? "", desc: r.desc, bitmap: r.bitmap },
+              transfer
+            );
+          });
         }
         break;
       }
