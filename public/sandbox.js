@@ -5,15 +5,18 @@
  *  1. 接收宿主 boot 消息，在独立 realm 内执行预设脚本（支持顶层 await，
  *     经 async IIFE 包装；同步死循环由宿主侧看门狗冻结兜底）；
  *  2. 向脚本提供受控 API `chushi`——注册 ⌘K 命令、脚本入口、通知、
- *     打开网址、复制、fetchJSON。所有越界副作用（notify/open/copy/cmd）
- *     仅以 postMessage 上报宿主，由宿主复核白名单后代为执行；
+ *     打开网址、复制、fetchJSON、fx 视觉效果面（v1.1.3：挂载 style/svg
+ *     白名单结构、订阅玻璃容器 resize 快照）。所有越界副作用仅以
+ *     postMessage 上报宿主，由宿主复核白名单后代为执行；
  *     本文档自身拿不到主文档、localStorage、Cookie 与任何扩展 API；
  *  3. invoke 路由：命令复合键（"scriptKey:cmdId"）查命令表，
  *     纯 scriptKey 查脚本入口（chushi.run），统一入口便于宿主无差别调用。
  *
- * 协议（host → sandbox）：boot{scriptKey,code} / invoke{id}
+ * 协议（host → sandbox）：boot{scriptKey,code} / invoke{id} / fxResize{scriptKey,items}
+ *                        / fxResult{scriptKey,fxId,ok,message?}
  * 协议（sandbox → host）：hello / ready{scriptKey} / bootError{scriptKey,message}
- *                        / api{op:cmd|notify|open|copy,...} / invokeResult{id,ok,message?}
+ *                        / api{op:cmd|notify|open|copy|fxMount|fxUnmount|fxSubscribe|fxUnsubscribe,...}
+ *                        / invokeResult{id,ok,message?}
  *                        / runtimeError{message,scriptKey?}
  * ============================================================ */
 (function () {
@@ -45,9 +48,38 @@
 
   var CMD_LIMIT = 12;
   var ID_RE = /^[A-Za-z0-9_-]{1,32}$/;
+  var FX_HTML_MAX = 192 * 1024;
+  /** fxResize 定向派发注册表：scriptKey → onResize 回调集（makeChushi 注册） */
+  var fxTargets = new Map();
 
   /** 为指定脚本构造受控 API（每个脚本一份，命令/入口互不可见对方内部状态） */
   function makeChushi(scriptKey) {
+    /* ---------- fx 视觉效果面（v1.1.3）----------
+     * mount(id, html)：把 <style>/<svg> 白名单结构幂等挂进宿主 fx-root；
+     *   液态玻璃等视觉引擎的全部代码住在预设脚本里，宿主只提供作用面。
+     * unmount(id)：摘除单挂载。删除预设时宿主整组回收，无需脚本配合。
+     * onResize(cb)：订阅宿主玻璃容器快照（[{fx,key,w,h,radius}]），
+     *   订阅即推全量，后续尺寸/增减变化随推；返回退订函数。 */
+    var fxResizeCbs = [];
+
+    function fxApi(op, id, html) {
+      post({ type: "api", op: op, scriptKey: scriptKey, fxId: id, html: html });
+      return new Promise(function (resolve) {
+        var t = setTimeout(function () {
+          delete pendingFx[id];
+          resolve({ ok: false, message: "fx 调用超时" });
+        }, 8000);
+        pendingFx[id] = {
+          f: function (r) {
+            clearTimeout(t);
+            resolve(r);
+          },
+        };
+      });
+    }
+    var pendingFx = {};
+    var fxResizeCbs = [];
+    fxTargets.set(scriptKey, fxResizeCbs);
     function registerCommand(def) {
       try {
         if (!def || typeof def !== "object") throw new Error("registerCommand 参数必须是对象");
@@ -106,6 +138,29 @@
           .finally(function () {
             if (timer) clearTimeout(timer);
           });
+      },
+      fx: {
+        mount: function (id, html) {
+          var fid = str(id, 32);
+          if (!ID_RE.test(fid)) return Promise.resolve({ ok: false, message: "fx id 不合法" });
+          if (typeof html !== "string" || !html) return Promise.resolve({ ok: false, message: "fx mount 缺少 html" });
+          if (html.length > FX_HTML_MAX) return Promise.resolve({ ok: false, message: "fx mount 超出体积上限" });
+          return fxApi("fxMount", fid, html);
+        },
+        unmount: function (id) {
+          var fid = str(id, 32);
+          if (!ID_RE.test(fid)) return Promise.resolve({ ok: false, message: "fx id 不合法" });
+          return fxApi("fxUnmount", fid, undefined);
+        },
+        onResize: function (cb) {
+          if (typeof cb !== "function") return function () {};
+          fxResizeCbs.push(cb);
+          fxApi("fxSubscribe", "__sub", undefined); /* "__sub" 为保留 id */
+          return function () {
+            var i = fxResizeCbs.indexOf(cb);
+            if (i >= 0) fxResizeCbs.splice(i, 1);
+          };
+        },
       },
     };
   }
@@ -313,6 +368,31 @@ window.addEventListener("message", function (e) {
         return;
       }
       post({ type: "invokeResult", id: id, ok: false, message: "命令或脚本入口不存在（预设可能已更新）" });
+      return;
+    }
+
+    if (m.type === "fxResize" && typeof m.scriptKey === "string") {
+      /* 快照按 scriptKey 定向：只派发给该脚本的回调 */
+      var targets = fxTargets.get(m.scriptKey);
+      if (!targets || targets.length === 0) return;
+      var items = Array.isArray(m.items) ? m.items : [];
+      for (var ci = 0; ci < targets.length; ci++) {
+        try {
+          targets[ci](items);
+        } catch (err) {
+          post({ type: "runtimeError", message: errMsg(err) });
+        }
+      }
+      return;
+    }
+
+    if (m.type === "fxResult") {
+      var fid = str(m.fxId, 32);
+      var p = pendingFx[fid];
+      if (p) {
+        delete pendingFx[fid];
+        p.f({ ok: m.ok === true, message: str(m.message, 100) });
+      }
       return;
     }
   });

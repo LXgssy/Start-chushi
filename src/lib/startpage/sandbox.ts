@@ -40,6 +40,13 @@ export type SandboxEvent =
   | { kind: "error"; message: string }
   | { kind: "frozen"; key: string; name: string };
 
+/** fx 视觉效果面（v1.1.3）：mount/unmount/subscribe 由 fxHost 执行，
+ *  结果经 fxResult 回报沙箱；预设卸载/脚本冻结时挂载与订阅全部回收。
+ *  宿主不实现任何具体视觉效果——全部引擎代码住在预设包里（fx.ts 头注）。 */
+import { fxHost } from "./fx";
+
+const FX_OPS = new Set(["fxMount", "fxUnmount", "fxSubscribe", "fxUnsubscribe"]);
+
 const HELLO_TIMEOUT = 8000;
 const BOOT_WATCHDOG = 4000;
 const CMD_PER_SCRIPT = 12;
@@ -128,6 +135,11 @@ class SandboxBridge {
 
   /* ---------- 内部 ---------- */
 
+  /** fxHost 的沙箱推送出口（resize 快照等 host → sandbox 消息） */
+  private fxPost = (msg: Record<string, unknown>) => {
+    this.post(msg);
+  };
+
   private emit(e: SandboxEvent) {
     try {
       this.onEvent?.(e);
@@ -149,6 +161,7 @@ class SandboxBridge {
       clearTimeout(this.helloTimer);
       this.helloTimer = null;
     }
+    fxHost.stop();
     if (this.watchdog != null) {
       clearTimeout(this.watchdog);
       this.watchdog = null;
@@ -165,8 +178,13 @@ class SandboxBridge {
   }
 
   private reboot(scripts: SandboxScript[]) {
+    const prevKeys = new Set(this.scripts.map((x) => x.key));
     this.teardown();
     this.scripts = scripts;
+    /* 不在新脚本列表里的预设：挂载与订阅立即回收（删除预设即还原视觉） */
+    for (const k of prevKeys) {
+      if (!scripts.some((x) => x.key === k)) fxHost.cleanup(k);
+    }
     if (typeof window === "undefined" || scripts.length === 0) return;
     if (!this.listenAttached) {
       window.addEventListener("message", this.onMessage);
@@ -180,6 +198,7 @@ class SandboxBridge {
     iframe.src = sandboxSrc();
     this.iframe = iframe;
     document.body.appendChild(iframe);
+    fxHost.start(this.fxPost);
 
     this.queue = [...scripts];
     this.helloTimer = window.setTimeout(() => {
@@ -267,6 +286,7 @@ class SandboxBridge {
   private onWatchdog(script: SandboxScript) {
     this.watchdog = null;
     this.emit({ kind: "frozen", key: script.key, name: script.name });
+    fxHost.cleanup(script.key);
     const rest = this.scripts.filter((x) => x.key !== script.key);
     this.signature = JSON.stringify(rest.map((x) => [x.key, x.code]));
     this.reboot(rest);
@@ -320,8 +340,17 @@ class SandboxBridge {
         this.emit({ kind: "copy", text });
         break;
       }
-      default:
+      default: {
+        if (FX_OPS.has(op)) {
+          /* fx 调用可能在 boot 期（脚本顶层）或回调期（onResize）发生：
+           * scriptKey 由沙箱闭包携带，宿主校验其确属已注册脚本 */
+          const key = s(m.scriptKey, 80);
+          if (!key || !this.scripts.some((x) => x.key === key)) return;
+          const r = fxHost.apply(key, op, s(m.fxId, 32), typeof m.html === "string" ? m.html : undefined);
+          this.post({ type: "fxResult", scriptKey: key, fxId: s(m.fxId, 32), ok: r.ok, message: r.message ?? "" });
+        }
         break;
+      }
     }
   }
 }
