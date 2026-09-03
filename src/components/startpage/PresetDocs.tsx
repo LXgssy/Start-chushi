@@ -406,18 +406,31 @@ export default function PresetDocs({
                   背景 = 真实壁纸逐帧采样（kenburns 漂移逆解跟随）+ photo-scrim 压暗层，预乘 alpha 输出无黑边。
                 </P>
                 <P>
-                  <b>底部标签栏动效</b>：底栏指示器为独立滑动玻璃胶囊，滑动/按压/速度拉伸物理
-                  忠实移植自游乐场的 LiquidBottomTabs + DampedDragAnimation 移植（临界阻尼
-                  spring(1,1000) 滑动、欠阻尼 spring(0.6/0.7,250) 按压缩放 78/56、速度拉伸
-                  除数 10、panelOffset 4dp EaseOut、容器 16dp/宽按压缩放）；dock 按钮按压
-                  = LiquidButton 律（scale 1+4/48×p + tanh 拖拽平移 + 追光白晕）。
+                  <b>v1.6.0 渲染模型（边缘折射带 + CSS 磨砂体混合合成）</b>：circleMap 剖面本就边缘集中
+                  （内部位移≈0），叠层画布只画边缘折射带（SDF 距离归一掩膜，带内界位移归零处与 CSS 磨砂体
+                  交接，壁纸天文对齐无鬼影），玻璃体内部让位给 CSS backdrop-filter 磨砂——
+                  <b>玻璃身后的 DOM 组件（搜索条/磁贴/面板）可见可点</b>；表面色逐角色按游乐场取值
+                  （dock/panel/card = tabsContainer 0.4，search = buttonSurface 0.3，指示器/芯片全透明），
+                  cfg 经 ：root 的 --lg-blur/--lg-sat 即时生效。⚠ 高光 pass 的 Plus 加法混合 alpha 贡献
+                  必须 = 描边强度（输出常数 1 会把带掩膜后的内部整体顶回不透明黑）。设置面板 =
+                  游乐场 Glass Playground 全量控件（除「圆角半径」）：模糊半径 / 折射高度 / 折射量 /
+                  色差 + 应用特有的覆盖范围。
+                </P>
+                <P>
+                  <b>底部标签栏动效（lgOn 门控，只给玻璃模式）</b>：底栏指示器为独立滑动玻璃胶囊且常显
+                  （游乐场「选中项恒有胶囊」律），滑动/按压/速度拉伸物理忠实移植自游乐场的
+                  LiquidBottomTabs + DampedDragAnimation（临界阻尼 spring(1,1000) 滑动、欠阻尼
+                  spring(0.6/0.7,250) 按压缩放 78/56、速度拉伸除数 10、panelOffset 4dp EaseOut、
+                  容器 16dp/宽按压缩放）；按住任意 tab 容器/内容/指示器同步胀（hold 律）；
+                  tab 按钮豁免自身按压（防双重放大）；动作按钮走全局 LiquidButton 控制器
+                  （事件委托覆盖全文档所有按钮）；非玻璃模式自动恢复原 framer layoutId 药丸与纯 hover。
                 </P>
                 <Code>{`// 官方「液态玻璃」预设的完整脚本逻辑（examples/液态玻璃预设.json）
-chushi.settings.define({ title: "液态玻璃 · 玻璃游乐场", controls: [/* 游乐场滑杆 */] });
+chushi.settings.define({ title: "液态玻璃", controls: [/* 游乐场四滑杆 + 覆盖范围 */] });
 const v = await chushi.settings.get();
-const first = await chushi.glass.enable(v);
+const first = await chushi.glass.enable({ ...v, chromatic: (v.chromatic || 0) / 100, saturation: 150, brightness: 100, highlight: true });
 if (first && first.ok === false) chushi.notify({ title: "液态玻璃", description: first.message });
-chushi.settings.onChange((x) => chushi.glass.patch(x));`}</Code>
+chushi.settings.onChange((x) => chushi.glass.patch({ ...x, chromatic: (x.chromatic || 0) / 100 }));`}</Code>
                 <P>
                   <b>fx 通用作用面（自定义视觉仍走这里）</b>：预设自带的自定义 &lt;style&gt;/&lt;svg&gt;
                   视觉经受控通道挂载，与内建引擎互不干扰。

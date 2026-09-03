@@ -27,7 +27,7 @@ import { readLS } from "@/hooks/use-start";
 import { dockIcon, type PresetAction, type PresetDockItem } from "@/lib/startpage/preset";
 import {
   TabIndicatorMotion,
-  LiquidButtonPress,
+  liquidButtons,
   interpolateSlot,
   type SlotRect,
 } from "@/lib/startpage/liquid-glass/dock-motion";
@@ -77,20 +77,20 @@ const SPRING = { type: "spring" as const, stiffness: 420, damping: 34 };
 /* 退场加速曲线（与 globals.css 的 .panel-sink/.veil-out 同参） */
 const EXIT_EASE = [0.4, 0, 1, 1] as const;
 
-/** 底栏动效体系（v1.5.0 · 玻璃游乐场移植版）：
- *  活动指示器不再是 framer layoutId 背景色药丸，而是**液态玻璃指示器**
- *  （.cl-dock-indicator，引擎单独折射的滑动玻璃胶囊），滑动/按压/速度拉伸
- *  物理忠实移植自 LiquidBottomTabs.kt + DampedDragAnimation.kt（经
- *  liquid-glass-webgl「玻璃游乐场」转译，作者 martin65536 / Kyant0）：
+/** 底栏动效体系（v1.6.0 · 双模式门控：「这套动效只给液态玻璃用」）：
+ *  玻璃模式（lgOn，引擎订阅驱动）= 玻璃游乐场移植律：
+ *  活动指示器是**液态玻璃指示器**（.cl-dock-indicator，引擎单独折射的滑动
+ *  玻璃胶囊，常显——游乐场「选中项恒有胶囊」律），滑动/按压/速度拉伸物理
+ *  忠实移植自 LiquidBottomTabs.kt + DampedDragAnimation.kt（经
+ *  liquid-glass-webgl 转译，作者 martin65536 / Kyant0）：
  *    - 滑动与按压：临界阻尼 spring(1f, 1000f)；
  *    - 指示器缩放：欠阻尼 spring(0.6f/0.7f, 250f)，按下 78/56；
  *    - 速度拉伸：velocity/10，scaleX /= 1−clamp(v×0.75)、scaleY ×= 1−clamp(v×0.25)；
- *    - panelOffset：4dp × sign × EaseOut 整行随手指微移；
- *    - 容器/内容缩放：lerp(1, 1+16dp/W, press) × lerp(1, 1.2, press)。
- *  按钮按压动效 = LiquidButton.kt 移植（LiquidButtonPress）：
- *  scale 1+4/48×p + tanh 拖拽平移 + 追光白晕（.liquid-btn ::after）。
- *  指示器玻璃画布由液态玻璃引擎逐帧跟随（rAF getBoundingClientRect 律，
- *  transform 动画零侵入）。 */
+ *    - panelOffset：4dp × sign × EaseOut 整行随手指微移（指示器同行）；
+ *    - 容器（nav 玻璃本体）缩放 = lerp(1, 1+16dp/W, press)；内容缩放 1.2×press；
+ *    - tab 按钮豁免自身按压（data-lg-tab），动作按钮走全局 LiquidButton。
+ *  非玻璃模式 = 原版：framer layoutId 背景色药丸 + 纯 hover 过渡，零新动效。
+ *  指示器玻璃画布由液态玻璃引擎逐帧跟随（rAF getBoundingClientRect 律）。 */
 
 /** 面板 tab 槽位序（指示器只在五个面板按钮之间滑动；⌘K/预设按钮是动作不参与） */
 const TAB_ORDER = ["weather", "todo", "note", "pomodoro", "settings"] as const;
@@ -259,6 +259,7 @@ const PanelStage = memo(function PanelStage({
 export default function Dock({
   panel,
   setPanel,
+  lgOn,
   weather,
   place,
   onPlaceChange,
@@ -279,6 +280,9 @@ export default function Dock({
 }: {
   panel: PanelId;
   setPanel: (p: PanelId) => void;
+  /** 液态玻璃启用态（引擎订阅驱动）：新动效只给玻璃模式用 ——
+     玻璃开 = 游乐场指示器/按压/拖拽物理；玻璃关 = 原 framer layoutId 药丸 */
+  lgOn: boolean;
   weather: WeatherState;
   place: Place;
   onPlaceChange: (p: Place) => void;
@@ -310,9 +314,9 @@ export default function Dock({
   const slotRefs = useRef<Map<string, HTMLElement>>(new Map());
   const slotsRef = useRef<SlotRect[]>([]);
   const motionRef = useRef<TabIndicatorMotion | null>(null);
-  /* 拖拽状态（pointer 事件委托在 nav 上；按钮 press 的取消句柄也挂这里） */
+  /* 拖拽状态（pointer 事件委托在 nav 上，setPointerCapture 保险：
+     v1.5.0 实证鼠标拖出 nav 外松手收不到 pointerup → 指示器概率卡在按大态） */
   const dragRef = useRef({ x0: 0, idx0: 0, active: false, dragging: false, suppressClick: false });
-  const pressCancelRef = useRef<(() => void) | null>(null);
 
   const measureSlots = useCallback(() => {
     const slots: SlotRect[] = [];
@@ -322,30 +326,47 @@ export default function Dock({
     }
     slotsRef.current = slots;
     motionRef.current?.setSlots(slots, slots.length);
+    /* 常显指示器：槽位几何一变就发射一帧对齐（无动画） */
+    motionRef.current?.emitNow();
   }, []);
 
   useEffect(() => {
     const m = new TabIndicatorMotion();
     motionRef.current = m;
     m.onUpdate = (f) => {
-      /* 指示器 transform：插值槽位 x/w + 按压缩放（含速度拉伸）。
+      /* 指示器 transform：插值槽位 x/w + 按压缩放（含速度拉伸）+ panelOffset
+         （原实现 translationX = fraction×tabW + panelOffset 律）；
          玻璃画布由引擎 rAF 逐帧跟随 rect，transform 动画零侵入。 */
       const ind = indicatorRef.current;
       if (ind) {
         const slot = interpolateSlot(slotsRef.current, f.fraction);
         if (slot) {
           ind.style.width = `${slot.w}px`;
-          ind.style.transform = `translateX(${slot.x}px) scale(${f.scaleX}, ${f.scaleY})`;
+          ind.style.transform = `translateX(${(slot.x + f.panelOffset).toFixed(2)}px) scale(${f.scaleX.toFixed(4)}, ${f.scaleY.toFixed(4)})`;
+        }
+        /* 按压层变量：rest 暗罩/内影/外影/边缘高光全由 --press-p 驱动 */
+        ind.style.setProperty("--press-p", f.press.toFixed(3));
+      }
+      /* 内容行：内容缩放 lerp(1, 1.2, press) + panelOffset（LiquidBottomTabs 律） */
+      const row = rowRef.current;
+      if (row) {
+        if (f.press > 0.001 || Math.abs(f.panelOffset) > 0.01) {
+          row.style.transform = `translateX(${f.panelOffset.toFixed(2)}px) scale(${(1 + 0.2 * f.press).toFixed(4)})`;
+        } else {
+          row.style.removeProperty("transform");
         }
       }
-      /* 内容行：容器缩放 × 内容缩放（lerp(1,1+16/W,p) × lerp(1,1.2,p)）+ panelOffset */
-      const row = rowRef.current;
+      /* 容器（nav 玻璃本体）：scale = lerp(1, 1 + 16dp/W, press)，
+         graphicsLayer 围绕容器中心；Tailwind v4 居中走独立 translate 属性，
+         与 transform 不冲突；落定清内联，不碍禅雾化/入场动画 */
       const nav = navRef.current;
-      if (row && nav) {
-        const w = Math.max(1, nav.offsetWidth);
-        const containerScale = 1 + (16 / w) * f.press;
-        const contentScale = 1 + 0.2 * f.press;
-        row.style.transform = `translateX(${f.panelOffset}px) scale(${containerScale * contentScale})`;
+      if (nav) {
+        if (f.press > 0.001) {
+          const w = Math.max(1, nav.offsetWidth);
+          nav.style.transform = `scale(${(1 + 16 / w * f.press).toFixed(4)})`;
+        } else {
+          nav.style.removeProperty("transform");
+        }
       }
     };
     return () => {
@@ -353,6 +374,25 @@ export default function Dock({
       motionRef.current = null;
     };
   }, []);
+
+  /* 玻璃模式退出：指示器/弹簧全复位 + 清内联（新动效只给玻璃用）；
+     玻璃模式进入：指示器首挂载，立即按当前槽位对齐一帧 */
+  useEffect(() => {
+    if (!lgOn) {
+      motionRef.current?.cancel();
+      const ind = indicatorRef.current;
+      if (ind) {
+        ind.style.removeProperty("transform");
+        ind.style.removeProperty("width");
+        ind.style.removeProperty("--press-p");
+      }
+      rowRef.current?.style.removeProperty("transform");
+      navRef.current?.style.removeProperty("transform");
+      dragRef.current = { x0: 0, idx0: 0, active: false, dragging: false, suppressClick: false };
+    } else {
+      measureSlots();
+    }
+  }, [lgOn, measureSlots]);
 
   /* 槽位几何：内容宽度随天气温度/番茄钟分钟/待办徽标变化，布局后重测；
      ResizeObserver 兜底字体加载等隐性尺寸变化 */
@@ -403,7 +443,14 @@ export default function Dock({
   };
 
   const onNavPointerDown = (e: React.PointerEvent) => {
-    if (e.button !== 0) return;
+    /* 新动效只给玻璃模式：非玻璃态 nav 不接管任何指针。
+       ⚠ 不在此处 setPointerCapture：capture 会把后续 pointerup 重定目标到 nav，
+       click 事件随之落在公共祖先（nav）上，按钮 onClick 永远收不到（实测：
+       玻璃模式下 dock 全部点击失效）。capture 延迟到拖拽真正启动的时刻 */
+    if (!lgOn || e.button !== 0) return;
+    /* 游乐场律：按住任意 tab，容器/内容/指示器同步胀（hold），
+       松手或转入拖拽时释放 */
+    if ((e.target as HTMLElement)?.closest?.("[data-lg-tab]")) motionRef.current?.hold();
     dragRef.current = { x0: e.clientX, idx0: nearestSlot(e.clientX), active: true, dragging: false, suppressClick: false };
   };
   const onNavPointerMove = (e: React.PointerEvent) => {
@@ -415,7 +462,14 @@ export default function Dock({
       if (Math.abs(e.clientX - st.x0) < 8) return;
       st.dragging = true;
       st.suppressClick = true;
-      pressCancelRef.current?.(); /* 拖拽接管：取消按钮按压 */
+      /* 拖拽启动即捕获指针：拖出 nav 外松手也能收到 pointerup/cancel，
+         杜绝 isDragging 卡死（v1.5.0「概率不会变小」病根） */
+      try {
+        navRef.current?.setPointerCapture(e.pointerId);
+      } catch {
+        /* 部分内核对已释放指针抛错，忽略即可 */
+      }
+      liquidButtons.cancelAll(); /* 拖拽接管：取消进行中的按钮按压 */
       m.beginDrag(st.idx0, st.x0);
     }
     const slots = slotsRef.current;
@@ -430,9 +484,15 @@ export default function Dock({
       const final = m.endDrag();
       const id = TAB_ORDER[final] as PanelId;
       if (id && id !== panel) switchTo(id);
+    } else {
+      m?.unhold();
     }
     st.active = false;
     st.dragging = false;
+  };
+  /* 手指滑出 nav 仍未松（无 capture 的纯按压）：松开按压防胶囊卡在按大态 */
+  const onNavPointerLeave = () => {
+    if (!dragRef.current.dragging) motionRef.current?.unhold();
   };
   const onNavClickCapture = (e: React.MouseEvent) => {
     if (dragRef.current.suppressClick) {
@@ -486,24 +546,32 @@ export default function Dock({
         onPointerMove={onNavPointerMove}
         onPointerUp={onNavPointerUp}
         onPointerCancel={onNavPointerUp}
+        onPointerLeave={onNavPointerLeave}
         onClickCapture={onNavClickCapture}
         className="glass-pill backdrop-blur-2xl backdrop-saturate-150 dock-intro zen-dock cl-dock fixed bottom-[max(1.25rem,env(safe-area-inset-bottom))] left-1/2 z-40 -translate-x-1/2 rounded-full p-1.5 shadow-lg"
       >
         {/* 液态玻璃指示器（LiquidBottomTabs 指示器移植）：引擎单独折射的
-            滑动玻璃胶囊；56/64 内缩律 = 上下 4dp（nav p-1.5 + 按钮高） */}
-        <div
-          ref={indicatorRef}
-          aria-hidden
-          className="cl-dock-indicator pointer-events-none absolute inset-y-1.5 left-0 z-0 rounded-full bg-[var(--pill-seg)] ring-1 ring-[color:var(--pill-seg-ring)] transition-opacity duration-200"
-          style={{
-            opacity: panel ? 1 : 0,
-            transformOrigin: "center",
-            willChange: "transform, width",
-          }}
-        />
+            滑动玻璃胶囊；游乐场律「选中项恒有胶囊」——常显（含面板关闭态，
+            v1.5.0 拖拽时胶囊不可见即「边框不变」病根）；56/64 内缩律 =
+            上下 4dp（nav p-1.5 + 按钮高）；暗罩/内影/外影/边缘高光全由
+            --press-p 驱动（引擎材质 CSS 定义 .cl-ind-dim/.cl-ind-rim） */}
+        {lgOn && (
+          <div
+            ref={indicatorRef}
+            aria-hidden
+            className="cl-dock-indicator pointer-events-none absolute inset-y-1.5 left-0 z-0 rounded-full"
+            style={{
+              transformOrigin: "center",
+              willChange: "transform, width",
+            }}
+          >
+            <span className="cl-ind-rim" aria-hidden />
+            <span className="cl-ind-dim" aria-hidden />
+          </div>
+        )}
 
-        {/* 内容行：容器缩放 × 内容缩放 + panelOffset 的作用面（ LiquidBottomTabs
-            容器 Row 律；指示器是兄弟节点不参与容器缩放 —— 原实现同） */}
+        {/* 内容行：内容缩放 + panelOffset 的作用面（LiquidBottomTabs Row 律；
+            容器缩放移到 nav 玻璃本体 —— graphicsLayer 父子层律） */}
         <div
           ref={rowRef}
           className="relative z-10 flex items-center gap-0.5"
@@ -511,11 +579,12 @@ export default function Dock({
         >
         {/* 天气 */}
         <DockButton
+          lgOn={lgOn}
+          tab
           slotRef={(el) => registerSlot("weather", el)}
           active={panel === "weather"}
           label={weather.temp != null ? `${weather.temp}° ${weatherText(weather.code)}` : "天气"}
           onClick={() => onTabClick("weather")}
-          pressRegistry={pressCancelRef}
         >
           {weather.code != null ? (
             <WeatherGlyph code={weather.code} size={16} />
@@ -531,23 +600,25 @@ export default function Dock({
 
         {/* 待办 */}
         <DockButton
+          lgOn={lgOn}
+          tab
           slotRef={(el) => registerSlot("todo", el)}
           active={panel === "todo"}
           label="待办"
           badge={undone > 0 ? undone : undefined}
           onClick={() => onTabClick("todo")}
-          pressRegistry={pressCancelRef}
         >
           <FxIcon slot="dock-todo" fallback={CheckSquare} className="h-[17px] w-[17px]" strokeWidth={1.5} />
         </DockButton>
 
         {/* 便签 */}
         <DockButton
+          lgOn={lgOn}
+          tab
           slotRef={(el) => registerSlot("note", el)}
           active={panel === "note"}
           label="便签"
           onClick={() => onTabClick("note")}
-          pressRegistry={pressCancelRef}
         >
           <FxIcon slot="dock-note" fallback={NotebookPen} className="h-[17px] w-[17px]" strokeWidth={1.5} />
         </DockButton>
@@ -556,11 +627,12 @@ export default function Dock({
             呼吸灯 wrapper 与图标同高（17px）使其同心且不撑高行盒，p-1 留光晕缓冲；
             数字 digit-slot 必须带 overflow-hidden（盒底=基线模型前提）+ leading-none，否则墨迹悬低 */}
         <DockButton
+          lgOn={lgOn}
+          tab
           slotRef={(el) => registerSlot("pomodoro", el)}
           active={panel === "pomodoro"}
           label={pomoText ? `番茄钟 剩余 ${pomoText} 分钟` : "番茄钟"}
           onClick={() => onTabClick("pomodoro")}
-          pressRegistry={pressCancelRef}
         >
           <FxIcon slot="dock-pomodoro" fallback={Timer} className="h-[17px] w-[17px]" strokeWidth={1.5} />
           <AnimatePresence initial={false}>
@@ -598,8 +670,8 @@ export default function Dock({
 
         <Divider />
 
-        {/* 命令面板（动作按钮，不参与指示器滑动） */}
-        <DockButton active={false} label="指令 ⌘K" onClick={openPalette} pressRegistry={pressCancelRef}>
+        {/* 命令面板（动作按钮，不参与指示器滑动；玻璃模式走全局 LiquidButton 按压） */}
+        <DockButton lgOn={lgOn} active={false} label="指令 ⌘K" onClick={openPalette}>
           <FxIcon slot="dock-cmdk" fallback={Command} className="h-[17px] w-[17px]" strokeWidth={1.5} />
           <kbd className="pointer-events-none absolute -bottom-9 left-1/2 hidden -translate-x-1/2 whitespace-nowrap rounded-md border border-zinc-900/10 bg-white/80 px-1.5 py-0.5 font-sans text-[10px] tracking-wider text-zinc-500 opacity-0 shadow-sm backdrop-blur transition-opacity duration-300 group-hover:opacity-100 sm:block dark:border-white/10 dark:bg-[#17171c]/90 dark:text-zinc-400">
             ⌘K
@@ -610,11 +682,12 @@ export default function Dock({
 
         {/* 设置 */}
         <DockButton
+          lgOn={lgOn}
+          tab
           slotRef={(el) => registerSlot("settings", el)}
           active={panel === "settings"}
           label="设置"
           onClick={() => onTabClick("settings")}
-          pressRegistry={pressCancelRef}
         >
           <FxIcon slot="dock-settings" fallback={Settings2} className="h-[17px] w-[17px]" strokeWidth={1.5} />
         </DockButton>
@@ -626,10 +699,10 @@ export default function Dock({
           return (
             <DockButton
               key={d.key}
+              lgOn={lgOn}
               active={false}
               label={d.title}
               onClick={() => onRunAction(d.action)}
-              pressRegistry={pressCancelRef}
             >
               {Icon ? (
                 <Icon className="h-[17px] w-[17px]" strokeWidth={1.5} />
@@ -684,9 +757,13 @@ function XGlyph(props: React.SVGProps<SVGSVGElement>) {
   );
 }
 
-/** dock 按钮：LiquidButton 按压动效（v1.5.0 · 玻璃游乐场移植）。
- *  按下 scale 1+4/48×p（临界阻尼）+ tanh 拖拽平移 + 追光白晕；
- *  pressRegistry：nav 级拖拽开始时经此取消按钮按压（拖拽接管律）。 */
+/** dock 按钮（v1.6.0 双模式）：
+ *  玻璃模式（lgOn）：tab 按钮打 data-lg-tab 标记 —— 走指示器组按压
+ *  （内容 1.2× 缩放，LiquidBottomTabs 律），自身不再叠 LiquidButton 缩放
+ *  （v1.5.0 双重放大病根）；动作按钮（⌘K/预设）由全局控制器
+ *  liquidButtons 接管按压（scale 1+4/48×p + tanh 平移 + 追光白晕）。
+ *  非玻璃模式：恢复原版 —— framer layoutId 背景色药丸 + 纯 hover 过渡，
+ *  零新动效（新动效只给液态玻璃用）。 */
 function DockButton({
   children,
   label,
@@ -694,7 +771,8 @@ function DockButton({
   onClick,
   badge,
   slotRef,
-  pressRegistry,
+  tab,
+  lgOn,
 }: {
   children: React.ReactNode;
   label: string;
@@ -702,85 +780,47 @@ function DockButton({
   onClick: () => void;
   badge?: number;
   slotRef?: (el: HTMLButtonElement | null) => void;
-  pressRegistry?: React.MutableRefObject<(() => void) | null>;
+  /** 面板 tab 按钮（参与指示器滑动；玻璃模式下豁免自身按压） */
+  tab?: boolean;
+  lgOn: boolean;
 }) {
-  const btnRef = useRef<HTMLButtonElement | null>(null);
-  const pressRef = useRef<LiquidButtonPress | null>(null);
-  const glowPos = useRef({ x: 50, y: 50 });
-
-  useEffect(() => {
-    const lp = new LiquidButtonPress();
-    pressRef.current = lp;
-    lp.onUpdate = ({ scale, tx, ty, press }) => {
-      const el = btnRef.current;
-      if (!el) return;
-      el.style.transform =
-        scale === 1 && tx === 0 && ty === 0
-          ? ""
-          : `translate(${tx.toFixed(2)}px, ${ty.toFixed(2)}px) scale(${scale.toFixed(4)})`;
-      el.style.setProperty("--press-p", press.toFixed(3));
-    };
-    return () => {
-      lp.dispose();
-      pressRef.current = null;
-    };
-  }, []);
-
-  const localXY = (e: React.PointerEvent) => {
-    const el = btnRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    glowPos.current = {
-      x: ((e.clientX - r.left) / Math.max(1, r.width)) * 100,
-      y: ((e.clientY - r.top) / Math.max(1, r.height)) * 100,
-    };
-    el.style.setProperty("--press-x", `${glowPos.current.x.toFixed(1)}%`);
-    el.style.setProperty("--press-y", `${glowPos.current.y.toFixed(1)}%`);
-  };
-
-  const release = useCallback(() => {
-    pressRef.current?.release();
-    if (pressRegistry && pressRegistry.current === release) pressRegistry.current = null;
-  }, [pressRegistry]);
-
   return (
     <button
       type="button"
       ref={(el) => {
-        btnRef.current = el;
         slotRef?.(el);
       }}
       onClick={onClick}
-      onPointerDown={(e) => {
-        if (e.button !== 0) return;
-        localXY(e);
-        pressRef.current?.press(e.clientX, e.clientY);
-        if (pressRegistry) pressRegistry.current = release;
-      }}
-      onPointerMove={(e) => {
-        if (e.buttons & 1) {
-          localXY(e);
-          pressRef.current?.move(e.clientX, e.clientY);
-        }
-      }}
-      onPointerUp={release}
-      onPointerLeave={release}
-      onPointerCancel={release}
       aria-label={label}
       title={label}
       aria-pressed={active}
       data-active={active ? "true" : undefined}
-      className={`dock-btn liquid-btn accent-ring group relative flex h-9 items-center rounded-full px-3 outline-none transition-colors duration-300 focus-visible:ring-2 ${
+      data-lg-tab={tab && lgOn ? "true" : undefined}
+      className={`dock-btn accent-ring group relative flex h-9 items-center rounded-full px-3 outline-none transition-colors duration-300 focus-visible:ring-2 ${
+        lgOn && !tab ? "liquid-btn" : ""
+      } ${
         active || typeof badge === "number"
           ? "text-zinc-900 dark:text-zinc-50"
           : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
       }`}
     >
-      {/* LiquidButton 追光白晕（InteractiveHighlight 等价：按压进度驱动） */}
-      <span
-        aria-hidden
-        className="liquid-btn-glow pointer-events-none absolute inset-0 rounded-full"
-      />
+      {/* 活动药丸：非玻璃模式 = 原 framer layoutId 滑动背景胶囊；
+          玻璃模式由 .cl-dock-indicator 玻璃胶囊接管（二者互斥） */}
+      {!lgOn && active && (
+        <motion.span
+          layoutId="dock-active-pill"
+          transition={SPRING}
+          className="absolute inset-0 rounded-full bg-[var(--pill-seg)] ring-1 ring-[color:var(--pill-seg-ring)]"
+          aria-hidden
+        />
+      )}
+      {/* LiquidButton 追光白晕（仅玻璃模式动作按钮；--press-p 由全局控制器驱动） */}
+      {lgOn && !tab && (
+        <span
+          aria-hidden
+          className="liquid-btn-glow pointer-events-none absolute inset-0 rounded-full"
+        />
+      )}
       <span className="relative flex items-center">{children}</span>
       <AnimatePresence initial={false}>
         {typeof badge === "number" && (

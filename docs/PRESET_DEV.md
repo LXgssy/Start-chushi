@@ -133,9 +133,11 @@
 | `linksColumns` | 3–12 | 磁贴列数 |
 | `verticalAlign` | `"center" \| "top"` | 主内容垂直对齐 |
 
-## 08 液态玻璃引擎（chushi.glass，v1.5.0 游乐场移植版）、fx 通用作用面与设置面
+## 08 液态玻璃引擎（chushi.glass，v1.6.0 游乐场完整移植版）、fx 通用作用面与设置面
 
-液态玻璃引擎自 v1.4.0 起**内建于宿主**（为什么：引擎住预设包时跑在沙箱 iframe 里，隐藏文档 rAF 永不触发，玻璃不实时）；自 **v1.5.0** 起渲染后端升级为 **WebGL 光学管线**，物理模型与参数体系移植自开源项目「玻璃游乐场」 [martin65536/liquid-glass-webgl](https://github.com/martin65536/liquid-glass-webgl)（**作者 martin65536**，Apache-2.0），其原型为 Kyant0 的 Android 液态玻璃项目 [Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)（**作者 Kyant0**，Apache-2.0）；引擎源码头部保留两份作者与出处声明。引擎在可见文档中以 rAF 逐帧追踪玻璃几何并实时渲染 WebGL 透镜折射，**折射全程在线**：每个玻璃元素叠一层引擎画布（z-index:-1，DOM 内容天然在上），全引擎共享单一 GL 上下文、位图串行队列上屏；背景 = 真实壁纸逐帧采样（kenburns 漂移逆解跟随）+ 压暗遮罩；动画变动期 30fps 节流、稳定期慢跟随重绘。仅 photo 模式（有壁纸可采）走 WebGL；其余模式 / WebGL 不可用 / 跨域壁纸不可采时自动降级 CSS 磨砂（`data-lg-fb`）。预设包只负责「调用」：
+液态玻璃引擎自 v1.4.0 起**内建于宿主**（为什么：引擎住预设包时跑在沙箱 iframe 里，隐藏文档 rAF 永不触发，玻璃不实时）；自 **v1.5.0** 起渲染后端升级为 **WebGL 光学管线**，物理模型与参数体系移植自开源项目「玻璃游乐场」 [martin65536/liquid-glass-webgl](https://github.com/martin65536/liquid-glass-webgl)（**作者 martin65536**，Apache-2.0），其原型为 Kyant0 的 Android 液态玻璃项目 [Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)（**作者 Kyant0**，Apache-2.0）；引擎源码头部保留两份作者与出处声明。引擎在可见文档中以 rAF 逐帧追踪玻璃几何并实时渲染 WebGL 透镜折射，**折射全程在线**：每个玻璃元素叠一层引擎画布（z-index:-1，DOM 内容天然在上），全引擎共享单一 GL 上下文、位图串行队列上屏；背景 = 真实壁纸逐帧采样（kenburns 漂移逆解跟随）+ 压暗遮罩；动画变动期 30fps 节流、稳定期慢跟随重绘。仅 photo 模式（有壁纸可采）走 WebGL；其余模式 / WebGL 不可用 / 跨域壁纸不可采时自动降级 CSS 磨砂（`data-lg-fb`）。**v1.6.0 渲染模型（边缘折射带 + CSS 磨砂体混合合成）**：circleMap 剖面本就边缘集中（内部位移≈0），叠层画布改为**只画边缘折射带**——片元输出乘以 SDF 距离归一掩膜（`band = 1 − smoothstep(0.55, 1, −sd/height)`），在带内界位移自然归零处与玻璃体的 CSS backdrop-filter 磨砂交接（真实背景 = 壁纸 + DOM 组件，**玻璃身后组件可见可点**）；表面色逐角色按游乐场取值由引擎材质 CSS 覆盖（dock/panel/card = tabsContainer 0.4，search = buttonSurface 0.3，指示器/芯片全透明），cfg 经 `:root` 的 `--lg-blur/--lg-sat` 即时生效。⚠ 高光 pass 为 Plus 加法混合，alpha 贡献必须 = 描边强度（输出常数 1 会把带掩膜后的内部整体顶回不透明黑）。设置面板 = 游乐场 Glass Playground 全量控件（除「圆角半径」）：模糊半径 / 折射高度 / 折射量 / 色差 + 应用特有的覆盖范围。底栏动效与全局按钮按压由 `lgOn`（引擎订阅驱动）门控——**这套动效只给液态玻璃用**，非玻璃模式自动恢复原 framer 药丸与纯 hover 过渡。
+
+预设包只负责「调用」：
 
 | API | 说明 |
 | --- | --- |
@@ -149,7 +151,7 @@
 
 ```js
 // 官方「液态玻璃」预设的完整脚本逻辑（examples/液态玻璃预设.json）
-chushi.settings.define({ title: "液态玻璃 · 玻璃游乐场", controls: [/* 游乐场五滑杆 + 高光 + coverage */] });
+chushi.settings.define({ title: "液态玻璃", controls: [/* 游乐场四滑杆：模糊半径/折射高度/折射量/色差 + 覆盖范围 */] });
 const v = await chushi.settings.get();
 const first = await chushi.glass.enable(v);
 if (first && first.ok === false) chushi.notify({ title: "液态玻璃", description: first.message });

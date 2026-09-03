@@ -319,15 +319,36 @@ class LiquidGlassEngine {
   private queued = new Set<OverlayRec>();
   private pumping = false;
 
+  /* ---------- 模式订阅（React 侧 lgOn 门控源：新动效只给玻璃用） ---------- */
+
+  private listeners = new Set<() => void>();
+
+  /** 订阅启用状态变化（useSyncExternalStore 用） */
+  subscribe = (cb: () => void): (() => void) => {
+    this.listeners.add(cb);
+    return () => {
+      this.listeners.delete(cb);
+    };
+  };
+
+  /** 液态玻璃是否处于启用态（引擎已 start 且未回收） */
+  isOn = (): boolean => this.started;
+
+  private notify() {
+    for (const l of [...this.listeners]) l();
+  }
+
   /* ---------- 预设经桥调入 ---------- */
 
   enable(scriptKey: string, cfg: GlassConfig): { ok: boolean; message?: string } {
     if (this.owner && this.owner !== scriptKey) {
       return { ok: false, message: "液态玻璃已被其他预设启用" };
     }
+    const wasOff = !this.started;
     this.owner = scriptKey;
     this.cfg = cfg;
     this.start();
+    if (wasOff) this.notify();
     return { ok: true };
   }
 
@@ -337,6 +358,8 @@ class LiquidGlassEngine {
     /* 签名刷新律：observe() 的重绘调度以 cfgSig 为签名分量，
        漏刷 = 设置面板热调不重绘（v1.5.0 验证实录） */
     this.cfgSig = JSON.stringify(this.cfg);
+    /* 材质 CSS 携带 cfg（CSS 磨砂体参数/覆盖范围）——热调即刷 */
+    this.refreshMaterialCss();
     return { ok: true };
   }
 
@@ -371,7 +394,7 @@ class LiquidGlassEngine {
     this.styleEl = document.createElement("style");
     this.root.appendChild(this.styleEl);
     document.body.appendChild(this.root);
-    this.injectMaterialCss();
+    this.refreshMaterialCss();
 
     this.initGL();
     this.trackWallpaper();
@@ -426,20 +449,41 @@ class LiquidGlassEngine {
     this.root?.remove();
     this.root = null;
     this.styleEl = null;
+    /* 通知 React：玻璃已关（非玻璃模式恢复原动效） */
+    this.notify();
   }
 
-  /** 材质 CSS：WebGL 模式玻璃体完全交给叠层画布；降级模式回 CSS 磨砂 */
-  private injectMaterialCss() {
+  /** 材质 CSS（v1.6.0 · 边缘带混合合成模型）：
+   *  WebGL 模式 = CSS backdrop-filter 磨砂体（真实背景：壁纸 + DOM 组件）
+   *  + 叠层画布只画边缘折射带（shader band 掩膜）；逐角色表面色按游乐场
+   *  各页 surfaceColor 覆盖（tabsContainer 0.4 / buttonSurface 0.3 / 透明）；
+   *  降级模式 = 同参数 CSS 磨砂链，DOM 自带背景保留。
+   *  cfg 热调经 :root 变量即时生效（patch → refreshMaterialCss）。 */
+  private refreshMaterialCss() {
     if (!this.styleEl) return;
+    const blur = Math.max(this.cfg.blur, 0);
+    const sat = this.cfg.saturation / 100;
     this.styleEl.textContent = [
-      /* WebGL 模式：背景/倒影全部由画布绘制，禁掉 DOM 磨砂防双重处理 */
-      "[data-lg]:not([data-lg-fb]){isolation:isolate;background:transparent!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}",
+      /* 磨砂体参数（WebGL/降级共用；降级时 DOM 自带背景在磨砂层之下保留） */
+      `:root{--lg-blur:${blur}px;--lg-sat:${sat}}`,
+      /* 玻璃体：真实背景磨砂（组件在玻璃后可见可点 —— v1.6.0 主修复）。
+         降级模式（data-lg-fb）同样生效，只是无折射带画布 */
+      "[data-lg]{backdrop-filter:blur(var(--lg-blur)) saturate(var(--lg-sat))!important;-webkit-backdrop-filter:blur(var(--lg-blur)) saturate(var(--lg-sat))!important}",
+      /* 叠层画布：元素内最底层，折射带边缘在磨砂体之上 */
       "[data-lg]>.lg-ov{position:absolute;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none}",
-      /* 降级模式：CSS 磨砂链（参数由引擎写变量） */
-      "[data-lg-fb]{backdrop-filter:blur(var(--lg-fb-blur,8px)) saturate(var(--lg-fb-sat,1.5))!important;-webkit-backdrop-filter:blur(var(--lg-fb-blur,8px)) saturate(var(--lg-fb-sat,1.5))!important}",
-      /* 底栏指示器内影（游乐场 LiquidBottomTabs innerShadow 8dp/0.3 的 CSS 等价） */
-      '[data-lg-role="dock-indicator"]:not([data-lg-fb]){box-shadow:inset 0 8px 8px -4px rgb(0 0 0/0.28)}',
-      'html.dark [data-lg-role="dock-indicator"]:not([data-lg-fb]){box-shadow:inset 0 8px 8px -4px rgb(0 0 0/0.4)}',
+      /* 逐角色表面色（游乐场各页 surfaceColor；组件背景/边框保留） */
+      '[data-lg-role="dock"],[data-lg-role="panel"],[data-lg-role="card"]{background:rgba(250,250,250,0.4)!important}',
+      'html.dark [data-lg-role="dock"],html.dark [data-lg-role="panel"],html.dark [data-lg-role="card"]{background:rgba(18,18,24,0.4)!important}',
+      '[data-lg-role="search"]{background:rgba(255,255,255,0.3)!important}',
+      'html.dark [data-lg-role="search"]{background:rgba(18,18,24,0.3)!important}',
+      /* 指示器/次要芯片 = 游乐场透明表面（纯折射，见 wallpaper） */
+      '[data-lg-role="dock-indicator"],[data-lg-role="chip"]{background:transparent!important}',
+      /* 底栏指示器按压层（游乐场 LiquidBottomTabs 指示器：
+        rest 暗罩 0.1×(1-p)、内影 8dp×p、外影 Shadow.Default×p、边缘高光×p；
+        --press-p 由 TabIndicatorMotion 逐帧写入） */
+      ".cl-dock-indicator .cl-ind-dim{position:absolute;inset:0;border-radius:inherit;background:var(--ind-dim,rgba(0,0,0,0.1));opacity:calc(1 - var(--press-p,0));box-shadow:0 10px 28px rgb(0 0 0/calc(var(--press-p,0)*0.12))}",
+      '.dark .cl-dock-indicator .cl-ind-dim,html.photo-mode .cl-dock-indicator .cl-ind-dim{--ind-dim:rgba(255,255,255,0.12)}',
+      ".cl-dock-indicator .cl-ind-rim{position:absolute;inset:0;border-radius:inherit;box-shadow:inset 0 0 0 1px rgb(255 255 255/calc(var(--press-p,0)*0.55)),inset 0 calc(8px*var(--press-p,0)) calc(8px*var(--press-p,0)) rgb(0 0 0/calc(var(--press-p,0)*0.3))}",
     ].join("");
   }
 
@@ -678,12 +722,9 @@ class LiquidGlassEngine {
     el.dataset.lgRole = key;
 
     if (!webglOk) {
-      /* CSS 降级路径：磨砂链参数写变量（DOM 背景保留） */
-      if (el.dataset.lgFb !== "1") {
-        el.dataset.lgFb = "1";
-        el.style.setProperty("--lg-fb-blur", `${Math.max(this.cfg.blur, 2)}px`);
-        el.style.setProperty("--lg-fb-sat", `${this.cfg.saturation / 100}`);
-      }
+      /* CSS 降级路径：只打标记（磨砂体参数由 :root 变量驱动，
+         无折射带画布；DOM 自带背景保留） */
+      if (el.dataset.lgFb !== "1") el.dataset.lgFb = "1";
       return;
     }
     if (el.dataset.lgFb) delete el.dataset.lgFb;

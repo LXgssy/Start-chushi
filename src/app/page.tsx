@@ -1,7 +1,7 @@
 /* 「初始」起始页 — 主页面编排 */
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import AuroraBackground from "@/components/startpage/AuroraBackground";
 import Clock from "@/components/startpage/Clock";
@@ -28,6 +28,7 @@ import {
   type SandboxCommandInfo,
   type SandboxScript,
 } from "@/lib/startpage/sandbox";
+import { liquidGlass, liquidButtons } from "@/lib/startpage/liquid-glass";
 import {
   PRESET_SETTINGS_KEY,
   prunePresetSettings,
@@ -109,6 +110,14 @@ export default function Home() {
   /* ---------- 界面状态 ---------- */
   const [panel, setPanel] = useState<PanelId>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  /** 液态玻璃启用态（引擎订阅）：新动效只给玻璃模式用的总开关。
+     SSR/首帧 false（引擎由预设脚本启用后才翻转，非玻璃模式恢复原动效） */
+  const lgOn = useSyncExternalStore(liquidGlass.subscribe, liquidGlass.isOn, () => false);
+  /* 全局 LiquidButton 按压控制器随玻璃模式启停（覆盖全部按钮） */
+  useEffect(() => {
+    liquidButtons.setEnabled(lgOn);
+    return () => liquidButtons.setEnabled(false);
+  }, [lgOn]);
   const [editor, setEditor] = useState<LinkEditorState>({ open: false, editing: null });
   const [weather, setWeather] = useState<WeatherState>(INITIAL_WEATHER);
   const [isDark, setIsDark] = useState(true);
@@ -1064,6 +1073,7 @@ export default function Home() {
       <Dock
         panel={panel}
         setPanel={setPanel}
+        lgOn={lgOn}
         weather={weather}
         place={place}
         onPlaceChange={setPlace}

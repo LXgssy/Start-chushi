@@ -17,8 +17,8 @@ OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # 素材参考包（_locales/icons 源；缺失时从交付 zip 动解压）
 REF_ZIP = ROOT / "download/v1.1.2/ChuShi-NewTab-v1.1.2.zip"
-VERSION = "1.5.0"
-DEST = ROOT / "download/v1.5.0/ChuShi-NewTab-v1.5.0.zip"
+VERSION = "1.6.0"
+DEST = ROOT / "download/v1.6.0/ChuShi-NewTab-v1.6.0.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():
     sys.exit("out/index.html 不存在——先跑 EXTENSION_MODE=1 bun run build:extension")

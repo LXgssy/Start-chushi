@@ -25,7 +25,12 @@
  *   ③ 色散 = 7 通道 ROYGBV 分层采样，权重矩阵照抄原 AGSL；
  *   ④ 霜化 = Vogel 金角螺旋 16-tap 高斯盘（JS 展开，WebGL1 常量循环）；
  *   ⑤ colorControls（饱和/亮度/对比）= Compose ColorFilter 移植；
- *   ⑥ 预乘 alpha 输出（premultiplied），杜绝边缘黑边。
+ *   ⑥ 预乘 alpha 输出（premultiplied），杜绝边缘黑边；
+ *   ⑦ v1.6.0 输出语义修正：**边缘折射带 alpha 掩膜**——circleMap 剖面
+ *      本就边缘集中（内部位移≈0），玻璃体内部不再由画布绘制（原先整面
+ *      不透明画布会把玻璃身后的 DOM 组件整体抹掉，用户实测截图实证），
+ *      内部改由宿主 CSS backdrop-filter 磨砂（真实背景 = 壁纸 + 组件），
+ *      画布只画「会发生可见位移的边缘折射带」，二者在天文对齐处淡出交接。
  * ============================================================ */
 
 /** Vogel 金角螺旋高斯盘：生成 tap 序列（sigma=1，运行时按半径缩放） */
@@ -314,8 +319,19 @@ void main() {
         color = mix(color, uSurfaceColor.rgb, uSurfaceColor.a);
     }
 
+    // —— v1.6.0 边缘折射带 alpha 掩膜（玻璃体内部让位给 CSS 磨砂）——
+    // circleMap 剖面边缘集中：带内界（-sd = height）位移自然 → 0，画布在此
+    // 淡出，与 CSS backdrop-filter 磨砂体交接（壁纸天文对齐，无可感鬼影）；
+    // height=0 → 画布全透明（纯 CSS 玻璃体）。折射分支同条件（-sd < height），
+    // 掩膜与实际位移区域严格一致。
+    float band = 0.0;
+    if (uRefractionHeight > 0.5) {
+        float tIn = clamp((-sd) / uRefractionHeight, 0.0, 1.0);
+        band = 1.0 - smoothstep(0.55, 1.0, tIn);
+    }
+
     // 预乘 alpha 输出（杜绝线性过滤暗边）
-    float coverage = alpha * edgeAlpha * uEnterAlpha;
+    float coverage = alpha * edgeAlpha * band * uEnterAlpha;
     gl_FragColor = vec4(color * coverage, coverage);
 }
 `;
@@ -411,7 +427,10 @@ void main() {
         // Plain：均匀描边（游乐场面板/广场玻璃用，α=0.38）
         c = uHighlightColor * strokeMask * uHighlightAlpha;
     }
-    gl_FragColor = vec4(c, 1.0); // Plus 混合（ONE, ONE），预乘贡献
+    // Plus 混合（ONE, ONE）：预乘贡献。⚠ alpha 贡献必须 = 描边强度（c 的最大分量），
+    // 不能输出常数 1——否则整个内部被顶成不透明黑（v1.6.0 带掩膜实测实录：
+    // 内部 element pass 已透明，rim pass 的 alpha=1 加法把全内部填回黑实心）
+    gl_FragColor = vec4(c, max(max(c.r, c.g), c.b));
 }
 `;
 

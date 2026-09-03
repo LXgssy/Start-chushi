@@ -386,8 +386,15 @@ html.photo-mode .tile-letter {
  * 移植自 liquid-glass-webgl（https://github.com/martin65536/liquid-glass-webgl，
  * 作者 martin65536，Apache-2.0；原型 Kyant0/AndroidLiquidGlass）：
  * 缩放/平移由 JS 弹簧（LiquidButtonPress）逐帧写 transform；
- * 本段只负责追光白晕（InteractiveHighlight 的 Plus 混合等价），由 --press-p 驱动 */
+ * 本段只负责追光白晕（InteractiveHighlight 的 Plus 混合等价），由 --press-p 驱动。
+ * v1.6.0：按压经全局控制器（liquidButtons）作用于全部按钮（玻璃模式专属）；
+ * 按压期间抑制 transition（transition-all 会让逐帧内联 transform 拖泥带水） */
 .liquid-btn {
+  will-change: transform;
+}
+button[data-lg-press],
+[data-lg-press] {
+  transition: none !important;
   will-change: transform;
 }
 .liquid-btn-glow {
