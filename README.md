@@ -27,7 +27,7 @@
   - 每日一图按日期自动轮换
   - 自定义壁纸（IndexedDB 本地存储，不上传）
 - **禅模式**：一键进入只留时钟与呼吸番茄钟的极简视野；进出有雾化散场/聚拢过渡；退出提示词按背景明暗自动切换墨色；番茄钟计时中会以同色系迷你时钟行浮现，停止计时不打扰
-- **预设**：声明式 JSON 预设，可给指令面板注册新命令、给底部栏加自定义按钮、批量导入磁贴，甚至**向设置面板贡献自己的调节项**（v1.2.0 设置面作用面，滑杆/开关/分段选择，改动热生效）；进阶玩法还可在预设里携带**沙箱 JS 脚本**（唯一源隔离，拿不到页面数据），写自己的数据源与通知机器人；**液态玻璃**引擎内建于宿主并以 rAF 实时渲染（v1.4.0，动画期折射全程在线、覆盖范围可调），预设经 `chushi.glass` 一句调用，自定义视觉仍可走 fx 受控作用面；支持粘贴、本地文件与**拖拽文件导入**；一段 JSON 复制给朋友，导入即用
+- **预设**：声明式 JSON 预设，可给指令面板注册新命令、给底部栏加自定义按钮、批量导入磁贴，甚至**向设置面板贡献自己的调节项**（v1.2.0 设置面作用面，滑杆/开关/分段选择，改动热生效）；进阶玩法还可在预设里携带**沙箱 JS 脚本**（唯一源隔离，拿不到页面数据），写自己的数据源与通知机器人；**液态玻璃**引擎内建于宿主，物理模型与参数体系移植自「玻璃游乐场」liquid-glass-webgl（v1.5.0，WebGL 光学管线实时渲染，折射全程在线、游乐场同款滑杆热调、覆盖范围可调），预设经 `chushi.glass` 一句调用；底部标签栏与按钮动效同源移植（阻尼拖拽物理）；自定义视觉仍可走 fx 受控作用面；支持粘贴、本地文件与**拖拽文件导入**；一段 JSON 复制给朋友，导入即用
 - **明暗主题**：跟随系统，也可手动切换
 - **动效**：入场、悬浮、进出禅模式全部使用同一套克制的动画语言，并尊重 `prefers-reduced-motion`；面板骨架拉伸形变、面板内容统一「模糊聚拢 / 模糊散场」过场，指令面板（⌘K）则有专属的 Q 弹开合
 
@@ -84,6 +84,12 @@
 > v1.3.0 起，液态玻璃升级为 **WebGL 物理透镜**并对齐 Apple 观感（折射模型忠实移植 [martin65536/liquid-glass-webgl](https://github.com/martin65536/liquid-glass-webgl) ← Kyant0/AndroidLiquidGlass，Apache-2.0）：圆弧透镜剖面 + SDF 梯度方向 + 向内采样（凸透镜放大）、可选七通道色散与边缘高光；同批新增两个「整页焕新」作用面：**图标替换**（`chushi.icons.override`，Dock/搜索等槽位换图）与**主题令牌覆写**（`chushi.theme.override`，亮/暗双域 28 项令牌白名单），删除预设即整组还原。
 >
 > v1.4.0 起，应「光靠预设包效果还是不行」的反馈，液态玻璃引擎**收编内建于宿主**：引擎在可见文档中以 rAF 逐帧追踪玻璃几何——**布局/弹簧/变换动画期间位移贴图实时重建（变动期 1/4 分辨率 30fps、稳定后半分辨率精贴图）、折射全程在线不冻结**（v1.3.0 的沙箱画布方案受隐藏文档 rAF 冻结与消息桥往返所限，动画期仍会退化）；物理保持 Apple/Kyant 修正律（**SDF 梯度 × 负量内采样** 凸透镜折射，经 SVG `feDisplacementMap` 负 scale 实现）；**覆盖范围扩容**：新增天气玻璃芯片（full 模式）并新增「覆盖范围」设置项（全部玻璃面 / 基础四区）；预设包改经 `chushi.glass.enable / patch / disable` 一句调用，官方预设瘦身到 1.8KB、设置项八项。`attachCanvas / pushFrame / getBackdrop / onPositions` 位图通道作用面保留，供自绘类预设继续使用。
+
+> v1.5.0 起，应「换用液态玻璃仓库实现」的指令，旧 SVG 位移贴图引擎整体移除，光学管线与动效物理全面移植自开源项目「玻璃游乐场」 [martin65536/liquid-glass-webgl](https://github.com/martin65536/liquid-glass-webgl)（**作者 martin65536**，Apache-2.0；其原型为 [Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)，**作者 Kyant0**，Apache-2.0；移植时保留了两个项目头部的作者与出处声明）：
+> - **WebGL 光学管线**：circleMap 圆弧透镜剖面 × 圆角矩形 SDF 梯度 × 负量内采样（凸透镜放大）× 7 通道 ROYGBV 色散 × Vogel 金角螺旋 16-tap 高斯霜化 × colorControls × 独立边缘高光 pass（Plus 加法混合），预乘 alpha 输出无黑边；背景 = 真实壁纸逐帧采样（kenburns 漂移逆解跟随）+ 压暗遮罩；全引擎共享单 GL 上下文、位图串行队列上屏；跨域壁纸走 crossOrigin 链路、不可用时自动降级 CSS 磨砂；
+> - **玻璃面板与设置换成游乐场同款**：折射高度/折射量/模糊/色散/饱和度五滑杆（游乐场 Glass Playground 参数语义）+ 边缘高光开关 + 覆盖范围，设置面板热调即生效；各玻璃面角色默认值逐项对照游乐场各页参数；
+> - **底部标签栏动效换成游乐场同款**：活动指示器改为独立滑动玻璃胶囊（`.cl-dock-indicator`，引擎单独折射），滑动/按压/速度拉伸物理忠实移植 LiquidBottomTabs + DampedDragAnimation（临界阻尼滑动 spring(1,1000)、欠阻尼按压缩放 spring(0.6/0.7,250) 到 78/56、速度拉伸除数 10、panelOffset 4dp EaseOut、容器/内容按压缩放）；支持按住拖拽滑选；
+> - **按钮动效换成游乐场同款**：dock 按钮按压 = LiquidButton 律（scale 1+4/48×p 临界阻尼 + tanh 拖拽平移 + 追光白晕 Plus 混合）。
 
 ## 右键菜单
 
@@ -341,18 +347,19 @@
 
 部件文档会自动拿到宿主的**主题**（`html[data-theme="dark"|"light"]`）与**强调色**（`var(--w-accent)`），深浅色跟随起始页；CSS 钩子 `.cl-widgets`（层）与 `.cl-widget`（单块）可供 `animations` 进一步定制；禅模式部件与页面内容一同雾化隐去。官方示例「倒数日」预设（`examples/倒数日预设.json`）：点击卡片可改事件与日期，配置保存在本机。
 
-### 液态玻璃引擎（chushi.glass，v1.4.0 起）、fx 作用面、设置面与焕新作用面
+### 液态玻璃引擎（chushi.glass，v1.5.0 游乐场移植版）、fx 作用面、设置面与焕新作用面
 
-液态玻璃引擎自 v1.4.0 起**内建于宿主**（v1.1.3–v1.3.0 三版曾住预设包脚本：沙箱隐藏文档 rAF 冻结、消息桥往返、贴图事后重建，「玻璃不实时」由此而来）：引擎在可见文档中以 rAF 逐帧追踪玻璃几何，布局/弹簧动画期间位移贴图实时重建（变动期 1/4 分辨率 30fps、稳定 ~160ms 后半分辨率精贴图），新贴图预解码后原子换 href，折射全程在线；物理为 **SDF 梯度方向 × 负量内采样（凸透镜放大）**，对齐 Apple / Kyant0 AndroidLiquidGlass 修正律（v1.2.0 的外绕方向已纠正）。预设包只需一句 `chushi.glass.enable(cfg)` 调用引擎，参数逐字段白名单夹紧；单持有者制（他预设已持有则 `ok:false`），删除预设/脚本冻结即整体回收还原磨砂。官方「液态玻璃」预设（`examples/液态玻璃预设.json`，脚本仅 1.8KB）即参考实现：设置面板八项调节 + 调用引擎。
+液态玻璃引擎自 v1.4.0 起**内建于宿主**，自 v1.5.0 起渲染后端换成 **WebGL 光学管线**，物理模型与参数体系移植自「玻璃游乐场」[martin65536/liquid-glass-webgl](https://github.com/martin65536/liquid-glass-webgl)（**作者 martin65536**，Apache-2.0；原型 [Kyant0/AndroidLiquidGlass](https://github.com/Kyant0/AndroidLiquidGlass)，**作者 Kyant0**，Apache-2.0；源码头部保留作者与出处声明）。引擎在可见文档中以 rAF 逐帧追踪玻璃几何，实时渲染 WebGL 透镜折射（动画期 30fps 节流、折射全程在线）；每个玻璃元素叠一层引擎画布（z-index:-1，DOM 内容天然在上），全引擎共享单一 GL 上下文、位图串行队列上屏；背景 = 真实壁纸逐帧采样（kenburns 漂移逆解跟随）+ 压暗遮罩，预乘 alpha 输出无黑边。仅 photo 模式（有壁纸可采）走 WebGL，其余模式 / WebGL 不可用 / 跨域壁纸不可采时自动降级 CSS 磨砂。预设包只需一句 `chushi.glass.enable(cfg)` 调用引擎，参数逐字段白名单夹紧；单持有者制（他预设已持有则 `ok:false`），删除预设/脚本冻结即整体回收还原磨砂。官方「液态玻璃」预设（`examples/液态玻璃预设.json`）即参考实现：游乐场同款滑杆 + 调用引擎。
 
 自定义视觉与焕新仍走下表作用面：**fx**（v1.1.3 起）挂自定义 style/svg、**位图通道**（v1.3.0 起，自绘引擎上屏）、**设置面**（v1.2.0 起）、**图标替换与主题令牌覆写**（v1.3.0 起）。
 
 | API / 钩子 | 说明 |
 |---|---|
-| `chushi.glass.enable(cfg)` | v1.4.0：启用内建液态玻璃引擎并持有（Promise 回执 `{ok, message?}`）。cfg 字段：`refraction`(0–300%)、`band`(8–60%)、`frost`(0–12px)、`saturation`(100–260%)、`brightness`(80–140%)、`dispersion`/`specular`(布尔)、`coverage`(`"core"` 基础四区 / `"full"` 全部玻璃面)；非法字段回默认 |
-| `chushi.glass.patch(cfg)` | v1.4.0：热更新部分参数（设置面板拖动滑杆即走这里） |
-| `chushi.glass.disable()` | v1.4.0：停用并交还引擎，全站玻璃还原磨砂 |
-| 引擎玻璃面注册表 | core = `.search-pill` / `.cl-dock` / `.cl-panel` / `.glass-card`；full 另含 `.glass-chip`（天气芯片）。全屏幕布永不折射 |
+| `chushi.glass.enable(cfg)` | v1.5.0（游乐场语义）：启用内建液态玻璃引擎并持有（Promise 回执 `{ok, message?}`）。cfg 字段：`refractionHeight`(0–48px 默认 24)、`refractionAmount`(0–48px 默认 24，引擎内部取负 = 凸透镜)、`blur`(0–32px 默认 8)、`chromatic`(0–1 默认 0)、`saturation`(100–260% 默认 150)、`brightness`(85–115% 默认 100)、`highlight`(布尔)、`coverage`(`"core"` 基础四区 / `"full"` 全部玻璃面)；非法字段回默认 |
+| `chushi.glass.patch(cfg)` | v1.5.0：热更新部分参数（设置面板拖动滑杆即走这里） |
+| `chushi.glass.disable()` | v1.5.0：停用并交还引擎，全站玻璃还原磨砂 |
+| 引擎玻璃面注册表 | core = `.search-pill` / `.cl-dock` / `.cl-dock-indicator`（底栏玻璃指示器）/ `.cl-panel` / `.glass-card`；full 另含 `.glass-chip`。嵌套玻璃面豁免（外层玻璃内的小面背景非壁纸）；全屏幕布永不折射 |
+| 底栏/按钮动效（v1.5.0 移植） | 指示器滑动/按压/速度拉伸 = LiquidBottomTabs + DampedDragAnimation 移植（临界阻尼 spring(1,1000)、欠阻尼 spring(0.6/0.7,250) 到 78/56、速度拉伸除数 10、panelOffset 4dp）；按钮按压 = LiquidButton 律（scale 1+4/48×p + tanh 平移 + 追光白晕） |
 | `chushi.fx.mount(id, html)` | 把纯视觉结构（`<style>` / `<svg>`）幂等挂进宿主隐藏容器 `#chushi-fx-root`；同 id 重复挂载为替换。单次 ≤192KB |
 | `chushi.fx.unmount(id)` | 摘除一个挂载 |
 | `chushi.fx.onResize(cb)` | 订阅玻璃容器几何快照（`cb` 收 `[{fx, key, w, h, radius, x, y, cv}]`，含视口坐标与画布存活标志），返回退订函数 |

@@ -382,6 +382,24 @@ html.photo-mode .tile-label {
 html.photo-mode .tile-letter {
   color: rgb(255 255 255 / 0.92);
 }
+/* ---------- LiquidButton 按压动效（v1.5.0 · 玻璃游乐场移植版） ----------
+ * 移植自 liquid-glass-webgl（https://github.com/martin65536/liquid-glass-webgl，
+ * 作者 martin65536，Apache-2.0；原型 Kyant0/AndroidLiquidGlass）：
+ * 缩放/平移由 JS 弹簧（LiquidButtonPress）逐帧写 transform；
+ * 本段只负责追光白晕（InteractiveHighlight 的 Plus 混合等价），由 --press-p 驱动 */
+.liquid-btn {
+  will-change: transform;
+}
+.liquid-btn-glow {
+  background: radial-gradient(
+    44px circle at var(--press-x, 50%) var(--press-y, 50%),
+    rgb(255 255 255 / 0.36),
+    transparent 70%
+  );
+  opacity: var(--press-p, 0);
+  mix-blend-mode: plus-lighter; /* Plus 加法混合律；不支持的内核回落普通混合 */
+}
+
 html.photo-mode .dock-btn {
   color: rgb(255 255 255 / 0.68);
 }

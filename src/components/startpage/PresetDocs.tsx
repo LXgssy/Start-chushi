@@ -364,12 +364,16 @@ export default function PresetDocs({
 
               <Sec n="08" title="液态玻璃引擎（chushi.glass）、fx 通用作用面与设置面">
                 <P>
-                  液态玻璃引擎自 v1.4.0 起<b>内建于宿主</b>。为什么改架构：引擎住预设包（v1.1.3–v1.3.0，含 WebGL 画布方案）
-                  时跑在沙箱 iframe 里——沙箱文档 display:none，Chromium 对隐藏文档暂停渲染循环
-                  （<b>rAF 永不触发</b>），贴图只能事后重建，布局动画期间只能退化纯磨砂，用户感知即
-                  「玻璃不实时」。引擎内建后在可见文档中以 rAF 逐帧追踪玻璃几何，<b>折射全程在线</b>：
-                  几何变动期贴图以 1/4 分辨率 30fps 实时重建，稳定约 160ms 后换半分辨率精贴图，
-                  新贴图预解码后原子换 href 无空窗帧。预设包只负责「调用」：
+                  液态玻璃引擎自 v1.4.0 起<b>内建于宿主</b>（为什么：引擎住预设包时跑在沙箱
+                  iframe 里，隐藏文档 rAF 永不触发，玻璃不实时）；自 <b>v1.5.0</b> 起
+                  渲染后端升级为 <b>WebGL 光学管线</b>，物理模型与参数体系移植自开源项目
+                  「玻璃游乐场」 <K>liquid-glass-webgl</K>（仓库
+                  github.com/martin65536/liquid-glass-webgl，<b>作者 martin65536</b>，
+                  Apache-2.0），其原型为 Kyant0 的 Android 液态玻璃项目
+                  AndroidLiquidGlass（<b>作者 Kyant0</b>，Apache-2.0）。引擎在可见文档中以 rAF
+                  逐帧追踪玻璃几何并实时渲染 WebGL 透镜折射，<b>折射全程在线</b>；每个玻璃元素
+                  叠一层引擎画布（z-index:-1，DOM 内容天然在上），全引擎共享单一 GL 上下文，
+                  位图经串行队列上屏。预设包只负责「调用」：
                 </P>
                 <T
                   head={["API", "说明"]}
@@ -383,27 +387,37 @@ export default function PresetDocs({
                   ]}
                 />
                 <P>
-                  cfg 字段（宿主逐字段白名单夹紧，非法回默认）：<K>refraction</K> 折射强度 0–300%（默认 145）、
-                  <K>band</K> 边缘带宽 8–60%（默认 26）、<K>frost</K> 霜化模糊 0–12px（默认 3）、
-                  <K>saturation</K> 饱和度 100–260%（默认 180）、<K>brightness</K> 透亮 80–140%（默认 100）、
-                  <K>dispersion</K> 边缘色散（布尔）、<K>specular</K> 镜面高光（布尔）、<K>coverage</K>
+                  cfg 字段（游乐场语义，宿主逐字段白名单夹紧，非法回默认）：<K>refractionHeight</K> 折射高度 0–48px（默认 24）、
+                  <K>refractionAmount</K> 折射量 0–48px（默认 24，引擎内部取负 = 凸透镜放大）、
+                  <K>blur</K> 霜化模糊 0–32px（默认 8）、<K>chromatic</K> 色散 0–1（默认 0，&gt;0 即开 7 通道 ROYGBV）、
+                  <K>saturation</K> 饱和度 100–260%（默认 150 = 游乐场 vibrancy 1.5）、<K>brightness</K> 透亮 85–115%（默认 100）、
+                  <K>highlight</K> 边缘高光（布尔）、<K>coverage</K>
                   覆盖范围（&quot;core&quot; 基础四区 / &quot;full&quot; 全部玻璃面，默认 full）。
-                  玻璃面注册表：core = .search-pill / .cl-dock / .cl-panel / .glass-card；full 另含
-                  .glass-chip（天气芯片）。全屏幕布永不折射——幕布不是玻璃块。
+                  玻璃面注册表：core = .search-pill / .cl-dock / .cl-dock-indicator（底栏玻璃指示器）/ .cl-panel / .glass-card；full 另含
+                  .glass-chip（天气芯片）。全屏幕布永不折射——幕布不是玻璃块。仅 photo 模式（有壁纸可采）走 WebGL；
+                  其余模式 / WebGL 不可用自动降级 CSS 磨砂（data-lg-fb）。
+                </P>
+                <P>
+                  <b>物理透镜（游乐场移植，对齐 Apple / Kyant0 律）</b>：剖面 = circleMap 圆弧透镜投影
+                  （1−√(1−t²)，弯曲集中在边缘折射带）；方向 = 圆角矩形 SDF 梯度；
+                  折射量取负 → <b>边缘向玻璃内采样 = 凸透镜放大</b>（与游乐场/Kyant 默认 −24dp 同向）；
+                  色散 = 7 通道 ROYGBV 分层采样；霜化 = Vogel 金角螺旋 16-tap 高斯盘；
+                  边缘高光 = 独立描边 pass（Plus 加法混合，Default/Plain 两种模式）；
+                  背景 = 真实壁纸逐帧采样（kenburns 漂移逆解跟随）+ photo-scrim 压暗层，预乘 alpha 输出无黑边。
+                </P>
+                <P>
+                  <b>底部标签栏动效</b>：底栏指示器为独立滑动玻璃胶囊，滑动/按压/速度拉伸物理
+                  忠实移植自游乐场的 LiquidBottomTabs + DampedDragAnimation 移植（临界阻尼
+                  spring(1,1000) 滑动、欠阻尼 spring(0.6/0.7,250) 按压缩放 78/56、速度拉伸
+                  除数 10、panelOffset 4dp EaseOut、容器 16dp/宽按压缩放）；dock 按钮按压
+                  = LiquidButton 律（scale 1+4/48×p + tanh 拖拽平移 + 追光白晕）。
                 </P>
                 <Code>{`// 官方「液态玻璃」预设的完整脚本逻辑（examples/液态玻璃预设.json）
-chushi.settings.define({ title: "液态玻璃", controls: [/* 八项 */] });
+chushi.settings.define({ title: "液态玻璃 · 玻璃游乐场", controls: [/* 游乐场滑杆 */] });
 const v = await chushi.settings.get();
 const first = await chushi.glass.enable(v);
 if (first && first.ok === false) chushi.notify({ title: "液态玻璃", description: first.message });
 chushi.settings.onChange((x) => chushi.glass.patch(x));`}</Code>
-                <P>
-                  <b>物理透镜（引擎内置，对齐 Apple / Kyant0 修正律）</b>：方向取 SDF 梯度（边缘外法线）；
-                  位移量取负 → <b>边缘向玻璃内采样 = 凸透镜放大</b>（与 Apple/Kyant 默认 −24dp 同向，
-                  v1.2.0 的外绕方向已纠正）；剖面 smoothstep² 集中在边缘窄带；可选三通道色散；
-                  引擎经 SVG feDisplacementMap 负 scale 实现；链序律 blur→url(#disp)→saturate 已内置。
-                  仅 Chromium 系支持 backdrop-filter: url()，其它内核自动保持磨砂现状。
-                </P>
                 <P>
                   <b>fx 通用作用面（自定义视觉仍走这里）</b>：预设自带的自定义 &lt;style&gt;/&lt;svg&gt;
                   视觉经受控通道挂载，与内建引擎互不干扰。
