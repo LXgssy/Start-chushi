@@ -1,0 +1,17 @@
+{
+  "chushi": 1,
+  "name": "液态玻璃",
+  "author": "初始",
+  "description": "全站磨砂玻璃切换为液态玻璃：背景折射、边缘透镜弯曲、镜面高光",
+  "effects": {
+    "glass": {
+      "refraction": 0.75,
+      "bezel": 0.5,
+      "blur": 3,
+      "saturation": 180
+    }
+  },
+  "commands": [
+    { "title": "什么是液态玻璃", "action": { "type": "copy", "text": "液态玻璃：SVG feDisplacementMap 位移贴图实时折射背景，边缘透镜弯曲 + 镜面高光（Apple Liquid Glass 的 Web 复刻，Chromium 系浏览器完整生效，其余内核自动降级为磨砂）。" } }
+  ]
+}
