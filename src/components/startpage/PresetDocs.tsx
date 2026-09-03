@@ -362,11 +362,52 @@ export default function PresetDocs({
                 />
               </Sec>
 
-              <Sec n="08" title="fx 视觉效果接口（预设包自带引擎）">
+              <Sec n="08" title="液态玻璃引擎（chushi.glass）、fx 通用作用面与设置面">
                 <P>
-                  液态玻璃这类视觉效果<b>不由宿主内建</b>：宿主只提供一块受控的「作用面」（fx API），
-                  效果的<b>全部实现代码住在预设包的 scripts 里</b>——安装即生效、删除预设（或脚本被冻结）
-                  即整组回收。官方「液态玻璃预设」就是照这套接口写出来的，把它当参考实现最直接。
+                  液态玻璃引擎自 v1.3.0 起<b>内建于宿主</b>。为什么改架构：引擎住预设包（v1.1.3–v1.2.0）
+                  时跑在沙箱 iframe 里——沙箱文档 display:none，Chromium 对隐藏文档暂停渲染循环
+                  （<b>rAF 永不触发</b>），贴图只能事后重建，布局动画期间只能退化纯磨砂，用户感知即
+                  「玻璃不实时」。引擎内建后在可见文档中以 rAF 逐帧追踪玻璃几何，<b>折射全程在线</b>：
+                  几何变动期贴图以 1/4 分辨率 30fps 实时重建，稳定约 160ms 后换半分辨率精贴图，
+                  新贴图预解码后原子换 href 无空窗帧。预设包只负责「调用」：
+                </P>
+                <T
+                  head={["API", "说明"]}
+                  rows={[
+                    [
+                      <K>chushi.glass.enable(cfg)</K>,
+                      "启用引擎并持有（Promise 回执 {ok, message?}）。单持有者制：他预设已持有则 ok:false；脚本冻结/预设删除即自动回收还原磨砂",
+                    ],
+                    [<K key="gp">chushi.glass.patch(cfg)</K>, "热更新部分参数（字段任选）"],
+                    [<K key="gd">chushi.glass.disable()</K>, "停用并交还引擎"],
+                  ]}
+                />
+                <P>
+                  cfg 字段（宿主逐字段白名单夹紧，非法回默认）：<K>refraction</K> 折射强度 0–300%（默认 145）、
+                  <K>band</K> 边缘带宽 8–60%（默认 26）、<K>frost</K> 霜化模糊 0–12px（默认 3）、
+                  <K>saturation</K> 饱和度 100–260%（默认 180）、<K>brightness</K> 透亮 80–140%（默认 100）、
+                  <K>dispersion</K> 边缘色散（布尔）、<K>specular</K> 镜面高光（布尔）、<K>coverage</K>
+                  覆盖范围（&quot;core&quot; 基础四区 / &quot;full&quot; 全部玻璃面，默认 full）。
+                  玻璃面注册表：core = .search-pill / .cl-dock / .cl-panel / .glass-card；full 另含
+                  .glass-chip（天气芯片）。全屏幕布永不折射——幕布不是玻璃块。
+                </P>
+                <Code>{`// 官方「液态玻璃」预设的完整脚本逻辑（examples/液态玻璃预设.json）
+chushi.settings.define({ title: "液态玻璃", controls: [/* 八项 */] });
+const v = await chushi.settings.get();
+const first = await chushi.glass.enable(v);
+if (first && first.ok === false) chushi.notify({ title: "液态玻璃", description: first.message });
+chushi.settings.onChange((x) => chushi.glass.patch(x));`}</Code>
+                <P>
+                  <b>物理透镜（引擎内置，对齐 Apple 边缘折射）</b>：方向取 SDF 梯度（边缘外法线）；
+                  剖面 smoothstep² 集中在边缘窄带；<b>真环绕折射</b>——backdrop-filter 的输入被裁剪在
+                  border-box 内，引擎对基础四区用「边框外扩法」（透明边环 + 负 margin + 宽度补偿）把
+                  backdrop 取样域扩到玻璃足迹之外，边缘环带折进的是<b>玻璃外的真实世界</b>（纸镇效应），
+                  pad 环位移渐隐防硬边；链序律 blur→url(#disp)→saturate 引擎已内置。仅 Chromium 系支持
+                  backdrop-filter: url()，其它内核自动保持磨砂现状。
+                </P>
+                <P>
+                  <b>fx 通用作用面（自定义视觉仍走这里）</b>：预设自带的自定义 &lt;style&gt;/&lt;svg&gt;
+                  视觉经受控通道挂载，与内建引擎互不干扰。
                 </P>
                 <T
                   head={["API / 钩子", "说明"]}
@@ -374,28 +415,25 @@ export default function PresetDocs({
                     [
                       <K>chushi.fx.mount(id, html)</K>,
                       <>把纯视觉结构（&lt;style&gt; / &lt;svg&gt;）幂等挂进宿主隐藏容器 #chushi-fx-root；
-                      同 id 重复挂载为替换（贴图更新不闪断）。单次 ≤192KB</>,
+                      同 id 重复挂载为替换。单次 ≤192KB</>,
                     ],
-                    [<K>chushi.fx.unmount(id)</K>, "摘除一个挂载"],
+                    [<K key="fu">chushi.fx.unmount(id)</K>, "摘除一个挂载"],
                     [
-                      <K>chushi.fx.onResize(cb)</K>,
-                      "订阅玻璃容器尺寸快照（cb 收 [{fx, key, w, h, radius}]），返回退订函数；折射贴图按它重生成",
-                    ],
-                    [
-                      <K>[data-fx=&quot;fxN&quot;]</K>,
-                      <>宿主给白名单玻璃容器（.search-pill / .cl-dock / .cl-panel / .glass-card）打的稳定标记，
-                      预设 CSS 用它触达真实元素</>,
+                      <K key="fr">chushi.fx.onResize(cb)</K>,
+                      "订阅玻璃容器尺寸快照（cb 收 [{fx, key, w, h, radius}]），返回退订函数",
                     ],
                     [
-                      <K>--fx-mx / --fx-my</K>,
-                      "指针在玻璃容器内移动时，宿主写在容器上的相对坐标（%），CSS 用 var() 做镜面高光",
+                      <K key="df">[data-fx=&quot;fxN&quot;]</K>,
+                      <>宿主给白名单玻璃容器打的稳定标记，预设 CSS 用它触达真实元素；--fx-mx / --fx-my
+                      为指针相对坐标（%），可做镜面高光</>,
                     ],
                   ]}
                 />
                 <P>
                   安全校界：mount 的 html 只接受 &lt;style&gt; / &lt;svg&gt; 顶层结构（禁 script、
-                  事件属性、foreignObject 与外链资源）；全屏幕布（⌘K / 对话框遮罩）永不打 data-fx
-                  标记——幕布不是玻璃块。骨架示例：
+                  事件属性、foreignObject 与外链资源）；全屏幕布永不打 data-fx 标记。自写折射效果请遵守
+                  <b>链序律</b>（blur 在前、url 在后）与<b>实时渲染律</b>（几何变化即重建贴图；沙箱 iframe 内
+                  rAF 永不触发，定时器合帧 + 几何签名判重是底线方案）。骨架示例：
                 </P>
                 <Code>{`chushi.fx.onResize((items) => {
   for (const it of items) {
@@ -404,21 +442,6 @@ export default function PresetDocs({
   }
 });
 // CSS 里：[data-fx="fx1"] { backdrop-filter: blur(3px) url(#g-fx1) saturate(180%) }`}</Code>
-                <P>
-                  ⚠ <b>材质即顺序</b>：backdrop-filter 引用 SVG 滤镜时，<b>blur 在前、url(#filter) 在后</b>
-                  （先霜化再折射，弯曲锐利）；写反了折射会被模糊糊掉。目前仅 Chromium 系支持
-                  backdrop-filter: url()，其它内核自动保持磨砂现状。
-                </P>
-                <P>
-                  ⚠ <b>布局动画防闪（v1.2.0）</b>：玻璃元素在布局尺寸连续变化（面板高度弹簧、窗口拖拽）期间，
-                  SVG 位移滤镜逐帧重栅格化且贴图错帧 = 闪动。律：尺寸变动期退化为纯 blur/saturate，
-                  稳定约 160ms 后再生成贴图换全链（官方引擎已内置）。
-                </P>
-                <P>
-                  <b>物理透镜贴图（对齐 Apple 边缘折射）</b>：方向取 SDF 梯度（边缘外法线），不要指向几何中心；
-                  边缘环带向外取样，显示被压缩进来的<b>玻璃外世界</b>（纸镇/鱼缸效应）——滤镜域需外扩 pad；
-                  剖面用 smoothstep² 集中在边缘窄带。v1.2.0 起官方引擎即按此实现。
-                </P>
                 <P>
                   <b>settings 设置面（v1.2.0）：把调节项贡献进设置面板</b>。声明后宿主渲染出分区，
                   用户改动热生效并持久化（删除预设即连分区带值一并回收）：
@@ -446,7 +469,7 @@ chushi.settings.onChange((values) => { /* 整组热更新 */ });`}</Code>
                 />
                 <P>
                   同一分区控件键唯一；值类型由宿主按 schema 夹紧（越界/类型不符回默认），脚本拿到的值永远合法。
-                  官方液态玻璃预设的折射强度/边缘带宽/霜化/饱和/透亮/色散/镜面高光七项即由此实现。
+                  官方液态玻璃预设的折射强度/边缘带宽/霜化/饱和/透亮/色散/镜面高光/覆盖范围八项即由此实现。
                 </P>
               </Sec>
 
@@ -510,8 +533,12 @@ chushi.settings.onChange((values) => { /* 整组热更新 */ });`}</Code>
                     [<K>chushi.copy(text)</K>, "复制文本到剪贴板"],
                     [<K>chushi.fetchJSON(url, init?)</K>, "受限 fetch：仅 https，10 秒超时，返回解析好的 JSON"],
                     [
+                      <K key="cg">chushi.glass.enable / patch / disable</K>,
+                      "v1.3.0 液态玻璃引擎调用面：引擎内建于宿主（实时渲染 + 真环绕折射），预设只传材质配置（见 §08）",
+                    ],
+                    [
                       <K>chushi.fx.mount / unmount / onResize</K>,
-                      "视觉效果作用面：注入 style/svg、订阅玻璃容器尺寸（详见 §08）",
+                      "视觉效果作用面：注入 style/svg、订阅玻璃容器尺寸（见 §08）",
                     ],
                     [
                       <>
@@ -614,11 +641,11 @@ chushi.settings.onChange((values) => { /* 整组热更新 */ });`}</Code>
 
               <Sec n="15" title="整页焕新能力评估（API 现状与路线）">
                 <P>
-                  「能不能靠预设系统把整个页面焕新一遍？」按 v1.2.0 的作用面清单盘点——
+                  「能不能靠预设系统把整个页面焕新一遍？」按 v1.3.0 的作用面清单盘点——
                   <b>已能焕新</b>：①内容与功能（命令/磁贴/栏按钮/小部件/沙箱整页）；②排版（layout 覆写 +
                   animations 重排 .cl-* 钩子）；③色彩与材质（settings 白名单 + animations 重写玻璃底色 +
-                  fx 整套材质替换，液态玻璃即实证）；④动画（animations 注入 @keyframes；折射类走 fx 自带引擎）；
-                  ⑤设置面板扩展（chushi.settings 让焕新方案自带可调参数）。
+                  fx 整套材质替换 + chushi.glass 直接换全站玻璃物理材质，液态玻璃预设即实证）；④动画（animations 注入 @keyframes；
+                  玻璃折射走 chushi.glass）；⑤设置面板扩展（chushi.settings 让焕新方案自带可调参数）。
                 </P>
                 <P>
                   <b>尚未覆盖、待后续新增作用面</b>（按性价比排序）：①图标替换（预设自带图标资源）；②主题令牌覆写

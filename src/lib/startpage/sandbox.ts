@@ -48,10 +48,16 @@ export type SandboxEvent =
 
 /** fx 视觉效果面（v1.1.3）：mount/unmount/subscribe 由 fxHost 执行，
  *  结果经 fxResult 回报沙箱；预设卸载/脚本冻结时挂载与订阅全部回收。
- *  宿主不实现任何具体视觉效果——全部引擎代码住在预设包里（fx.ts 头注）。
+ *  液态玻璃引擎（v1.3.0）：**内建于宿主**（liquid-glass.ts，rAF 实时渲染），
+ *  预设脚本经 chushi.glass.enable/patch/disable 调用，配置白名单校验后转入。
  *  设置面（v1.2.0）：settingsDefine/settingsGet 由桥校验与回执，
  *  schema 白名单与持久化工具见 preset-settings.ts。 */
 import { fxHost } from "./fx";
+import {
+  liquidGlass,
+  sanitizeGlassEnable,
+  sanitizeGlassPatch,
+} from "./liquid-glass";
 import { validateSettingSchema, type PresetSettingsSchema } from "./preset-settings";
 
 const FX_OPS = new Set(["fxMount", "fxUnmount", "fxSubscribe", "fxUnsubscribe"]);
@@ -79,19 +85,19 @@ const caps = {
  *  ?v= 供部署后冲掉 SW cache-first 旧缓存 */
 function sandboxSrc(): string {
   const base = (process.env.NEXT_PUBLIC_BASE_PATH as string | undefined) ?? "";
-  return `${base}/sandbox.html?v=114`;
+  return `${base}/sandbox.html?v=115`;
 }
 
 /** 沙箱页面模式地址（自定义页 overlay 用）：mode=page 下运行时仅充当页面宿主 */
 export function sandboxPageSrc(): string {
   const base = (process.env.NEXT_PUBLIC_BASE_PATH as string | undefined) ?? "";
-  return `${base}/sandbox.html?mode=page&v=114`;
+  return `${base}/sandbox.html?mode=page&v=115`;
 }
 
 /** 沙箱小部件模式地址（角落小部件用）：mode=widget 下运行时仅充当部件宿主 */
 export function sandboxWidgetSrc(): string {
   const base = (process.env.NEXT_PUBLIC_BASE_PATH as string | undefined) ?? "";
-  return `${base}/sandbox.html?mode=widget&v=114`;
+  return `${base}/sandbox.html?mode=widget&v=115`;
 }
 
 type Msg = { type?: unknown } & Record<string, unknown>;
@@ -193,6 +199,7 @@ class SandboxBridge {
       this.helloTimer = null;
     }
     fxHost.stop();
+    liquidGlass.stopAll();
     this.settingsSchemas.clear();
     if (this.watchdog != null) {
       clearTimeout(this.watchdog);
@@ -217,6 +224,7 @@ class SandboxBridge {
     for (const k of prevKeys) {
       if (!scripts.some((x) => x.key === k)) {
         fxHost.cleanup(k);
+        liquidGlass.release(k);
         this.settingsSchemas.delete(k);
       }
     }
@@ -322,6 +330,7 @@ class SandboxBridge {
     this.watchdog = null;
     this.emit({ kind: "frozen", key: script.key, name: script.name });
     fxHost.cleanup(script.key);
+    liquidGlass.release(script.key);
     this.settingsSchemas.delete(script.key);
     const rest = this.scripts.filter((x) => x.key !== script.key);
     this.signature = JSON.stringify(rest.map((x) => [x.key, x.code]));
@@ -399,6 +408,24 @@ class SandboxBridge {
           ? this.settingsProvider(gk, schema)
           : {};
         this.post({ type: "settingsValues", scriptKey: gk, values });
+        break;
+      }
+      case "glassEnable":
+      case "glassPatch":
+      case "glassDisable": {
+        /* 液态玻璃引擎作用面（v1.3.0）：配置白名单校验/夹紧后转引擎；
+         * 结果经 glassResult 回执沙箱 pending（同 fxResult 律） */
+        const gk = s(m.scriptKey, 80);
+        if (!gk || !this.scripts.some((x) => x.key === gk)) return;
+        const gid = s(m.gid, 32);
+        let gr: { ok: boolean; message?: string };
+        if (op === "glassEnable") gr = liquidGlass.enable(gk, sanitizeGlassEnable(m.cfg));
+        else if (op === "glassPatch") gr = liquidGlass.patch(gk, sanitizeGlassPatch(m.cfg));
+        else {
+          liquidGlass.disable(gk);
+          gr = { ok: true };
+        }
+        this.post({ type: "glassResult", scriptKey: gk, gid, ok: gr.ok, message: gr.message ?? "" });
         break;
       }
       default: {
