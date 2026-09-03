@@ -236,9 +236,9 @@ export default function PresetDocs({
                 <Code>{MIN_PRESET}</Code>
                 <P>
                   <K>chushi: 1</K> 是格式版本标记（必需，缺了会直接拒绝）；<K>name</K> 必填；
-                  <K>commands / links / dock</K> 至少写一项——十个内容字段
+                  <K>commands / links / dock</K> 至少写一项——九个内容字段
                   （commands / links / dock / settings / scripts / animations / pages / widgets /
-                  layout / effects）全空同样会被拒绝。
+                  layout）全空同样会被拒绝。
                 </P>
               </Sec>
 
@@ -254,12 +254,11 @@ export default function PresetDocs({
                     [<K>links</K>, "数组 ≤12", "快捷磁贴（name ≤20 字 + https url）"],
                     [<K>dock</K>, "数组 ≤3", "底部栏按钮（见 §04–§05）"],
                     [<K>settings</K>, "对象", "设置白名单字段一次性合并（见 §06）"],
-                    [<K>scripts</K>, "数组 ≤3", "沙箱脚本，单段 code ≤8000 字符（见 §10）"],
+                    [<K>scripts</K>, "数组 ≤3", "沙箱脚本，单段 code ≤16000 字符（见 §10）"],
                     [<K>animations</K>, "数组 ≤4", "CSS 注入，单段 ≤6000、合计 ≤12000 字符（见 §09）"],
                     [<K>pages</K>, "数组 ≤3", "沙箱整页，单页 html ≤24000 字符（见 §11）"],
                     [<K>widgets</K>, "数组 ≤3", "角落小部件，单块 html ≤12000 字符（见 §12）"],
                     [<K>layout</K>, "对象", "声明式布局覆写（见 §07）"],
-                    [<K>effects</K>, "对象", "声明式视觉效果，当前支持液态玻璃（见 §08）"],
                   ]}
                 />
                 <P>
@@ -357,26 +356,52 @@ export default function PresetDocs({
                 />
               </Sec>
 
-              <Sec n="08" title="effects 液态玻璃（声明式视觉效果）">
+              <Sec n="08" title="fx 视觉效果接口（预设包自带引擎）">
                 <P>
-                  <K>effects.glass</K> 把全站磨砂玻璃切换为「液态玻璃」：搜索栏、底部栏、面板卡片与
-                  ⌘K 卡片的边缘出现真实的背景折射透镜弯曲。这是<b>宿主内建引擎</b>渲染的声明参数，
-                  预设不携带任何代码；数值自动夹紧，删除预设即还原。
+                  液态玻璃这类视觉效果<b>不由宿主内建</b>：宿主只提供一块受控的「作用面」（fx API），
+                  效果的<b>全部实现代码住在预设包的 scripts 里</b>——安装即生效、删除预设（或脚本被冻结）
+                  即整组回收。官方「液态玻璃预设」就是照这套接口写出来的，把它当参考实现最直接。
                 </P>
                 <T
-                  head={["参数", "范围（缺省）", "说明"]}
+                  head={["API / 钩子", "说明"]}
                   rows={[
-                    [<K>refraction</K>, "0–1.5（0.75）", "边缘折射位移上限系数，越大弯曲越明显"],
-                    [<K>bezel</K>, "0.2–0.7（0.5）", "边缘折射区占比，越大弯曲带越宽"],
-                    [<K>blur</K>, "0–20 px（3）", "折射层叠加的背景模糊（模糊在后、折射在先，弯曲保持锐利）"],
-                    [<K>saturation</K>, "80–300%（180）", "折射层叠加的色彩饱和"],
+                    [
+                      <K>chushi.fx.mount(id, html)</K>,
+                      <>把纯视觉结构（&lt;style&gt; / &lt;svg&gt;）幂等挂进宿主隐藏容器 #chushi-fx-root；
+                      同 id 重复挂载为替换（贴图更新不闪断）。单次 ≤192KB</>,
+                    ],
+                    [<K>chushi.fx.unmount(id)</K>, "摘除一个挂载"],
+                    [
+                      <K>chushi.fx.onResize(cb)</K>,
+                      "订阅玻璃容器尺寸快照（cb 收 [{fx, key, w, h, radius}]），返回退订函数；折射贴图按它重生成",
+                    ],
+                    [
+                      <K>[data-fx=&quot;fxN&quot;]</K>,
+                      <>宿主给白名单玻璃容器（.search-pill / .cl-dock / .cl-panel / .glass-card）打的稳定标记，
+                      预设 CSS 用它触达真实元素</>,
+                    ],
+                    [
+                      <K>--fx-mx / --fx-my</K>,
+                      "指针在玻璃容器内移动时，宿主写在容器上的相对坐标（%），CSS 用 var() 做镜面高光",
+                    ],
                   ]}
                 />
                 <P>
-                  激活后宿主会自动把玻璃底色调透（磨砂下的高不透明度会把弯曲全部洗掉），
-                  并叠加边缘高光与镜面高光，让折射透过玻璃体可见。实现基于 SVG feDisplacementMap
-                  位移折射，目前仅 Chromium 系浏览器支持；其它浏览器自动保持磨砂现状（降级安全）。
-                  示例：<Code>{`"effects": { "glass": { "refraction": 0.75, "bezel": 0.5, "blur": 3, "saturation": 180 } }`}</Code>
+                  安全校界：mount 的 html 只接受 &lt;style&gt; / &lt;svg&gt; 顶层结构（禁 script、
+                  事件属性、foreignObject 与外链资源）；全屏幕布（⌘K / 对话框遮罩）永不打 data-fx
+                  标记——幕布不是玻璃块。骨架示例：
+                </P>
+                <Code>{`chushi.fx.onResize((items) => {
+  for (const it of items) {
+    // it = { fx, key, w, h, radius }：按 w/h 生成位移贴图与 <svg><filter>…
+    chushi.fx.mount("g" + it.fx, svgHtml(it));
+  }
+});
+// CSS 里：[data-fx="fx1"] { backdrop-filter: blur(3px) url(#g-fx1) saturate(180%) }`}</Code>
+                <P>
+                  ⚠ <b>材质即顺序</b>：backdrop-filter 引用 SVG 滤镜时，<b>blur 在前、url(#filter) 在后</b>
+                  （先霜化再折射，弯曲锐利）；写反了折射会被模糊糊掉。目前仅 Chromium 系支持
+                  backdrop-filter: url()，其它内核自动保持磨砂现状。
                 </P>
               </Sec>
 
@@ -400,6 +425,7 @@ export default function PresetDocs({
                       </>,
                     ],
                     [<><K>.cl-widgets</K> / <K>.cl-widget</K></>, "角落小部件层 / 单块小部件"],
+                    [<K>[data-fx=&quot;fxN&quot;]</K>, "玻璃容器稳定标记（fx 预设的触达点，见 §08）"],
                   ]}
                 />
                 <P>
@@ -438,6 +464,10 @@ export default function PresetDocs({
                     [<K>chushi.open(url)</K>, "打开 https:// 网址（当前标签页跳转）"],
                     [<K>chushi.copy(text)</K>, "复制文本到剪贴板"],
                     [<K>chushi.fetchJSON(url, init?)</K>, "受限 fetch：仅 https，10 秒超时，返回解析好的 JSON"],
+                    [
+                      <K>chushi.fx.mount / unmount / onResize</K>,
+                      "视觉效果作用面：注入 style/svg、订阅玻璃容器尺寸（详见 §08）",
+                    ],
                   ]}
                 />
               </Sec>

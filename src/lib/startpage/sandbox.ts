@@ -47,6 +47,14 @@ import { fxHost } from "./fx";
 
 const FX_OPS = new Set(["fxMount", "fxUnmount", "fxSubscribe", "fxUnsubscribe"]);
 
+/** 消息层 op 名 → fxHost 裸 op 名（fxHost.apply 的 switch 用 mount/unmount/…） */
+const FX_OP_MAP: Record<string, string> = {
+  fxMount: "mount",
+  fxUnmount: "unmount",
+  fxSubscribe: "subscribe",
+  fxUnsubscribe: "unsubscribe",
+};
+
 const HELLO_TIMEOUT = 8000;
 const BOOT_WATCHDOG = 4000;
 const CMD_PER_SCRIPT = 12;
@@ -62,7 +70,7 @@ const caps = {
  *  ?v= 供部署后冲掉 SW cache-first 旧缓存 */
 function sandboxSrc(): string {
   const base = (process.env.NEXT_PUBLIC_BASE_PATH as string | undefined) ?? "";
-  return `${base}/sandbox.html?v=112`;
+  return `${base}/sandbox.html?v=113`;
 }
 
 /** 沙箱页面模式地址（自定义页 overlay 用）：mode=page 下运行时仅充当页面宿主 */
@@ -346,7 +354,7 @@ class SandboxBridge {
            * scriptKey 由沙箱闭包携带，宿主校验其确属已注册脚本 */
           const key = s(m.scriptKey, 80);
           if (!key || !this.scripts.some((x) => x.key === key)) return;
-          const r = fxHost.apply(key, op, s(m.fxId, 32), typeof m.html === "string" ? m.html : undefined);
+          const r = fxHost.apply(key, FX_OP_MAP[op] ?? op, s(m.fxId, 32), typeof m.html === "string" ? m.html : undefined);
           this.post({ type: "fxResult", scriptKey: key, fxId: s(m.fxId, 32), ok: r.ok, message: r.message ?? "" });
         }
         break;

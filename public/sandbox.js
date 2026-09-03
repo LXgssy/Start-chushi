@@ -51,6 +51,8 @@
   var FX_HTML_MAX = 192 * 1024;
   /** fxResize 定向派发注册表：scriptKey → onResize 回调集（makeChushi 注册） */
   var fxTargets = new Map();
+  /** fx 调用 pending 表（fxApi 登记，fxResult 消息兑现；必须与消息处理器同作用域） */
+  var pendingFx = {};
 
   /** 为指定脚本构造受控 API（每个脚本一份，命令/入口互不可见对方内部状态） */
   function makeChushi(scriptKey) {
@@ -77,7 +79,6 @@
         };
       });
     }
-    var pendingFx = {};
     var fxResizeCbs = [];
     fxTargets.set(scriptKey, fxResizeCbs);
     function registerCommand(def) {

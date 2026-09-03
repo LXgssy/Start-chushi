@@ -269,7 +269,6 @@ export default function PresetPanel({
                         s.pages && s.pages.length > 0 ? `${s.pages.length} 个页面` : null,
                         s.widgets && s.widgets.length > 0 ? `${s.widgets.length} 个小部件` : null,
                         s.layout ? "布局覆写" : null,
-                        s.effects?.glass ? "液态玻璃" : null,
                       ].filter(Boolean);
                       return (
                         <li

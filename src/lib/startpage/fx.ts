@@ -190,7 +190,9 @@ class FxHost {
     } catch {
       return null;
     }
-    const tops = [...doc.body.childNodes].filter(
+    /* ⚠ 独立 <style> 会被 text/html 解析器放进 <head>（svg 进 body），
+     * 顶层节点必须 head+body 一起收集，否则纯样式挂载恒被拒 */
+    const tops = [...doc.head.childNodes, ...doc.body.childNodes].filter(
       (n): n is Element => n.nodeType === 1
     );
     if (tops.length === 0) return null;

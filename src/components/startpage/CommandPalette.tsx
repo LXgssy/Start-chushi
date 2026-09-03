@@ -49,7 +49,7 @@ const SPRING_CARD = { type: "spring" as const, stiffness: 480, damping: 19, mass
 const SPRING_HEIGHT = { type: "spring" as const, stiffness: 460, damping: 38 };
 
 const ITEM_CLASS =
-  "group flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm font-light text-zinc-600 outline-none transition-colors duration-150 data-[selected=true]:bg-zinc-900/[0.06] data-[selected=true]:text-zinc-900 dark:text-zinc-300 dark:data-[selected=true]:bg-white/10 dark:data-[selected=true]:text-zinc-50";
+  "group flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm font-light text-zinc-600 outline-none transition-colors duration-150 dark:text-zinc-300";
 
 function CommandPalette(props: {
   open: boolean;
@@ -101,6 +101,11 @@ function PaletteInner({
   onRemove: (id: string) => void;
 }) {
   const [inputValue, setInputValue] = useState("");
+  /* 选中高光门控（v1.1.3）：cmdk 恒有一个 data-selected 项作为键盘导航锚点，
+     指针不在面板上时高光常驻，观感 = 「一直残留选中一个选项」。以 data-nav 三态门控：
+     idle=不高亮 / mouse=指针在面板内（高光跟随悬停选中）/ kbd=方向键导航。
+     视图互切（指令⇄预设）即回 idle——删除预设返回上级不会带回旧模式。 */
+  const [navMode, setNavMode] = useState<"idle" | "mouse" | "kbd">("idle");
   /* null = 指令列表视图；否则为预设系统视图（导入/管理），指令面板形变为 PresetPanel */
   const [presetView, setPresetView] = useState<PresetTab | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
@@ -136,6 +141,12 @@ function PaletteInner({
       }
     };
   }, []);
+
+  /* 视图互切重置门控：Command 随视图卸载/重挂，pointerleave 不会补发，
+     不重置的话返回上级时会带着 mouse 模式让首项无悬停也高亮 */
+  useEffect(() => {
+    setNavMode("idle");
+  }, [presetView]);
 
   function exec(fn: () => void) {
     fn();
@@ -208,7 +219,19 @@ function PaletteInner({
                 duration={0.2}
                 className="flow-root content-focus"
               >
-                <Command label="指令面板" loop shouldFilter>
+                <Command
+                  label="指令面板"
+                  loop
+                  shouldFilter
+                  data-nav={navMode}
+                  onPointerEnter={() => setNavMode("mouse")}
+                  onPointerLeave={() => setNavMode("idle")}
+                  onKeyDown={(e) => {
+                    if (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "Home" || e.key === "End") {
+                      setNavMode("kbd");
+                    }
+                  }}
+                >
                   <div className="flex items-center gap-2 border-b border-zinc-900/5 px-4 dark:border-white/5">
                     <Compass
                       className="h-4 w-4 shrink-0 text-zinc-400 dark:text-zinc-500"
@@ -372,7 +395,7 @@ function PaletteInner({
 
 function ArrowHint() {
   return (
-    <span className="ml-auto hidden text-xs font-extralight text-zinc-400 group-data-[selected=true]:inline dark:text-zinc-500">
+    <span className="enter-hint ml-auto hidden text-xs font-extralight text-zinc-400 dark:text-zinc-500">
       ↩
     </span>
   );
