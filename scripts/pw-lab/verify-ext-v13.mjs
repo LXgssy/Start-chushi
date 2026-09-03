@@ -1,15 +1,15 @@
-// v1.2.0 扩展冒烟：--load-extension 真浏览器加载 → 新标签页渲染 → 导入液态玻璃 → 引擎生效
+// v1.3.0 扩展冒烟：--load-extension 真浏览器加载 → 新标签页渲染 → 导入液态玻璃 → 内建引擎生效
 import { chromium } from "playwright-core";
 import fs from "node:fs";
 import { createHash } from "node:crypto";
 import { execSync } from "node:child_process";
 
-const STAGE = "/tmp/ext-smoke-v12";
+const STAGE = "/tmp/ext-smoke-v13";
 fs.rmSync(STAGE, { recursive: true, force: true });
 fs.mkdirSync(STAGE, { recursive: true });
-execSync(`cd ${STAGE} && unzip -q /home/z/my-project/download/v1.2.0/ChuShi-NewTab-v1.2.0.zip`);
+execSync(`cd ${STAGE} && unzip -q /home/z/my-project/download/v1.3.0/ChuShi-NewTab-v1.3.0.zip`);
 
-const userData = "/tmp/ext-profile-v12";
+const userData = "/tmp/ext-profile-v13";
 fs.rmSync(userData, { recursive: true, force: true });
 const browser = await chromium.launchPersistentContext(userData, {
   executablePath: `${process.env.HOME}/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome`,
@@ -42,18 +42,28 @@ await page.locator("textarea").fill(presetJson);
 await page.getByRole("button", { name: "导入", exact: true }).click();
 await page.waitForTimeout(2600);
 const engine = await page.evaluate(() => {
-  const pill = document.querySelector(".search-pill[data-fx]");
-  const f = [...document.querySelectorAll("filter")].find((x) => x.querySelector("feDisplacementMap"));
+  const pill = document.querySelector(".search-pill[data-lg]");
+  const f = [...document.querySelectorAll("#chushi-lg-root filter")].find((x) => x.querySelector("feDisplacementMap"));
+  const cs = pill ? getComputedStyle(pill) : null;
   return {
-    bf: pill ? getComputedStyle(pill).backdropFilter.slice(0, 50) : "(none)",
-    filters: document.querySelectorAll("filter").length,
-    marked: document.querySelectorAll("[data-fx]").length,
+    bf: cs ? cs.backdropFilter.replace(/"/g, "").slice(0, 56) : "(none)",
+    border: cs ? cs.borderTopWidth : "",
+    filters: document.querySelectorAll("#chushi-lg-root filter").length,
+    marked: document.querySelectorAll("[data-lg]").length,
+    mapOk: !!(f && (f.querySelector("feImage")?.getAttribute("href") || "").startsWith("data:image/png")),
   };
 });
 console.log("扩展内引擎:", JSON.stringify(engine));
 const pass =
-  rendered.clock && rendered.dock && engine.bf.includes("url(") && engine.filters > 0 && errors.length === 0;
-console.log(pass ? "✓ 扩展冒烟通过" : `✗ 冒烟失败 errors=${JSON.stringify(errors)}`);
-await page.screenshot({ path: "/home/z/my-project/scripts/pw-lab/shots/v12-ext.png" });
+  rendered.clock &&
+  rendered.dock &&
+  engine.bf.includes("url(#lg-") &&
+  parseFloat(engine.border) >= 4 &&
+  engine.filters > 0 &&
+  engine.mapOk &&
+  engine.marked >= 2 &&
+  errors.length === 0;
+console.log(pass ? "✓ 扩展冒烟通过（内建引擎实时渲染 + 真环绕外扩）" : `✗ 冒烟失败 errors=${JSON.stringify(errors)}`);
+await page.screenshot({ path: "/home/z/my-project/scripts/pw-lab/shots/v13-ext.png" });
 await browser.close();
 process.exit(pass ? 0 : 1);

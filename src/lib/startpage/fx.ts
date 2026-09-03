@@ -1,9 +1,10 @@
 /* ============================================================
- * 「初始」fx 视觉效果面（v1.1.3）— 宿主侧受控执行器
+ * 「初始」fx 视觉效果面（v1.3.0）— 通用受控执行器
  *
- * 定位（架构律）：宿主只提供「作用面」，不做任何具体视觉引擎。
- * 液态玻璃等视觉效果的**全部实现代码**（位移贴图生成、SVG 滤镜构造、
- * 材质参数、高光样式）都住在预设包的 scripts 里；本模块仅开放：
+ * 定位（架构律 v1.3.0 修订）：液态玻璃引擎已**内建于宿主**
+ * （liquid-glass.ts，经 chushi.glass 调用，实时 rAF 渲染）；本模块保留
+ * 为预设的「通用 fx 作用面」——预设自带的自定义 style/svg 视觉仍经
+ * 此通道挂载，与内建引擎互不干扰：
  *
  *   1. fx-root 注入点：预设经 chushi.fx.mount(id, html) 把 <style>/<svg>
  *      幂等挂进 document.body 下的隐藏容器 #chushi-fx-root；删除预设即
@@ -33,6 +34,7 @@ const FX_TARGETS: { key: string; sel: string }[] = [
   { key: "dock", sel: ".cl-dock" },
   { key: "panel", sel: ".cl-panel" },
   { key: "card", sel: ".glass-card" },
+  { key: "chip", sel: ".glass-chip" },
 ];
 const FX_SELECTOR = FX_TARGETS.map((t) => t.sel).join(", ");
 

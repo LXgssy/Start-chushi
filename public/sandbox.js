@@ -7,19 +7,22 @@
  *  2. 向脚本提供受控 API `chushi`——注册 ⌘K 命令、脚本入口、通知、
  *     打开网址、复制、fetchJSON、fx 视觉效果面（v1.1.3：挂载 style/svg
  *     白名单结构、订阅玻璃容器 resize 快照）、设置面（v1.2.0：define/get/
- *     onChange，预设向设置面板贡献调节项）。所有越界副作用仅以
- *     postMessage 上报宿主，由宿主复核白名单后代为执行；
+ *     onChange，预设向设置面板贡献调节项）、液态玻璃引擎调用面
+ *     （v1.3.0：enable/patch/disable，引擎内建于宿主实时渲染）。所有越界
+ *     副作用仅以 postMessage 上报宿主，由宿主复核白名单后代为执行；
  *     本文档自身拿不到主文档、localStorage、Cookie 与任何扩展 API；
  *  3. invoke 路由：命令复合键（"scriptKey:cmdId"）查命令表，
  *     纯 scriptKey 查脚本入口（chushi.run），统一入口便于宿主无差别调用。
  *
  * 协议（host → sandbox）：boot{scriptKey,code} / invoke{id} / fxResize{scriptKey,items}
  *                        / fxResult{scriptKey,fxId,ok,message?}
+ *                        / glassResult{scriptKey,gid,ok,message?}
  *                        / settingsValues{scriptKey,values}（get 回执）
  *                        / settingsPush{scriptKey,values}（面板变更推送）
  * 协议（sandbox → host）：hello / ready{scriptKey} / bootError{scriptKey,message}
  *                        / api{op:cmd|notify|open|copy|fxMount|fxUnmount|fxSubscribe|fxUnsubscribe
- *                             |settingsDefine{schema}|settingsGet,...}
+ *                             |settingsDefine{schema}|settingsGet|glassEnable{cfg}|glassPatch{cfg}
+ *                             |glassDisable,...}
  *                        / invokeResult{id,ok,message?}
  *                        / runtimeError{message,scriptKey?}
  * ============================================================ */
@@ -60,6 +63,9 @@
   /** 设置面（v1.2.0）：get 回执 pending 表 + onChange 回调集（必须与消息处理器同作用域） */
   var pendingSettings = {};
   var settingsTargets = new Map();
+  /** 液态玻璃引擎调用面（v1.3.0）：enable/patch 回执 pending 表 */
+  var pendingGlass = {};
+  var glassSeq = 0;
 
   /** 为指定脚本构造受控 API（每个脚本一份，命令/入口互不可见对方内部状态） */
   function makeChushi(scriptKey) {
@@ -206,7 +212,36 @@
           };
         },
       },
+      /* ---------- 液态玻璃引擎调用面（v1.3.0）----------
+       * 引擎内建于宿主（实时 rAF 渲染），预设只传材质配置：
+       * enable(cfg)：启用并持有引擎（单持有者，他预设已持有时 ok:false）；
+       * patch(cfg)：热更新部分参数（折射/霜化/覆盖范围等）；
+       * disable()：停用并交还引擎。cfg 字段：refraction/band/frost/
+       *   saturation/brightness（数值）、dispersion/specular（布尔）、
+       *   coverage（"core"|"full"）；宿主逐字段夹紧，非法回默认。 */
+      glass: {
+        enable: function (cfg) { return glassApi("glassEnable", cfg); },
+        patch: function (cfg) { return glassApi("glassPatch", cfg); },
+        disable: function () { return glassApi("glassDisable", undefined); },
+      },
     };
+
+    function glassApi(op, cfg) {
+      var gid = "g" + ++glassSeq;
+      post({ type: "api", op: op, scriptKey: scriptKey, gid: gid, cfg: cfg });
+      return new Promise(function (resolve) {
+        var t = setTimeout(function () {
+          delete pendingGlass[gid];
+          resolve({ ok: false, message: "glass 调用超时" });
+        }, 8000);
+        pendingGlass[gid] = {
+          f: function (r) {
+            clearTimeout(t);
+            resolve(r);
+          },
+        };
+      });
+    }
   }
 
   /** 统一调用路由：命令与脚本入口共用同一结果回报通道 */
@@ -436,6 +471,17 @@ window.addEventListener("message", function (e) {
       if (p) {
         delete pendingFx[fid];
         p.f({ ok: m.ok === true, message: str(m.message, 100) });
+      }
+      return;
+    }
+
+    if (m.type === "glassResult") {
+      /* 引擎调用回执：兑现 pending（同 fxResult 律） */
+      var gg = str(m.gid, 32);
+      var gp = pendingGlass[gg];
+      if (gp) {
+        delete pendingGlass[gg];
+        gp.f({ ok: m.ok === true, message: str(m.message, 100) });
       }
       return;
     }

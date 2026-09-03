@@ -1,0 +1,22 @@
+{
+  "chushi": 1,
+  "name": "液态玻璃",
+  "author": "初始",
+  "description": "调用「初始」内建实时液态玻璃引擎：物理透镜边缘折射、真环绕取样、可选色散；折射/霜化/覆盖范围等八项可在设置面板热调",
+  "commands": [
+    {
+      "title": "什么是液态玻璃",
+      "action": {
+        "type": "copy",
+        "text": "液态玻璃：引擎内建于「初始」并在可见文档中以 rAF 实时渲染——物理透镜位移贴图（SDF 梯度方向 + 外绕边缘窄带 + 边框外扩真环绕折射），布局动画期间折射全程在线不冻结；本预设向设置面板贡献八项调节（Chromium 系完整生效，其余内核自动保持磨砂）。"
+      }
+    }
+  ],
+  "scripts": [
+    {
+      "id": "engine",
+      "name": "液态玻璃",
+      "code": "/* ============================================================\n * 液态玻璃预设 v3 —— 调用「初始」宿主内建实时引擎（v1.3.0）\n * ============================================================\n * 架构（v1.3.0 定稿）：引擎代码内建于宿主（rAF 实时渲染、真环绕折射、\n * 几何逐帧追踪），本预设只做两件事：\n *   ① 经 chushi.settings.define 向设置面板贡献调节项（八项，热调即生效）；\n *   ② 经 chushi.glass.enable/patch 调用引擎（配置逐字段白名单夹紧）。\n * 引擎物理：SDF 梯度方向 × smoothstep² 边缘窄带 × 边框外扩真环绕折射\n * （backdrop 取样域扩到玻璃足迹之外，边缘环带折进玻璃外的真实世界），\n * 链序律 blur→url(#disp)→saturate 由引擎内置。\n * ============================================================ */\n\nchushi.settings.define({\n  title: \"液态玻璃\",\n  controls: [\n    { type: \"slider\", key: \"refraction\", label: \"折射强度\", min: 0, max: 300, step: 5, def: 145, unit: \"%\" },\n    { type: \"slider\", key: \"band\", label: \"边缘带宽\", min: 8, max: 60, step: 1, def: 26, unit: \"%\" },\n    { type: \"slider\", key: \"frost\", label: \"霜化模糊\", min: 0, max: 12, step: 1, def: 3, unit: \"px\" },\n    { type: \"slider\", key: \"saturation\", label: \"饱和度\", min: 100, max: 260, step: 5, def: 180, unit: \"%\" },\n    { type: \"slider\", key: \"brightness\", label: \"透亮\", min: 80, max: 140, step: 1, def: 100, unit: \"%\" },\n    { type: \"toggle\", key: \"dispersion\", label: \"边缘色散\", def: false },\n    { type: \"toggle\", key: \"specular\", label: \"镜面高光\", def: true },\n    {\n      type: \"select\",\n      key: \"coverage\",\n      label: \"覆盖范围\",\n      def: \"full\",\n      options: [\n        { value: \"full\", label: \"全部玻璃面\" },\n        { value: \"core\", label: \"基础四区\" },\n      ],\n    },\n  ],\n});\n\n/* 启用：读持久化设置（宿主已按 schema 校验夹紧）整组传入引擎 */\nvar v = await chushi.settings.get();\nvar first = await chushi.glass.enable(v);\nif (first && first.ok === false) {\n  chushi.notify({ title: \"液态玻璃\", description: first.message || \"引擎启用失败\" });\n}\n\n/* 设置面板热调：整组值直接 patch 引擎（引擎侧逐字段夹紧） */\nchushi.settings.onChange(function (x) {\n  chushi.glass.patch(x);\n});\n"
+    }
+  ]
+}
