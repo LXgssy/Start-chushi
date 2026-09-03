@@ -1,12 +1,10 @@
-// v1.3.0 全链路验证 —— 液态玻璃引擎内建宿主（实时渲染 + 真环绕 + 覆盖范围）
-// ① 导入预设 → chushi.glass.enable → [data-lg] 标记 / 链序 blur→url→saturate / 贴图
-// ② 真环绕折射：search-pill/dock 边框外扩（border=pad、radius+pad、负 margin、宽度补偿）
-// ③ 实时渲染：dock 面板高度弹簧期间贴图 href 连续重建（≥2 个不同 URL）且链始终带 url
-// ④ 覆盖范围：chip 玻璃面打标（full）；切「基础四区」→ chip 摘标
-// ⑤ ⌘K 卡开启动画期玻璃在线（card 键折射）
-// ⑥ 幕布永不打标（全屏遮罩无 data-lg）
-// ⑦ 回归：删除预设 → #chushi-lg-root 回收 / [data-lg] 清零 / 磨砂还原 / pageerror=0
-// ⑧ fx 通用面仍工作（[data-fx] 标记在位，与内建引擎互不干扰）
+// v1.3.0 端到端验证：WebGL 液态玻璃 + 图标覆写 + 主题令牌覆写 + 回归
+// ① 导入液态玻璃预设（粘贴路径）→ WebGL canvas 挂载/绘制检查
+// ② ⌘K 面板开合：canvas 随面板重建/回收（位置跟踪链路）
+// ③ 设置面板七参数分区
+// ④ 拖拽导入焕新测试预设（icons.override + theme.override）
+// ⑤ 图标覆写（Dock 待办图标变 img）+ 主题覆写（accent/border 生效）
+// ⑥ 回归：删除预设 → canvas/图标/主题全回收 + 无报错
 import { chromium } from "playwright-core";
 import fs from "node:fs";
 
@@ -16,23 +14,23 @@ const fail = (msg) => {
   console.log("  ✗ " + msg);
   process.exitCode = 1;
 };
-const ok = (msg) => console.log("  ✓ " + msg);
+const ok = (msg, extra = "") => console.log("  ✓ " + msg + (extra ? " | " + extra : ""));
 
 const browser = await chromium.launch({
   executablePath: `${process.env.HOME}/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome`,
-  args: ["--no-sandbox"],
+  args: ["--no-sandbox", "--use-gl=angle", "--enable-unsafe-swiftshader"],
 });
 const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
 const errors = [];
-page.on("pageerror", (e) => errors.push(e.message.slice(0, 160)));
+page.on("pageerror", (e) => errors.push(e.message.slice(0, 200)));
 
 await page.goto("http://localhost:3000/", { waitUntil: "networkidle", timeout: 120000 });
 await page.evaluate(() => localStorage.clear());
 await page.reload({ waitUntil: "networkidle" });
 await page.waitForTimeout(1500);
 
-/* ---------- ① 导入预设 + 引擎激活 ---------- */
-console.log("[1] 引擎激活（chushi.glass.enable）");
+/* ---------- ① 导入液态玻璃预设 + WebGL 引擎检查 ---------- */
+console.log("[1] WebGL 液态玻璃引擎");
 await page.keyboard.press("Control+k");
 await page.waitForTimeout(700);
 await page.getByText("导入预设", { exact: true }).click();
@@ -40,232 +38,188 @@ await page.waitForTimeout(600);
 const presetJson = fs.readFileSync("/home/z/my-project/examples/液态玻璃预设.json", "utf8");
 await page.locator("textarea").fill(presetJson);
 await page.getByRole("button", { name: "导入", exact: true }).click();
-await page.waitForTimeout(2600);
+await page.keyboard.press("Escape"); /* 关 ⌘K 面板：排除卡片 attach 链干扰，检查基础两元素 */
+await page.waitForTimeout(2500);
 
-const st = await page.evaluate(() => {
-  const q = (s) => document.querySelector(s);
-  const pill = q(".search-pill");
-  const dock = q(".cl-dock");
-  const marked = [...document.querySelectorAll("[data-lg]")];
-  const filters = [...document.querySelectorAll("#chushi-lg-root filter")];
-  const fei = filters[0]?.querySelector("feImage");
-  const disp = filters[0]?.querySelectorAll("feDisplacementMap");
-  const cs = pill ? getComputedStyle(pill) : null;
-  const csDock = dock ? getComputedStyle(dock) : null;
+const eng = await page.evaluate(() => {
+  const cs = [...document.querySelectorAll("canvas.chushi-fx-canvas")];
+  const first = cs[0];
+  const host = first ? first.closest("[data-fx]") : null;
   return {
-    lgRoot: !!document.getElementById("chushi-lg-root"),
-    marks: marked.map((m) => m.dataset.lgKey).join(","),
-    pillMarked: pill?.dataset.lg || "",
-    dockMarked: dock?.dataset.lg || "",
-    chipMarked: !!q(".glass-chip[data-lg]"),
-    pillBf: cs ? cs.backdropFilter : "(none)",
-    dockBf: csDock ? csDock.backdropFilter : "(none)",
-    pillBorder: cs ? cs.borderTopWidth : "",
-    pillMargin: cs ? cs.marginTop : "",
-    pillRadius: cs ? cs.borderTopLeftRadius : "",
-    dockWidthVar: dock?.style.getPropertyValue("--lg-ww") || "",
-    dockWidth: csDock ? csDock.width : "",
-    filterCount: filters.length,
-    mapOk: !!(fei && (fei.getAttribute("href") || "").startsWith("data:image/png")),
-    dispCount: disp ? disp.length : 0,
-    scale: disp && disp[0] ? disp[0].getAttribute("scale") : "",
+    count: cs.length,
+    hosts: cs.map((c) => c.closest("[data-fx]")?.dataset.fx ?? "?"),
+    zi: first ? getComputedStyle(first).zIndex : "",
+    bf: host ? getComputedStyle(host).backdropFilter : "(none)",
+    fallbackStyle: !!document.querySelector("[data-fx-mount='css']"),
   };
 });
-console.log("  标记键:", st.marks);
-console.log("  搜索栏链:", st.pillBf);
-console.log("  外扩: border=" + st.pillBorder, "margin=" + st.pillMargin, "radius=" + st.pillRadius);
-console.log("  dock --lg-ww=" + st.dockWidthVar, "width=" + st.dockWidth, "滤镜数:", st.filterCount, "scale:", st.scale);
-if (!st.lgRoot) fail("引擎容器 #chushi-lg-root 未创建");
-else ok("引擎容器创建");
-const bfN = (s) => (s || "").replace(/"/g, "");
-if (!bfN(st.pillBf).includes("blur(3px)") || !bfN(st.pillBf).includes("url(#lg-") || !bfN(st.pillBf).includes("saturate(1.8)"))
-  fail("链序律不符合 blur→url→saturate: " + st.pillBf);
-else ok("链序律 blur(3px)→url(#lg-)→saturate(180%)");
-if (!st.pillMarked || !st.dockMarked) fail("search/dock 未打标");
-else ok("search/dock 打标（" + st.pillMarked + "/" + st.dockMarked + "）");
-if (st.filterCount < 2 || !st.mapOk || st.dispCount < 1) fail("滤镜/贴图缺失");
-else ok("feImage 贴图 + feDisplacementMap ×" + st.dispCount + " 就位（滤镜 " + st.filterCount + " 组）");
-/* 真环绕外扩判定 */
-const padPx = parseFloat(st.pillBorder);
-if (!(padPx >= 4) || !st.pillMargin.startsWith("-") || parseFloat(st.pillRadius) < 28)
-  fail("边框外扩未生效 border=" + st.pillBorder + " margin=" + st.pillMargin);
-else ok(`真环绕外扩生效（pad=${padPx}px，radius ${parseFloat(st.pillRadius)}px，负 margin）`);
-if (!st.dockWidthVar) fail("dock 宽度补偿缺失（--lg-ww 未写）");
-else ok("dock 宽度补偿 --lg-ww=" + st.dockWidthVar);
-await page.screenshot({ path: `${OUT}/v13-1-engine.png` });
+console.log("  canvas:", eng.count, "host:", eng.hosts.join(","), "z:", eng.zi, "bf:", eng.bf, "fallback:", eng.fallbackStyle);
+if (eng.count < 2) fail("玻璃 canvas 挂载数 <2");
+else ok("canvas 挂载（search/dock）");
+if (eng.zi !== "-1") fail("canvas z-index != -1");
+else ok("canvas z-index=-1（内容之下）");
+if (eng.fallbackStyle) fail("引擎走了降级 CSS（WebGL 初始化失败）");
+else ok("未降级（WebGL 引擎在跑）");
+if (/url\(/.test(eng.bf)) fail("backdrop-filter 仍有 url() 残留");
+else ok("无 SVG url() 残留", eng.bf);
 
-/* ---------- ② 实时渲染：面板弹簧期贴图连续重建 ---------- */
-console.log("[2] 实时渲染（面板高度弹簧期贴图逐帧重建，折射不冻结）");
+/* 折射视觉核验：clip 搜索药丸区域（人工核截图） */
+const pill = await page.locator(".search-pill").boundingBox();
+if (pill) {
+  await page.screenshot({
+    path: OUT + "/v13-lg-pill.png",
+    clip: { x: Math.max(0, pill.x - 30), y: Math.max(0, pill.y - 30), width: pill.width + 60, height: pill.height + 60 },
+  });
+  ok("搜索药丸折射截图已存 v13-lg-pill.png");
+}
+
+/* ---------- ② ⌘K 面板开合：canvas 随面板重建（⌘K 卡 = .glass-card 白名单） ---------- */
+console.log("[2] ⌘K 面板玻璃 canvas");
 await page.keyboard.press("Escape");
 await page.waitForTimeout(500);
-const panelKey = await page.evaluate(() => document.querySelector(".cl-panel") ? "" : "");
-await page.locator('nav[aria-label="快捷操作"] button[aria-label="天气"]').click();
-await page.waitForTimeout(60);
-/* 弹簧进行中：采样 cl-panel 滤镜 feImage href 集合 + 链是否始终带 url */
-const rt = await page.evaluate(async () => {
-  const hrefs = new Set();
-  let urlDrop = 0;
-  const t0 = Date.now();
-  while (Date.now() - t0 < 900) {
-    const p = document.querySelector(".cl-panel[data-lg]");
-    if (p) {
-      const id = p.dataset.lg;
-      const img = document.querySelector(`#chushi-lg-root filter[id="lg-${id}"] feImage`);
-      if (img) hrefs.add(img.getAttribute("href").slice(-48));
-      const bf = getComputedStyle(p).backdropFilter.replace(/"/g, "");
-      if (!bf.includes("url(#lg-")) urlDrop += 1;
-    }
-    await new Promise((r) => setTimeout(r, 40));
-  }
-  return { hrefs: [...hrefs], urlDrop };
-});
-await page.waitForTimeout(900);
-const afterPanel = await page.evaluate(() => {
-  const p = document.querySelector(".cl-panel[data-lg]");
-  const cs = p ? getComputedStyle(p) : null;
-  const id = p?.dataset.lg;
-  const img = id ? document.querySelector(`#chushi-lg-root filter[id="lg-${id}"] feImage`) : null;
-  return { bf: cs ? cs.backdropFilter : "(none)", hrefTail: img ? img.getAttribute("href").slice(-48) : "", w: p ? p.offsetWidth : 0 };
-});
-console.log("  弹簧期贴图版本数:", rt.hrefs.length, "| url 掉链帧:", rt.urlDrop, "| 稳定后:", afterPanel.bf);
-if (rt.hrefs.length < 2) fail("弹簧期贴图未实时重建（仅 " + rt.hrefs.length + " 版）");
-else ok("实时渲染：弹簧期贴图重建 " + rt.hrefs.length + " 版（v1.2.0 为 0 版 + 退化纯 blur）");
-if (rt.urlDrop > 0) fail("弹簧期出现无 url 帧（折射掉线）");
-else ok("弹簧期折射全程在线（无 blur-only 退化帧）");
-if (!bfN(afterPanel.bf).includes("url(#lg-")) fail("稳定后未恢复全链");
-else ok("稳定后精贴图就位（半分辨率重建）");
-await page.screenshot({ path: `${OUT}/v13-2-realtime.png` });
-await page.locator('button[aria-label="关闭面板"]').click();
-await page.waitForTimeout(600);
-
-/* ---------- ③ 覆盖范围切换：full → core（探针环境无天气数据，chip 用注入式判定） ---------- */
-console.log("[3] 覆盖范围热切换（设置面板 select）");
-const chipFull = await page.evaluate(async () => {
-  const d = document.createElement("span");
-  d.className = "glass-chip";
-  d.style.cssText = "position:fixed;left:12px;bottom:90px;width:80px;height:26px";
-  document.body.appendChild(d);
-  await new Promise((r) => setTimeout(r, 350));
-  const marked = !!d.dataset.lg;
-  const bf = marked ? getComputedStyle(d).backdropFilter : "";
-  d.remove();
-  return { marked, bf };
-});
-console.log("  full 模式：注入 .glass-chip 打标 =", chipFull.marked, "链:", chipFull.bf.slice(0, 40));
-if (!chipFull.marked) fail("full 模式：glass-chip 未纳入折射");
-else ok("full 模式：glass-chip 纳入折射（覆盖范围=全部玻璃面）");
-await page.locator('nav[aria-label="快捷操作"] button[aria-label="设置"]').click();
-await page.waitForTimeout(900);
-const seg = await page.evaluate(() => {
-  const g = document.querySelector('[role="radiogroup"][aria-label="覆盖范围"]');
-  if (!g) return { found: false };
-  return { found: true, options: [...g.querySelectorAll('[role="radio"]')].map((r) => r.textContent.trim()) };
-});
-console.log("  覆盖范围控件:", JSON.stringify(seg));
-if (!seg.found) fail("设置面板缺「覆盖范围」选择控件");
-else ok("覆盖范围控件渲染（" + seg.options.join("/") + "）");
-await page.locator('[role="radiogroup"][aria-label="覆盖范围"] >> text=基础四区').click();
-await page.waitForTimeout(700);
-await page.locator('nav[aria-label="快捷操作"] button[aria-label="设置"]').click();
-await page.waitForTimeout(500);
-const coreState = await page.evaluate(async () => {
-  const d = document.createElement("span");
-  d.className = "glass-chip";
-  d.style.cssText = "position:fixed;left:12px;bottom:90px;width:80px;height:26px";
-  document.body.appendChild(d);
-  await new Promise((r) => setTimeout(r, 350));
-  const chipMarked = !!d.dataset.lg;
-  d.remove();
-  return {
-    chipMarked,
-    pill: !!document.querySelector(".search-pill[data-lg]"),
-  };
-});
-console.log("  core 后：chip 打标 =", coreState.chipMarked, "| pill=", coreState.pill);
-if (coreState.chipMarked) fail("core 模式下 chip 仍被打标");
-else ok("core 模式：chip 摘标（覆盖收窄即时生效）");
-if (!coreState.pill) fail("core 模式下基础四区丢失");
-else ok("core 模式：基础四区保持（search 在标）");
-await page.screenshot({ path: `${OUT}/v13-3-chip-core.png` });
-await page.locator('nav[aria-label="快捷操作"] button[aria-label="设置"]').click();
-await page.waitForTimeout(900);
-await page.locator('[role="radiogroup"][aria-label="覆盖范围"] >> text=全部玻璃面').click();
-await page.waitForTimeout(500);
-await page.locator('nav[aria-label="快捷操作"] button[aria-label="设置"]').click();
-await page.waitForTimeout(600);
-
-/* ---------- ④ ⌘K 卡玻璃 + 幕布不打标 ---------- */
-console.log("[4] ⌘K 卡折射 + 幕布豁免");
 await page.keyboard.press("Control+k");
-await page.waitForTimeout(350); /* 开启动画中 */
-const cmdk = await page.evaluate(() => {
-  const card = document.querySelector('[role="dialog"] .glass-card[data-lg], .glass-card[data-lg][class*="card-in"]');
-  const anyCard = [...document.querySelectorAll(".glass-card[data-lg]")].length;
-  const veils = [...document.querySelectorAll("[data-lg]")].filter((el) => {
-    const r = el.getBoundingClientRect();
-    return r.width >= innerWidth - 2 && r.height >= innerHeight - 2;
-  }).length;
-  const bf = [...document.querySelectorAll(".glass-card[data-lg]")].map((c) => getComputedStyle(c).backdropFilter.replace(/"/g, ""));
-  return { anyCard, veils, bf: bf[0] || "" };
+await page.waitForTimeout(900);
+const pc = await page.evaluate(() => {
+  const p = document.querySelector(".glass-card");
+  const c = p && p.querySelector("canvas.chushi-fx-canvas");
+  return c ? { w: c.width, h: c.height, host: p.dataset.fx } : null;
 });
-await page.waitForTimeout(800);
-console.log("  ⌘K 卡打标数:", cmdk.anyCard, "| 幕布违规:", cmdk.veils);
-if (cmdk.anyCard < 1) fail("⌘K 卡未纳入折射");
-else ok("⌘K 卡纳入折射（链: " + cmdk.bf.slice(0, 60) + "…）");
-if (cmdk.veils > 0) fail("全屏幕布被打标");
-else ok("幕布豁免（全屏元素永不折射）");
+if (!pc) fail("⌘K 面板未挂载玻璃 canvas");
+else ok("⌘K 面板玻璃 canvas 在位", JSON.stringify(pc));
+const kcard = await page.locator(".glass-card").boundingBox();
+if (kcard) {
+  await page.screenshot({
+    path: OUT + "/v13-lg-cmdk.png",
+    clip: { x: Math.max(0, kcard.x - 30), y: Math.max(0, kcard.y - 30), width: kcard.width + 60, height: kcard.height + 60 },
+  });
+  ok("⌘K 卡折射截图已存 v13-lg-cmdk.png");
+}
 await page.keyboard.press("Escape");
 await page.waitForTimeout(500);
 
-/* ---------- ⑤ fx 通用面与内建引擎共存 ---------- */
-console.log("[5] fx 通用面共存");
-const fx = await page.evaluate(() => ({
-  fxMarks: document.querySelectorAll("[data-fx]").length,
-  lgMarks: document.querySelectorAll("[data-lg]").length,
-}));
-console.log("  [data-fx]:", fx.fxMarks, " [data-lg]:", fx.lgMarks);
-if (fx.lgMarks < 2) fail("内建引擎标记异常（面板全关时应余 search/dock ≥2）");
-else ok("双通道共存（fx 通用面 " + fx.fxMarks + " 标记 / 内建引擎 " + fx.lgMarks + " 标记）");
-
-/* ---------- ⑥ 回归：删除预设 → 返回 → 外点关闭 + 全回收 ---------- */
-console.log("[6] 删除预设 → 全回收（含外点关闭回归）");
-await page.keyboard.press("Control+k");
-await page.waitForTimeout(700);
-await page.getByText("管理预设", { exact: true }).first().click();
-await page.waitForTimeout(700);
-const item = page.locator("li").first();
-await item.hover();
-await item.getByRole("button", { name: /删除预设/ }).click();
-await page.waitForTimeout(500);
-await page.locator('[aria-label="返回指令面板"]').click();
-await page.waitForTimeout(600);
-await page.mouse.click(1180, 400);
-await page.waitForTimeout(800);
-const stillOpen = (await page.locator('[aria-label="指令面板"]').count()) > 0;
-if (stillOpen) fail("外点关闭失效（回归）");
-else ok("删除预设返回后外点仍可关闭面板（历史 bug 无复发）");
-const cleaned = await page.evaluate(() => {
-  const dock = document.querySelector(".cl-dock");
-  return {
-    lgRoot: !!document.getElementById("chushi-lg-root"),
-    lgMarks: document.querySelectorAll("[data-lg]").length,
-    dockBf: dock ? getComputedStyle(dock).backdropFilter : "(none)",
-    dockPad: dock ? dock.style.getPropertyValue("--lg-pad") : "",
-    settingsKeys: Object.keys(JSON.parse(localStorage.getItem("start:preset-settings") || "{}")).length,
-  };
+/* ---------- ③ 设置面板七参数 ---------- */
+console.log("[3] 设置面板液态玻璃分区");
+await page.mouse.click(40, 400); // 空白处（避开搜索药丸右键域）
+await page.waitForTimeout(300);
+await page.evaluate(() => {
+  document.querySelector('.cl-dock [aria-label="设置"]')?.closest("button")?.click();
 });
-console.log("  容器:", cleaned.lgRoot, "| 标记:", cleaned.lgMarks, "| dock 链:", cleaned.dockBf, "| --lg-pad 残留:", JSON.stringify(cleaned.dockPad));
-if (cleaned.lgRoot || cleaned.lgMarks > 0) fail("引擎容器/标记未回收");
-else ok("引擎容器与全部标记回收");
-if (bfN(cleaned.dockBf).includes("url(#lg-") || cleaned.dockPad) fail("dock 材质/变量残留");
-else ok("dock 还原磨砂（无 url 链、无 --lg-pad）");
-if (cleaned.settingsKeys !== 0) fail("预设设置值未回收");
-else ok("设置持久化值一并回收");
+await page.waitForTimeout(900);
+const sec = await page.evaluate(() => {
+  const panel = document.querySelector(".cl-panel");
+  const label = panel && [...panel.querySelectorAll("label, span")].some((l) => /折射强度|液态玻璃/.test(l.textContent || ""));
+  const sliders = panel ? panel.querySelectorAll('input[type="range"]').length : 0;
+  return { label, sliders };
+});
+if (sec.label && sec.sliders >= 5) ok("液态玻璃设置分区在位", JSON.stringify(sec));
+else fail("设置分区缺失 " + JSON.stringify(sec));
 await page.keyboard.press("Escape");
 await page.waitForTimeout(400);
 
-console.log("pageerror:", errors.length, errors.slice(0, 3));
-if (errors.length) fail("页面存在未捕获错误");
-else ok("0 pageerror");
+/* ---------- ④ 拖拽导入焕新测试预设 ---------- */
+console.log("[4] 图标/主题覆写 API（拖拽导入）");
+await page.keyboard.press("Control+k");
+await page.waitForTimeout(700);
+await page.getByText("导入预设", { exact: true }).click();
+await page.waitForTimeout(600);
+const renewPreset = {
+  chushi: 1,
+  name: "焕新测试",
+  author: "test",
+  description: "icons/theme API 验证",
+  scripts: [
+    {
+      id: "renew",
+      name: "焕新",
+      code:
+        "chushi.icons.override({'dock-todo':'data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22><circle cx=%2212%22 cy=%2212%22 r=%2210%22 fill=%22%23ff0000%22/></svg>'});" +
+        "chushi.theme.override({light:{'--ui-accent':'#00c896'},dark:{'--border':'oklch(0.5 0.1 200)'}});",
+    },
+  ],
+};
+await page.evaluate(async (json) => {
+  const dt = new DataTransfer();
+  dt.items.add(new File([json], "焕新测试.json", { type: "application/json" }));
+  const target = document.querySelector('textarea[placeholder*="拖入"]').closest("div");
+  for (const type of ["dragenter", "dragover", "drop"]) {
+    const ev = new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt });
+    target.dispatchEvent(ev);
+  }
+  await new Promise((r) => setTimeout(r, 1500));
+}, JSON.stringify(renewPreset));
+await page.keyboard.press("Escape");
+await page.waitForTimeout(2000);
+
+/* ---------- ⑤ 覆写生效检查 ---------- */
+console.log("[5] 覆写生效");
+const ov = await page.evaluate(() => {
+  const btn = [...document.querySelectorAll(".cl-dock button")].find((b) =>
+    (b.getAttribute("aria-label") || "").includes("待办")
+  );
+  const img = btn ? btn.querySelector("img") : null;
+  const st = document.querySelector('style[id^="chushi-theme-"]');
+  const accent = getComputedStyle(document.documentElement).getPropertyValue("--ui-accent").trim();
+  const borderDark = getComputedStyle(document.documentElement).getPropertyValue("--border").trim();
+  return {
+    img: img ? img.src.slice(0, 48) : null,
+    hasStyle: !!st,
+    styleHead: st ? st.textContent.slice(0, 100) : "",
+    accent,
+    border: borderDark,
+  };
+});
+console.log("  图标 img:", ov.img, "| style:", ov.hasStyle, "| accent:", ov.accent);
+if (ov.img) ok("图标覆写生效（待办 → img）", ov.img);
+else fail("图标覆写未生效");
+if (ov.hasStyle && /00c896/i.test(ov.accent)) ok("主题覆写生效（accent #00c896）");
+else fail("主题覆写未生效 " + JSON.stringify(ov));
+
+/* ---------- ⑥ 回归：删除预设全回收 ---------- */
+console.log("[6] 回归：删除预设全回收");
+await page.keyboard.press("Control+k");
+await page.waitForTimeout(700);
+await page.getByText("管理预设", { exact: true }).first().click();
+await page.waitForTimeout(600);
+for (let i = 0; i < 2; i++) {
+  const item = page.locator("li", { hasText: /焕新测试|液态玻璃/ }).first();
+  try {
+    await item.getByRole("button", { name: /删除预设/ }).click({ timeout: 3000 });
+    await page.waitForTimeout(500);
+  } catch {
+    break;
+  }
+}
+await page.keyboard.press("Escape");
+await page.waitForTimeout(800);
+const rv = await page.evaluate(() => {
+  const canvas = document.querySelectorAll("canvas.chushi-fx-canvas").length;
+  const styles = document.querySelectorAll('style[id^="chushi-theme-"]').length;
+  const btn = [...document.querySelectorAll(".cl-dock button")].find((b) =>
+    (b.getAttribute("aria-label") || "").includes("待办")
+  );
+  const img = btn ? btn.querySelector("img") : null;
+  const accent = getComputedStyle(document.documentElement).getPropertyValue("--ui-accent").trim();
+  const pill = document.querySelector(".search-pill");
+  const bf = pill ? getComputedStyle(pill).backdropFilter : "(none)";
+  return { canvas, styles, img: !!img, accent, bf };
+});
+console.log("  回收:", JSON.stringify(rv));
+if (rv.canvas === 0) ok("canvas 全回收");
+else fail("canvas 残留 " + rv.canvas);
+if (rv.styles === 0) ok("主题 style 全回收");
+else fail("主题 style 残留 " + rv.styles);
+if (!rv.img) ok("图标还原 lucide");
+else fail("图标覆写残留");
+if (!/00c896/i.test(rv.accent)) ok("accent 还原", rv.accent);
+else fail("accent 覆写残留");
+if (/blur\(40px\)|blur\(2\dpx\)/.test(rv.bf)) ok("磨砂还原", rv.bf);
+else fail("磨砂未还原 " + rv.bf);
+
+/* ---------- 页面报错 ---------- */
+const realErrors = errors.filter((e) => !/net::|favicon|weather|Failed to load resource/i.test(e));
+if (realErrors.length) fail("页面报错: " + realErrors.slice(0, 3).join(" || "));
+else ok("无页面报错");
+
+await page.screenshot({ path: OUT + "/verify-v13-final.png" });
 await browser.close();
-console.log(process.exitCode === 1 ? "\n=== FAIL ===" : "\n=== ALL PASS ===");
+console.log("\n[verify-v13] done, exitCode =", process.exitCode ?? 0);

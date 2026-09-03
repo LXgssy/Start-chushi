@@ -9,22 +9,39 @@
  *   1. fx-root 注入点：预设经 chushi.fx.mount(id, html) 把 <style>/<svg>
  *      幂等挂进 document.body 下的隐藏容器 #chushi-fx-root；删除预设即
  *      整组摘除。HTML 白名单校验（只允许 style/svg 结构，禁 script、
- *      事件属性、foreignObject、外部资源引用），与预设系统声明式白名单
+ *      事件属性、foreignObject、外链资源），与预设系统声明式白名单
  *      同律——宿主不执行预设携带的任何代码。
  *   2. 玻璃容器白名单标记：扫描玻璃容器选择器打 data-fx="fxN"（幂等），
  *      预设 CSS 经 [data-fx="fxN"] 触达宿主玻璃元素。选择器清单是产品
  *      契约（与 README「自定义动画与面板样式」元素钩子表同步维护）。
- *   3. resize 桥：ResizeObserver 跟踪白名单元素（w/h/圆角/语义键），
- *      变化即推送订阅中的沙箱脚本（液态玻璃贴图按元素尺寸重生成）。
+ *   3. resize 桥：ResizeObserver 跟踪白名单元素（w/h/圆角/视口坐标/
+ *      语义键），变化即推送订阅中的沙箱脚本（折射引擎按元素几何重生成）。
  *   4. 指针变量桥：指针在玻璃容器内移动时把相对坐标写为容器上的
  *      --fx-mx / --fx-my（百分比字符串，rAF 节流）——预设 CSS 用
  *      var(--fx-mx) 做镜面高光，无需任何 JS 回调。
+ *
+ * v1.3.0 新增作用面（WebGL 液态玻璃需要的三块事实数据）：
+ *   5. attachCanvas + pushFrame：宿主在 [data-fx] 元素内 prepend 一块透明
+ *      画布（z-index:-1，位于元素背景之下、内容之下）作为「位图占位」；
+ *      预设引擎在沙箱本地自绘（WebGL/2D 均可），经 pushFrame 把绘制好的
+ *      ImageBitmap 交给宿主 blit 到占位画布——宿主只搬运像素，不做任何
+ *      视觉计算。引擎怎么画完全由预设决定；ImageBitmap 结构化克隆在各
+ *      内核可靠（OffscreenCanvas 直转移在 Chromium 下多发后不可靠，已废垒）。
+ *   6. backdrop：把当前页面背景的「事实数据」交给预设引擎——
+ *      photo 模式返回壁纸 ImageBitmap（宿主代取，结构化克隆转移，
+ *      沙箱零污染零 CORS 负担）+ 压暗层参数；glow/flat 模式返回
+ *      底色与光斑的程序化描述。绘制仍由预设引擎完成，宿主只陈述事实。
+ *   7. 位置跟踪：canvas 存续期间 rAF 循环监测元素视口位置（transform
+ *      动画 ResizeObserver 不触发），变化即推 fxPositions——折射采样
+ *      坐标据此与壁纸逐帧对齐（⌘K 面板弹簧开合期不漂移）。
  *
  * 安全边界：
  *   - 白名单元素之外宿主一概不碰；全屏幕布（⌘K/链接对话框遮罩）永不
  *     打标（幕布不是玻璃块——v1.1.0 实证：全屏贴图边缘位移会拉丝擦除背景）；
  *   - mount 的 html 不含可执行向量（见校验函数）；≤192KB/挂载；
- *   - 预设删除 / 沙箱冻结 / 页面卸载时该预设的挂载与订阅全部回收。
+ *   - canvas 绘制权一经移交宿主不再触碰位面；ImageBitmap 由宿主自
+ *     用户已可见的背景生成，转移不扩大任何泄露面；
+ *   - 预设删除 / 沙箱冻结 / 页面卸载时该预设的挂载、canvas、订阅全部回收。
  * ============================================================ */
 
 /** 玻璃容器白名单：语义键 → 选择器（key 随 resize 推送给预设做语义映射，
@@ -42,21 +59,69 @@ const FX_SELECTOR = FX_TARGETS.map((t) => t.sel).join(", ");
 const MOUNT_MAX = 192 * 1024;
 const TOTAL_MAX = 512 * 1024;
 
+/** 壁纸压暗层参数（产品契约：与 globals.css .photo-scrim 同步维护）：
+ *  [停点, 透明度] 纵向渐变 + 整体平底 */
+const PHOTO_SCRIM: { stops: [number, number][]; flat: number } = {
+  stops: [
+    [0, 0.34],
+    [0.3, 0.12],
+    [0.6, 0.12],
+    [1, 0.48],
+  ],
+  flat: 0.18,
+};
+
+/** 辉光光斑几何（产品契约：与 globals.css .aurora-a/b/c/d 同步维护，
+ *  取 drift 动画中位帧的近似视口相对坐标；引擎据此程序化重建光斑） */
+const GLOW_BLOBS: { x: number; y: number; r: number; light: string; dark: string }[] = [
+  { x: 0.08, y: 0.02, r: 0.3, light: "rgba(52,211,153,.35)", dark: "rgba(16,185,129,.25)" },
+  { x: 0.92, y: 0.26, r: 0.24, light: "rgba(240,171,252,.30)", dark: "rgba(232,121,249,.20)" },
+  { x: 0.4, y: 0.9, r: 0.2, light: "rgba(253,230,138,.40)", dark: "rgba(252,211,77,.15)" },
+  { x: 0.84, y: 0.92, r: 0.16, light: "rgba(153,246,228,.30)", dark: "rgba(45,212,191,.15)" },
+];
+
+/** 底色（产品契约：与 AuroraBackground 底色层同步维护） */
+const BASE_LIGHT = "#f6f5f2";
+const BASE_DARK = "#0a0a0e";
+
+/** 背景事实描述（宿主 → 沙箱；photo 的位图随消息单独 transfer） */
+export interface FxBackdropDesc {
+  kind: "photo" | "glow" | "flat";
+  dark: boolean;
+  base: string;
+  /** 视口尺寸（css px）：引擎 cover 裁剪与折射世界坐标对齐用 */
+  vw: number;
+  vh: number;
+  /** photo：压暗层参数 */
+  scrim?: { stops: [number, number][]; flat: number };
+  /** glow：光斑描述（坐标/半径为视口相对值） */
+  blobs?: { x: number; y: number; r: number; color: string }[];
+}
+
 interface MountEntry {
   scriptKey: string;
   fxId: string;
   el: HTMLElement;
 }
 
+interface CanvasEntry {
+  canvas: HTMLCanvasElement;
+  el: HTMLElement;
+}
+
 class FxHost {
   private root: HTMLElement | null = null;
   private mounts = new Map<string, MountEntry>(); // `${scriptKey}:${fxId}` → entry
-  private subscribed = new Set<string>(); // scriptKey → 收 resize 推送
+  private canvases = new Map<string, CanvasEntry>(); // `${scriptKey}:${fxId}` → entry
+  private subscribed = new Set<string>(); // scriptKey → 收 resize/positions 推送
   private ro: ResizeObserver | null = null;
   private mo: MutationObserver | null = null;
   private uid = 0;
   private rafPending = 0;
+  private trackRaf = 0;
   private started = false;
+  /** 位置跟踪上次值（fxId → 视口坐标） */
+  private lastPos = new Map<string, { x: number; y: number }>();
   /** 宿主 → 沙箱推送（bridge 注入；参数为消息对象） */
   private post: ((msg: Record<string, unknown>) => void) | null = null;
 
@@ -91,6 +156,9 @@ class FxHost {
     this.started = false;
     this.mounts.forEach((m) => m.el.remove());
     this.mounts.clear();
+    this.canvases.forEach((c) => c.canvas.remove());
+    this.canvases.clear();
+    this.lastPos.clear();
     this.subscribed.clear();
     this.ro?.disconnect();
     this.ro = null;
@@ -100,6 +168,10 @@ class FxHost {
     if (this.rafPending) {
       cancelAnimationFrame(this.rafPending);
       this.rafPending = 0;
+    }
+    if (this.trackRaf) {
+      cancelAnimationFrame(this.trackRaf);
+      this.trackRaf = 0;
     }
     /* 无脚本可存活时（全部删除/冻结/沙箱关停）把 data-fx 标记一并擦净：
        预设 CSS 已整组回收，残留的惰性标记会污染「删除即还原」的语义 */
@@ -168,6 +240,117 @@ class FxHost {
     }
   }
 
+  /**
+   * 在 [data-fx=fxId] 元素内创建透明占位画布（位图由预设引擎经
+   * pushFrame 持续供给）。画布位于元素背景/内容之下（z-index:-1），
+   * 元素 position 为 static 时补 relative 保证定位正确。
+   */
+  attachCanvas(scriptKey: string, fxId: string): { ok: boolean; message?: string } {
+    if (!this.started) return { ok: false, message: "fx 未就绪" };
+    if (!/^[A-Za-z0-9_-]{1,32}$/.test(fxId)) return { ok: false, message: "fx id 不合法" };
+    const el = document.querySelector<HTMLElement>(`[data-fx="${CSS.escape(fxId)}"]`);
+    if (!el || !el.isConnected) return { ok: false, message: "fx 元素不存在（快照过期）" };
+    const key = `${scriptKey}:${fxId}`;
+    const old = this.canvases.get(key);
+    if (old) {
+      old.canvas.remove();
+      this.canvases.delete(key);
+    }
+    if (getComputedStyle(el).position === "static") el.style.position = "relative";
+    const canvas = document.createElement("canvas");
+    canvas.className = "chushi-fx-canvas";
+    canvas.style.cssText =
+      "position:absolute;inset:0;width:100%;height:100%;display:block;pointer-events:none;border-radius:inherit;z-index:-1";
+    el.prepend(canvas);
+    this.canvases.set(key, { canvas, el });
+    const r = el.getBoundingClientRect();
+    this.lastPos.set(fxId, { x: r.left, y: r.top });
+    this.ensureTracking();
+    return { ok: true };
+  }
+
+  /**
+   * 位图帧上屏：把预设引擎画好的 ImageBitmap blit 到占位画布。
+   * 宿主只搬运像素（缩放到画布位面尺寸），不做任何视觉计算；
+   * 位图消费后立即关闭回收。
+   */
+  frame(scriptKey: string, fxId: string, bitmap: ImageBitmap, w: number, h: number): { ok: boolean; message?: string } {
+    const key = `${scriptKey}:${fxId}`;
+    const c = this.canvases.get(key);
+    if (!c || !c.canvas.isConnected) return { ok: false, message: "画布不存在" };
+    const bw = Math.max(1, Math.round(w));
+    const bh = Math.max(1, Math.round(h));
+    if (c.canvas.width !== bw || c.canvas.height !== bh) {
+      c.canvas.width = bw;
+      c.canvas.height = bh;
+    }
+    const ctx = c.canvas.getContext("2d");
+    if (!ctx) return { ok: false, message: "画布 2d 上下文不可用" };
+    ctx.clearRect(0, 0, bw, bh);
+    ctx.drawImage(bitmap, 0, 0, bw, bh);
+    bitmap.close();
+    return { ok: true };
+  }
+
+  /** 摘除脚本在某元素上的画布（元素消失 / 引擎降级 / 回收） */
+  detachCanvas(scriptKey: string, fxId: string) {
+    const key = `${scriptKey}:${fxId}`;
+    const c = this.canvases.get(key);
+    if (c) {
+      c.canvas.remove();
+      this.canvases.delete(key);
+    }
+    if (fxId) this.lastPos.delete(fxId);
+  }
+
+  /**
+   * 背景事实数据：photo 模式宿主代取壁纸（fetch → blob → ImageBitmap，
+   * 失败回落同源 img 直取；仍失败视为非 photo）；glow/flat 返回程序化
+   * 描述。绘制全部由预设引擎完成，宿主只陈述事实。
+   */
+  async backdrop(): Promise<{ ok: boolean; message?: string; desc: FxBackdropDesc; bitmap?: ImageBitmap }> {
+    const dark = document.documentElement.classList.contains("dark");
+    const img = document.querySelector<HTMLImageElement>("img[data-wallpaper]");
+    if (img && img.isConnected && img.currentSrc) {
+      try {
+        const r = await fetch(img.currentSrc, { mode: "cors", cache: "force-cache" });
+        if (r.ok) {
+          const blob = await r.blob();
+          const bitmap = await createImageBitmap(blob);
+          return { ok: true, desc: { kind: "photo", dark, base: dark ? BASE_DARK : BASE_LIGHT, vw: window.innerWidth, vh: window.innerHeight, scrim: PHOTO_SCRIM }, bitmap };
+        }
+      } catch {
+        /* CORS/网络失败 → 同源 img 直取 */
+      }
+      try {
+        const bitmap = await createImageBitmap(img);
+        return { ok: true, desc: { kind: "photo", dark, base: dark ? BASE_DARK : BASE_LIGHT, vw: window.innerWidth, vh: window.innerHeight, scrim: PHOTO_SCRIM }, bitmap };
+      } catch {
+        /* 跨域无 CORS：视作无壁纸，降级底色 */
+      }
+    }
+    const glow = document.querySelector(".aurora-blob");
+    if (glow) {
+      return {
+        ok: true,
+        desc: {
+          kind: "glow",
+          dark,
+          base: dark ? BASE_DARK : BASE_LIGHT,
+          vw: window.innerWidth,
+          vh: window.innerHeight,
+          blobs: GLOW_BLOBS.map((b) => ({
+            x: b.x,
+            y: b.y,
+            r: b.r,
+            color: dark ? b.dark : b.light,
+          })),
+        },
+      };
+    }
+    return { ok: true, desc: { kind: "flat", dark, base: dark ? BASE_DARK : BASE_LIGHT, vw: window.innerWidth, vh: window.innerHeight } };
+  }
+
   /** 该预设的挂载与订阅全部回收（预设删除 / 脚本冻结 / 沙箱重建） */
   cleanup(scriptKey: string) {
     for (const [key, m] of [...this.mounts]) {
@@ -176,7 +359,14 @@ class FxHost {
         this.mounts.delete(key);
       }
     }
+    for (const [key, c] of [...this.canvases]) {
+      if (key.startsWith(`${scriptKey}:`)) {
+        c.canvas.remove();
+        this.canvases.delete(key);
+      }
+    }
     this.subscribed.delete(scriptKey);
+    this.stopTrackingIfIdle();
   }
 
   /** 沙箱 iframe 重建（脚本列表变化）时由 bridge 调：重打标记并重推快照 */
@@ -257,6 +447,13 @@ class FxHost {
         delete el.dataset.fx;
       }
     });
+    /* 断连元素上的画布条目一并回收（⌘K 关闭即整棵子树卸载） */
+    for (const [key, c] of [...this.canvases]) {
+      if (!c.el.isConnected) {
+        this.canvases.delete(key);
+        this.lastPos.delete(key.split(":")[1] ?? "");
+      }
+    }
     this.push();
   }
 
@@ -272,14 +469,20 @@ class FxHost {
     this.push();
   }
 
-  /** 推送白名单元素快照给全部订阅脚本 */
+  /** 推送白名单元素快照给全部订阅脚本（含视口坐标：折射采样定位用） */
   private push() {
     if (!this.post || this.subscribed.size === 0) return;
-    const items: { fx: string; key: string; w: number; h: number; radius: number }[] = [];
+    const items: {
+      fx: string; key: string; w: number; h: number; radius: number; x: number; y: number;
+      /** 该元素上引擎画布是否仍在（React remount 会连带销毁宿主 prepend 的 canvas：
+       *  引擎据此发现状态与 DOM 失同步并重建画布） */
+      cv: boolean;
+    }[] = [];
     document.querySelectorAll<HTMLElement>("[data-fx]").forEach((el) => {
       const w = Math.round(el.offsetWidth);
       const h = Math.round(el.offsetHeight);
       if (!w || !h) return;
+      const r = el.getBoundingClientRect();
       const radiusRaw = parseFloat(getComputedStyle(el).borderRadius) || 0;
       const key =
         FX_TARGETS.find((t) => el.matches(t.sel))?.key ?? "card";
@@ -289,12 +492,53 @@ class FxHost {
         w,
         h,
         radius: Math.round(Math.min(radiusRaw, w / 2, h / 2)),
+        x: Math.round(r.left),
+        y: Math.round(r.top),
+        cv: !!el.querySelector(":scope > canvas.chushi-fx-canvas"),
       });
     });
     for (const scriptKey of this.subscribed) {
       this.post({ type: "fxResize", scriptKey, items });
     }
   }
+
+  /* ---------- 位置跟踪（transform 动画期 RO 不触发，rAF 兜底） ---------- */
+
+  private ensureTracking() {
+    if (!this.trackRaf && this.started && this.canvases.size > 0) {
+      this.trackRaf = requestAnimationFrame(this.trackLoop);
+    }
+  }
+
+  private stopTrackingIfIdle() {
+    if (this.trackRaf && this.canvases.size === 0) {
+      cancelAnimationFrame(this.trackRaf);
+      this.trackRaf = 0;
+    }
+  }
+
+  /** 每帧监测挂载画布的元素视口位置，变化即推送（⌘K 弹簧/拖拽期逐帧对齐） */
+  private trackLoop = () => {
+    this.trackRaf = 0;
+    if (!this.started || this.canvases.size === 0) return;
+    const moved: { fx: string; x: number; y: number }[] = [];
+    for (const [key, c] of this.canvases) {
+      if (!c.el.isConnected) continue;
+      const fxId = key.split(":")[1] ?? "";
+      const r = c.el.getBoundingClientRect();
+      const prev = this.lastPos.get(fxId);
+      if (!prev || Math.abs(prev.x - r.left) > 0.4 || Math.abs(prev.y - r.top) > 0.4) {
+        this.lastPos.set(fxId, { x: r.left, y: r.top });
+        moved.push({ fx: fxId, x: Math.round(r.left), y: Math.round(r.top) });
+      }
+    }
+    if (moved.length > 0 && this.post && this.subscribed.size > 0) {
+      for (const scriptKey of this.subscribed) {
+        this.post({ type: "fxPositions", scriptKey, items: moved });
+      }
+    }
+    this.trackRaf = requestAnimationFrame(this.trackLoop);
+  };
 
   /** 指针变量桥：相对坐标（%）写入容器 CSS 变量 --fx-mx / --fx-my */
   private onPointer = (e: PointerEvent) => {

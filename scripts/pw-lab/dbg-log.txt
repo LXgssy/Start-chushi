@@ -1,0 +1,14 @@
+[console] [lg-dbg] boot ok
+[console] [.WebGL-0x1b440011a600]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[console] [lg-dbg] frame fx1 {"ok":true}
+[console] [.WebGL-0x1b440011ac00]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[console] [lg-dbg] frame fx2 {"ok":true}
+[console] [.WebGL-0x1b440011b200]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[console] [lg-dbg] frame fx1 {"ok":true}
+[console] [.WebGL-0x1b440011b800]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels (this message will no longer repeat)
+[console] [lg-dbg] frame fx2 {"ok":true}
+[console] [lg-dbg] frame fx2 {"ok":true}
+[console] [lg-dbg] frame fx2 {"ok":true}
+[console] [lg-dbg] frame fx4 {"ok":true}
+[console] [lg-dbg] frame fx4 {"ok":true}
+[result] {"allCanvas":3,"presets":[{"name":"液态玻璃","codeLen":15398,"hasBootLog":false}],"frozen":null,"iframe":true,"mounts":[],"fxMarks":["fx1","fx2","fx4"]}
