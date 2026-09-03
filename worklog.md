@@ -124,3 +124,25 @@ Stage Summary:
 - 物理律：Apple 边缘折射 = SDF 梯度 × 负量内采样（凸透镜放大）；SVG feDisplacementMap 负 scale 即可实现，无需自绘
 - 交付：文叔叔 https://c.wss.ink/f/ksbxrbzpaod（1 天过期）；Release v1.4.0；Pages 已上线
 - 待办：Edge 商店提交材料仍未做
+
+---
+Task ID: 58
+Agent: main (Super Z)
+Task: 用户指令「把旧的 liquid glass 遗留代码全部删掉，玻璃面板与 liquid glass 设置换成 liquid-glass-webgl（玻璃游乐场）的实现，底部标签栏动效与按钮动效也换成该仓库的，代码里写明作者和出处」—— v1.5.0 游乐场移植版
+
+Work Log:
+- 【调研】完整克隆研读 https://github.com/martin65536/liquid-glass-webgl（Next.js 16 单 WebGL 画布渲染体系，Apache-2.0，作者 martin65536；原型 Kyant0/AndroidLiquidGlass）：element.ts 着色器（circleMap 圆弧剖面 × SDF 梯度 × 负量内采样 −24dp × 7 通道 ROYGBV 色散 × 16-tap Vogel 盘 × colorControls × 预乘输出）、highlight.ts 描边 pass（3-tap 高斯 + Plus 混合，Default/Ambient/Plain）、spring.ts 闭式弹簧（临界 1000 / 欠阻尼 250@0.6/0.7、300@0.5）、methods-tabs.ts + DampedDragAnimation（78/56 按压、速度拉伸除数 10、panelOffset 4dp EaseOut）、build-glass-playground.ts（五滑杆：圆角/模糊/折射高/折射量/色散）
+- 【清剿】git rm src/lib/startpage/liquid-glass.ts（v1.4.0 SVG 引擎 600 行）→ 新建 src/lib/startpage/liquid-glass/ 四件：shader.ts（GLSL 移植精简：仅壁纸直采路径）、spring.ts（弹簧+VelocityTracker1D）、engine.ts（单 GL 上下文共享画布 + createImageBitmap 串行队列上屏（v1.3.0 实证律）+ 每元素 2d 叠层 z-index:-1 + 覆盖注册表 core(+dock-indicator)/full + 嵌套玻璃豁免（指示器例外）+ kenburns computed-transform 逆解 + photo-scrim 三段常量 + 角色 ROLES 对照游乐场各页参数）、dock-motion.ts（TabIndicatorMotion 滑动/按压/速度拉伸/panelOffset 状态机 + LiquidButtonPress）
+- 【Dock 重构】framer layoutId 药丸 → .cl-dock-indicator 玻璃胶囊（motion 驱动 transform、槽位浮点插值）；DockButton 换 LiquidButtonPress（scale 1+4/48×p + tanh 平移 + --press-p 白晕 .liquid-btn-glow plus-lighter）；nav 级拖拽滑选（8px 阈值、suppressClick 抑制、按钮按压取消协议）
+- 【预设包】settings.define 换游乐场五滑杆（折射高度/折射量/模糊/色散%/饱和度）+透亮+高光+覆盖范围；chromaticPct→chromatic 换算；glass API 形状不变（chushi.glass.enable/patch/disable）
+- 【调试实录】①tick 空引用 wpImg.currentSrc（null 崩溃断 rAF 链）②tick 作用域 key（嵌套豁免引用 observe 的局部量）③patch 漏刷 cfgSig（热调不重绘——签名含 cfgSig 但 patch 没更新）④嵌套豁免误杀指示器（它是 nav 子元素但背景是壁纸）⑤teardown 不回收 .lg-ov 画布（残留 3 面）⑥跨域壁纸 texImage2D SecurityError 被 catch 吞 → 空纹理采样恒黑（黑板玻璃截图实证）→ fetch-CORS 链路在 SW cache-first 下挂起 → 改 crossOrigin="anonymous" Image 重载（命中缓存 280ms）落定；调试基建：window.__chushiLG() 探针（cfg/recs/lastDraw/sig/wpDbg）
+- 【验证】verify-v15.mjs 八组全过（photo 模式种入：photo-mode+壁纸/引擎激活+叠层画布/GL 像素 98%+面板弹簧期画布尺寸五连变+指示器滑动+玻璃画布/按压 0.93+白晕/嵌套豁免/blur 8→24 热调像素差 26.9 万/删除全回收+⌘K 回归/0 pageerror）；verify-ext-v15.mjs 扩展冒烟（glow→CSS 磨砂降级预期、photo→WebGL 真像素 [27,39,4] 绿色系）
+- 【发布】main ef719ad；gh-pages 8ea7c6c（out/ 纯净重建，线上 a719bed chunk 含 chushi-lg-root+v=117+dock-indicator 实测 ✓）；Release v1.5.0（id 382100654）+ ChuShi-NewTab-v1.5.0.zip（12.2MB）已传；sandboxSrc v=117；build-extension.py VERSION/DEST 改 v1.5.0（并发现其只打包现成 out/，build:extension 必须先跑）
+- 【交付物】download/v1.5.0/（更新说明+开发者文档+液态玻璃预设+扩展 zip+合并交付包）
+- 【教训】①Bash 显示层吞 [m 字节序列（[martin 被显示成 artin）——文件内容以 Read 为准（本轮再次实证）；②build-extension.py 不执行构建只打包 out/——换版本先 build:extension；③跨域 <img> 能显示≠能上纹理（WebGL taint 抛 SecurityError），CDN 带 ACAO:* 时 crossOrigin="anonymous" 重载是唯一稳路（SW 场景 fetch 不可靠）
+
+Stage Summary:
+- 架构律（v1.5.0 定稿）：液态玻璃 = 游乐场移植版宿主内建（WebGL 单上下文+位图串行队列+叠层画布），预设包 chushi.glass 一句调用；底栏指示器/按钮动效同源移植；所有移植文件头部+文档+预设包带作者出处
+- 物理律：circleMap(1−√(1−t²)) × SDF 梯度 × 负量内采样；速度拉伸除数 10；按压 78/56；slider/容器缩放 16dp/宽×1.2
+- 部署：Pages 已上线（线上特征核验 ✓）；Release v1.5.0 已传；文叔叔交付见后续
+- 待办：Edge 商店提交材料仍未做
