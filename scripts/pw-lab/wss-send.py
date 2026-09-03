@@ -1,6 +1,30 @@
 #!/usr/bin/env python3
 """文叔叔匿名上传 v1.1.2 交付包（基于实测参考实现改造）"""
-import base58, hashlib, json, sys, time, base64
+import hashlib, json, sys, time, base64
+
+try:
+    import base58
+except ImportError:
+    # 内置兜底：base58（Bitcoin 字母表）仅 b58encode 被使用
+    class _B58:
+        ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+        def b58encode(self, s):
+            if isinstance(s, str):
+                s = s.encode()
+            n = int.from_bytes(s, "big")
+            out = []
+            while n > 0:
+                n, r = divmod(n, 58)
+                out.append(self.ALPHABET[r])
+            for byte in s:
+                if byte == 0:
+                    out.append(self.ALPHABET[0])
+                else:
+                    break
+            return "".join(reversed(out)).encode()
+
+    base58 = _B58()
 import requests
 from Cryptodome.Cipher import DES
 from Cryptodome.Util import Padding
