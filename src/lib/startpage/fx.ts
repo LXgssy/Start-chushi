@@ -99,6 +99,13 @@ class FxHost {
       cancelAnimationFrame(this.rafPending);
       this.rafPending = 0;
     }
+    /* 无脚本可存活时（全部删除/冻结/沙箱关停）把 data-fx 标记一并擦净：
+       预设 CSS 已整组回收，残留的惰性标记会污染「删除即还原」的语义 */
+    document.querySelectorAll<HTMLElement>("[data-fx]").forEach((el) => {
+      delete el.dataset.fx;
+      el.style.removeProperty("--fx-mx");
+      el.style.removeProperty("--fx-my");
+    });
     this.root?.remove();
     this.root = null;
     this.post = null;

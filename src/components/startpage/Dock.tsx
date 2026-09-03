@@ -24,8 +24,22 @@ import PomodoroPanel, {
 import SettingsPanel from "./SettingsPanel";
 import { readLS } from "@/hooks/use-start";
 import { dockIcon, type PresetAction, type PresetDockItem } from "@/lib/startpage/preset";
-import type { Place, PanelId, Settings, TodoItem, WeatherState } from "@/lib/startpage/types";
+import type {
+  Place,
+  PanelId,
+  Settings,
+  TodoItem,
+  WeatherState,
+} from "@/lib/startpage/types";
+import type { PresetSettingValues, PresetSettingsSchema } from "@/lib/startpage/preset-settings";
 import { weatherText } from "@/lib/startpage/weather";
+
+/** 预设贡献的设置分区（v1.2.0 设置面作用面）：脚本激活即出现，删除/冻结即消失 */
+export interface PresetSettingSection {
+  scriptKey: string;
+  presetName: string;
+  schema: PresetSettingsSchema;
+}
 
 /* ---------- dock 番茄钟倒计时（订阅 localStorage 运行时 + 每秒滴答；
    subscribePomo 移至 PomodoroPanel 共享，禅模式迷你番茄钟同源订阅） ---------- */
@@ -97,6 +111,8 @@ const PanelStage = memo(function PanelStage({
   exportData,
   importData,
   resetAll,
+  presetSettingSections,
+  onPresetSettingChange,
 }: {
   panel: PanelId;
   onClose: () => void;
@@ -112,6 +128,8 @@ const PanelStage = memo(function PanelStage({
   exportData: () => void;
   importData: (f: File) => void;
   resetAll: () => void;
+  presetSettingSections: PresetSettingSection[];
+  onPresetSettingChange: (scriptKey: string, values: PresetSettingValues) => void;
 }) {
   /* 面板内容真实高度：卡片高度动画的驱动源（测高/RO 兜底/零高毒化防护见 hook 注释）。
      为什么不用 framer layout：layout 用 transform scale 缩放卡片盒子，内部内容无反向补偿，
@@ -205,6 +223,8 @@ const PanelStage = memo(function PanelStage({
                   onExport={exportData}
                   onImportFile={importData}
                   onReset={resetAll}
+                  presetSections={presetSettingSections}
+                  onPresetSettingChange={onPresetSettingChange}
                 />
               )}
             </PresenceClass>
@@ -235,6 +255,8 @@ export default function Dock({
   resetAll,
   presetDock,
   onRunAction,
+  presetSettingSections,
+  onPresetSettingChange,
 }: {
   panel: PanelId;
   setPanel: (p: PanelId) => void;
@@ -253,6 +275,8 @@ export default function Dock({
   resetAll: () => void;
   presetDock: (PresetDockItem & { key: string })[];
   onRunAction: (a: PresetAction) => void;
+  presetSettingSections: PresetSettingSection[];
+  onPresetSettingChange: (scriptKey: string, values: PresetSettingValues) => void;
 }) {
   const undone = todos.filter((t) => !t.done).length;
 
@@ -427,6 +451,8 @@ export default function Dock({
         exportData={exportData}
         importData={importData}
         resetAll={resetAll}
+        presetSettingSections={presetSettingSections}
+        onPresetSettingChange={onPresetSettingChange}
       />
     </>
   );

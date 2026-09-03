@@ -1,11 +1,24 @@
 "use client";
 
+/* 设置面板。除内置分区外，还会渲染「预设贡献」的设置分区（v1.2.0 设置面
+ * 作用面）：预设脚本经 chushi.settings.define 声明白名单控件
+ * （slider/toggle/select），宿主校验后渲染在此，值变更经
+ * onPresetSettingChange 持久化并热推回脚本（如液态玻璃的折射强度/霜化/色散）。
+ * 脚本冻结/预设删除 → 分区随之消失（失主 schema 由页面清理）。 */
+
 import { memo, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ImagePlus } from "lucide-react";
 import type { Settings } from "@/lib/startpage/types";
 import { GALLERY, dailyPhoto } from "@/lib/startpage/gallery";
 import { idbGet, idbSet } from "@/lib/startpage/idb";
+import {
+  readPresetSettingValues,
+  type PresetSettingControl,
+  type PresetSettingValue,
+  type PresetSettingValues,
+} from "@/lib/startpage/preset-settings";
+import type { PresetSettingSection } from "./Dock";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -286,18 +299,119 @@ async function fileToSizedBlob(file: File): Promise<Blob> {
   return blob;
 }
 
+/* ---------- 预设贡献的设置分区（v1.2.0 设置面作用面） ---------- */
+
+/** 单个预设分区：初值 = schema 默认 ∩ LS 持久化（宿主校验），改动整组上报 */
+function PresetSettingsSection({
+  section,
+  onChange,
+}: {
+  section: PresetSettingSection;
+  onChange: (scriptKey: string, values: PresetSettingValues) => void;
+}) {
+  const [values, setValues] = useState<PresetSettingValues>(() =>
+    readPresetSettingValues(section.scriptKey, section.schema)
+  );
+  /* 无需 effect 重读初值：预设重导入 = 新 presetId → 新 scriptKey → 本组件随 key 重挂；
+     面板每次打开也是全新挂载，useState 惰性初始化即拿到最新持久化值 */
+
+  function set(key: string, v: PresetSettingValue) {
+    setValues((prev) => {
+      const next = { ...prev, [key]: v };
+      onChange(section.scriptKey, next);
+      return next;
+    });
+  }
+
+  return (
+    <Section title={section.schema.title}>
+      <p className="mb-1 text-[11px] font-extralight tracking-wide text-zinc-400 dark:text-zinc-500">
+        来自预设「{section.presetName}」
+      </p>
+      {section.schema.controls.map((c) => (
+        <PresetControlRow key={c.key} c={c} value={values[c.key]} onSet={(v) => set(c.key, v)} />
+      ))}
+    </Section>
+  );
+}
+
+function PresetControlRow({
+  c,
+  value,
+  onSet,
+}: {
+  c: PresetSettingControl;
+  value: PresetSettingValue | undefined;
+  onSet: (v: PresetSettingValue) => void;
+}) {
+  if (c.type === "toggle") {
+    return (
+      <div className="flex items-center justify-between gap-4 py-2.5">
+        <span className="text-xs font-light tracking-wide text-zinc-600 dark:text-zinc-300">
+          {c.label}
+        </span>
+        <Switch checked={value === true} label={c.label} onChange={onSet} />
+      </div>
+    );
+  }
+  if (c.type === "select") {
+    return (
+      <Segmented
+        segKey={`ps-${c.key}`}
+        label={c.label}
+        value={(value as string) ?? (c.def as string)}
+        options={(c.options ?? []).map((o) => ({ value: o.value, label: o.label }))}
+        onChange={onSet}
+      />
+    );
+  }
+  /* slider */
+  const min = c.min ?? 0;
+  const max = c.max ?? 100;
+  const step = c.step ?? 1;
+  const num = typeof value === "number" ? value : (c.def as number);
+  return (
+    <div className="flex items-center justify-between gap-4 py-2.5">
+      <span className="text-xs font-light tracking-wide text-zinc-600 dark:text-zinc-300">
+        {c.label}
+      </span>
+      <div className="flex shrink-0 items-center gap-2.5">
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={num}
+          aria-label={c.label}
+          onChange={(e) => onSet(Number(e.target.value))}
+          className="h-1 w-28 cursor-pointer appearance-none rounded-full bg-zinc-900/10 outline-none dark:bg-white/10 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow [&::-webkit-slider-thumb]:ring-1 [&::-webkit-slider-thumb]:ring-zinc-900/15 dark:[&::-webkit-slider-thumb]:ring-white/20"
+          style={{ accentColor: "var(--ui-accent, #8b5cf6)" }}
+        />
+        <span className="w-11 text-right text-[11px] tabular-nums text-zinc-400 dark:text-zinc-500">
+          {num}
+          {c.unit ?? ""}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function SettingsPanel({
   settings,
   onPatch,
   onExport,
   onImportFile,
   onReset,
+  presetSections,
+  onPresetSettingChange,
 }: {
   settings: Settings;
   onPatch: (patch: Partial<Settings>) => void;
   onExport: () => void;
   onImportFile: (file: File) => void;
   onReset: () => void;
+  presetSections?: PresetSettingSection[];
+  onPresetSettingChange?: (scriptKey: string, values: PresetSettingValues) => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const wallFileRef = useRef<HTMLInputElement>(null);
@@ -393,6 +507,16 @@ function SettingsPanel({
           </div>
         </div>
       </Section>
+
+      {/* 预设贡献的设置分区（v1.2.0 设置面作用面）：脚本激活即出现，删除/冻结即消失 */}
+      {presetSections && presetSections.length > 0 && (
+        <>
+          <div aria-hidden className="border-t border-zinc-900/5 dark:border-white/5" />
+          {presetSections.map((s) => (
+            <PresetSettingsSection key={s.scriptKey} section={s} onChange={onPresetSettingChange ?? (() => {})} />
+          ))}
+        </>
+      )}
 
       {/* 掠影壁纸源：每日一图开关 / 官方图库 / 自定义上传
           进出场：背景切到/切离「掠影」时雾化展开/收拢（高度+下边距+模糊同步缓动）。

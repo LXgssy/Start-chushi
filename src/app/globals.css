@@ -816,6 +816,84 @@ html.photo-mode .dock-btn[data-active="true"] {
 }
 
 /* ================================================================
+   子元素模糊过场（v1.2.0）：右键菜单项 / 开发者文档分区。
+   与「内容模糊语言」同源（blur 聚拢/散场），级联延迟走 --ci / --di 变量。
+   ⚠ 声明顺序律：*-out 必须在 *-in 之后——退场帧容器同时持有两个动画类
+    （如 ctx-in … ctx-out），同特异性后者胜，子元素才播退场而非入场。
+   ================================================================ */
+@keyframes ctx-item-in-kf {
+  from {
+    opacity: 0;
+    filter: blur(8px);
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+.ctx-in .ctx-item {
+  animation: ctx-item-in-kf 0.34s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(min(var(--ci, 0), 12) * 24ms);
+}
+@keyframes ctx-item-out-kf {
+  from {
+    opacity: 1;
+    filter: blur(0);
+  }
+  to {
+    opacity: 0;
+    filter: blur(8px);
+  }
+}
+.ctx-out .ctx-item {
+  animation: ctx-item-out-kf 0.12s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ctx-in .ctx-item,
+  .ctx-out .ctx-item {
+    animation: none;
+  }
+}
+
+@keyframes docs-item-in-kf {
+  from {
+    opacity: 0;
+    filter: blur(9px);
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: translateY(0);
+  }
+}
+.docs-anim > section {
+  animation: docs-item-in-kf 0.42s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(min(var(--di, 0), 10) * 36ms);
+}
+@keyframes docs-item-out-kf {
+  from {
+    opacity: 1;
+    filter: blur(0);
+  }
+  to {
+    opacity: 0;
+    filter: blur(9px);
+  }
+}
+.dialog-sink .docs-anim > section {
+  animation: docs-item-out-kf 0.16s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .docs-anim > section,
+  .dialog-sink .docs-anim > section {
+    animation: none;
+  }
+}
+
+/* ================================================================
    磨砂玻璃存活原则（v22 病根根治）：
    祖先元素 opacity<1 或 filter≠none 会成为 backdrop root，
    令后代 backdrop-filter 采样不到壁纸——磨砂整体失效，
