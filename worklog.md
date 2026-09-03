@@ -103,3 +103,24 @@ Stage Summary:
 - 环境律：①Bash 工具显示层吞 [m.s 序列，文件内容以 Read 为准；②边改代码边跑 dev 测试=Fast Refresh 自我干扰，production 构建验证才作数；③gh-token 文件可从 git remote URL 重建
 - 交付：https://c.wss.ink/f/ksarhg4soy5（1 天过期）
 - 待办：Edge 商店提交材料仍未做
+
+---
+Task ID: 57
+Agent: main (Super Z)
+Task: 用户反馈「液态玻璃光靠预设包效果还是不行，直接写进初始里面，通过预设包调用；玻璃不会实时渲染；覆盖范围不够」——引擎收编内建宿主 v1.4.0（并合并远端 Task 56 的图标/主题 API）
+
+Work Log:
+- 【考古排雷】push 被拒后发现远端已有 Task 56（85b60ba，v1.3.0 已发布：WebGL 液态玻璃住预设包 + chushi.icons.override 图标替换 + chushi.theme.override 主题令牌 28 项白名单 + fx 位图通道 attachCanvas/pushFrame/getBackdrop/onPositions）——用户本条反馈正是对那版的否定；本地工作与之分叉，策略 = 合并保留其图标/主题/位图通道 API，液态玻璃按最新指令换成宿主内建引擎，版本顺延 v1.4.0
+- 【污染清剿】Task 56 曾把整套 Pages 构建产物（.nojekyll/_next/404.html/api/gallery 等 21 项）误提交进仓库根——合并解决时全部 git rm，.gitignore 增设根级产物防护段；过时的 lg-engine-v3.js（15KB WebGL 预设引擎）一并移除（git 历史可考）
+- 【引擎定稿】src/lib/startpage/liquid-glass.ts（~600 行）：rAF 逐帧 getBoundingClientRect 几何追踪（transform/高度弹簧/transition 全覆盖）；变动期贴图 1/4 分辨率 30fps 重建（折射全程在线，永不再退化纯模糊），稳定 160ms 换半分辨率精贴图；新贴图 Image 预解码后原子换 href 无空窗帧；物理 = SDF 梯度 × **负量内采样（feDisplacementMap 负 scale，凸透镜放大，Apple/Kyant refractionAmount −24dp 同向）** × smoothstep² 边缘窄带 + 贴图域渐隐环 + 链序律 blur→url→saturate；单持有者制（enable 冲突返回 ok:false）；覆盖注册表 core 四区 + full 另含 .glass-chip（天气芯片），全屏幕布永不折射；零几何侵入（不改 border/margin/width——曾实现的「边框外扩真环绕」因与负采样物理冲突且增布局风险，本版移除）
+- 【新作用面】chushi.glass.enable/patch/disable：cfg 八字段白名单夹紧（refraction/band/frost/saturation/brightness/dispersion/specular/coverage core|full）；sandbox.ts glassEnable/glassPatch/glassDisable 路由 + teardown/prevKeys/watchdog 三路 release；sandbox.js chushi.glass + glassResult 兑现；官方液态玻璃预设瘦身为 1.8KB 薄脚本（settings.define 八项含「覆盖范围」select + enable + onChange→patch），设置持久化/删除回收沿用 v1.2.0 设置面
+- 【合并实录】9 处冲突逐一解决：sandbox.ts（glass 分支 + icons/theme 分支共存）、sandbox.js（双方 API 并集）、fx.ts（保留其 attachCanvas 位图通道 + 我的 chip 白名单）、README/PRESET_DEV/PresetDocs（§08 重写为 chushi.glass + 保留 §08.5 图标/主题与位图通道律）、build-extension.py（其 REF_ZIP 动解压版 + VERSION 1.4.0）、verify-v13.mjs 归还其作者（历史探针）、v1.3.0 交付 zip 归还其发布版；沙箱 v=115→116
+- 【验证】verify-v14.mjs 九组全过：激活/链序/负 scale(−21.11)/实时（弹簧 900ms 贴图 5 版 0 掉链帧）/覆盖热切（chip full↔core 注入式判定）/⌘K 卡折射/幕布豁免/双通道共存/删除全回收+外点关闭回归，0 pageerror；verify-ext-v14.mjs 扩展冒烟（真浏览器 --load-extension：负采样+实时链+贴图 ✓）；verify-icons-theme.mjs 合并回归：icons.override 正向注入+空 map 清除 ✓、theme.override 注入+删除还原 ✓
+- 【发布】main 5def1fa；gh-pages c2fe144（线上 index 引 7acde5f chunk 含 chushi-lg-root+v=116 实测 ✓）；Release v1.4.0（id 381999367）+ ChuShi-NewTab-v1.4.0.zip（12.2MB）已传；文叔叔合并交付包 → https://c.wss.ink/f/ksbxrbzpaod
+- 【教训】①合并前必须 git log HEAD..origin/main 考古——远端可能已有同版本号的不同实现（本轮 v1.3.0 撞号，顺延解决）；②gh-pages 指纹核验别拿共享 chunk（哈希跨版本稳定），要用新功能特征串（chushi-lg-root/v=116）；③沙箱环境 python 多版本（3.12 venv 无 base58/pycryptodomex）——wss-send.py 已加 base58 内置兜底，pycryptodomex 用 venv pip 安装
+
+Stage Summary:
+- 架构律（v1.4.0 定稿）：液态玻璃引擎内建宿主（可见文档 rAF 实时渲染），预设包只调用——「宿主不做视觉引擎」旧律废除；fx 通用面与位图通道保留为自定义视觉通道
+- 物理律：Apple 边缘折射 = SDF 梯度 × 负量内采样（凸透镜放大）；SVG feDisplacementMap 负 scale 即可实现，无需自绘
+- 交付：文叔叔 https://c.wss.ink/f/ksbxrbzpaod（1 天过期）；Release v1.4.0；Pages 已上线
+- 待办：Edge 商店提交材料仍未做
