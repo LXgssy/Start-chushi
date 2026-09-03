@@ -27,6 +27,14 @@ import {
   type SandboxCommandInfo,
   type SandboxScript,
 } from "@/lib/startpage/sandbox";
+import {
+  PRESET_SETTINGS_KEY,
+  prunePresetSettings,
+  readPresetSettingValues,
+  writePresetSettingValues,
+  type PresetSettingValues,
+  type PresetSettingsSchema,
+} from "@/lib/startpage/preset-settings";
 import { useMounted, useStored, readLS, writeLS, uid } from "@/hooks/use-start";
 import {
   DEFAULT_SETTINGS,
@@ -52,6 +60,7 @@ const KEYS = {
   place: "start:place",
   presets: "start:presets",
   sandboxFrozen: "start:sandbox-frozen",
+  presetSettings: PRESET_SETTINGS_KEY,
 };
 
 /** 预设 action 中 script / page 类型的 id 展开为本预设内复合键（运行时再由桥/overlay 路由） */
@@ -111,11 +120,16 @@ export default function Home() {
   /** 正在展示的预设自定义页面（沙箱 overlay） */
   const [activePage, setActivePage] = useState<ActivePage | null>(null);
 
-  /* ---------- 沙箱 JS（高阶模式）状态：冻结标记持久化 + 运行时注册的命令 */
+  /* ---------- 沙箱 JS（高阶模式）状态：冻结标记持久化 + 运行时注册的命令 ----------
+     另有预设设置面 schema（v1.2.0）：脚本经 chushi.settings.define 声明，
+     桥校验后转入，渲染进设置面板（值持久化与下发见 changePresetSetting） */
   const [frozenScripts, setFrozenScripts] = useState<Record<string, boolean>>(() =>
     readLS<Record<string, boolean>>(KEYS.sandboxFrozen, {})
   );
   const [scriptCmds, setScriptCmds] = useState<SandboxCommandInfo[]>([]);
+  const [presetSchemas, setPresetSchemas] = useState<
+    Record<string, { presetName: string; schema: PresetSettingsSchema }>
+  >({});
 
   const patchSettings = useCallback(
     (patch: Partial<Settings>) => setSettings((prev) => ({ ...prev, ...patch })),
@@ -625,6 +639,8 @@ export default function Home() {
         }
         return prev;
       });
+      /* 同律回收该预设全部脚本的设置面持久化值（与分区消失对称） */
+      prunePresetSettings(`${id}:`);
     },
     [setPresets, toast]
   );
@@ -745,6 +761,12 @@ export default function Home() {
             duration: 8000,
           });
           break;
+        case "settingsSchema":
+          setPresetSchemas((prev) => ({
+            ...prev,
+            [ev.scriptKey]: { presetName: ev.presetName, schema: ev.schema },
+          }));
+          break;
       }
     };
     return () => {
@@ -763,6 +785,43 @@ export default function Home() {
       return next.length === prev.length ? prev : next;
     });
   }, [activeScriptKeys]);
+
+  /* 预设设置面 schema 同律：脚本不再激活即从设置面板移除分区 */
+  useEffect(() => {
+    setPresetSchemas((prev) => {
+      const next: typeof prev = {};
+      for (const k of Object.keys(prev)) if (activeScriptKeys.has(k)) next[k] = prev[k];
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+    });
+  }, [activeScriptKeys]);
+
+  /* 预设设置值读取器：注入桥，settingsGet 回执时按 schema 校验 LS 持久化值 */
+  useEffect(() => {
+    sandboxBridge.settingsProvider = (key, schema) => readPresetSettingValues(key, schema);
+    return () => {
+      sandboxBridge.settingsProvider = null;
+    };
+  }, []);
+
+  /* 设置面板变更：持久化整组值 + 下发沙箱（onChange 热调引擎参数） */
+  const changePresetSetting = useCallback(
+    (scriptKey: string, values: PresetSettingValues) => {
+      writePresetSettingValues(scriptKey, values);
+      sandboxBridge.pushSettingsValues(scriptKey, values);
+    },
+    []
+  );
+
+  /* 预设设置分区（渲染进设置面板）：脚本激活即出现，删除/冻结即消失 */
+  const presetSettingSections = useMemo(
+    () =>
+      Object.entries(presetSchemas).map(([scriptKey, v]) => ({
+        scriptKey,
+        presetName: v.presetName,
+        schema: v.schema,
+      })),
+    [presetSchemas]
+  );
 
   /* 沙箱脚本运行时注册的命令 → ⌘K 派生项（与声明式命令同组展示） */
   const sandboxDerivedCommands = useMemo(
@@ -945,6 +1004,8 @@ export default function Home() {
         resetAll={resetAll}
         presetDock={presetDock}
         onRunAction={runPresetAction}
+        presetSettingSections={presetSettingSections}
+        onPresetSettingChange={changePresetSetting}
       />
       </div>
 

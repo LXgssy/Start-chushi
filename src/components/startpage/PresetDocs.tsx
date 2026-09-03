@@ -21,7 +21,12 @@ import { ArrowLeft, X } from "lucide-react";
 
 function Sec({ n, title, children }: { n: string; title: string; children: React.ReactNode }) {
   return (
-    <section className="mt-7 first:mt-1" id={`docs-${n}`}>
+    <section
+      className="mt-7 first:mt-1"
+      id={`docs-${n}`}
+      /* --di 驱动子元素模糊过场的级联延迟（globals.css docs-anim 区） */
+      style={{ ["--di" as string]: parseInt(n, 10) || 0 } as React.CSSProperties}
+    >
       <h3 className="flex items-baseline gap-2 text-[13px] font-normal text-zinc-800 dark:text-zinc-100">
         <span className="font-mono text-[10px] text-zinc-400 dark:text-zinc-500">{n}</span>
         {title}
@@ -208,8 +213,9 @@ export default function PresetDocs({
               </button>
             </div>
 
-            {/* 正文 */}
-            <div className="slim-scroll overflow-y-auto px-5 py-4">
+            {/* 正文：docs-anim 承载子元素（§01–§14 分区）的开/关模糊级联过场
+                （globals.css 内容模糊语言区）；顶栏不参与，保持常锐 */}
+            <div className="slim-scroll docs-anim overflow-y-auto px-5 py-4">
               <Sec n="01" title="预设是什么">
                 <P>
                   预设是一段<b>纯 JSON 声明</b>（或一个 .cshz 压缩包），使用者把它粘贴进
@@ -403,6 +409,45 @@ export default function PresetDocs({
                   （先霜化再折射，弯曲锐利）；写反了折射会被模糊糊掉。目前仅 Chromium 系支持
                   backdrop-filter: url()，其它内核自动保持磨砂现状。
                 </P>
+                <P>
+                  ⚠ <b>布局动画防闪（v1.2.0）</b>：玻璃元素在布局尺寸连续变化（面板高度弹簧、窗口拖拽）期间，
+                  SVG 位移滤镜逐帧重栅格化且贴图错帧 = 闪动。律：尺寸变动期退化为纯 blur/saturate，
+                  稳定约 160ms 后再生成贴图换全链（官方引擎已内置）。
+                </P>
+                <P>
+                  <b>物理透镜贴图（对齐 Apple 边缘折射）</b>：方向取 SDF 梯度（边缘外法线），不要指向几何中心；
+                  边缘环带向外取样，显示被压缩进来的<b>玻璃外世界</b>（纸镇/鱼缸效应）——滤镜域需外扩 pad；
+                  剖面用 smoothstep² 集中在边缘窄带。v1.2.0 起官方引擎即按此实现。
+                </P>
+                <P>
+                  <b>settings 设置面（v1.2.0）：把调节项贡献进设置面板</b>。声明后宿主渲染出分区，
+                  用户改动热生效并持久化（删除预设即连分区带值一并回收）：
+                </P>
+                <Code>{`chushi.settings.define({
+  title: "液态玻璃",
+  controls: [
+    { type: "slider", key: "refPct", label: "折射强度",
+      min: 0, max: 300, step: 5, def: 145, unit: "%" },
+    { type: "toggle", key: "specular", label: "镜面高光", def: true },
+  ],
+});
+const cfg = await chushi.settings.get(); // 启动期取初值（宿主按 schema 校验并补默认）
+chushi.settings.onChange((values) => { /* 整组热更新 */ });`}</Code>
+                <T
+                  head={["API", "说明"]}
+                  rows={[
+                    [
+                      <K key="sd">chushi.settings.define(schema)</K>,
+                      "声明设置分区：title（≤24 字）+ controls（1–12 个）；控件类型 slider（min/max/step/def/unit）/ toggle / select（options 2–6 项）；schema 整体白名单校验，不合法整组忽略",
+                    ],
+                    [<K key="sg">chushi.settings.get()</K>, "Promise<values>：启动期取值；消息有序，define 先于 get 到达宿主，回执必然按本脚本 schema 合并"],
+                    [<K key="sc">chushi.settings.onChange(cb)</K>, "用户改动时回调整组值，返回退订函数"],
+                  ]}
+                />
+                <P>
+                  同一分区控件键唯一；值类型由宿主按 schema 夹紧（越界/类型不符回默认），脚本拿到的值永远合法。
+                  官方液态玻璃预设的折射强度/边缘带宽/霜化/饱和/透亮/色散/镜面高光七项即由此实现。
+                </P>
               </Sec>
 
               <Sec n="09" title="animations 自定义样式与元素钩子">
@@ -467,6 +512,12 @@ export default function PresetDocs({
                     [
                       <K>chushi.fx.mount / unmount / onResize</K>,
                       "视觉效果作用面：注入 style/svg、订阅玻璃容器尺寸（详见 §08）",
+                    ],
+                    [
+                      <>
+                        <K>chushi.settings.define / get / onChange</K>
+                      </>,
+                      "设置面：向设置面板贡献调节项（slider/toggle/select）并接收热更新（详见 §08 settings 小节）",
                     ],
                   ]}
                 />
@@ -551,12 +602,32 @@ export default function PresetDocs({
                   ① <b>先填入示例</b>：导入面板的「填入示例」会放一份覆盖命令/磁贴/动画/页面/脚本的完整预设，
                   从它开始改最稳。② <b>读错误列表</b>：校验失败会列出每一条错误及其字段路径，从上往下修。
                   ③ <b>小步验证</b>：每加一个字段就重新导入一次，整体拒绝制保证坏字段不会偷偷生效。
-                  ④ <b>分发</b>：短预设直接发 JSON 文本；带资源的发 .cshz 包。官方示例都在仓库
+                  ④ <b>分发</b>：短预设直接发 JSON 文本；带资源的发 .cshz 包——粘贴、本地文件选择与
+                  <b>拖拽到导入面板</b>（v1.2.0 起）三种方式导入行为完全一致。官方示例都在仓库
                   <K>examples/</K> 目录（倒数日预设.json / 液态玻璃预设.json）。
                 </P>
                 <P>
                   ⑤ <b>尊重用户</b>：不要做全屏闪烁、高频 toast、抢焦点之类的体验；上限表（§03）就是产品
                   对预设作者的约定——留在上限内，用户才敢安装第三方预设。
+                </P>
+              </Sec>
+
+              <Sec n="15" title="整页焕新能力评估（API 现状与路线）">
+                <P>
+                  「能不能靠预设系统把整个页面焕新一遍？」按 v1.2.0 的作用面清单盘点——
+                  <b>已能焕新</b>：①内容与功能（命令/磁贴/栏按钮/小部件/沙箱整页）；②排版（layout 覆写 +
+                  animations 重排 .cl-* 钩子）；③色彩与材质（settings 白名单 + animations 重写玻璃底色 +
+                  fx 整套材质替换，液态玻璃即实证）；④动画（animations 注入 @keyframes；折射类走 fx 自带引擎）；
+                  ⑤设置面板扩展（chushi.settings 让焕新方案自带可调参数）。
+                </P>
+                <P>
+                  <b>尚未覆盖、待后续新增作用面</b>（按性价比排序）：①图标替换（预设自带图标资源）；②主题令牌覆写
+                  （圆角/字体/墨色等 CSS 变量的声明式覆写，现阶段可经 animations 写 :root 变通）；③动效语言替换
+                  （面板开合/⌘K 弹簧参数）；④时钟/问候语文案模板；⑤面板区新槽位（现只能开整页 overlay）。
+                </P>
+                <P>
+                  结论：<b>材质、内容、排版、动画四维已可整页焕新</b>——液态玻璃预设与倒数日预设分别是
+                  「换材质」与「加功能」的样板；图标与主题令牌是下一批最值得补的作用面。
                 </P>
               </Sec>
 

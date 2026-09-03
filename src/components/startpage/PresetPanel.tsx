@@ -46,15 +46,25 @@ export default function PresetPanel({
   const [text, setText] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  /* 拖拽导入（v1.2.0）：文件悬停高亮 + 松手即导入；window 级拦住
+     dragover/drop 默认行为（拖到面板外不再被浏览器当导航打开文件） */
+  const [dragOver, setDragOver] = useState(false);
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
   /* 导入视图挂载时聚焦输入框（无焦点归还——归还由宿主浮层统一负责，
-     视图级归还会在形变途中把焦点偷回触发按钮） */
+     视图级归还会在形变途中把焦点偷回触发按钮）；同时拦住窗口级拖拽默认行为 */
   useEffect(() => {
     if (tab !== "import") return;
     const t = setTimeout(() => taRef.current?.focus(), 30);
-    return () => clearTimeout(t);
+    const guard = (e: DragEvent) => e.preventDefault();
+    window.addEventListener("dragover", guard);
+    window.addEventListener("drop", guard);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener("dragover", guard);
+      window.removeEventListener("drop", guard);
+    };
   }, [tab]);
 
   /* ---------- 导入 ---------- */
@@ -115,6 +125,20 @@ export default function PresetPanel({
     }
   }
 
+  /* 拖拽导入：与文件选择器同一 importFile 路径（.json / .cshz / .zip 同规） */
+  function onDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+    const f = e.dataTransfer?.files?.[0];
+    if (!f) return;
+    void importFile(f);
+  }
+  function onDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+    setDragOver(true);
+  }
+
   return (
     <div>
       {/* 顶栏：标题 + 双 tab 切换 + 关闭宿主 */}
@@ -170,9 +194,16 @@ export default function PresetPanel({
             className="flow-root content-focus"
           >
             {tab === "import" ? (
-              <div className="p-4">
+              <div
+                className="p-4"
+                onDragOver={onDragOver}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(false);
+                }}
+                onDrop={onDrop}
+              >
                 <p className="mb-2.5 px-1 text-xs font-light leading-relaxed text-zinc-500 dark:text-zinc-400">
-                  粘贴预设 JSON 或导入本地文件（.json / .cshz 预设包）— 命令、磁贴与按钮均为声明式白名单动作；
+                  粘贴预设 JSON、导入本地文件，或直接把文件拖进来（.json / .cshz 预设包）— 命令、磁贴与按钮均为声明式白名单动作；
                   scripts 与 pages 运行在隔离沙箱中（拿不到页面数据与扩展 API），可放心安装可信来源的预设。
                 </p>
                 <textarea
@@ -180,9 +211,15 @@ export default function PresetPanel({
                   value={text}
                   onChange={(e) => setText(e.target.value)}
                   spellCheck={false}
-                  placeholder='以 { "chushi": 1, ... } 开头的预设 JSON'
-                  className="slim-scroll h-44 w-full resize-none rounded-xl border border-zinc-900/10 bg-white/40 p-3 font-mono text-xs leading-relaxed text-zinc-800 outline-none transition-colors duration-200 placeholder:text-zinc-400 focus:border-zinc-900/20 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-white/20"
+                  placeholder='以 { "chushi": 1, ... } 开头的预设 JSON，或拖入预设文件'
+                  data-drag={dragOver ? "true" : undefined}
+                  className="slim-scroll h-44 w-full resize-none rounded-xl border border-dashed border-zinc-900/10 bg-white/40 p-3 font-mono text-xs leading-relaxed text-zinc-800 outline-none transition-colors duration-200 placeholder:text-zinc-400 focus:border-solid focus:border-zinc-900/20 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-white/20 data-[drag=true]:border-[var(--ui-accent)] data-[drag=true]:bg-[var(--ui-accent)]/[0.06] data-[drag=true]:border-solid"
                 />
+                {dragOver && (
+                  <p className="mt-1.5 px-1 text-[11px] font-light tracking-wide text-[var(--ui-accent)]">
+                    松开即导入该预设文件
+                  </p>
+                )}
                 {errors.length > 0 && (
                   <ul className="mt-2.5 space-y-1 rounded-xl bg-red-500/[0.07] p-3 text-xs font-light leading-relaxed text-red-600 dark:text-red-400">
                     {errors.map((e, i) => (

@@ -6,7 +6,8 @@
  *     经 async IIFE 包装；同步死循环由宿主侧看门狗冻结兜底）；
  *  2. 向脚本提供受控 API `chushi`——注册 ⌘K 命令、脚本入口、通知、
  *     打开网址、复制、fetchJSON、fx 视觉效果面（v1.1.3：挂载 style/svg
- *     白名单结构、订阅玻璃容器 resize 快照）。所有越界副作用仅以
+ *     白名单结构、订阅玻璃容器 resize 快照）、设置面（v1.2.0：define/get/
+ *     onChange，预设向设置面板贡献调节项）。所有越界副作用仅以
  *     postMessage 上报宿主，由宿主复核白名单后代为执行；
  *     本文档自身拿不到主文档、localStorage、Cookie 与任何扩展 API；
  *  3. invoke 路由：命令复合键（"scriptKey:cmdId"）查命令表，
@@ -14,8 +15,11 @@
  *
  * 协议（host → sandbox）：boot{scriptKey,code} / invoke{id} / fxResize{scriptKey,items}
  *                        / fxResult{scriptKey,fxId,ok,message?}
+ *                        / settingsValues{scriptKey,values}（get 回执）
+ *                        / settingsPush{scriptKey,values}（面板变更推送）
  * 协议（sandbox → host）：hello / ready{scriptKey} / bootError{scriptKey,message}
- *                        / api{op:cmd|notify|open|copy|fxMount|fxUnmount|fxSubscribe|fxUnsubscribe,...}
+ *                        / api{op:cmd|notify|open|copy|fxMount|fxUnmount|fxSubscribe|fxUnsubscribe
+ *                             |settingsDefine{schema}|settingsGet,...}
  *                        / invokeResult{id,ok,message?}
  *                        / runtimeError{message,scriptKey?}
  * ============================================================ */
@@ -53,6 +57,9 @@
   var fxTargets = new Map();
   /** fx 调用 pending 表（fxApi 登记，fxResult 消息兑现；必须与消息处理器同作用域） */
   var pendingFx = {};
+  /** 设置面（v1.2.0）：get 回执 pending 表 + onChange 回调集（必须与消息处理器同作用域） */
+  var pendingSettings = {};
+  var settingsTargets = new Map();
 
   /** 为指定脚本构造受控 API（每个脚本一份，命令/入口互不可见对方内部状态） */
   function makeChushi(scriptKey) {
@@ -63,6 +70,8 @@
      * onResize(cb)：订阅宿主玻璃容器快照（[{fx,key,w,h,radius}]），
      *   订阅即推全量，后续尺寸/增减变化随推；返回退订函数。 */
     var fxResizeCbs = [];
+    var settingsCbs = [];
+    settingsTargets.set(scriptKey, settingsCbs);
 
     function fxApi(op, id, html) {
       post({ type: "api", op: op, scriptKey: scriptKey, fxId: id, html: html });
@@ -160,6 +169,40 @@
           return function () {
             var i = fxResizeCbs.indexOf(cb);
             if (i >= 0) fxResizeCbs.splice(i, 1);
+          };
+        },
+      },
+      /* ---------- 设置面（v1.2.0）：预设向设置面板贡献调节项 ----------
+       * define(schema)：声明白名单控件（slider/toggle/select），宿主校验后
+       *   渲染进设置面板（整组拒绝制）；启动期同步调用一次即可。
+       * get()：Promise<values> —— 宿主按当前 schema 校验持久化值并补默认值；
+       *   消息有序，define 先于 get 到达宿主，get 必然按本脚本 schema 合并。
+       * onChange(cb)：用户在设置面板改动时回调（values 为整组），返回退订函数。 */
+      settings: {
+        define: function (schema) {
+          post({ type: "api", op: "settingsDefine", scriptKey: scriptKey, schema: schema });
+        },
+        get: function () {
+          return new Promise(function (resolve) {
+            var t = setTimeout(function () {
+              delete pendingSettings[scriptKey];
+              resolve({});
+            }, 8000);
+            pendingSettings[scriptKey] = {
+              f: function (v) {
+                clearTimeout(t);
+                resolve(v || {});
+              },
+            };
+            post({ type: "api", op: "settingsGet", scriptKey: scriptKey });
+          });
+        },
+        onChange: function (cb) {
+          if (typeof cb !== "function") return function () {};
+          settingsCbs.push(cb);
+          return function () {
+            var i = settingsCbs.indexOf(cb);
+            if (i >= 0) settingsCbs.splice(i, 1);
           };
         },
       },
@@ -393,6 +436,32 @@ window.addEventListener("message", function (e) {
       if (p) {
         delete pendingFx[fid];
         p.f({ ok: m.ok === true, message: str(m.message, 100) });
+      }
+      return;
+    }
+
+    if (m.type === "settingsValues" && typeof m.scriptKey === "string") {
+      /* get 回执：兑现 pending（宿主已按 schema 校验并补默认值） */
+      var ps = pendingSettings[m.scriptKey];
+      if (ps) {
+        delete pendingSettings[m.scriptKey];
+        var vals = m.values && typeof m.values === "object" ? m.values : {};
+        ps.f(vals);
+      }
+      return;
+    }
+
+    if (m.type === "settingsPush" && typeof m.scriptKey === "string") {
+      /* 设置面板变更推送：整组 values 派发给本脚本 onChange 回调 */
+      var cbs = settingsTargets.get(m.scriptKey);
+      if (!cbs || cbs.length === 0) return;
+      var pv = m.values && typeof m.values === "object" ? m.values : {};
+      for (var sj = 0; sj < cbs.length; sj++) {
+        try {
+          cbs[sj](pv);
+        } catch (err) {
+          post({ type: "runtimeError", message: errMsg(err) });
+        }
       }
       return;
     }

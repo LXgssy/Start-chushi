@@ -129,8 +129,12 @@ export default function ContextMenu({
             role="menu"
             aria-label="初始快捷菜单"
           >
-            {actions.map((a) => (
-              <div key={a.id}>
+            {actions.map((a, i) => (
+              <div
+                key={a.id}
+                className="ctx-item"
+                style={{ ["--ci" as string]: i } as React.CSSProperties}
+              >
                 {a.sep && <div className="mx-2 my-1 h-px bg-zinc-900/[0.06] dark:bg-white/[0.06]" />}
                 <button
                   type="button"
