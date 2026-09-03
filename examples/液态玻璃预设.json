@@ -2,20 +2,13 @@
   "chushi": 1,
   "name": "液态玻璃",
   "author": "初始",
-  "description": "调用「初始」内建的玻璃游乐场液态玻璃引擎：WebGL 光学折射（circleMap 透镜剖面 × SDF 梯度 × 7 通道色散 × 16-tap 高斯霜化），物理模型移植自 martin65536/liquid-glass-webgl（原型 Kyant0/AndroidLiquidGlass）；折射高度/折射量/模糊/色散/饱和度等游乐场滑杆可在设置面板热调",
+  "description": "调用「初始」内建实时液态玻璃引擎：物理透镜边缘折射（负量内采样，对齐 Apple 观感）、可选色散；折射/霜化/覆盖范围等八项可在设置面板热调",
   "commands": [
     {
       "title": "什么是液态玻璃",
       "action": {
         "type": "copy",
-        "text": "液态玻璃：引擎内建于「初始」并在可见文档中以 rAF 实时渲染，光学管线为 WebGL——球面透镜剖面（circleMap）× 圆角矩形 SDF 梯度 × 负量内采样（凸透镜放大，对齐 Apple/Kyant0 的 refractionAmount −24dp）× 7 通道 ROYGBV 色散 × Vogel 金角螺旋高斯霜化 × 边缘高光描边。物理模型与参数体系移植自「玻璃游乐场」liquid-glass-webgl（作者 martin65536，Apache-2.0），其原型为 Kyant0/AndroidLiquidGlass（作者 Kyant0，Apache-2.0）。本预设向设置面板贡献游乐场同款调节滑杆，实时热调。"
-      }
-    },
-    {
-      "title": "关于作者与出处",
-      "action": {
-        "type": "copy",
-        "text": "液态玻璃效果移植自：liquid-glass-webgl（玻璃游乐场）https://github.com/martin65536/liquid-glass-webgl ，作者 martin65536，Apache-2.0 许可；其原型为 Kyant0 的 Android 液态玻璃项目 https://github.com/Kyant0/AndroidLiquidGlass ，作者 Kyant0，Apache-2.0 许可。「初始」按自身 DOM 架构做了适配移植，在此向两位作者致谢。"
+        "text": "液态玻璃：引擎内建于「初始」并在可见文档中以 rAF 实时渲染——物理透镜位移贴图（SDF 梯度方向 + 负量内采样凸透镜折射 + 边缘窄带），布局/弹簧动画期间折射全程在线不冻结；本预设向设置面板贡献八项调节（Chromium 系完整生效，其余内核自动保持磨砂）。"
       }
     }
   ],
@@ -23,7 +16,7 @@
     {
       "id": "engine",
       "name": "液态玻璃",
-      "code": "/* ============================================================\n * 液态玻璃预设 v5 —— 调用「初始」宿主内建引擎（v1.5.0 玻璃游乐场移植版）\n * ============================================================\n * 架构（v1.5.0 定稿）：引擎代码内建于宿主（WebGL 光学管线 + rAF 实时\n * 渲染），本预设只做两件事：\n *   ① 经 chushi.settings.define 向设置面板贡献游乐场同款调节项（热调即生效）；\n *   ② 经 chushi.glass.enable/patch 调用引擎（配置逐字段白名单夹紧）。\n * 物理模型/参数体系移植自 liquid-glass-webgl（玻璃游乐场）\n *   https://github.com/martin65536/liquid-glass-webgl （作者 martin65536，Apache-2.0）\n * 原型：Kyant0/AndroidLiquidGlass（作者 Kyant0，Apache-2.0）\n * ============================================================ */\n\nchushi.settings.define({\n  title: \"液态玻璃 · 玻璃游乐场\",\n  controls: [\n    { type: \"slider\", key: \"refractionHeight\", label: \"折射高度\", min: 0, max: 48, step: 1, def: 24, unit: \"px\" },\n    { type: \"slider\", key: \"refractionAmount\", label: \"折射强度\", min: 0, max: 48, step: 1, def: 24, unit: \"px\" },\n    { type: \"slider\", key: \"blur\", label: \"模糊半径\", min: 0, max: 32, step: 1, def: 8, unit: \"px\" },\n    { type: \"slider\", key: \"chromaticPct\", label: \"色散强度\", min: 0, max: 100, step: 5, def: 0, unit: \"%\" },\n    { type: \"slider\", key: \"saturation\", label: \"饱和度\", min: 100, max: 260, step: 5, def: 150, unit: \"%\" },\n    { type: \"slider\", key: \"brightness\", label: \"透亮\", min: 85, max: 115, step: 1, def: 100, unit: \"%\" },\n    { type: \"toggle\", key: \"highlight\", label: \"边缘高光\", def: true },\n    {\n      type: \"select\",\n      key: \"coverage\",\n      label: \"覆盖范围\",\n      def: \"full\",\n      options: [\n        { value: \"full\", label: \"全部玻璃面\" },\n        { value: \"core\", label: \"基础四区\" },\n      ],\n    },\n  ],\n});\n\n/* 启用：读持久化设置（宿主已按 schema 校验夹紧）整组传入引擎 */\nfunction toEngine(v) {\n  var cfg = {};\n  for (var k in v) cfg[k] = v[k];\n  /* 色散滑杆以百分比输入，引擎语义为 0..1 */\n  if (typeof cfg.chromaticPct === \"number\") {\n    cfg.chromatic = cfg.chromaticPct / 100;\n    delete cfg.chromaticPct;\n  }\n  return cfg;\n}\n\nvar v = await chushi.settings.get();\nvar first = await chushi.glass.enable(toEngine(v));\nif (first && first.ok === false) {\n  chushi.notify({ title: \"液态玻璃\", description: first.message || \"引擎启用失败\" });\n}\n\n/* 设置面板热调：整组值直接 patch 引擎（引擎侧逐字段夹紧） */\nchushi.settings.onChange(function (x) {\n  chushi.glass.patch(toEngine(x));\n});\n"
+      "code": "/* ============================================================\n * 液态玻璃预设 v4（v1.6.0 · 玻璃游乐场设置移植版）\n * ============================================================\n * 出处与作者（法律与诚意声明，勿删）：\n *   玻璃参数体系与设置面板忠实移植自开源项目 liquid-glass-webgl\n *   （「玻璃游乐场」，浏览器版 iOS 液态玻璃）：\n *     仓库：https://github.com/martin65536/liquid-glass-webgl （Apache-2.0）\n *     作者：martin65536（Z.ai Agent 辅助开发）\n *   原型：Kyant0/AndroidLiquidGlass（Apache-2.0，作者 Kyant0）。\n *\n * 设置面板 = 玻璃游乐场 GlassPlaygroundContent 控制板的全量移植\n * （catalog/build-glass-playground.ts sliderDefs，除「圆角半径」外全部）：\n *   Blur radius          → 模糊半径   0–32 px（playground blurRadiusDp）\n *   Refraction height    → 折射高度   0–48 px（refractionHeightFrac×短边/2 同量级）\n *   Refraction amount    → 折射量     0–48 px（refractionAmountFrac×短边 同量级）\n *   Chromatic aberration → 色差       0–100%（chromaticAberration 0..1）\n * 另附「初始」应用特有的覆盖范围（core 四区 / full 全部玻璃面）。\n * 热调即生效（settings.onChange → chushi.glass.patch）。\n * ============================================================ */\n\nchushi.settings.define({\n  title: \"液态玻璃\",\n  controls: [\n    { type: \"slider\", key: \"blur\", label: \"模糊半径\", min: 0, max: 32, step: 1, def: 8, unit: \"px\" },\n    { type: \"slider\", key: \"refractionHeight\", label: \"折射高度\", min: 0, max: 48, step: 1, def: 24, unit: \"px\" },\n    { type: \"slider\", key: \"refractionAmount\", label: \"折射量\", min: 0, max: 48, step: 1, def: 24, unit: \"px\" },\n    { type: \"slider\", key: \"chromatic\", label: \"色差\", min: 0, max: 100, step: 5, def: 0, unit: \"%\" },\n    {\n      type: \"select\",\n      key: \"coverage\",\n      label: \"覆盖范围\",\n      def: \"full\",\n      options: [\n        { value: \"full\", label: \"全部玻璃面\" },\n        { value: \"core\", label: \"基础四区\" },\n      ],\n    },\n  ],\n});\n\n/* 游乐场滑杆值 → 引擎 cfg（色差 % → 0..1；饱和/亮度/高光取游乐场各页定值：\n * vibrancy 1.5、brightness 0 偏移、Highlight Default） */\nfunction toCfg(v) {\n  return {\n    refractionHeight: v.refractionHeight,\n    refractionAmount: v.refractionAmount,\n    blur: v.blur,\n    chromatic: (v.chromatic || 0) / 100,\n    saturation: 150,\n    brightness: 100,\n    highlight: true,\n    coverage: v.coverage,\n  };\n}\n\n/* 启用：读持久化设置（宿主已按 schema 校验夹紧）映射后传入引擎 */\nvar v = await chushi.settings.get();\nvar first = await chushi.glass.enable(toCfg(v));\nif (first && first.ok === false) {\n  chushi.notify({ title: \"液态玻璃\", description: first.message || \"引擎启用失败\" });\n}\n\n/* 设置面板热调：游乐场语义即时 patch 引擎 */\nchushi.settings.onChange(function (x) {\n  chushi.glass.patch(toCfg(x));\n});\n"
     }
   ]
 }

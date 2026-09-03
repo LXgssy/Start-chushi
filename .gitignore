@@ -93,3 +93,6 @@ download/edge-store/
 /_not-found/
 /api
 /gallery
+
+# 参考仓库克隆（调研用，不入库）
+/.refs/

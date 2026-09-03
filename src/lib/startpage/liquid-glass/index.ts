@@ -10,6 +10,15 @@
 export { liquidGlass, sanitizeGlassEnable, sanitizeGlassPatch } from "./engine";
 export type { GlassConfig, GlassPatch } from "./engine";
 export {
+  TabIndicatorMotion,
+  LiquidButtonPress,
+  LiquidButtonGlobalController,
+  liquidButtons,
+  interpolateSlot,
+  type SlotRect,
+  type TabIndicatorFrame,
+} from "./dock-motion";
+export {
   springStepCritical,
   springStepUnderdamped,
   VelocityTracker1D,

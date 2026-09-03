@@ -142,10 +142,35 @@ export class TabIndicatorMotion {
     this.start();
   }
 
+  /* ---------- 按压保持（游乐场律：按住任意 tab，容器/内容/指示器同步胀） ---------- */
+  private holdPress = false;
+
+  /** 手指按住 tab（未拖动）：按压进度拉满，fraction 不动 */
+  hold() {
+    if (this.isDragging) return;
+    this.holdPress = true;
+    this.targetPress = 1;
+    this.targetScaleX = TAB_PRESSED_SCALE;
+    this.targetScaleY = TAB_PRESSED_SCALE;
+    this.start();
+  }
+
+  /** 手指松开（未发生拖拽）：按压回落（拖拽路径由自释放接管） */
+  unhold() {
+    if (!this.holdPress) return;
+    this.holdPress = false;
+    if (this.isDragging) return;
+    this.targetPress = 0;
+    this.targetScaleX = 1;
+    this.targetScaleY = 1;
+    this.start();
+  }
+
   /* ---------- 拖拽（methods-tabs.ts 移植） ---------- */
 
   beginDrag(startIndex: number, pointerX: number) {
     this.isDragging = true;
+    this.holdPress = false;
     this.dragStartIndex = startIndex;
     this.targetFraction = startIndex;
     this.targetPress = 1;
@@ -190,6 +215,23 @@ export class TabIndicatorMotion {
     return final;
   }
 
+  /** 强制复位（拖拽中断兜底：pointer capture 丢失/模式切换/卸载）。
+   *  v1.5.0 实证：鼠标拖出 nav 外松手时 nav 收不到 pointerup，
+   *  isDragging 永久卡 true → 自释放被阻断 → 指示器「概率不会变小」。 */
+  cancel() {
+    this.isDragging = false;
+    this.holdPress = false;
+    this.targetPress = 0;
+    this.targetScaleX = 1;
+    this.targetScaleY = 1;
+    this.targetPanelOffset = 0;
+    this.targetVelocity = 0;
+    this.velocity = 0;
+    this.velocityVel = 0;
+    this.tracker.resetTracking();
+    this.start();
+  }
+
   /* ---------- 渲染循环（闭式弹簧逐帧推进） ---------- */
 
   private start() {
@@ -218,8 +260,13 @@ export class TabIndicatorMotion {
       this.fractionVel = 0;
     }
 
-    /* press：临界阻尼 spring(1f, 1000f) + 稳定自释放 */
-    if (this.targetPress === 1 && !this.isDragging && Math.abs(this.targetFraction - this.fraction) < 0.08) {
+    /* press：临界阻尼 spring(1f, 1000f) + 稳定自释放（按住期间不释放） */
+    if (
+      this.targetPress === 1 &&
+      !this.isDragging &&
+      !this.holdPress &&
+      Math.abs(this.targetFraction - this.fraction) < 0.08
+    ) {
       this.targetPress = 0;
       this.targetScaleX = 1;
       this.targetScaleY = 1;
@@ -292,17 +339,7 @@ export class TabIndicatorMotion {
     }
 
     if (animating && this.onUpdate) {
-      /* 速度拉伸（divisor 10，transform 律移植） */
-      const vel = this.velocity / 10;
-      const velX = Math.max(-0.2, Math.min(0.2, vel * 0.75));
-      const velY = Math.max(-0.2, Math.min(0.2, vel * 0.25));
-      this.onUpdate({
-        fraction: this.fraction,
-        scaleX: this.scaleX / (1 - velX),
-        scaleY: this.scaleY * (1 - velY),
-        panelOffset: this.panelOffset,
-        press: Math.max(0, Math.min(1, this.press)),
-      });
+      this.emitFrame(true);
       this.raf = requestAnimationFrame(this.step);
     } else {
       /* 稳定：若吸附索引变化，通知 React */
@@ -313,15 +350,30 @@ export class TabIndicatorMotion {
           this.onSelect(sel);
         }
       }
-      this.onUpdate?.({
-        fraction: this.fraction,
-        scaleX: this.scaleX,
-        scaleY: this.scaleY,
-        panelOffset: this.panelOffset,
-        press: Math.max(0, Math.min(1, this.press)),
-      });
+      this.emitFrame(false);
     }
   };
+
+  /** 发射当前帧（stretch：速度拉伸 divisor 10，transform 律移植） */
+  private emitFrame(animating: boolean) {
+    if (!this.onUpdate) return;
+    const vel = this.velocity / 10;
+    const velX = Math.max(-0.2, Math.min(0.2, vel * 0.75));
+    const velY = Math.max(-0.2, Math.min(0.2, vel * 0.25));
+    this.onUpdate({
+      fraction: this.fraction,
+      scaleX: animating ? this.scaleX / (1 - velX) : this.scaleX,
+      scaleY: animating ? this.scaleY * (1 - velY) : this.scaleY,
+      panelOffset: this.panelOffset,
+      press: Math.max(0, Math.min(1, this.press)),
+    });
+  }
+
+  /** 立即发射一帧当前状态（无动画启动）：初始挂载/槽位几何重测时对齐胶囊
+   *  位置——常显指示器若不初对齐，胶囊永远零宽不可见 */
+  emitNow() {
+    this.emitFrame(false);
+  }
 
   private lastNotified = 0;
 
@@ -466,3 +518,127 @@ export class LiquidButtonPress {
     this.onUpdate({ scale, tx, ty, press: Math.max(0, Math.min(1, this.p)) });
   }
 }
+
+/* ============================================================
+ * 全局按钮按压控制器（v1.6.0 · 玻璃模式专用）
+ * ============================================================
+ * 「移植覆盖所有按钮」律：液态玻璃启用时，全文档 button / a[href] /
+ * [role=button] 一律获得 LiquidButton 按压动效（事件委托 + Weak 表，
+ * 免逐组件接线，预设动态插入的 DOM 同样覆盖）；
+ * 非玻璃模式 setEnabled(false) 完全静默（新动效只给玻璃用）。
+ * 底栏 tab 按钮豁免（data-lg-tab）：它们走指示器组按压（1.2× 内容缩放，
+ * LiquidBottomTabs 律），不再叠自身按钮缩放（v1.5.0 双重放大病根）。
+ * ============================================================ */
+
+const INTERACTIVE_SEL = "button, [role='button'], a[href], summary";
+
+export class LiquidButtonGlobalController {
+  private on = false;
+  private presses = new Map<HTMLElement, LiquidButtonPress>();
+  private pointerEl = new Map<number, HTMLElement>();
+
+  private ensure(el: HTMLElement): LiquidButtonPress {
+    let lp = this.presses.get(el);
+    if (!lp) {
+      lp = new LiquidButtonPress();
+      lp.onUpdate = ({ scale, tx, ty, press }) => {
+        if (!el.isConnected) return;
+        if (scale <= 1.001 && Math.abs(tx) < 0.05 && Math.abs(ty) < 0.05 && press < 0.004) {
+          /* 落定：清内联样式，交还 hover/入场动画（容差清零律——
+            闭式弹簧末帧未必恰好 =1，逐帧等精确 1 会残留 data-lg-press） */
+          el.style.removeProperty("transform");
+          el.style.removeProperty("--press-p");
+          el.removeAttribute("data-lg-press");
+        } else {
+          el.style.transform = `translate(${tx.toFixed(2)}px, ${ty.toFixed(2)}px) scale(${scale.toFixed(4)})`;
+          el.style.setProperty("--press-p", press.toFixed(3));
+          el.setAttribute("data-lg-press", "1");
+        }
+      };
+      this.presses.set(el, lp);
+    }
+    return lp;
+  }
+
+  private glow(el: HTMLElement, e: PointerEvent) {
+    const r = el.getBoundingClientRect();
+    el.style.setProperty("--press-x", `${(((e.clientX - r.left) / Math.max(1, r.width)) * 100).toFixed(1)}%`);
+    el.style.setProperty("--press-y", `${(((e.clientY - r.top) / Math.max(1, r.height)) * 100).toFixed(1)}%`);
+  }
+
+  private down = (e: PointerEvent) => {
+    if (!this.on || e.button !== 0) return;
+    const target = e.target as Element | null;
+    if (!target || typeof target.closest !== "function") return;
+    const el = target.closest(INTERACTIVE_SEL) as HTMLElement | null;
+    if (!el || el.hasAttribute("disabled") || el.getAttribute("aria-disabled") === "true") return;
+    if (el.isContentEditable) return;
+    /* tab 按钮走指示器组按压；标记段（编辑模式磁贴）不叠按压 */
+    if (el.closest("[data-lg-tab],[data-no-lg-press]")) return;
+    const lp = this.ensure(el);
+    this.pointerEl.set(e.pointerId, el);
+    this.glow(el, e);
+    lp.press(e.clientX, e.clientY);
+  };
+
+  private move = (e: PointerEvent) => {
+    if (!this.on) return;
+    const el = this.pointerEl.get(e.pointerId);
+    if (!el) return;
+    if (!(e.buttons & 1)) return;
+    this.glow(el, e);
+    this.presses.get(el)?.move(e.clientX, e.clientY);
+  };
+
+  private up = (e: PointerEvent) => {
+    const el = this.pointerEl.get(e.pointerId);
+    if (!el) return;
+    this.pointerEl.delete(e.pointerId);
+    const lp = this.presses.get(el);
+    if (lp) {
+      lp.release();
+      if (!el.isConnected) {
+        lp.dispose();
+        this.presses.delete(el);
+      }
+    }
+  };
+
+  /** nav 级拖拽接管时取消进行中的按压（拖拽优先律） */
+  cancelAll() {
+    for (const lp of this.presses.values()) lp.release();
+    this.pointerEl.clear();
+  }
+
+  /** 玻璃模式开关（非玻璃模式零监听零样式，新动效只给玻璃用） */
+  setEnabled(on: boolean) {
+    if (on === this.on) return;
+    this.on = on;
+    if (on) {
+      document.addEventListener("pointerdown", this.down, true);
+      document.addEventListener("pointermove", this.move, true);
+      document.addEventListener("pointerup", this.up, true);
+      document.addEventListener("pointercancel", this.up, true);
+    } else {
+      document.removeEventListener("pointerdown", this.down, true);
+      document.removeEventListener("pointermove", this.move, true);
+      document.removeEventListener("pointerup", this.up, true);
+      document.removeEventListener("pointercancel", this.up, true);
+      this.cancelAll();
+      /* 清退所有残留：内联 transform/白晕归零 */
+      for (const [el, lp] of [...this.presses]) {
+        lp.dispose();
+        if (el.isConnected) {
+          el.style.removeProperty("transform");
+          el.style.removeProperty("--press-p");
+          el.removeAttribute("data-lg-press");
+        }
+      }
+      this.presses.clear();
+    }
+  }
+}
+
+/** 全局单例（page.tsx 按液态玻璃启停接线） */
+export const liquidButtons = new LiquidButtonGlobalController();
+
