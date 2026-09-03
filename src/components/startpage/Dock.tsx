@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import React, { memo, useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { PresenceClass } from "./PresenceClass";
 import { useMorphHeight } from "./use-morph-height";
@@ -12,6 +12,7 @@ import {
   Settings2,
   Timer,
 } from "lucide-react";
+import { FxIcon } from "./FxIcon";
 import WeatherGlyph from "./WeatherGlyph";
 import WeatherPanel from "./WeatherPanel";
 import TodoPanel from "./TodoPanel";
@@ -167,14 +168,7 @@ const PanelStage = memo(function PanelStage({
             aria-label="关闭面板"
             className="absolute right-3.5 top-3.5 z-10 rounded-full p-1.5 text-zinc-400 opacity-70 transition-all duration-200 hover:bg-zinc-900/5 hover:opacity-100 dark:text-zinc-500 dark:hover:bg-white/10"
           >
-            <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden>
-              <path
-                d="M2 2l8 8M10 2l-8 8"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                strokeLinecap="round"
-              />
-            </svg>
+            <FxIcon slot="dock-close" fallback={XGlyph} className="h-[11px] w-[11px]" />
           </button>
 
           {/* 高度盒：打开从 0 弹簧展开（initial height 0）+ 切换 px 弹簧 + 关闭折回 0
@@ -321,7 +315,7 @@ export default function Dock({
           {weather.code != null ? (
             <WeatherGlyph code={weather.code} size={16} />
           ) : (
-            <CloudSun className="h-[17px] w-[17px]" strokeWidth={1.5} />
+            <FxIcon slot="dock-weather" fallback={CloudSun} className="h-[17px] w-[17px]" strokeWidth={1.5} />
           )}
           {weather.temp != null && (
             <span className="ml-1 tabular-nums text-xs">{weather.temp}°</span>
@@ -337,7 +331,7 @@ export default function Dock({
           badge={undone > 0 ? undone : undefined}
           onClick={() => switchTo(panel === "todo" ? null : "todo")}
         >
-          <CheckSquare className="h-[17px] w-[17px]" strokeWidth={1.5} />
+          <FxIcon slot="dock-todo" fallback={CheckSquare} className="h-[17px] w-[17px]" strokeWidth={1.5} />
         </DockButton>
 
         {/* 便签 */}
@@ -346,7 +340,7 @@ export default function Dock({
           label="便签"
           onClick={() => switchTo(panel === "note" ? null : "note")}
         >
-          <NotebookPen className="h-[17px] w-[17px]" strokeWidth={1.5} />
+          <FxIcon slot="dock-note" fallback={NotebookPen} className="h-[17px] w-[17px]" strokeWidth={1.5} />
         </DockButton>
 
         {/* 番茄钟：选框真实布局拉伸展开（图标不变形）；分钟旁呼吸灯——计时中闪动，暂停时常亮；
@@ -357,7 +351,7 @@ export default function Dock({
           label={pomoText ? `番茄钟 剩余 ${pomoText} 分钟` : "番茄钟"}
           onClick={() => switchTo(panel === "pomodoro" ? null : "pomodoro")}
         >
-          <Timer className="h-[17px] w-[17px]" strokeWidth={1.5} />
+          <FxIcon slot="dock-pomodoro" fallback={Timer} className="h-[17px] w-[17px]" strokeWidth={1.5} />
           <AnimatePresence initial={false}>
             {pomoText && (
               <motion.span
@@ -395,7 +389,7 @@ export default function Dock({
 
         {/* 命令面板 */}
         <DockButton active={false} label="指令 ⌘K" onClick={openPalette}>
-          <Command className="h-[17px] w-[17px]" strokeWidth={1.5} />
+          <FxIcon slot="dock-cmdk" fallback={Command} className="h-[17px] w-[17px]" strokeWidth={1.5} />
           <kbd className="pointer-events-none absolute -bottom-9 left-1/2 hidden -translate-x-1/2 whitespace-nowrap rounded-md border border-zinc-900/10 bg-white/80 px-1.5 py-0.5 font-sans text-[10px] tracking-wider text-zinc-500 opacity-0 shadow-sm backdrop-blur transition-opacity duration-300 group-hover:opacity-100 sm:block dark:border-white/10 dark:bg-[#17171c]/90 dark:text-zinc-400">
             ⌘K
           </kbd>
@@ -409,7 +403,7 @@ export default function Dock({
           label="设置"
           onClick={() => switchTo(panel === "settings" ? null : "settings")}
         >
-          <Settings2 className="h-[17px] w-[17px]" strokeWidth={1.5} />
+          <FxIcon slot="dock-settings" fallback={Settings2} className="h-[17px] w-[17px]" strokeWidth={1.5} />
         </DockButton>
 
         {/* 预设注册的 tab 栏按钮（声明式，来自已安装预设，上限 3 个） */}
@@ -460,6 +454,15 @@ export default function Dock({
 
 function Divider() {
   return <span aria-hidden className="mx-1 h-5 w-px bg-[var(--pill-line)]" />;
+}
+
+/** 面板关闭图标（原内联 SVG 的组件化 fallback，供 FxIcon dock-close 槽位回落） */
+function XGlyph(props: React.SVGProps<SVGSVGElement>) {
+  return (
+    <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden {...props}>
+      <path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
 }
 
 function DockButton({
