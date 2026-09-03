@@ -51,8 +51,11 @@ export type SandboxEvent =
 
 /** fx 视觉效果面（v1.1.3）：mount/unmount/subscribe 由 fxHost 执行，
  *  结果经 fxResult 回报沙箱；预设卸载/脚本冻结时挂载与订阅全部回收。
- *  液态玻璃引擎（v1.3.0）：**内建于宿主**（liquid-glass.ts，rAF 实时渲染），
- *  预设脚本经 chushi.glass.enable/patch/disable 调用，配置白名单校验后转入。
+ *  液态玻璃引擎（v1.5.0 玻璃游乐场移植版）：**内建于宿主**
+ *  （liquid-glass/ 目录，WebGL 光学管线，rAF 实时渲染），预设脚本经
+ *  chushi.glass.enable/patch/disable 调用，配置白名单校验后转入；
+ *  物理模型/参数体系/动效移植自 https://github.com/martin65536/liquid-glass-webgl
+ *  （作者 martin65536，Apache-2.0），原型 Kyant0/AndroidLiquidGlass。
  *  设置面（v1.2.0）：settingsDefine/settingsGet 由桥校验与回执，
  *  schema 白名单与持久化工具见 preset-settings.ts。
  *  v1.3.0：fxBackdrop（背景事实数据+位图 transfer）/ fxCanvas（画布
@@ -107,19 +110,19 @@ const caps = {
  *  ?v= 供部署后冲掉 SW cache-first 旧缓存 */
 function sandboxSrc(): string {
   const base = (process.env.NEXT_PUBLIC_BASE_PATH as string | undefined) ?? "";
-  return `${base}/sandbox.html?v=116`;
+  return `${base}/sandbox.html?v=117`;
 }
 
 /** 沙箱页面模式地址（自定义页 overlay 用）：mode=page 下运行时仅充当页面宿主 */
 export function sandboxPageSrc(): string {
   const base = (process.env.NEXT_PUBLIC_BASE_PATH as string | undefined) ?? "";
-  return `${base}/sandbox.html?mode=page&v=116`;
+  return `${base}/sandbox.html?mode=page&v=117`;
 }
 
 /** 沙箱小部件模式地址（角落小部件用）：mode=widget 下运行时仅充当部件宿主 */
 export function sandboxWidgetSrc(): string {
   const base = (process.env.NEXT_PUBLIC_BASE_PATH as string | undefined) ?? "";
-  return `${base}/sandbox.html?mode=widget&v=116`;
+  return `${base}/sandbox.html?mode=widget&v=117`;
 }
 
 type Msg = { type?: unknown } & Record<string, unknown>;
@@ -436,7 +439,7 @@ class SandboxBridge {
       case "glassEnable":
       case "glassPatch":
       case "glassDisable": {
-        /* 液态玻璃引擎作用面（v1.3.0）：配置白名单校验/夹紧后转引擎；
+        /* 液态玻璃引擎作用面（v1.5.0 游乐场移植版）：配置白名单校验/夹紧后转引擎；
          * 结果经 glassResult 回执沙箱 pending（同 fxResult 律） */
         const gk = s(m.scriptKey, 80);
         if (!gk || !this.scripts.some((x) => x.key === gk)) return;

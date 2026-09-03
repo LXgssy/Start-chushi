@@ -322,13 +322,15 @@
           };
         },
       },
-      /* ---------- 液态玻璃引擎调用面（v1.3.0）----------
-       * 引擎内建于宿主（实时 rAF 渲染），预设只传材质配置：
+      /* ---------- 液态玻璃引擎调用面（v1.5.0 玻璃游乐场移植版）----------
+       * 引擎内建于宿主（WebGL 光学管线 + rAF 实时渲染），预设只传游乐场语义配置：
        * enable(cfg)：启用并持有引擎（单持有者，他预设已持有时 ok:false）；
-       * patch(cfg)：热更新部分参数（折射/霜化/覆盖范围等）；
-       * disable()：停用并交还引擎。cfg 字段：refraction/band/frost/
-       *   saturation/brightness（数值）、dispersion/specular（布尔）、
-       *   coverage（"core"|"full"）；宿主逐字段夹紧，非法回默认。 */
+       * patch(cfg)：热更新部分参数（折射高度/折射量/模糊/色散等）；
+       * disable()：停用并交还引擎。cfg 字段：refractionHeight/refractionAmount/
+       *   blur（px 数值）、chromatic（0..1）、saturation/brightness（%），
+       *   highlight（布尔）、coverage（"core"|"full"）；宿主逐字段夹紧，非法回默认。
+       * 物理模型/参数体系移植自 https://github.com/martin65536/liquid-glass-webgl
+       *   （作者 martin65536，Apache-2.0），原型 Kyant0/AndroidLiquidGlass。 */
       glass: {
         enable: function (cfg) { return glassApi("glassEnable", cfg); },
         patch: function (cfg) { return glassApi("glassPatch", cfg); },
