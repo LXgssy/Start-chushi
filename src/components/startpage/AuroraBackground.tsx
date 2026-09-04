@@ -2,7 +2,7 @@
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { BackgroundMode } from "@/lib/startpage/types";
-import { resolveWallpaper } from "@/lib/startpage/gallery";
+import { resolveWallpaper, wallpaperKindOf, type WallpaperKind } from "@/lib/startpage/gallery";
 import { idbGet } from "@/lib/startpage/idb";
 
 type Phase = "dawn" | "day" | "dusk" | "night";
@@ -44,17 +44,49 @@ function preloadImage(url: string): Promise<void> {
   });
 }
 
+/** 视频预热：等 canplay（可首播）或 2s 预算内放行——视频体积大，
+ *  全量缓冲不值得等，黑幕揭开后边播边缓冲即可 */
+function preloadVideo(url: string): Promise<void> {
+  return new Promise((resolve) => {
+    const v = document.createElement("video");
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      v.removeAttribute("src");
+      v.load();
+      resolve();
+    };
+    v.muted = true;
+    v.preload = "auto";
+    v.oncanplay = finish;
+    v.onerror = finish;
+    window.setTimeout(finish, 2000);
+    v.src = url;
+  });
+}
+
+function preloadMedia(url: string, kind: WallpaperKind): Promise<void> {
+  return kind === "video" ? preloadVideo(url) : preloadImage(url);
+}
+
 function AuroraBackground({
   mode,
   photoId,
+  wallpaperUrl = "",
 }: {
   mode: BackgroundMode;
   photoId: string;
+  /** 自定义壁纸的 URL 导入源（v1.7.2）：非空时优先于 IndexedDB 本地文件 */
+  wallpaperUrl?: string;
 }) {
   const [phase, setPhase] = useState<Phase>("night");
   const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
   const [customUrl, setCustomUrl] = useState<string | null>(null);
+  const [customKind, setCustomKind] = useState<WallpaperKind>("image");
   const blobUrlRef = useRef<string | null>(null);
+  const customKindRef = useRef<WallpaperKind>("image");
+  const customUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
     const update = () => setPhase(phaseOf(new Date().getHours()));
@@ -70,10 +102,29 @@ function AuroraBackground({
   }, [photoId]);
   const galleryUrl = galleryMeta?.url ?? null;
 
-  /* 自定义壁纸：IndexedDB 异步读取（setState 位于异步回调） */
+  /* 自定义壁纸（v1.7.2）：URL 导入优先（远程图片/视频直链，零下载持久化），
+     否则回退 IndexedDB 本地上传（Blob objectURL）。两种来源互斥由设置侧维护。
+     photoId 离开 custom 时同步清引用，避免下次回到 custom 时闪旧画面 */
   useEffect(() => {
-    if (photoId !== "custom") return;
+    if (photoId !== "custom") {
+      customUrlRef.current = null;
+      return;
+    }
     let alive = true;
+    if (wallpaperUrl) {
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+        blobUrlRef.current = null;
+      }
+      const k = wallpaperKindOf(wallpaperUrl);
+      customKindRef.current = k;
+      customUrlRef.current = wallpaperUrl;
+      setCustomKind(k);
+      setCustomUrl(wallpaperUrl);
+      return () => {
+        alive = false;
+      };
+    }
     idbGet<Blob>("custom-wallpaper").then((blob) => {
       if (!alive) return;
       if (!blob) {
@@ -83,12 +134,16 @@ function AuroraBackground({
       if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
       const url = URL.createObjectURL(blob);
       blobUrlRef.current = url;
+      const k = wallpaperKindOf(url, blob.type);
+      customKindRef.current = k;
+      customUrlRef.current = url;
+      setCustomKind(k);
       setCustomUrl(url);
     });
     return () => {
       alive = false;
     };
-  }, [photoId]);
+  }, [photoId, wallpaperUrl]);
 
   /* 卸载时回收 objectURL */
   useEffect(() => {
@@ -171,12 +226,14 @@ function AuroraBackground({
       /* 2) 黑透瞬间：切换画面身份（挂载/卸载都发生在全黑之下，无瞬跳） */
       shownRef.current = targetKey;
       setShownKey(targetKey);
-      /* 3) 新壁纸预热解码后揭示（带预算竞速，网络悬挂不卡黑屏） */
+      /* 3) 新壁纸预热解码后揭示（带预算竞速，网络悬挂不卡黑屏；视频按 canplay 放行） */
       if (toPhoto && !targetKey.endsWith(":none")) {
-        await Promise.race([
-          preloadImage(targetKey.slice("photo:".length)),
-          wait(PRELOAD_BUDGET),
-        ]);
+        const url = targetKey.slice("photo:".length);
+        const kind =
+          url === customUrlRef.current
+            ? customKindRef.current
+            : wallpaperKindOf(url);
+        await Promise.race([preloadMedia(url, kind), wait(PRELOAD_BUDGET)]);
         if (!alive) return;
         await wait(REVEAL_DELAY);
         if (!alive) return;
@@ -208,6 +265,12 @@ function AuroraBackground({
       ? shownKey.slice("photo:".length)
       : null;
   const photoReady = shownUrl != null && loadedUrl === shownUrl;
+  /* 显示中的媒体形态：blob/URL 源用记录值；图库恒为静态图（kenburns 专属） */
+  const shownKind: WallpaperKind = shownUrl
+    ? shownUrl === customUrlRef.current
+      ? customKindRef.current
+      : wallpaperKindOf(shownUrl)
+    : "image";
 
   return (
     <div aria-hidden className="fixed inset-0 -z-10 overflow-hidden">
@@ -230,20 +293,39 @@ function AuroraBackground({
 
       {/* 摄影壁纸层：挂载身份 = 显示身份，换图发生在黑幕全黑时刻。
           黑幕掩护下免渐入（揭幕即完整画面，根除米白底透出的白闪）；
-          黑幕外直切（自定义壁纸就绪）保留 1800ms 自身柔化渐显 */}
+          黑幕外直切（自定义壁纸就绪）保留 1800ms 自身柔化渐显。
+          v1.7.2：视频走 <video muted loop>（kenburns 让位于视频自身动效），
+          GIF 走 <img> 同样免 kenburns（自身已动，叠加易晕） */}
       {shownUrl && (
         <div key={shownUrl} className="absolute inset-0">
-          <img
-            src={shownUrl}
-            alt=""
-            data-wallpaper
-            data-thumb={galleryMeta?.thumb ?? undefined}
-            onLoad={() => setLoadedUrl(shownUrl)}
-            onError={() => setLoadedUrl(null)}
-            className={`kenburns absolute inset-0 h-full w-full object-cover transition-opacity ${
-              veiled ? "duration-0" : "duration-[1800ms]"
-            } ${photoReady ? "opacity-100" : "opacity-0"}`}
-          />
+          {shownKind === "video" ? (
+            <video
+              src={shownUrl}
+              muted
+              loop
+              autoPlay
+              playsInline
+              preload="auto"
+              onCanPlay={() => setLoadedUrl(shownUrl)}
+              onError={() => setLoadedUrl(null)}
+              className={`absolute inset-0 h-full w-full object-cover transition-opacity ${
+                veiled ? "duration-0" : "duration-[1800ms]"
+              } ${photoReady ? "opacity-100" : "opacity-0"}`}
+            />
+          ) : (
+            <img
+              src={shownUrl}
+              alt=""
+              data-wallpaper
+              data-thumb={galleryMeta?.thumb ?? undefined}
+              referrerPolicy="no-referrer"
+              onLoad={() => setLoadedUrl(shownUrl)}
+              onError={() => setLoadedUrl(null)}
+              className={`${shownKind === "gif" ? "" : "kenburns "}absolute inset-0 h-full w-full object-cover transition-opacity ${
+                veiled ? "duration-0" : "duration-[1800ms]"
+              } ${photoReady ? "opacity-100" : "opacity-0"}`}
+            />
+          )}
           {/* 双层压暗：整体平底 + 上下渐变，保证浅色主题下白字亦可读 */}
           <div
             className={`photo-scrim absolute inset-0 transition-opacity ${

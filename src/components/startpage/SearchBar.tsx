@@ -298,6 +298,9 @@ function SearchBar({
                 id="search-sug-list"
                 role="listbox"
                 aria-label="搜索建议"
+                /* 鼠标移出列表即取消高亮（v1.7.2）：此前 hover 设置的 active
+                   在指针离开后残留，回车仍会命中旧选中项 */
+                onMouseLeave={() => setActive(-1)}
                 initial={{ opacity: 0, filter: "blur(6px)" }}
                 animate={{ opacity: 1, filter: "blur(0px)" }}
                 exit={{ opacity: 0, filter: "blur(6px)", transition: { duration: 0.18 } }}

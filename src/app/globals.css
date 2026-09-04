@@ -154,6 +154,26 @@
   }
 }
 
+/* ---------- 扩展环境字体锚（v1.7.2） ----------
+ * chrome-extension:// 新标签页存在一条 UA 注入的未分层 body 字体规则
+ * （CDP 实证 origin=injected：font-family 具体化 + font-size 75%），未分层
+ * 声明恒压过 @layer base —— 扩展里时钟回退系统字体：字重发虚、且冒号
+ * 双点（按 Geist 数字墨迹中心烤定，见 Clock.tsx DIGIT_INK_CENTER_EM）
+ * 失去对齐基准而偏移。此处以未分层 + 更高特异性（0,0,2 > 0,0,1）锚回
+ * 官方栈；网页版本就正常，本规则与其层叠结果一致，无副作用。 */
+html body {
+  font-family:
+    var(--font-geist-sans),
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "PingFang SC",
+    "Hiragino Sans GB",
+    "Noto Sans SC",
+    "Microsoft YaHei",
+    sans-serif;
+}
+
 /* ---------- 强调色工具类 ---------- */
 .accent-bg {
   background-color: var(--ui-accent);

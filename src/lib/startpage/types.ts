@@ -47,6 +47,9 @@ export interface Settings {
   photoLast: string;
   /** 搜索建议：键入时搜索栏向下展开联想词下拉（含高度自适应动画） */
   searchSuggest: boolean;
+  /** 掠影自定义壁纸的 URL 导入源（v1.7.2）：非空 = 使用远程图片/视频 URL；
+   *  空串 = 使用 IndexedDB 里上传的本地壁纸。两种来源互斥，导入其一即清另一 */
+  wallpaperUrl: string;
   pomodoro: PomodoroDurations;
 }
 
@@ -62,6 +65,7 @@ export const DEFAULT_SETTINGS: Settings = {
   photoId: "daily",
   photoLast: "mist-lake",
   searchSuggest: true,
+  wallpaperUrl: "",
   pomodoro: DEFAULT_DURATIONS,
 };
 

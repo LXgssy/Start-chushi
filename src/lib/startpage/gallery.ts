@@ -201,3 +201,28 @@ export function resolveWallpaper(photoId: string): {
   if (found) return { url: found.url, thumb: found.thumb, name: found.name };
   return { url: null, thumb: null, name: "自定义" };
 }
+
+/* ---------- 自定义壁纸媒体类型（v1.7.2：图片 / 动图 / 视频） ---------- */
+
+export type WallpaperKind = "image" | "gif" | "video";
+
+const VIDEO_EXT = /\.(mp4|webm|mov|m4v|ogv|ogg|mkv|avi)(\?|#|$)/i;
+const GIF_EXT = /\.gif(\?|#|$)/i;
+
+/** 判定自定义壁纸的渲染形态：优先 MIME（blob 场景），回落 URL 扩展名。
+ *  视频 → <video>；GIF → <img> 但禁 kenburns（自身已动，叠加易晕）；
+ *  其余 → <img> + kenburns。 */
+export function wallpaperKindOf(url: string, mime?: string): WallpaperKind {
+  if (mime) {
+    if (mime.startsWith("video/")) return "video";
+    if (mime === "image/gif") return "gif";
+  }
+  if (VIDEO_EXT.test(url)) return "video";
+  if (GIF_EXT.test(url)) return "gif";
+  /* URL 无扩展名时兜底探测常见直链形态：noext → 视频站直链多为 mp4/webm，
+     但无法确证；按图片处理最安全（渲染失败也只是空白图，不会 autoplay 出声） */
+  return "image";
+}
+
+/** 上传文件 accept 面：图片（含 GIF）+ 视频 */
+export const WALLPAPER_ACCEPT = "image/*,video/*";

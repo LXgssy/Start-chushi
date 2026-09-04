@@ -8,10 +8,10 @@
 
 import { memo, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ImagePlus } from "lucide-react";
+import { Clapperboard, ImagePlus, Link2 } from "lucide-react";
 import type { Settings } from "@/lib/startpage/types";
-import { GALLERY, dailyPhoto } from "@/lib/startpage/gallery";
-import { idbGet, idbSet } from "@/lib/startpage/idb";
+import { GALLERY, dailyPhoto, wallpaperKindOf, type WallpaperKind } from "@/lib/startpage/gallery";
+import { idbDel, idbGet, idbSet } from "@/lib/startpage/idb";
 import {
   readPresetSettingValues,
   type PresetSettingControl,
@@ -416,39 +416,78 @@ function SettingsPanel({
   const fileRef = useRef<HTMLInputElement>(null);
   const wallFileRef = useRef<HTMLInputElement>(null);
   const [confirmReset, setConfirmReset] = useState(false);
-  const [customUrl, setCustomUrl] = useState<string | null>(null);
+  /* 自定义壁纸缩略图（v1.7.2）：URL 导入优先展示（视频只给图标占位），
+     否则读 IndexedDB 本地文件（Blob → objectURL） */
+  const [wallThumb, setWallThumb] = useState<{ src: string | null; kind: WallpaperKind }>({
+    src: null,
+    kind: "image",
+  });
+  const [urlInput, setUrlInput] = useState("");
   const [uploadHint, setUploadHint] = useState<string | null>(null);
 
-  /* 读取自定义壁纸缩略图（IndexedDB → objectURL） */
   useEffect(() => {
-    let url: string | null = null;
     let alive = true;
+    if (settings.wallpaperUrl) {
+      setWallThumb({ src: settings.wallpaperUrl, kind: wallpaperKindOf(settings.wallpaperUrl) });
+      return;
+    }
+    let url: string | null = null;
     idbGet<Blob>(CUSTOM_WALLPAPER_KEY).then((blob) => {
-      if (!alive || !blob) return;
+      if (!alive) return;
+      if (!blob) {
+        setWallThumb({ src: null, kind: "image" });
+        return;
+      }
       url = URL.createObjectURL(blob);
-      setCustomUrl(url);
+      setWallThumb({ src: url, kind: wallpaperKindOf(url, blob.type) });
     });
     return () => {
       alive = false;
       if (url) URL.revokeObjectURL(url);
     };
-  }, []);
+  }, [settings.wallpaperUrl]);
 
   async function handleWallFile(f: File) {
+    const kind = wallpaperKindOf(f.name, f.type);
+    /* 视频 / GIF 原样入库：canvas 降采样会把 GIF 抽成静帧，视频更不可解码重编 */
+    if (kind === "video" || f.type === "image/gif" || f.name.toLowerCase().endsWith(".gif")) {
+      if (f.size > 80 * 1024 * 1024) {
+        setUploadHint(kind === "video" ? "视频过大（上限 80MB），请压缩后再试" : "GIF 过大（上限 80MB），请压缩后再试");
+        return;
+      }
+      await idbSet(CUSTOM_WALLPAPER_KEY, f);
+      /* 与 URL 导入互斥：本地文件生效即清 URL 源 */
+      onPatch({ photoId: "custom", photoLast: "custom", wallpaperUrl: "" });
+      setUploadHint(null);
+      return;
+    }
     if (!f.type.startsWith("image/")) {
-      setUploadHint("仅支持图片文件");
+      setUploadHint("仅支持图片、GIF 或视频文件");
       return;
     }
     try {
       const blob = await fileToSizedBlob(f);
       await idbSet(CUSTOM_WALLPAPER_KEY, blob);
-      if (customUrl) URL.revokeObjectURL(customUrl);
-      setCustomUrl(URL.createObjectURL(blob));
-      onPatch({ photoId: "custom", photoLast: "custom" });
+      onPatch({ photoId: "custom", photoLast: "custom", wallpaperUrl: "" });
       setUploadHint(null);
     } catch {
       setUploadHint("图片处理失败，请换一张试试");
     }
+  }
+
+  /* URL 导入（v1.7.2）：图片/视频直链零下载生效（设置存 URL，渲染时直取），
+     与本地上传互斥——生效即清 IndexedDB 文件 */
+  function handleUrlImport() {
+    const u = urlInput.trim();
+    if (!u) return;
+    if (!/^https?:\/\//i.test(u)) {
+      setUploadHint("请输入以 http(s):// 开头的直链地址");
+      return;
+    }
+    setUrlInput("");
+    void idbDel(CUSTOM_WALLPAPER_KEY);
+    onPatch({ photoId: "custom", photoLast: "custom", wallpaperUrl: u });
+    setUploadHint(null);
   }
 
   function resetClick() {
@@ -584,20 +623,51 @@ function SettingsPanel({
             <WallThumb
               active={settings.photoId === "custom"}
               label="自定义壁纸"
-              src={customUrl}
+              src={wallThumb.kind === "video" ? null : wallThumb.src}
               onClick={() => wallFileRef.current?.click()}
             >
-              <ImagePlus className="h-5 w-5" strokeWidth={1.25} />
+              {wallThumb.kind === "video" ? (
+                <Clapperboard className="h-5 w-5" strokeWidth={1.25} />
+              ) : (
+                <ImagePlus className="h-5 w-5" strokeWidth={1.25} />
+              )}
             </WallThumb>
+          </div>
+          {/* URL 直链导入（v1.7.2）：图片 / GIF / 视频远程直链，零下载持久化 */}
+          <div className="mt-2 flex items-center gap-2 px-1">
+            <Link2
+              aria-hidden
+              className="h-3.5 w-3.5 shrink-0 text-zinc-400 dark:text-zinc-500"
+              strokeWidth={1.5}
+            />
+            <input
+              value={urlInput}
+              onChange={(e) => setUrlInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleUrlImport();
+              }}
+              placeholder="或粘贴图片 / 视频直链 URL（mp4 · webm · gif…）"
+              spellCheck={false}
+              aria-label="壁纸直链 URL"
+              className="h-8 min-w-0 flex-1 rounded-full border border-zinc-900/10 bg-white/40 px-3 text-[11px] font-light text-zinc-700 outline-none transition-colors placeholder:text-zinc-400 focus:border-zinc-900/25 dark:border-white/10 dark:bg-white/[0.05] dark:text-zinc-200 dark:placeholder:text-zinc-500 dark:focus:border-white/20"
+            />
+            <button
+              type="button"
+              onClick={handleUrlImport}
+              disabled={!urlInput.trim()}
+              className="shrink-0 rounded-full px-3 py-1.5 text-[11px] font-light text-zinc-500 transition-colors duration-150 hover:bg-zinc-900/5 hover:text-zinc-800 disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-100"
+            >
+              导入
+            </button>
           </div>
           <p className="mt-1.5 pb-1 text-[11px] font-extralight leading-relaxed tracking-wide text-zinc-400 dark:text-zinc-500">
             {uploadHint ??
-              "选择官方图库或点击末尾卡片上传本地图片（仅保存在本机浏览器）。"}
+              "选择官方图库，点击末尾卡片上传图片 / GIF / 视频，或粘贴直链 URL。均仅保存在本机浏览器，直链不会被转存。"}
           </p>
           <input
             ref={wallFileRef}
             type="file"
-            accept="image/*"
+            accept="image/*,video/*"
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0];
