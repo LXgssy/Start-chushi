@@ -8,6 +8,7 @@ import {
   CheckSquare,
   CloudSun,
   Command,
+  Music2,
   NotebookPen,
   Settings2,
   Timer,
@@ -22,6 +23,7 @@ import PomodoroPanel, {
   type PomoRuntime,
 } from "./PomodoroPanel";
 import SettingsPanel from "./SettingsPanel";
+import MusicPanel from "./MusicPanel";
 import { readLS } from "@/hooks/use-start";
 import { dockIcon, type PresetAction, type PresetDockItem } from "@/lib/startpage/preset";
 import type {
@@ -108,6 +110,7 @@ const PANEL_TITLES: Record<Exclude<PanelId, null>, string> = {
   note: "便签",
   pomodoro: "番茄钟",
   settings: "设置",
+  music: "音乐",
 };
 
 /* ---------- 面板舞台：卡片 + 高度形变 + 新旧内容溶解，整体 memo。
@@ -249,6 +252,7 @@ const PanelStage = memo(function PanelStage({
                   onPresetSettingChange={onPresetSettingChange}
                 />
               )}
+              {panel === "music" && <MusicPanel />}
             </PresenceClass>
           </AnimatePresence>
           </motion.div>
@@ -452,6 +456,24 @@ export default function Dock({
               </motion.span>
             )}
           </AnimatePresence>
+        </DockButton>
+
+        <Divider />
+
+        {/* 音乐（网易云音乐接入，见 MusicPanel / lib/startpage/music.ts） */}
+        <DockButton
+          motionProfile={motionProfile}
+          pillPop={pillPop}
+          active={panel === "music"}
+          label="音乐"
+          onClick={() => switchTo(panel === "music" ? null : "music")}
+          presetIcon={presetIcons.music}
+        >
+          {presetIcons.music ? (
+            <PresetGlyph spec={presetIcons.music} />
+          ) : (
+            <Music2 className="h-[17px] w-[17px]" strokeWidth={1.5} />
+          )}
         </DockButton>
 
         <Divider />

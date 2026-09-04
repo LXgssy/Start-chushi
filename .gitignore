@@ -75,3 +75,6 @@ upload/
 download/初始-Edge新标签页/
 download/初始-Edge新标签页.zip
 download/edge-store/
+
+# cross-compile toolchain (local only)
+/tools/
