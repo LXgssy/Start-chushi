@@ -1000,10 +1000,14 @@ export default function Home() {
   /* 主列垂直重心（v1.7.2）：磁贴两排时内容更高，居中后整组自然上移——
      实测该状态视觉重心最舒服；单排磁贴时整组偏沉。磁贴容器 max-w-680px
      （px-4 内可容 6 列，预设可覆写列数），行数按此估算；≥720px 才应用
-     额外底部留白（窄屏磁贴换行数变多，估算失真），一排时整组上移 32px */
+     额外底部留白（窄屏磁贴换行数变多，估算失真），一排时整组上移 32px。
+     v1.7.4：行数必须计入常驻「添加」磁贴（links+1）——它不是编辑态专属，
+     任何模式都占一个槽位；漏算导致 6 磁贴时误判单排（实际 7 槽两排），
+     pb 误上移后下一删网格塌回单排又回落——一上一下瞬跳即「删除抖动」。
+     pb 换挡配合同帧 padding 过渡（transition-[padding]），换排整列滑移不瞬跳 */
   const PB_NORMAL = "pb-44";
   const PB_LIFTED = "pb-44 min-[720px]:pb-[15rem]";
-  const linkRows = Math.ceil(links.length / (layout.linksColumns ?? 6));
+  const linkRows = Math.ceil((links.length + 1) / (layout.linksColumns ?? 6));
   const mainPb = linkRows === 1 ? PB_LIFTED : PB_NORMAL;
 
   return (
@@ -1019,7 +1023,7 @@ export default function Home() {
       <main
         className={`relative z-10 mx-auto flex min-h-dvh w-full max-w-4xl flex-col items-center ${
           layout.verticalAlign === "top" ? "justify-start" : "justify-center"
-        } px-6 pt-[max(2.5rem,8vh)] ${mainPb}`}
+        } px-6 pt-[max(2.5rem,8vh)] transition-[padding] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${mainPb}`}
       >
         <div className="flex flex-col items-center">
           {!layout.hideClock && (
