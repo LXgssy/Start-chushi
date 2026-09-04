@@ -265,3 +265,23 @@ Stage Summary:
 - 部署律：gh-pages 独立 clone 部署三件套 = 清树 + out/ + **.nojekyll（不可少）** + sw BUILD 戳替换
 - 交付：文叔叔 v1.7.3 合并交付包 → https://c.wss.ink/f/kskp3nsy0y5（1 天过期）；Pages 已上线（.nojekyll 修复后实测 ✓）
 - 待办：Edge 商店提交材料仍未做
+
+---
+Task ID: 64
+Agent: main (Super Z)
+Task: 用户录屏反馈「删除快捷服务时『初始』布局出现抖动」—— v1.7.4 删除磁贴抖动修复批
+
+Work Log:
+- 【录屏取证】19.6s 1080p60 录屏 3fps 抽帧 59 张逐帧分析：批量管理模式连删磁贴，f27(7磁贴)→f32(6磁贴) 时钟/搜索整列上移、f32→f44(5磁贴) 又回落——一上一下两次瞬跳
+- 【根因①排数误判】磁贴网格末尾的「添加」磁贴是常驻渲染（非编辑态专属）却没进排数估算：6 磁贴实际 7 槽两排被 Math.ceil(6/6)=1 误判单排 → mainPb 误换挡（pb-44→pb-[15rem]，justify-center 下整列瞬跳 32px）；下一删（5 磁贴）网格真塌单排 → 居中重心又瞬跳回落——正对录屏形态
+- 【根因②高度瞬跳】跨排增删时 flex-wrap 网格容器高度瞬变（一行 ≈104px），justify-center 的整列内容（时钟/搜索）随之瞬移；磁贴自身有 framer layout 弹簧但外层盒没有
+- 【修复三层】①page.tsx 行数改 ceil((links+1)/columns)——主列形态永远与网格实际排数一致（5 磁贴及以下才是单排上移态）；②main 挂 transition-[padding] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)]——pb 换挡滑移；③QuickLinks 网格外包 useMorphHeight(500) + motion.div 高度盒（LAYOUT_SPRING 420/36、relative 锚 popLayout 退场磁贴、contain:layout 圈 reflow、不裁溢出）——跨排高度弹簧滑移
+- 【验证环境律·新】800px 视口下内容恒溢出 dvh、justify-center 空隙恒 0，时钟零位移复现不了抖动——915px 视口才命中「内容+padding 与 dvh 相互作用」的抖动敏感区；无头 13fps 下弹簧首帧步进可达行程 30%+（真机 60fps 约 1/4），单帧阈值会误伤弹簧——瞬跳/弹簧判别改用「运动连续性」（中间帧数：瞬跳=0）
+- 【验证】verify-v174 11/11：6 磁贴(7槽)不再误上移 / 5 磁贴单排上移到位 / 同排删除时钟 Δ=0（旧 32px 瞬跳根除）/ 跨排删除多步滑移 mid≥1 / 高度盒弹簧中间帧连续(184→80 distinct=3) / padding 过渡在位 / 添加回磁贴恢复基线 / pageerror=0；扩展冒烟 7/7（复用 v173 套件，运行时无回归）
+- 【发布】main 775f3e4；gh-pages 4d812c8（.nojekyll 显式补齐——上轮事故律落实为部署流程固定步骤；sw BUILD 20260904174000-775f3e4）；Release v1.7.4（id 382605731）+ ChuShi-NewTab-v1.7.4.zip（11.7MB）；线上特征实测 ✓（pb-[15rem]/transition-[padding] 命中主 chunk）；交付物 download/v1.7.4/（更新说明+开发者文档+示例预设+扩展 zip+合并交付包 11.7MB）
+
+Stage Summary:
+- 排版律（v1.7.4 定稿）：任何参与 flex-wrap 网格的常驻元素（含工具位）必须计入外层排数估算；居中列的跨排高度变化一律走高度形变盒（morph 律），padding 换挡一律挂过渡——「瞬跳」在布局系统中零容忍
+- 验证律：布局抖动类断言 = 抖动敏感视口（内容与 dvh 相互作用区间）+ 运动连续性判据（中间帧），单帧阈值在无头节流下不可用
+- 交付：文叔叔 v1.7.4 合并交付包 → https://c.wss.ink/f/kskx33uaxid（1 天过期）；Pages 已上线（.nojekyll 在位实测 ✓）
+- 待办：Edge 商店提交材料仍未做
