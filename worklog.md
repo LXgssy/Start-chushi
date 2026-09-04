@@ -220,3 +220,26 @@ Stage Summary:
 - 架构律：`all: unset` 后必须重申 box-sizing；Next.js 双构建变体（build=standalone / build:export=Pages）别混用；静态表单字段必须统一挂更新监听
 - 交付：文叔叔 v1.7.1 合并交付包 → https://c.wss.ink/f/ksj2vh8gfwz（1 天过期）；Release v1.7.1；Pages 已上线
 - 待办：Edge 商店提交材料仍未做
+
+---
+Task ID: 62
+Agent: main (Super Z)
+Task: 用户反馈五问题（①搜索建议选中残留 ②掠影壁纸支持 GIF/视频 + URL 直链导入 ③单排磁贴主列上移 ④扩展时钟字体与网页版不一致/冒号不居中 ⑤导入面板拖拽提示与按钮下移不同步）—— v1.7.2
+
+Work Log:
+- 【①搜索建议】SearchBar 建议列表容器补 onMouseLeave={() => setActive(-1)}：hover 设置的 active 此前在指针离开后残留、回车误发旧项；键盘 ↑↓ 导航不受影响（verify 实测 hover→移出→高亮清除→键盘仍可选）
+- 【②掠影媒体化】Settings 新增 wallpaperUrl 字段（URL 导入源，与本地上传 IndexedDB 互斥，导入其一清另一）；gallery.ts 新增 wallpaperKindOf（MIME 优先、扩展名回落：video/gif/image 三态）+ WALLPAPER_ACCEPT；SettingsPanel：GIF/视频原样入库（canvas 降采样会把 GIF 抽成静帧——跳过；视频上限 80MB）、壁纸区新增直链 URL 输入行（http(s) 校验、回车/按钮导入、视频缩略图 Clapperboard 图标占位防坏图）；AuroraBackground：custom 源 URL 优先于 IDB、customUrlRef/customKindRef 双 ref 供黑幕序列与渲染派生、视频走 <video muted loop autoPlay playsinline>（onCanPlay 门控揭幕）、GIF/img 免 kenburns、preloadVideo 以 canplay/2s 预算放行；page.tsx 传 wallpaperUrl；禅模式亮度采样对视频天然回退（无 img[data-wallpaper] → tone auto）
+- 【③排版重心】单排磁贴（rows=ceil(n/columns??6)==1 且 ≥720px）时 main 由 pb-44 换 min-[720px]:pb-[15rem]，整组上移 32px 对齐双排自然重心；窄屏估算失真场景不受影响
+- 【④字体锚·本版最深排障】CDP 逐层实证：扩展新标签页命中 body 的 font-family 规则有两条——官方 @layer base 栈（regular）+ **UA 注入的未分层 body{font-family:"DejaVu Sans"...;font-size:75%}（origin=injected）**，未分层恒压分层 → 扩展时钟回退系统字体（字重发虚+冒号双点失准：Colon 的 DIGIT_INK_CENTER_EM 按 Geist 烤定）；网页版无该注入规则故正常（六轮 probe 排除 @property/变量链/CSP/字体文件，fontsCheck=true 而 computed 无 Geist 的矛盾由 injected 规则唯一解释）；修复=globals.css 追加未分层 html body 官方字体栈（特异性 0,0,2>0,0,1）；扩展实测 body/时钟栈均回 Geist ✓
+- 【⑤同参弹簧】PresetPanel Collapse 由 EASE 0.32s 补间改为与宿主指令面板外壳同参弹簧（stiffness 460/damping 38）——此前两条时间线叠加致列表形变与按钮推移脱拍；同参后外壳仅晚一帧追随同一弹簧
+- 【验证】verify-v172 19/19（建议 hover/移出/键盘、URL 图片/视频导入持久化与渲染、GIF 原样入库+互斥、单排/双排 class 断言、网页字体栈回归、拖拽提示弹簧中间帧 distinct≥2、pageerror=0）；verify-ext-v172 8/8（**body/时钟含 Geist、Geist 150 可用、冒号双点对称 ink=0.5000/dot=0.5075**、data URL 壁纸渲染、基线、pageerror=0）
+- 【测试环境律】无头 waitForSelector 对 opacity-0 元素需 state:"attached"（无效视频永不 canplay）；React 合成事件不在 DOM 属性上，dragover 断言须派发 DragEvent；设置面板滚动深处另有「导入」数据按钮——URL 导入断言用回车提交防误点
+- 【发布】main 32e234d；gh-pages 2ea3a44（sw BUILD 20260904055939-32e234d，新 chunk ae9df258 含 html body 字体锚 ✓）；Release v1.7.2（id 382509651）+ ChuShi-NewTab-v1.7.2.zip（12.2MB）；交付物 download/v1.7.2/（更新说明+开发者文档+焕新示例预设+扩展 zip+合并交付包 12.3MB）
+- 注意：GitHub Pages CDN 对 HTML/sw 有 ~600s 缓存，部署后线上验证需等待或避开高峰
+
+Stage Summary:
+- 架构律（v1.7.2 定稿）：CSS 层叠律新条目——chrome-extension 新标签页存在 UA 注入的未分层 body 字体规则，@layer 内字体栈在扩展必被压；官方字体栈需未分层高特异性锚规则双保险（网页版无副作用）
+- 掠影壁纸媒体三态（image/gif/video）定型：MIME 优先判定、GIF/视频免 kenburns、URL 直链零下载持久化、本地上传与 URL 导入互斥（导入其一清另一）
+- 形变同步律：内部 Collapse 与宿主高度盒必须同参弹簧，异构时间线（EASE+spring）叠加必脱拍
+- 交付：文叔叔 v1.7.2 合并交付包 → https://c.wss.ink/f/ksjgnvm183x（1 天过期）；Release v1.7.2；Pages 已上线
+- 待办：Edge 商店提交材料仍未做
