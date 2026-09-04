@@ -32,6 +32,7 @@ import type {
   WeatherState,
 } from "@/lib/startpage/types";
 import type { PresetSettingValues, PresetSettingsSchema } from "@/lib/startpage/preset-settings";
+import type { PresetIconTarget } from "@/lib/startpage/preset";
 import { weatherText } from "@/lib/startpage/weather";
 
 /** 预设贡献的设置分区（v1.2.0 设置面作用面）：脚本激活即出现，删除/冻结即消失 */
@@ -65,7 +66,24 @@ function getPomoRunning(): boolean {
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
-const SPRING = { type: "spring" as const, stiffness: 420, damping: 34 };
+/* ---------- 动效语言（v1.7.0 预设 motion.profile）----------
+ * 面板高度弹簧与选框滑动共用同一参数组；standard 为产品默认手感，
+ * playful 即用户可选的 Q 弹档，instant 用于无动效偏好场景 */
+export type MotionProfile = "standard" | "playful" | "calm" | "instant";
+
+export const MOTION_PROFILES: Record<
+  MotionProfile,
+  { type: "spring"; stiffness: number; damping: number; mass?: number }
+> = {
+  standard: { type: "spring", stiffness: 420, damping: 34 },
+  playful: { type: "spring", stiffness: 500, damping: 22, mass: 0.9 },
+  calm: { type: "spring", stiffness: 240, damping: 30 },
+  instant: { type: "spring", stiffness: 700, damping: 42 },
+};
+
+/** 选框出场 Q 弹（固定，非 profile 化——用户点名的产品行为；
+ *  instant 档除外：显式要求直给时出场同参数） */
+const POPPING = { type: "spring" as const, stiffness: 520, damping: 20, mass: 0.9 };
 
 /* 退场加速曲线（与 globals.css 的 .panel-sink/.veil-out 同参） */
 const EXIT_EASE = [0.4, 0, 1, 1] as const;
@@ -113,6 +131,7 @@ const PanelStage = memo(function PanelStage({
   resetAll,
   presetSettingSections,
   onPresetSettingChange,
+  motionSpring,
 }: {
   panel: PanelId;
   onClose: () => void;
@@ -130,6 +149,7 @@ const PanelStage = memo(function PanelStage({
   resetAll: () => void;
   presetSettingSections: PresetSettingSection[];
   onPresetSettingChange: (scriptKey: string, values: PresetSettingValues) => void;
+  motionSpring: (typeof MOTION_PROFILES)[MotionProfile];
 }) {
   /* 面板内容真实高度：卡片高度动画的驱动源（测高/RO 兜底/零高毒化防护见 hook 注释）。
      为什么不用 framer layout：layout 用 transform scale 缩放卡片盒子，内部内容无反向补偿，
@@ -187,7 +207,7 @@ const PanelStage = memo(function PanelStage({
             initial={reduceMotion ? false : { height: 0 }}
             animate={{ height: contentH == null ? "auto" : contentH }}
             exit={{ height: 0, transition: { duration: 0.22, ease: EXIT_EASE } }}
-            transition={SPRING}
+            transition={motionSpring}
           >
           {/* 视图互切：新视图 .content-focus 模糊聚拢、旧视图 .view-exit 钉位模糊散场。
               不加 initial={false}——首次挂载（面板打开）也要让内容模糊聚拢进来，
@@ -257,6 +277,8 @@ export default function Dock({
   onRunAction,
   presetSettingSections,
   onPresetSettingChange,
+  presetIcons,
+  motionProfile,
 }: {
   panel: PanelId;
   setPanel: (p: PanelId) => void;
@@ -277,7 +299,12 @@ export default function Dock({
   onRunAction: (a: PresetAction) => void;
   presetSettingSections: PresetSettingSection[];
   onPresetSettingChange: (scriptKey: string, values: PresetSettingValues) => void;
+  /** 预设图标覆写（v1.7.0 图标作用面）：target → lucide 名 / data:image URL */
+  presetIcons: Partial<Record<PresetIconTarget, string>>;
+  /** 预设动效语言（v1.7.0 动效作用面）：面板/选框弹簧参数档位 */
+  motionProfile: MotionProfile;
 }) {
+  const motionSpring = MOTION_PROFILES[motionProfile] ?? MOTION_PROFILES.standard;
   const undone = todos.filter((t) => !t.done).length;
 
   /* dock 番茄钟：运行中或暂停中在按钮旁显示剩余分钟 + 呼吸灯 */
@@ -317,8 +344,11 @@ export default function Dock({
           active={panel === "weather"}
           label={weather.temp != null ? `${weather.temp}° ${weatherText(weather.code)}` : "天气"}
           onClick={() => switchTo(panel === "weather" ? null : "weather")}
+          presetIcon={presetIcons.weather}
         >
-          {weather.code != null ? (
+          {presetIcons.weather ? (
+            <PresetGlyph spec={presetIcons.weather} />
+          ) : weather.code != null ? (
             <WeatherGlyph code={weather.code} size={16} />
           ) : (
             <CloudSun className="h-[17px] w-[17px]" strokeWidth={1.5} />
@@ -336,8 +366,13 @@ export default function Dock({
           label="待办"
           badge={undone > 0 ? undone : undefined}
           onClick={() => switchTo(panel === "todo" ? null : "todo")}
+          presetIcon={presetIcons.todo}
         >
-          <CheckSquare className="h-[17px] w-[17px]" strokeWidth={1.5} />
+          {presetIcons.todo ? (
+            <PresetGlyph spec={presetIcons.todo} />
+          ) : (
+            <CheckSquare className="h-[17px] w-[17px]" strokeWidth={1.5} />
+          )}
         </DockButton>
 
         {/* 便签 */}
@@ -345,8 +380,13 @@ export default function Dock({
           active={panel === "note"}
           label="便签"
           onClick={() => switchTo(panel === "note" ? null : "note")}
+          presetIcon={presetIcons.note}
         >
-          <NotebookPen className="h-[17px] w-[17px]" strokeWidth={1.5} />
+          {presetIcons.note ? (
+            <PresetGlyph spec={presetIcons.note} />
+          ) : (
+            <NotebookPen className="h-[17px] w-[17px]" strokeWidth={1.5} />
+          )}
         </DockButton>
 
         {/* 番茄钟：选框真实布局拉伸展开（图标不变形）；分钟旁呼吸灯——计时中闪动，暂停时常亮；
@@ -356,8 +396,13 @@ export default function Dock({
           active={panel === "pomodoro"}
           label={pomoText ? `番茄钟 剩余 ${pomoText} 分钟` : "番茄钟"}
           onClick={() => switchTo(panel === "pomodoro" ? null : "pomodoro")}
+          presetIcon={presetIcons.pomodoro}
         >
-          <Timer className="h-[17px] w-[17px]" strokeWidth={1.5} />
+          {presetIcons.pomodoro ? (
+            <PresetGlyph spec={presetIcons.pomodoro} />
+          ) : (
+            <Timer className="h-[17px] w-[17px]" strokeWidth={1.5} />
+          )}
           <AnimatePresence initial={false}>
             {pomoText && (
               <motion.span
@@ -394,8 +439,12 @@ export default function Dock({
         <Divider />
 
         {/* 命令面板 */}
-        <DockButton active={false} label="指令 ⌘K" onClick={openPalette}>
-          <Command className="h-[17px] w-[17px]" strokeWidth={1.5} />
+        <DockButton active={false} label="指令 ⌘K" onClick={openPalette} presetIcon={presetIcons.command}>
+          {presetIcons.command ? (
+            <PresetGlyph spec={presetIcons.command} />
+          ) : (
+            <Command className="h-[17px] w-[17px]" strokeWidth={1.5} />
+          )}
           <kbd className="pointer-events-none absolute -bottom-9 left-1/2 hidden -translate-x-1/2 whitespace-nowrap rounded-md border border-zinc-900/10 bg-white/80 px-1.5 py-0.5 font-sans text-[10px] tracking-wider text-zinc-500 opacity-0 shadow-sm backdrop-blur transition-opacity duration-300 group-hover:opacity-100 sm:block dark:border-white/10 dark:bg-[#17171c]/90 dark:text-zinc-400">
             ⌘K
           </kbd>
@@ -408,8 +457,13 @@ export default function Dock({
           active={panel === "settings"}
           label="设置"
           onClick={() => switchTo(panel === "settings" ? null : "settings")}
+          presetIcon={presetIcons.settings}
         >
-          <Settings2 className="h-[17px] w-[17px]" strokeWidth={1.5} />
+          {presetIcons.settings ? (
+            <PresetGlyph spec={presetIcons.settings} />
+          ) : (
+            <Settings2 className="h-[17px] w-[17px]" strokeWidth={1.5} />
+          )}
         </DockButton>
 
         {/* 预设注册的 tab 栏按钮（声明式，来自已安装预设，上限 3 个） */}
@@ -453,6 +507,7 @@ export default function Dock({
         resetAll={resetAll}
         presetSettingSections={presetSettingSections}
         onPresetSettingChange={onPresetSettingChange}
+        motionSpring={motionSpring}
       />
     </>
   );
@@ -462,19 +517,41 @@ function Divider() {
   return <span aria-hidden className="mx-1 h-5 w-px bg-[var(--pill-line)]" />;
 }
 
+/** 预设覆写图标渲染（v1.7.0 图标作用面）：
+ *  lucide 名 → 白名单组件（currentColor 跟随主题）；data:image URL → <img>
+ *  （SVG 在 img 中处于静态模式：脚本不执行、外链不加载） */
+function PresetGlyph({ spec }: { spec: string }) {
+  const Lucide = dockIcon(spec);
+  if (Lucide) return <Lucide className="h-[17px] w-[17px]" strokeWidth={1.5} />;
+  return (
+    <img
+      src={spec}
+      alt=""
+      width={17}
+      height={17}
+      draggable={false}
+      className="h-[17px] w-[17px] object-contain"
+    />
+  );
+}
+
 function DockButton({
   children,
   label,
   active,
   onClick,
   badge,
+  presetIcon,
 }: {
   children: React.ReactNode;
   label: string;
   active: boolean;
   onClick: () => void;
   badge?: number;
+  /** 预设图标覆写：存在时本按钮的 active 选框仍由宿主渲染（图标只换字形） */
+  presetIcon?: string;
 }) {
+  const reduceMotion = useReducedMotion();
   return (
     <button
       type="button"
@@ -490,9 +567,13 @@ function DockButton({
       }`}
     >
       {active && (
+        /* 选框 Q 弹出场（v1.7.0）：从 0.6 缩放弹到 1（backOut 型过冲回弹，非玻璃材质），
+            layoutId 继续承担按钮间滑动；reduceMotion 下不播出场 */
         <motion.span
           layoutId="dock-active-pill"
-          transition={SPRING}
+          initial={reduceMotion ? false : { opacity: 0, scale: 0.6 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={POPPING}
           className="absolute inset-0 rounded-full bg-[var(--pill-seg)] ring-1 ring-[color:var(--pill-seg-ring)]"
           aria-hidden
         />

@@ -49,6 +49,9 @@ self.addEventListener("install", (event) => {
               urls.add(u);
             }
           }
+          /* 图形化预设开发工具（v1.3.0）：单文件离线应用，随外壳预缓存，
+             保证离线状态下导入面板的下载按钮依然可用 */
+          urls.add(new URL("preset-studio.html", ROOT).href);
           await Promise.all(
             [...urls].map(async (u) => {
               try {

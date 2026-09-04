@@ -17,9 +17,13 @@ import PresetWidgets, { type ActiveWidget } from "@/components/startpage/PresetW
 import SandboxPage, { type ActivePage } from "@/components/startpage/SandboxPage";
 import {
   dockIcon,
+  PRESET_TOKEN_KEYS,
   type InstalledPreset,
   type PresetAction,
+  type PresetClock,
+  type PresetIconTarget,
   type PresetLayout,
+  type PresetMotion,
   type PresetPayload,
 } from "@/lib/startpage/preset";
 import {
@@ -211,6 +215,41 @@ export default function Home() {
     }
     return merged;
   }, [presets]);
+
+  /* ---------- 预设焕新四作用面派生（v1.7.0）：图标/主题令牌/动效语言/时钟格式。
+     合并律与 layout 同源：安装顺序后者胜，字段级覆盖；删除预设即整体重算还原 */
+  const presetExtras = useMemo(() => {
+    const icons: Partial<Record<PresetIconTarget, string>> = {};
+    const tokens: Record<string, string> = {};
+    let motion: PresetMotion = {};
+    let clock: PresetClock = {};
+    for (const p of presets) {
+      for (const ic of p.raw.icons ?? []) icons[ic.target] = ic.icon;
+      if (p.raw.tokens) Object.assign(tokens, p.raw.tokens);
+      if (p.raw.motion) motion = { ...motion, ...p.raw.motion };
+      if (p.raw.clock) clock = { ...clock, ...p.raw.clock };
+    }
+    return { icons, tokens, motion, clock };
+  }, [presets]);
+
+  /* 主题令牌注入：白名单键 setProperty 到根元素；预设占用期间反复覆盖
+     （含强调色设置变更时），删除预设/值消失即 removeProperty 还原。
+     同时承载动效语言的 --mo-speed（CSS 入退场动画时长倍率）。
+     ⚠ 声明在强调色 effect 之后：同键（--ui-accent）时预设令牌胜（焕新语义） */
+  const presetTokenSig = Object.values(presetExtras.tokens).join("\n") +
+    Object.keys(presetExtras.tokens).join(",");
+  const motionSpeed = presetExtras.motion.speed ?? 1;
+  useEffect(() => {
+    if (!mounted) return;
+    const root = document.documentElement.style;
+    for (const key of Object.keys(PRESET_TOKEN_KEYS)) {
+      const v = presetExtras.tokens[key];
+      if (v) root.setProperty(key, v);
+      else root.removeProperty(key);
+    }
+    root.setProperty("--mo-speed", String(motionSpeed));
+    /* 令牌净空兜底：presets 快速变化时旧值残留由本 effect 全量重算排除 */
+  }, [mounted, presetTokenSig, motionSpeed, presetExtras.tokens]);
 
   /* ---------- 旧版本设置字段迁移（缺失字段补默认值） ---------- */
   useEffect(() => {
@@ -959,7 +998,7 @@ export default function Home() {
               style={{ animationDelay: "0.1s", zoom: layout.clockScale ?? 1 }}
               aria-label="时间与问候"
             >
-              <Clock settings={settings} />
+              <Clock settings={settings} preset={presetExtras.clock} />
             </section>
           )}
 
@@ -1006,6 +1045,8 @@ export default function Home() {
         onRunAction={runPresetAction}
         presetSettingSections={presetSettingSections}
         onPresetSettingChange={changePresetSetting}
+        presetIcons={presetExtras.icons}
+        motionProfile={presetExtras.motion.profile ?? "standard"}
       />
       </div>
 
@@ -1020,7 +1061,7 @@ export default function Home() {
             exit={{ opacity: 0 }}
             transition={{ duration: 0.7, ease: EASE }}
           >
-            <Clock settings={settings} mini />
+            <Clock settings={settings} preset={presetExtras.clock} mini />
             {/* 迷你番茄钟：仅在计时运行时浮现（暂停/静止不显示），墨色随采样 tone 同步 */}
             <ZenPomodoro settings={settings} tone={zenHintTone} />
             <p

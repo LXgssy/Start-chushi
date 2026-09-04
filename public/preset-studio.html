@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>初始 · 预设开发工具</title>
+<style>
+  :root {
+    --bg: #f4f4f5; --card: #ffffff; --line: rgba(0,0,0,.09); --ink: #18181b;
+    --ink2: #52525b; --ink3: #a1a1aa; --accent: #8b5cf6; --accent-soft: rgba(139,92,246,.08);
+    --ok: #16a34a; --err: #dc2626; --field: rgba(0,0,0,.03);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #101013; --card: #17171c; --line: rgba(255,255,255,.09); --ink: #f4f4f5;
+      --ink2: #a1a1aa; --ink3: #52525b; --accent: #a78bfa; --accent-soft: rgba(167,139,250,.1);
+      --ok: #4ade80; --err: #f87171; --field: rgba(255,255,255,.05);
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font: 14px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-weight: 300; min-height: 100vh;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 18px 28px; border-bottom: 1px solid var(--line); background: var(--card);
+  }
+  header h1 { font-size: 15px; font-weight: 400; letter-spacing: .06em; }
+  header .sub { font-size: 12px; color: var(--ink3); letter-spacing: .04em; }
+  header .sp { flex: 1; }
+  button, .btn {
+    all: unset; cursor: pointer; font-size: 12px; font-weight: 300;
+    padding: 7px 16px; border-radius: 999px; border: 1px solid var(--line);
+    color: var(--ink2); transition: all .15s; background: var(--card); text-align: center;
+  }
+  button:hover, .btn:hover { border-color: var(--accent); color: var(--accent); }
+  button.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); font-weight: 400; }
+  button.primary:hover { opacity: .85; color: var(--bg); }
+  main {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 42%);
+    gap: 18px; padding: 18px 28px 60px; max-width: 1440px; margin: 0 auto;
+  }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+  .tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 16px; }
+  .tabs button { border: none; background: transparent; padding: 6px 14px; border-radius: 9px; }
+  .tabs button[data-active="true"] { background: var(--accent-soft); color: var(--accent); }
+  .tabpage { display: none; }
+  .tabpage[data-active="true"] { display: block; }
+  label { display: block; font-size: 11px; letter-spacing: .08em; color: var(--ink3); margin: 14px 0 5px; }
+  label:first-child { margin-top: 0; }
+  input[type=text], input[type=number], select, textarea {
+    width: 100%; font: inherit; font-size: 13px; color: var(--ink);
+    background: var(--field); border: 1px solid var(--line); border-radius: 9px;
+    padding: 8px 11px; outline: none; transition: border-color .15s;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+  textarea { resize: vertical; min-height: 72px; }
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; min-width: 0; }
+  .hint { font-size: 11px; color: var(--ink3); margin-top: 4px; line-height: 1.5; }
+  .items { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+  .item {
+    border: 1px dashed var(--line); border-radius: 10px; padding: 10px 12px;
+    display: grid; gap: 8px; position: relative;
+  }
+  .item .del {
+    all: unset; cursor: pointer; position: absolute; right: 8px; top: 8px;
+    width: 20px; height: 20px; border-radius: 50%; text-align: center; line-height: 18px;
+    font-size: 12px; color: var(--ink3);
+  }
+  .item .del:hover { color: var(--err); background: rgba(220,38,38,.08); }
+  .item .row label { margin: 0; }
+  .add { margin-top: 10px; width: 100%; border-style: dashed; }
+  .muted { color: var(--ink3); }
+  pre#out {
+    font: 11.5px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--field); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px; overflow: auto; max-height: 46vh; white-space: pre; color: var(--ink2);
+  }
+  .checks { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
+  .checks .c { font-size: 11.5px; display: flex; gap: 7px; align-items: baseline; }
+  .checks .c::before { content: "·"; color: var(--ink3); }
+  .checks .c.ok { color: var(--ok); }
+  .checks .c.warn { color: var(--err); }
+  .out-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  dialog {
+    border: 1px solid var(--line); border-radius: 16px; background: var(--card); color: var(--ink);
+    max-width: 760px; width: 92vw; padding: 26px 30px; line-height: 1.75;
+  }
+  dialog::backdrop { background: rgba(0,0,0,.4); backdrop-filter: blur(3px); }
+  dialog h2 { font-size: 15px; font-weight: 400; letter-spacing: .1em; margin-bottom: 10px; }
+  dialog h3 { font-size: 13px; font-weight: 500; margin: 18px 0 6px; color: var(--accent); }
+  dialog p, dialog li { font-size: 12.5px; color: var(--ink2); }
+  dialog ul, dialog ol { padding-left: 20px; }
+  dialog code {
+    font: 11.5px ui-monospace, Menlo, Consolas, monospace;
+    background: var(--field); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px;
+  }
+  dialog pre {
+    font: 11.5px/1.7 ui-monospace, Menlo, Consolas, monospace; background: var(--field);
+    border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; overflow: auto;
+    margin: 8px 0; color: var(--ink2); white-space: pre-wrap;
+  }
+  dialog table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 12px; }
+  dialog th, dialog td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; color: var(--ink2); }
+  dialog th { color: var(--ink3); font-weight: 400; font-size: 11px; letter-spacing: .06em; }
+  dialog .close-row { display: flex; justify-content: flex-end; margin-top: 16px; }
+  footer { text-align: center; font-size: 11px; color: var(--ink3); padding: 0 0 30px; letter-spacing: .1em; }
+</style>
+</head>
+<body>
+<header>
+  <h1>初始 · 预设开发工具</h1>
+  <span class="sub">图形化编辑 → 导出 JSON → 导入「初始」 · 离线可用</span>
+  <span class="sp"></span>
+  <button id="btn-import-mode">从 JSON 导入</button>
+  <button id="btn-help">使用说明</button>
+</header>
+
+<main>
+  <!-- ============ 左：表单 ============ -->
+  <section class="panel" id="form-panel">
+    <div class="tabs" id="tabs">
+      <button data-tab="base" data-active="true">基础</button>
+      <button data-tab="content">内容</button>
+      <button data-tab="renew">焕新</button>
+      <button data-tab="adv">样式与脚本</button>
+    </div>
+
+    <!-- 基础 -->
+    <div class="tabpage" data-page="base" data-active="true">
+      <label>预设名称（必填，≤20 字符）</label>
+      <input type="text" id="f-name" maxlength="20" placeholder="例如：我的焕新方案">
+      <div class="row">
+        <div>
+          <label>作者（≤20 字符）</label>
+          <input type="text" id="f-author" maxlength="20" placeholder="你的名字">
+        </div>
+        <div>
+          <label>描述（≤60 字符）</label>
+          <input type="text" id="f-desc" maxlength="60" placeholder="一句话说明这个预设做什么">
+        </div>
+      </div>
+      <div class="hint">名称会显示在 ⌘K 预设管理列表中；删除预设即整体还原，无需担心弄坏页面。</div>
+    </div>
+
+    <!-- 内容 -->
+    <div class="tabpage" data-page="content">
+      <label>⌘K 命令（≤12 条）</label>
+      <div class="items" id="list-commands"></div>
+      <button class="add" data-add="commands">＋ 添加命令</button>
+
+      <label style="margin-top:20px">快捷磁贴（≤12 个）— 主页链接区</label>
+      <div class="items" id="list-links"></div>
+      <button class="add" data-add="links">＋ 添加磁贴</button>
+
+      <label style="margin-top:20px">tab 栏按钮（≤3 个）— 底部 Dock</label>
+      <div class="items" id="list-dock"></div>
+      <button class="add" data-add="dock">＋ 添加栏按钮</button>
+    </div>
+
+    <!-- 焕新 -->
+    <div class="tabpage" data-page="renew">
+      <label>图标替换（≤6 项）— 把 tab 栏内建按钮换成别的图标</label>
+      <div class="items" id="list-icons"></div>
+      <button class="add" data-add="icons">＋ 添加图标替换</button>
+      <div class="hint">目标按钮：weather / todo / note / pomodoro / settings / command；图标可填内置名（bookmark / book / briefcase / calendar / camera / cloud / coffee / compass / game / github / globe / heart / home / link / mail / music / star / terminal / video / zap）或 data:image/ 开头的 base64 图片（≤8KB）。</div>
+
+      <label style="margin-top:20px">主题令牌覆写（留空 = 不覆写）</label>
+      <div class="row">
+        <div>
+          <label style="margin-top:0">强调色 --ui-accent</label>
+          <input type="text" id="f-tk-accent" maxlength="120" placeholder="#0078d4">
+        </div>
+        <div>
+          <label style="margin-top:0">选框底色 --pill-seg</label>
+          <input type="text" id="f-tk-seg" maxlength="120" placeholder="rgba(0,120,212,.14)">
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label style="margin-top:0">选框描边 --pill-seg-ring</label>
+          <input type="text" id="f-tk-ring" maxlength="120" placeholder="rgba(0,120,212,.35)">
+        </div>
+        <div>
+          <label style="margin-top:0">分隔线 --pill-line</label>
+          <input type="text" id="f-tk-line" maxlength="120" placeholder="rgba(0,120,212,.25)">
+        </div>
+      </div>
+
+      <label style="margin-top:20px">动效语言</label>
+      <div class="row">
+        <div>
+          <label style="margin-top:0">弹簧档位 profile</label>
+          <select id="f-motion-profile">
+            <option value="">保持默认（standard）</option>
+            <option value="standard">standard · 标准</option>
+            <option value="playful">playful · Q 弹</option>
+            <option value="calm">calm · 从容</option>
+            <option value="instant">instant · 直给</option>
+          </select>
+        </div>
+        <div>
+          <label style="margin-top:0">入场动画倍率 speed（0.5–2）</label>
+          <input type="number" id="f-motion-speed" step="0.1" min="0.5" max="2" placeholder="1 = 不变速">
+        </div>
+      </div>
+
+      <label style="margin-top:20px">时钟格式</label>
+      <div class="row">
+        <div>
+          <label style="margin-top:0">小时制</label>
+          <select id="f-clock-hour12">
+            <option value="">保持用户设置</option>
+            <option value="false">24 小时制</option>
+            <option value="true">12 小时制（AM/PM）</option>
+          </select>
+        </div>
+        <div>
+          <label style="margin-top:0">秒数</label>
+          <select id="f-clock-seconds">
+            <option value="">保持用户设置</option>
+            <option value="true">显示</option>
+            <option value="false">隐藏</option>
+          </select>
+        </div>
+        <div>
+          <label style="margin-top:0">日期行</label>
+          <select id="f-clock-date">
+            <option value="">保持默认（显示）</option>
+            <option value="true">显示</option>
+            <option value="false">隐藏</option>
+          </select>
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div>
+          <label style="margin-top:0">问候语</label>
+          <select id="f-clock-greet-mode">
+            <option value="">保持默认</option>
+            <option value="tpl">自定义模板</option>
+            <option value="off">隐藏问候</option>
+          </select>
+        </div>
+        <div>
+          <label style="margin-top:0">模板（≤40 字符；{greet} = 时段问候，{name} = 用户名）</label>
+          <input type="text" id="f-clock-greeting" maxlength="40" placeholder="例如：{greet}，{name}，愿今天顺利">
+        </div>
+      </div>
+
+      <label style="margin-top:20px">布局</label>
+      <div class="row">
+        <div>
+          <label style="margin-top:0">时钟缩放（0.5–2）</label>
+          <input type="number" id="f-lay-clock" step="0.05" min="0.5" max="2" placeholder="1">
+        </div>
+        <div>
+          <label style="margin-top:0">磁贴列数（3–12）</label>
+          <input type="number" id="f-lay-cols" step="1" min="3" max="12" placeholder="6">
+        </div>
+        <div>
+          <label style="margin-top:0">垂直对齐</label>
+          <select id="f-lay-align">
+            <option value="">居中（默认）</option>
+            <option value="center">居中</option>
+            <option value="top">靠上</option>
+          </select>
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div><label style="margin-top:0">隐藏时钟</label><select id="f-lay-hideclock"><option value="">否</option><option value="1">是</option></select></div>
+        <div><label style="margin-top:0">隐藏搜索</label><select id="f-lay-hidesearch"><option value="">否</option><option value="1">是</option></select></div>
+        <div><label style="margin-top:0">隐藏磁贴区</label><select id="f-lay-hidelinks"><option value="">否</option><option value="1">是</option></select></div>
+      </div>
+    </div>
+
+    <!-- 样式与脚本 -->
+    <div class="tabpage" data-page="adv">
+      <label>自定义动画 / 样式（≤4 段，每段 ≤6000 字符，作用于公开元素钩子）</label>
+      <div class="items" id="list-animations"></div>
+      <button class="add" data-add="animations">＋ 添加样式段</button>
+      <div class="hint">元素钩子：.search-pill / .cl-dock / .cl-panel / .glass-card / .cl-clock / .cl-links。CSS 无法执行脚本，最坏情况只是弄乱自己的页面视觉。</div>
+
+      <label style="margin-top:20px">沙箱脚本（≤3 个，每段 ≤16000 字符）— 可调用 chushi API</label>
+      <div class="items" id="list-scripts"></div>
+      <button class="add" data-add="scripts">＋ 添加脚本</button>
+      <div class="hint">脚本运行在唯一源隔离沙箱中，拿不到页面数据与扩展 API。换材质示例：<code>await chushi.material.apply({ css: '…' })</code>。</div>
+    </div>
+  </section>
+
+  <!-- ============ 右：输出 ============ -->
+  <section class="panel">
+    <label style="margin-top:0">预设 JSON（实时生成，最终校验以「初始」导入时为准）</label>
+    <pre id="out">{ }</pre>
+    <div class="checks" id="checks"></div>
+    <div class="out-actions">
+      <button class="primary" id="btn-download">下载 .json</button>
+      <button id="btn-copy">复制 JSON</button>
+      <button id="btn-fill-sample">填入示例</button>
+    </div>
+
+    <div id="import-area" style="display:none; margin-top:18px;">
+      <label>粘贴现有预设 JSON → 解析回表单（覆盖当前编辑内容）</label>
+      <textarea id="import-text" placeholder='以 { "chushi": 1, ... } 开头的预设 JSON'></textarea>
+      <div class="out-actions">
+        <button class="primary" id="btn-parse-import">解析并回填</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>初始 · Start-chushi — 预设开发工具（内嵌离线版）</footer>
+<!-- ============ 使用说明 ============ -->
+<dialog id="help">
+  <h2>使用说明</h2>
+  <p>这是「初始」官方的图形化预设开发工具：不需要手写 JSON，填表单即可生成一份完整、合法的预设文件。本工具为<b>单文件离线应用</b>——从「初始」的导入预设面板点击「图形化开发工具」下载后，双击即可在任意浏览器打开，无需联网。</p>
+
+  <h3>三步上手</h3>
+  <ol>
+    <li>在左侧表单填写内容：基础信息、⌘K 命令 / 磁贴 / 栏按钮、焕新四件套（图标 / 主题令牌 / 动效语言 / 时钟格式）、自定义样式与脚本；</li>
+    <li>右侧实时生成 JSON 并给出完整性提示，确认无误后点「下载 .json」（或复制）；</li>
+    <li>回到「初始」→ ⌘K → 预设系统 → 导入预设：粘贴 JSON、选择文件或直接把文件拖进导入面板。删除预设即整体还原。</li>
+  </ol>
+
+  <h3>能换什么（作用面速查）</h3>
+  <table>
+    <tr><th>维度</th><th>字段 / API</th><th>说明</th></tr>
+    <tr><td>内容</td><td>commands / links / dock</td><td>⌘K 命令、主页磁贴、tab 栏按钮（声明式白名单动作）</td></tr>
+    <tr><td>排版</td><td>layout</td><td>隐藏区块 / 时钟缩放 / 磁贴列数 / 垂直对齐</td></tr>
+    <tr><td>图标</td><td>icons</td><td>替换 tab 栏六个内建按钮的图标（内置名或 base64 图片）</td></tr>
+    <tr><td>主题令牌</td><td>tokens</td><td>覆写 --ui-accent / --pill-seg / --pill-seg-ring / --pill-line</td></tr>
+    <tr><td>动效语言</td><td>motion</td><td>profile 弹簧档位（standard / playful / calm / instant）+ speed 入场倍率</td></tr>
+    <tr><td>时钟格式</td><td>clock</td><td>12/24 小时制、秒数、日期行、问候语模板（{greet} / {name} 占位）</td></tr>
+    <tr><td>动画</td><td>animations</td><td>注入自定义 CSS（净化后作用于公开元素钩子）</td></tr>
+    <tr><td>材质</td><td>chushi.material.apply</td><td>脚本中调用，整体换装玻璃/面板材质（见下）</td></tr>
+    <tr><td>功能</td><td>scripts / pages / widgets</td><td>沙箱脚本、自定义页、角落小部件</td></tr>
+  </table>
+
+  <h3>换材质（材质作用面）</h3>
+  <p>宿主不内建任何具体材质；「初始」提供通用材质接口，任何风格（亚克力 / 液态玻璃 / Win UI Mica 等）都由预设脚本经它实现。在脚本中：</p>
+  <pre>await chushi.material.apply({
+  css: `
+    .search-pill, .cl-dock, .cl-panel, .glass-card {
+      backdrop-filter: blur(40px) saturate(1.6);
+      background: linear-gradient(135deg, rgba(255,255,255,.6), rgba(240,245,255,.38));
+      border: 1px solid rgba(255,255,255,.55);
+    }`
+});
+// chushi.material.reset() 可主动摘除；删除预设时宿主自动回收</pre>
+  <p>css 直接使用公开元素钩子（.search-pill / .cl-dock / .cl-panel / .glass-card）。高级折射类材质（位移贴图）可配合 <code>chushi.fx.onResize</code> 快照按 <code>data-fx</code> 标记动态构造 SVG 滤镜——参考开发者文档（⌘K → 预设系统 → 开发者文档）。</p>
+
+  <h3>上限速查</h3>
+  <table>
+    <tr><th>项</th><th>上限</th></tr>
+    <tr><td>命令 / 磁贴 / 栏按钮</td><td>12 / 12 / 3</td></tr>
+    <tr><td>图标替换</td><td>6 条（data URL ≤8KB）</td></tr>
+    <tr><td>样式段 / 脚本</td><td>4 段（每段 6000 字符）/ 3 个（每个 16000 字符）</td></tr>
+    <tr><td>问候模板</td><td>40 字符</td></tr>
+  </table>
+
+  <h3>注意</h3>
+  <ul>
+    <li>本工具生成的是单文件预设（.json）；带图片等资源时可改用 .cshz 包格式，见开发者文档。</li>
+    <li>右侧提示只是辅助——最终以「初始」导入时的整体校验为准，校验失败会列出每条错误。</li>
+    <li>请尊重安装者：不要做高频通知、抢焦点之类的体验。</li>
+  </ul>
+  <div class="close-row"><button id="btn-help-close">知道了</button></div>
+</dialog>
+
+<script>
+(function () {
+  "use strict";
+  /* ---------- 状态 ---------- */
+  var ICON_TARGETS = ["weather", "todo", "note", "pomodoro", "settings", "command"];
+  var ICON_NAMES = ["bookmark","book","briefcase","calendar","camera","cloud","coffee","compass","game","github","globe","heart","home","link","mail","music","star","terminal","video","zap"];
+  var LIST_LIMITS = { commands: 12, links: 12, dock: 3, icons: 6, animations: 4, scripts: 3 };
+
+  var lists = { commands: [], links: [], dock: [], icons: [], animations: [], scripts: [] };
+  var seq = 0;
+
+  function $(id) { return document.getElementById(id); }
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function field(labelText, input) {
+    var w = el("div");
+    var l = el("label", null, labelText);
+    l.style.margin = "0";
+    w.appendChild(l); w.appendChild(input);
+    return w;
+  }
+  function mkInput(placeholder, maxlength) {
+    var i = document.createElement("input");
+    i.type = "text";
+    if (placeholder) i.placeholder = placeholder;
+    if (maxlength) i.maxLength = maxlength;
+    return i;
+  }
+  function mkSelect(options) {
+    var s = document.createElement("select");
+    options.forEach(function (o) {
+      var op = document.createElement("option");
+      op.value = o[0]; op.textContent = o[1];
+      s.appendChild(op);
+    });
+    return s;
+  }
+  function mkTextarea(placeholder, minH) {
+    var t = document.createElement("textarea");
+    if (placeholder) t.placeholder = placeholder;
+    if (minH) t.style.minHeight = minH;
+    return t;
+  }
+
+  /* ---------- 动态列表 ---------- */
+  var RENDERERS = {
+    commands: function (item, box) {
+      var title = mkInput("标题（≤24 字符）", 24); title.value = item.title || "";
+      var type = mkSelect([["open", "打开网址"], ["copy", "复制文案"], ["search", "搜索"]]);
+      type.value = item.type || "open";
+      var url = mkInput("https://…", 500); url.value = item.url || "";
+      var text = mkInput("复制的文案（≤200）", 200); text.value = item.text || "";
+      var q = mkInput("搜索词（≤100）", 100); q.value = item.q || "";
+      function sync() {
+        item.title = title.value; item.type = type.value;
+        item.url = url.value; item.text = text.value; item.q = q.value;
+        url.parentElement.style.display = type.value === "open" ? "" : "none";
+        text.parentElement.style.display = type.value === "copy" ? "" : "none";
+        q.parentElement.style.display = type.value === "search" ? "" : "none";
+        update();
+      }
+      var r1 = el("div", "row"); r1.appendChild(field("标题", title)); r1.appendChild(field("类型", type));
+      var r2 = el("div", "row"); r2.appendChild(field("网址", url)); r2.appendChild(field("文案", text)); r2.appendChild(field("搜索词", q));
+      box.appendChild(r1); box.appendChild(r2);
+      [title, type, url, text, q].forEach(function (i) { i.addEventListener("input", sync); i.addEventListener("change", sync); });
+      sync();
+    },
+    links: function (item, box) {
+      var name = mkInput("名称（≤20）", 20); name.value = item.name || "";
+      var url = mkInput("https://…", 500); url.value = item.url || "";
+      var r = el("div", "row"); r.appendChild(field("名称", name)); r.appendChild(field("网址", url));
+      box.appendChild(r);
+      function sync() { item.name = name.value; item.url = url.value; update(); }
+      [name, url].forEach(function (i) { i.addEventListener("input", sync); });
+    },
+    dock: function (item, box) {
+      var title = mkInput("标题（≤24）", 24); title.value = item.title || "";
+      var icon = mkSelect([["", "默认图标"]].concat(ICON_NAMES.map(function (n) { return [n, n]; })));
+      icon.value = item.icon || "";
+      var type = mkSelect([["open", "打开网址"], ["script", "运行脚本"], ["page", "打开页面"]]);
+      type.value = item.type || "open";
+      var url = mkInput("https://…", 500); url.value = item.url || "";
+      var sid = mkInput("脚本/页面 id", 32); sid.value = item.id || "";
+      var r1 = el("div", "row"); r1.appendChild(field("标题", title)); r1.appendChild(field("图标", icon)); r1.appendChild(field("动作", type));
+      var r2 = el("div", "row"); r2.appendChild(field("网址", url)); r2.appendChild(field("动作目标 id", sid));
+      box.appendChild(r1); box.appendChild(r2);
+      function sync() {
+        item.title = title.value; item.icon = icon.value; item.type = type.value;
+        item.url = url.value; item.id = sid.value;
+        url.parentElement.style.display = type.value === "open" ? "" : "none";
+        sid.parentElement.style.display = type.value === "open" ? "none" : "";
+        update();
+      }
+      [title, icon, type, url, sid].forEach(function (i) { i.addEventListener("input", sync); i.addEventListener("change", sync); });
+      sync();
+    },
+    icons: function (item, box) {
+      var target = mkSelect(ICON_TARGETS.map(function (t) { return [t, t]; }));
+      target.value = item.target || "weather";
+      var icon = mkInput("内置名或 data:image/…（≤8KB）", 8200); icon.value = item.icon || "";
+      var datalist = el("datalist"); datalist.id = "dl-ic" + (++seq);
+      ICON_NAMES.forEach(function (n) { var o = document.createElement("option"); o.value = n; datalist.appendChild(o); });
+      icon.setAttribute("list", datalist.id);
+      var r = el("div", "row"); r.appendChild(field("目标按钮", target)); r.appendChild(field("图标", icon));
+      box.appendChild(r); box.appendChild(datalist);
+      function sync() { item.target = target.value; item.icon = icon.value; update(); }
+      [target, icon].forEach(function (i) { i.addEventListener("input", sync); i.addEventListener("change", sync); });
+    },
+    animations: function (item, box) {
+      var id = mkInput("id（字母/数字/下划线/连字符）", 32); id.value = item.id || "";
+      var name = mkInput("名称（≤24）", 24); name.value = item.name || "";
+      var css = mkTextarea("CSS……", "110px"); css.value = item.css || "";
+      var r = el("div", "row"); r.appendChild(field("id", id)); r.appendChild(field("名称", name));
+      box.appendChild(r); box.appendChild(field("CSS", css));
+      function sync() { item.id = id.value; item.name = name.value; item.css = css.value; update(); }
+      [id, name, css].forEach(function (i) { i.addEventListener("input", sync); });
+    },
+    scripts: function (item, box) {
+      var id = mkInput("id（字母/数字/下划线/连字符）", 32); id.value = item.id || "";
+      var name = mkInput("名称（≤24）", 24); name.value = item.name || "";
+      var code = mkTextarea("JS……例如：await chushi.material.apply({ css: '…' })", "140px"); code.value = item.code || "";
+      var r = el("div", "row"); r.appendChild(field("id", id)); r.appendChild(field("名称", name));
+      box.appendChild(r); box.appendChild(field("代码（沙箱内执行，支持顶层 await）", code));
+      function sync() { item.id = id.value; item.name = name.value; item.code = code.value; update(); }
+      [id, name, code].forEach(function (i) { i.addEventListener("input", sync); });
+    }
+  };
+
+  function renderList(kind) {
+    var host = $("list-" + kind);
+    host.textContent = "";
+    lists[kind].forEach(function (item, idx) {
+      var box = el("div", "item");
+      var del = el("button", "del", "×");
+      del.type = "button";
+      del.setAttribute("aria-label", "删除");
+      del.addEventListener("click", function () {
+        lists[kind].splice(idx, 1);
+        renderList(kind); update();
+      });
+      box.appendChild(del);
+      RENDERERS[kind](item, box);
+      host.appendChild(box);
+    });
+  }
+  document.querySelectorAll("[data-add]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var kind = btn.getAttribute("data-add");
+      if (lists[kind].length >= LIST_LIMITS[kind]) return;
+      lists[kind].push(kind === "icons" ? { target: "weather", icon: "" } : {});
+      renderList(kind); update();
+    });
+  });
+
+  /* ---------- 生成 JSON ---------- */
+  function buildPreset() {
+    var p = { chushi: 1 };
+    var name = $("f-name").value.trim();
+    var author = $("f-author").value.trim();
+    var desc = $("f-desc").value.trim();
+    if (name) p.name = name;
+    if (author) p.author = author;
+    if (desc) p.description = desc;
+
+    var cmds = [];
+    lists.commands.forEach(function (c) {
+      if (!c.title) return;
+      var o = { title: c.title };
+      if (c.type === "open" && c.url) o.action = { type: "open", url: c.url };
+      else if (c.type === "copy" && c.text) o.action = { type: "copy", text: c.text };
+      else if (c.type === "search" && c.q) o.action = { type: "search", engine: "bing", q: c.q };
+      if (o.action) cmds.push(o);
+    });
+    if (cmds.length) p.commands = cmds;
+
+    var links = [];
+    lists.links.forEach(function (l) {
+      if (l.name && l.url) links.push({ name: l.name, url: l.url });
+    });
+    if (links.length) p.links = links;
+
+    var dock = [];
+    lists.dock.forEach(function (d) {
+      if (!d.title) return;
+      var action = null;
+      if (d.type === "open" && d.url) action = { type: "open", url: d.url };
+      else if (d.type === "script" && d.id) action = { type: "script", id: d.id };
+      else if (d.type === "page" && d.id) action = { type: "page", id: d.id };
+      if (!action) return;
+      var o = { title: d.title, action: action };
+      if (d.icon) o.icon = d.icon;
+      dock.push(o);
+    });
+    if (dock.length) p.dock = dock;
+
+    var icons = [];
+    lists.icons.forEach(function (i) { if (i.target && i.icon) icons.push({ target: i.target, icon: i.icon }); });
+    if (icons.length) p.icons = icons;
+
+    var tokens = {};
+    [["--ui-accent", "f-tk-accent"], ["--pill-seg", "f-tk-seg"], ["--pill-seg-ring", "f-tk-ring"], ["--pill-line", "f-tk-line"]].forEach(function (pair) {
+      var v = $(pair[1]).value.trim();
+      if (v) tokens[pair[0]] = v;
+    });
+    if (Object.keys(tokens).length) p.tokens = tokens;
+
+    var motion = {};
+    var prof = $("f-motion-profile").value;
+    var speed = parseFloat($("f-motion-speed").value);
+    if (prof) motion.profile = prof;
+    if (Number.isFinite(speed)) motion.speed = Math.min(2, Math.max(0.5, speed));
+    if (Object.keys(motion).length) p.motion = motion;
+
+    var clock = {};
+    var h12 = $("f-clock-hour12").value;
+    var sec = $("f-clock-seconds").value;
+    var date = $("f-clock-date").value;
+    var gm = $("f-clock-greet-mode").value;
+    var gtpl = $("f-clock-greeting").value;
+    if (h12 !== "") clock.hour12 = h12 === "true";
+    if (sec !== "") clock.showSeconds = sec === "true";
+    if (date !== "") clock.showDate = date === "true";
+    if (gm === "off") clock.greeting = "";
+    else if (gm === "tpl" && gtpl) clock.greeting = gtpl;
+    if (Object.keys(clock).length) p.clock = clock;
+
+    var layout = {};
+    var cs = parseFloat($("f-lay-clock").value);
+    var cols = parseInt($("f-lay-cols").value, 10);
+    var align = $("f-lay-align").value;
+    if (Number.isFinite(cs)) layout.clockScale = Math.min(2, Math.max(0.5, cs));
+    if (Number.isFinite(cols)) layout.linksColumns = Math.round(Math.min(12, Math.max(3, cols)));
+    if (align) layout.verticalAlign = align;
+    if ($("f-lay-hideclock").value) layout.hideClock = true;
+    if ($("f-lay-hidesearch").value) layout.hideSearch = true;
+    if ($("f-lay-hidelinks").value) layout.hideLinks = true;
+    if (Object.keys(layout).length) p.layout = layout;
+
+    var anims = [];
+    lists.animations.forEach(function (a) {
+      if (a.id && a.css) anims.push({ id: a.id, name: a.name || undefined, css: a.css });
+    });
+    if (anims.length) p.animations = anims;
+
+    var scripts = [];
+    lists.scripts.forEach(function (s) {
+      if (s.id && s.code) scripts.push({ id: s.id, name: s.name || undefined, code: s.code });
+    });
+    if (scripts.length) p.scripts = scripts;
+
+    return p;
+  }
+
+  /* ---------- 完整性提示 ---------- */
+  function check(p) {
+    var out = [];
+    var ok = function (t) { return { cls: "ok", t: t }; };
+    var warn = function (t) { return { cls: "warn", t: t }; };
+    if (!p.name) out.push(warn("缺少预设名称（必填）"));
+    else out.push(ok("名称：" + p.name));
+    var n = (p.commands || []).length + (p.links || []).length + (p.dock || []).length +
+      (p.animations || []).length + (p.scripts || []).length + (p.icons || []).length +
+      Object.keys(p.tokens || {}).length + Object.keys(p.motion || {}).length +
+      Object.keys(p.clock || {}).length + Object.keys(p.layout || {}).length;
+    if (n === 0) out.push(warn("还没有任何内容字段——至少写一项才能导入"));
+    else out.push(ok("内容字段 " + n + " 项"));
+    (p.commands || []).forEach(function (c, i) {
+      if (!/^https:\/\//i.test(c.action.url || "")) out.push(warn("命令[" + i + "]「" + c.title + "」网址必须以 https:// 开头"));
+    });
+    (p.links || []).concat().forEach(function (l, i) {
+      if (!/^https:\/\//i.test(l.url)) out.push(warn("磁贴[" + i + "]「" + l.name + "」网址必须以 https:// 开头"));
+    });
+    (p.icons || []).forEach(function (i) {
+      var v = i.icon;
+      var isName = ICON_NAMES.indexOf(v) >= 0;
+      var isData = /^data:image\/(png|jpeg|webp|gif|svg\+xml);base64,[A-Za-z0-9+\/=]+$/.test(v) && v.length <= 8192;
+      if (!isName && !isData) out.push(warn("图标[" + i.target + "]：需为内置名或 base64 data:image URL（≤8KB）"));
+    });
+    if (p.motion && p.motion.speed != null && (p.motion.speed < 0.5 || p.motion.speed > 2))
+      out.push(warn("motion.speed 需在 0.5–2 之间"));
+    return out;
+  }
+
+  var lastJSON = "{}";
+  function update() {
+    var p = buildPreset();
+    lastJSON = JSON.stringify(p, null, 2);
+    $("out").textContent = lastJSON;
+    var host = $("checks");
+    host.textContent = "";
+    check(p).forEach(function (c) {
+      var d = el("div", "c " + c.cls, c.t);
+      host.appendChild(d);
+    });
+  }
+
+  /* ---------- 导出 ---------- */
+  $("btn-download").addEventListener("click", function () {
+    var blob = new Blob([lastJSON], { type: "application/json" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    var name = ($("f-name").value.trim() || "preset") + ".json";
+    a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 3000);
+  });
+  $("btn-copy").addEventListener("click", function () {
+    var done = function () {
+      var b = $("btn-copy"); var t = b.textContent;
+      b.textContent = "已复制";
+      setTimeout(function () { b.textContent = t; }, 1200);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(lastJSON).then(done, function () { fallbackCopy(); done(); });
+    } else { fallbackCopy(); done(); }
+  });
+  function fallbackCopy() {
+    var ta = document.createElement("textarea");
+    ta.value = lastJSON; document.body.appendChild(ta);
+    ta.select(); try { document.execCommand("copy"); } catch (e) {}
+    ta.remove();
+  }
+
+  /* ---------- 导入回填 ---------- */
+  $("btn-import-mode").addEventListener("click", function () {
+    var a = $("import-area");
+    a.style.display = a.style.display === "none" ? "" : "none";
+  });
+  $("btn-parse-import").addEventListener("click", function () {
+    var raw;
+    try { raw = JSON.parse($("import-text").value); }
+    catch (e) { alert("JSON 解析失败：" + e.message); return; }
+    if (!raw || typeof raw !== "object") { alert("不是合法的预设对象"); return; }
+    fillFrom(raw);
+  });
+  function fillFrom(p) {
+    $("f-name").value = p.name || "";
+    $("f-author").value = p.author || "";
+    $("f-desc").value = p.description || "";
+    lists.commands = (p.commands || []).map(function (c) {
+      var a = c.action || {};
+      return { title: c.title, type: a.type === "copy" ? "copy" : a.type === "search" ? "search" : "open", url: a.url || "", text: a.text || "", q: a.q || "" };
+    });
+    lists.links = (p.links || []).map(function (l) { return { name: l.name, url: l.url }; });
+    lists.dock = (p.dock || []).map(function (d) {
+      var a = d.action || {};
+      return { title: d.title, icon: d.icon || "", type: a.type === "script" ? "script" : a.type === "page" ? "page" : "open", url: a.url || "", id: a.id || "" };
+    });
+    lists.icons = (p.icons || []).map(function (i) { return { target: i.target, icon: i.icon }; });
+    lists.animations = (p.animations || []).map(function (a) { return { id: a.id, name: a.name || "", css: a.css }; });
+    lists.scripts = (p.scripts || []).map(function (s) { return { id: s.id, name: s.name || "", code: s.code }; });
+    Object.keys(lists).forEach(renderList);
+    var tk = p.tokens || {};
+    $("f-tk-accent").value = tk["--ui-accent"] || "";
+    $("f-tk-seg").value = tk["--pill-seg"] || "";
+    $("f-tk-ring").value = tk["--pill-seg-ring"] || "";
+    $("f-tk-line").value = tk["--pill-line"] || "";
+    var m = p.motion || {};
+    $("f-motion-profile").value = m.profile || "";
+    $("f-motion-speed").value = m.speed != null ? m.speed : "";
+    var ck = p.clock || {};
+    $("f-clock-hour12").value = ck.hour12 === true ? "true" : ck.hour12 === false ? "false" : "";
+    $("f-clock-seconds").value = ck.showSeconds === true ? "true" : ck.showSeconds === false ? "false" : "";
+    $("f-clock-date").value = ck.showDate === true ? "true" : ck.showDate === false ? "false" : "";
+    if (ck.greeting === "") { $("f-clock-greet-mode").value = "off"; $("f-clock-greeting").value = ""; }
+    else if (typeof ck.greeting === "string") { $("f-clock-greet-mode").value = "tpl"; $("f-clock-greeting").value = ck.greeting; }
+    else { $("f-clock-greet-mode").value = ""; $("f-clock-greeting").value = ""; }
+    var lay = p.layout || {};
+    $("f-lay-clock").value = lay.clockScale != null ? lay.clockScale : "";
+    $("f-lay-cols").value = lay.linksColumns != null ? lay.linksColumns : "";
+    $("f-lay-align").value = lay.verticalAlign || "";
+    $("f-lay-hideclock").value = lay.hideClock ? "1" : "";
+    $("f-lay-hidesearch").value = lay.hideSearch ? "1" : "";
+    $("f-lay-hidelinks").value = lay.hideLinks ? "1" : "";
+    update();
+  }
+
+  /* ---------- 示例 ---------- */
+  $("btn-fill-sample").addEventListener("click", function () {
+    fillFrom({
+      chushi: 1,
+      name: "我的焕新方案",
+      author: "",
+      description: "图形化工具生成的示例预设",
+      links: [{ name: "GitHub", url: "https://github.com" }, { name: "Bing", url: "https://www.bing.com" }],
+      commands: [{ title: "打开 GitHub", action: { type: "open", url: "https://github.com" } }],
+      icons: [{ target: "command", icon: "terminal" }],
+      tokens: { "--ui-accent": "#0078d4" },
+      motion: { profile: "playful", speed: 1.1 },
+      clock: { hour12: true, showSeconds: false, greeting: "{greet}，{name} — 愿今天顺利" },
+      layout: { linksColumns: 6, clockScale: 1.05 },
+      animations: [{ id: "tile-lift", name: "磁贴轻浮起", css: ".cl-links .group { transition: transform .18s cubic-bezier(.34,1.56,.64,1); } .cl-links .group:hover { transform: translateY(-3px); }" }],
+      scripts: [{ id: "acrylic", name: "亚克力材质", code: "await chushi.material.apply({\n  css: '.search-pill, .cl-dock, .cl-panel, .glass-card { backdrop-filter: blur(40px) saturate(1.6); background: linear-gradient(135deg, rgba(255,255,255,.6), rgba(240,245,255,.38)); border: 1px solid rgba(255,255,255,.55); }'\n});" }]
+    });
+  });
+
+  /* ---------- tabs / 说明 ---------- */
+  $("tabs").addEventListener("click", function (e) {
+    var b = e.target.closest("button[data-tab]");
+    if (!b) return;
+    document.querySelectorAll("#tabs button").forEach(function (x) { x.setAttribute("data-active", x === b ? "true" : "false"); });
+    document.querySelectorAll(".tabpage").forEach(function (pg) {
+      pg.setAttribute("data-active", pg.getAttribute("data-page") === b.getAttribute("data-tab") ? "true" : "false");
+    });
+  });
+  var help = $("help");
+  $("btn-help").addEventListener("click", function () { help.showModal(); });
+  $("btn-help-close").addEventListener("click", function () { help.close(); });
+
+  update();
+})();
+</script>
+</body>
+</html>

@@ -50,7 +50,9 @@ export type SandboxEvent =
  *  结果经 fxResult 回报沙箱；预设卸载/脚本冻结时挂载与订阅全部回收。
  *  宿主不实现任何具体视觉效果——全部引擎代码住在预设包里（fx.ts 头注）。
  *  设置面（v1.2.0）：settingsDefine/settingsGet 由桥校验与回执，
- *  schema 白名单与持久化工具见 preset-settings.ts。 */
+ *  schema 白名单与持久化工具见 preset-settings.ts。
+ *  换材质（v1.7.0）：沙箱侧 chushi.material.apply/reset 是 fx.mount/unmount
+ *  的语义薄糖（固定挂载 id "material"），无新增消息类型。 */
 import { fxHost } from "./fx";
 import { validateSettingSchema, type PresetSettingsSchema } from "./preset-settings";
 
@@ -79,19 +81,19 @@ const caps = {
  *  ?v= 供部署后冲掉 SW cache-first 旧缓存 */
 function sandboxSrc(): string {
   const base = (process.env.NEXT_PUBLIC_BASE_PATH as string | undefined) ?? "";
-  return `${base}/sandbox.html?v=114`;
+  return `${base}/sandbox.html?v=115`;
 }
 
 /** 沙箱页面模式地址（自定义页 overlay 用）：mode=page 下运行时仅充当页面宿主 */
 export function sandboxPageSrc(): string {
   const base = (process.env.NEXT_PUBLIC_BASE_PATH as string | undefined) ?? "";
-  return `${base}/sandbox.html?mode=page&v=114`;
+  return `${base}/sandbox.html?mode=page&v=115`;
 }
 
 /** 沙箱小部件模式地址（角落小部件用）：mode=widget 下运行时仅充当部件宿主 */
 export function sandboxWidgetSrc(): string {
   const base = (process.env.NEXT_PUBLIC_BASE_PATH as string | undefined) ?? "";
-  return `${base}/sandbox.html?mode=widget&v=114`;
+  return `${base}/sandbox.html?mode=widget&v=115`;
 }
 
 type Msg = { type?: unknown } & Record<string, unknown>;

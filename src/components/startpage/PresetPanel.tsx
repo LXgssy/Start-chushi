@@ -14,9 +14,12 @@ import { useEffect, useRef, useState } from "react";
 import { AnimatePresence } from "framer-motion";
 import { PresenceClass } from "./PresenceClass";
 import PresetDocs from "./PresetDocs";
-import { ArrowLeft, BookOpen, FileUp, PackageOpen, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, BookOpen, FileUp, PackageOpen, Plus, Trash2, Wrench } from "lucide-react";
 import { parsePreset, SAMPLE_PRESET, type InstalledPreset, type PresetPayload } from "@/lib/startpage/preset";
 import { parsePack } from "@/lib/startpage/pack";
+
+/** 静态资源 basePath（Pages 项目站子路径 / 扩展根路径两种形态） */
+const base = (process.env.NEXT_PUBLIC_BASE_PATH as string | undefined) ?? "";
 
 export type PresetTab = "import" | "manage";
 
@@ -270,6 +273,19 @@ export default function PresetPanel({
                       开发者文档
                     </span>
                   </button>
+                  {/* 图形化预设开发工具（v1.7.0）：单文件离线应用内嵌在本应用静态资源里，
+                      a[download] 同源直下——不依赖外部服务器，离线也能拿 */}
+                  <a
+                    href={`${base}/preset-studio.html`}
+                    download="初始预设开发工具.html"
+                    title="下载图形化预设开发工具（单文件离线应用）"
+                    className="rounded-full px-3 py-1.5 text-xs font-light text-zinc-500 transition-colors duration-150 hover:bg-zinc-900/5 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-100"
+                  >
+                    <span className="inline-flex items-center gap-1.5">
+                      <Wrench className="h-3 w-3" strokeWidth={1.5} />
+                      开发工具
+                    </span>
+                  </a>
                   <input
                     ref={fileRef}
                     type="file"

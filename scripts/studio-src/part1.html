@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>初始 · 预设开发工具</title>
+<style>
+  :root {
+    --bg: #f4f4f5; --card: #ffffff; --line: rgba(0,0,0,.09); --ink: #18181b;
+    --ink2: #52525b; --ink3: #a1a1aa; --accent: #8b5cf6; --accent-soft: rgba(139,92,246,.08);
+    --ok: #16a34a; --err: #dc2626; --field: rgba(0,0,0,.03);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #101013; --card: #17171c; --line: rgba(255,255,255,.09); --ink: #f4f4f5;
+      --ink2: #a1a1aa; --ink3: #52525b; --accent: #a78bfa; --accent-soft: rgba(167,139,250,.1);
+      --ok: #4ade80; --err: #f87171; --field: rgba(255,255,255,.05);
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font: 14px/1.65 system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-weight: 300; min-height: 100vh;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 18px 28px; border-bottom: 1px solid var(--line); background: var(--card);
+  }
+  header h1 { font-size: 15px; font-weight: 400; letter-spacing: .06em; }
+  header .sub { font-size: 12px; color: var(--ink3); letter-spacing: .04em; }
+  header .sp { flex: 1; }
+  button, .btn {
+    all: unset; cursor: pointer; font-size: 12px; font-weight: 300;
+    padding: 7px 16px; border-radius: 999px; border: 1px solid var(--line);
+    color: var(--ink2); transition: all .15s; background: var(--card); text-align: center;
+  }
+  button:hover, .btn:hover { border-color: var(--accent); color: var(--accent); }
+  button.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); font-weight: 400; }
+  button.primary:hover { opacity: .85; color: var(--bg); }
+  main {
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 42%);
+    gap: 18px; padding: 18px 28px 60px; max-width: 1440px; margin: 0 auto;
+  }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+  .tabs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 16px; }
+  .tabs button { border: none; background: transparent; padding: 6px 14px; border-radius: 9px; }
+  .tabs button[data-active="true"] { background: var(--accent-soft); color: var(--accent); }
+  .tabpage { display: none; }
+  .tabpage[data-active="true"] { display: block; }
+  label { display: block; font-size: 11px; letter-spacing: .08em; color: var(--ink3); margin: 14px 0 5px; }
+  label:first-child { margin-top: 0; }
+  input[type=text], input[type=number], select, textarea {
+    width: 100%; font: inherit; font-size: 13px; color: var(--ink);
+    background: var(--field); border: 1px solid var(--line); border-radius: 9px;
+    padding: 8px 11px; outline: none; transition: border-color .15s;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+  textarea { resize: vertical; min-height: 72px; }
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; min-width: 0; }
+  .hint { font-size: 11px; color: var(--ink3); margin-top: 4px; line-height: 1.5; }
+  .items { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+  .item {
+    border: 1px dashed var(--line); border-radius: 10px; padding: 10px 12px;
+    display: grid; gap: 8px; position: relative;
+  }
+  .item .del {
+    all: unset; cursor: pointer; position: absolute; right: 8px; top: 8px;
+    width: 20px; height: 20px; border-radius: 50%; text-align: center; line-height: 18px;
+    font-size: 12px; color: var(--ink3);
+  }
+  .item .del:hover { color: var(--err); background: rgba(220,38,38,.08); }
+  .item .row label { margin: 0; }
+  .add { margin-top: 10px; width: 100%; border-style: dashed; }
+  .muted { color: var(--ink3); }
+  pre#out {
+    font: 11.5px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--field); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px; overflow: auto; max-height: 46vh; white-space: pre; color: var(--ink2);
+  }
+  .checks { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; }
+  .checks .c { font-size: 11.5px; display: flex; gap: 7px; align-items: baseline; }
+  .checks .c::before { content: "·"; color: var(--ink3); }
+  .checks .c.ok { color: var(--ok); }
+  .checks .c.warn { color: var(--err); }
+  .out-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  dialog {
+    border: 1px solid var(--line); border-radius: 16px; background: var(--card); color: var(--ink);
+    max-width: 760px; width: 92vw; padding: 26px 30px; line-height: 1.75;
+  }
+  dialog::backdrop { background: rgba(0,0,0,.4); backdrop-filter: blur(3px); }
+  dialog h2 { font-size: 15px; font-weight: 400; letter-spacing: .1em; margin-bottom: 10px; }
+  dialog h3 { font-size: 13px; font-weight: 500; margin: 18px 0 6px; color: var(--accent); }
+  dialog p, dialog li { font-size: 12.5px; color: var(--ink2); }
+  dialog ul, dialog ol { padding-left: 20px; }
+  dialog code {
+    font: 11.5px ui-monospace, Menlo, Consolas, monospace;
+    background: var(--field); border: 1px solid var(--line); border-radius: 5px; padding: 1px 6px;
+  }
+  dialog pre {
+    font: 11.5px/1.7 ui-monospace, Menlo, Consolas, monospace; background: var(--field);
+    border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; overflow: auto;
+    margin: 8px 0; color: var(--ink2); white-space: pre-wrap;
+  }
+  dialog table { border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 12px; }
+  dialog th, dialog td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; color: var(--ink2); }
+  dialog th { color: var(--ink3); font-weight: 400; font-size: 11px; letter-spacing: .06em; }
+  dialog .close-row { display: flex; justify-content: flex-end; margin-top: 16px; }
+  footer { text-align: center; font-size: 11px; color: var(--ink3); padding: 0 0 30px; letter-spacing: .1em; }
+</style>
+</head>
+<body>
+<header>
+  <h1>初始 · 预设开发工具</h1>
+  <span class="sub">图形化编辑 → 导出 JSON → 导入「初始」 · 离线可用</span>
+  <span class="sp"></span>
+  <button id="btn-import-mode">从 JSON 导入</button>
+  <button id="btn-help">使用说明</button>
+</header>
+
+<main>
+  <!-- ============ 左：表单 ============ -->
+  <section class="panel" id="form-panel">
+    <div class="tabs" id="tabs">
+      <button data-tab="base" data-active="true">基础</button>
+      <button data-tab="content">内容</button>
+      <button data-tab="renew">焕新</button>
+      <button data-tab="adv">样式与脚本</button>
+    </div>
+
+    <!-- 基础 -->
+    <div class="tabpage" data-page="base" data-active="true">
+      <label>预设名称（必填，≤20 字符）</label>
+      <input type="text" id="f-name" maxlength="20" placeholder="例如：我的焕新方案">
+      <div class="row">
+        <div>
+          <label>作者（≤20 字符）</label>
+          <input type="text" id="f-author" maxlength="20" placeholder="你的名字">
+        </div>
+        <div>
+          <label>描述（≤60 字符）</label>
+          <input type="text" id="f-desc" maxlength="60" placeholder="一句话说明这个预设做什么">
+        </div>
+      </div>
+      <div class="hint">名称会显示在 ⌘K 预设管理列表中；删除预设即整体还原，无需担心弄坏页面。</div>
+    </div>
+
+    <!-- 内容 -->
+    <div class="tabpage" data-page="content">
+      <label>⌘K 命令（≤12 条）</label>
+      <div class="items" id="list-commands"></div>
+      <button class="add" data-add="commands">＋ 添加命令</button>
+
+      <label style="margin-top:20px">快捷磁贴（≤12 个）— 主页链接区</label>
+      <div class="items" id="list-links"></div>
+      <button class="add" data-add="links">＋ 添加磁贴</button>
+
+      <label style="margin-top:20px">tab 栏按钮（≤3 个）— 底部 Dock</label>
+      <div class="items" id="list-dock"></div>
+      <button class="add" data-add="dock">＋ 添加栏按钮</button>
+    </div>
+
+    <!-- 焕新 -->
+    <div class="tabpage" data-page="renew">
+      <label>图标替换（≤6 项）— 把 tab 栏内建按钮换成别的图标</label>
+      <div class="items" id="list-icons"></div>
+      <button class="add" data-add="icons">＋ 添加图标替换</button>
+      <div class="hint">目标按钮：weather / todo / note / pomodoro / settings / command；图标可填内置名（bookmark / book / briefcase / calendar / camera / cloud / coffee / compass / game / github / globe / heart / home / link / mail / music / star / terminal / video / zap）或 data:image/ 开头的 base64 图片（≤8KB）。</div>
+
+      <label style="margin-top:20px">主题令牌覆写（留空 = 不覆写）</label>
+      <div class="row">
+        <div>
+          <label style="margin-top:0">强调色 --ui-accent</label>
+          <input type="text" id="f-tk-accent" maxlength="120" placeholder="#0078d4">
+        </div>
+        <div>
+          <label style="margin-top:0">选框底色 --pill-seg</label>
+          <input type="text" id="f-tk-seg" maxlength="120" placeholder="rgba(0,120,212,.14)">
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label style="margin-top:0">选框描边 --pill-seg-ring</label>
+          <input type="text" id="f-tk-ring" maxlength="120" placeholder="rgba(0,120,212,.35)">
+        </div>
+        <div>
+          <label style="margin-top:0">分隔线 --pill-line</label>
+          <input type="text" id="f-tk-line" maxlength="120" placeholder="rgba(0,120,212,.25)">
+        </div>
+      </div>
+
+      <label style="margin-top:20px">动效语言</label>
+      <div class="row">
+        <div>
+          <label style="margin-top:0">弹簧档位 profile</label>
+          <select id="f-motion-profile">
+            <option value="">保持默认（standard）</option>
+            <option value="standard">standard · 标准</option>
+            <option value="playful">playful · Q 弹</option>
+            <option value="calm">calm · 从容</option>
+            <option value="instant">instant · 直给</option>
+          </select>
+        </div>
+        <div>
+          <label style="margin-top:0">入场动画倍率 speed（0.5–2）</label>
+          <input type="number" id="f-motion-speed" step="0.1" min="0.5" max="2" placeholder="1 = 不变速">
+        </div>
+      </div>
+
+      <label style="margin-top:20px">时钟格式</label>
+      <div class="row">
+        <div>
+          <label style="margin-top:0">小时制</label>
+          <select id="f-clock-hour12">
+            <option value="">保持用户设置</option>
+            <option value="false">24 小时制</option>
+            <option value="true">12 小时制（AM/PM）</option>
+          </select>
+        </div>
+        <div>
+          <label style="margin-top:0">秒数</label>
+          <select id="f-clock-seconds">
+            <option value="">保持用户设置</option>
+            <option value="true">显示</option>
+            <option value="false">隐藏</option>
+          </select>
+        </div>
+        <div>
+          <label style="margin-top:0">日期行</label>
+          <select id="f-clock-date">
+            <option value="">保持默认（显示）</option>
+            <option value="true">显示</option>
+            <option value="false">隐藏</option>
+          </select>
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div>
+          <label style="margin-top:0">问候语</label>
+          <select id="f-clock-greet-mode">
+            <option value="">保持默认</option>
+            <option value="tpl">自定义模板</option>
+            <option value="off">隐藏问候</option>
+          </select>
+        </div>
+        <div>
+          <label style="margin-top:0">模板（≤40 字符；{greet} = 时段问候，{name} = 用户名）</label>
+          <input type="text" id="f-clock-greeting" maxlength="40" placeholder="例如：{greet}，{name}，愿今天顺利">
+        </div>
+      </div>
+
+      <label style="margin-top:20px">布局</label>
+      <div class="row">
+        <div>
+          <label style="margin-top:0">时钟缩放（0.5–2）</label>
+          <input type="number" id="f-lay-clock" step="0.05" min="0.5" max="2" placeholder="1">
+        </div>
+        <div>
+          <label style="margin-top:0">磁贴列数（3–12）</label>
+          <input type="number" id="f-lay-cols" step="1" min="3" max="12" placeholder="6">
+        </div>
+        <div>
+          <label style="margin-top:0">垂直对齐</label>
+          <select id="f-lay-align">
+            <option value="">居中（默认）</option>
+            <option value="center">居中</option>
+            <option value="top">靠上</option>
+          </select>
+        </div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div><label style="margin-top:0">隐藏时钟</label><select id="f-lay-hideclock"><option value="">否</option><option value="1">是</option></select></div>
+        <div><label style="margin-top:0">隐藏搜索</label><select id="f-lay-hidesearch"><option value="">否</option><option value="1">是</option></select></div>
+        <div><label style="margin-top:0">隐藏磁贴区</label><select id="f-lay-hidelinks"><option value="">否</option><option value="1">是</option></select></div>
+      </div>
+    </div>
+
+    <!-- 样式与脚本 -->
+    <div class="tabpage" data-page="adv">
+      <label>自定义动画 / 样式（≤4 段，每段 ≤6000 字符，作用于公开元素钩子）</label>
+      <div class="items" id="list-animations"></div>
+      <button class="add" data-add="animations">＋ 添加样式段</button>
+      <div class="hint">元素钩子：.search-pill / .cl-dock / .cl-panel / .glass-card / .cl-clock / .cl-links。CSS 无法执行脚本，最坏情况只是弄乱自己的页面视觉。</div>
+
+      <label style="margin-top:20px">沙箱脚本（≤3 个，每段 ≤16000 字符）— 可调用 chushi API</label>
+      <div class="items" id="list-scripts"></div>
+      <button class="add" data-add="scripts">＋ 添加脚本</button>
+      <div class="hint">脚本运行在唯一源隔离沙箱中，拿不到页面数据与扩展 API。换材质示例：<code>await chushi.material.apply({ css: '…' })</code>。</div>
+    </div>
+  </section>
+
+  <!-- ============ 右：输出 ============ -->
+  <section class="panel">
+    <label style="margin-top:0">预设 JSON（实时生成，最终校验以「初始」导入时为准）</label>
+    <pre id="out">{ }</pre>
+    <div class="checks" id="checks"></div>
+    <div class="out-actions">
+      <button class="primary" id="btn-download">下载 .json</button>
+      <button id="btn-copy">复制 JSON</button>
+      <button id="btn-fill-sample">填入示例</button>
+    </div>
+
+    <div id="import-area" style="display:none; margin-top:18px;">
+      <label>粘贴现有预设 JSON → 解析回表单（覆盖当前编辑内容）</label>
+      <textarea id="import-text" placeholder='以 { "chushi": 1, ... } 开头的预设 JSON'></textarea>
+      <div class="out-actions">
+        <button class="primary" id="btn-parse-import">解析并回填</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>初始 · Start-chushi — 预设开发工具（内嵌离线版）</footer>

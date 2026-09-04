@@ -7,7 +7,8 @@
  *  2. 向脚本提供受控 API `chushi`——注册 ⌘K 命令、脚本入口、通知、
  *     打开网址、复制、fetchJSON、fx 视觉效果面（v1.1.3：挂载 style/svg
  *     白名单结构、订阅玻璃容器 resize 快照）、设置面（v1.2.0：define/get/
- *     onChange，预设向设置面板贡献调节项）。所有越界副作用仅以
+ *     onChange，预设向设置面板贡献调节项）、换材质（v1.7.0：material.apply/
+ *     reset，通用材质作用面）。所有越界副作用仅以
  *     postMessage 上报宿主，由宿主复核白名单后代为执行；
  *     本文档自身拿不到主文档、localStorage、Cookie 与任何扩展 API；
  *  3. invoke 路由：命令复合键（"scriptKey:cmdId"）查命令表，
@@ -65,7 +66,7 @@
   function makeChushi(scriptKey) {
     /* ---------- fx 视觉效果面（v1.1.3）----------
      * mount(id, html)：把 <style>/<svg> 白名单结构幂等挂进宿主 fx-root；
-     *   液态玻璃等视觉引擎的全部代码住在预设脚本里，宿主只提供作用面。
+     *   高级材质（折射/高光等）的全部引擎代码住在预设脚本里，宿主只提供作用面。
      * unmount(id)：摘除单挂载。删除预设时宿主整组回收，无需脚本配合。
      * onResize(cb)：订阅宿主玻璃容器快照（[{fx,key,w,h,radius}]），
      *   订阅即推全量，后续尺寸/增减变化随推；返回退订函数。 */
@@ -170,6 +171,28 @@
             var i = fxResizeCbs.indexOf(cb);
             if (i >= 0) fxResizeCbs.splice(i, 1);
           };
+        },
+      },
+      /* ---------- 换材质（v1.7.0）：通用材质作用面 ----------
+       * apply(spec)：spec = { css?, svg? } —— css 包 <style>、svg 直传，组包后
+       *   走 fx mount（挂载 id 固定 "material"，重复 apply 幂等替换不闪断）。
+       *   材质 CSS 直接用公开元素钩子（.search-pill/.cl-dock/.cl-panel/.glass-card）；
+       *   高级贴图材质（折射类）配合 fx.onResize 快照按 data-fx 标记动态构造。
+       * reset()：摘除本脚本的材质挂载（删除预设时宿主也会整组回收）。 */
+      material: {
+        apply: function (spec) {
+          spec = spec && typeof spec === "object" ? spec : {};
+          var css = typeof spec.css === "string" ? spec.css : "";
+          var svg = typeof spec.svg === "string" ? spec.svg : "";
+          var chunks = [];
+          if (css) chunks.push("<style>" + css.replace(/<\/style/gi, "") + "</style>");
+          if (svg) chunks.push(svg);
+          if (chunks.length === 0)
+            return Promise.resolve({ ok: false, message: "material.apply 需要 css 或 svg 至少一项" });
+          return fxApi("fxMount", "material", chunks.join("\n"));
+        },
+        reset: function () {
+          return fxApi("fxUnmount", "material", undefined);
         },
       },
       /* ---------- 设置面（v1.2.0）：预设向设置面板贡献调节项 ----------

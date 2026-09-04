@@ -519,7 +519,7 @@ html.photo-mode .dock-btn[data-active="true"] {
   }
 }
 .intro-rise {
-  animation: intro-rise 0.95s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation: intro-rise calc(0.95s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 @media (prefers-reduced-motion: reduce) {
   .intro-rise {
@@ -540,7 +540,7 @@ html.photo-mode .dock-btn[data-active="true"] {
   }
 }
 .panel-rise {
-  animation: panel-fade 0.3s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation: panel-fade calc(0.3s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 @media (prefers-reduced-motion: reduce) {
   .panel-rise {
@@ -560,7 +560,7 @@ html.photo-mode .dock-btn[data-active="true"] {
   }
 }
 .veil-in {
-  animation: veil-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation: veil-in calc(0.28s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 @keyframes card-in {
   from {
@@ -571,7 +571,7 @@ html.photo-mode .dock-btn[data-active="true"] {
   }
 }
 .card-in {
-  animation: card-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation: card-in calc(0.22s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 @media (prefers-reduced-motion: reduce) {
   .veil-in,
@@ -674,7 +674,7 @@ html.photo-mode .dock-btn[data-active="true"] {
   }
 }
 .content-focus {
-  animation: content-focus 0.32s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation: content-focus calc(0.32s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 /* 内容退：模糊散场 —— 关闭路径由卡片退场类级联触发（旧视图已在卡片内，
@@ -790,7 +790,7 @@ html.photo-mode .dock-btn[data-active="true"] {
   }
 }
 .ctx-in {
-  animation: ctx-in-kf 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+  animation: ctx-in-kf calc(0.2s * var(--mo-speed, 1)) cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
 }
 @keyframes ctx-out-kf {
   from {
@@ -834,7 +834,7 @@ html.photo-mode .dock-btn[data-active="true"] {
   }
 }
 .ctx-in .ctx-item {
-  animation: ctx-item-in-kf 0.34s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation: ctx-item-in-kf calc(0.34s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) backwards;
   animation-delay: calc(min(var(--ci, 0), 12) * 24ms);
 }
 @keyframes ctx-item-out-kf {
@@ -870,7 +870,7 @@ html.photo-mode .dock-btn[data-active="true"] {
   }
 }
 .docs-anim > section {
-  animation: docs-item-in-kf 0.42s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation: docs-item-in-kf calc(0.42s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) backwards;
   animation-delay: calc(min(var(--di, 0), 10) * 36ms);
 }
 @keyframes docs-item-out-kf {
@@ -912,7 +912,7 @@ html.photo-mode .dock-btn[data-active="true"] {
 /* ---------- dock 入场：自承载（原 page.tsx framer 包裹层 opacity 动画移除，同参 0.8s/延迟 0.55s）；
    居中是 Tailwind v4 独立 translate 属性，与 keyframes 的 transform 合成不覆盖 ---------- */
 .dock-intro {
-  animation: dock-rise 0.8s cubic-bezier(0.22, 1, 0.36, 1) 0.55s backwards;
+  animation: dock-rise calc(0.8s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) calc(0.55s * var(--mo-speed, 1)) backwards;
 }
 @keyframes dock-rise {
   from {
