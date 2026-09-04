@@ -306,3 +306,27 @@ Stage Summary:
 - URL 律：URL API 的 pathname 赋空串会回弹 "/"——拼接型规范化一律局部变量，不回写 URL 对象
 - 交付：文叔叔 v1.7.5 合并交付包 → https://c.wss.ink/f/ksmeq0qn7z9（1 天过期）；Release v1.7.5；Pages 已上线
 - 待办：Edge 商店提交材料仍未做；bridge.dll 真机行为待用户实测首连（协议已对拍）；歌词/收藏/队列未含（后续按需）
+
+---
+Task ID: 66
+Agent: main (Super Z)
+Task: 用户指令「现在的betterncm没有办法适配最新的网易云音乐客户端了，你单独写一个专门适配'初始'的betterncm，并且要支持最新的网易云客户端，还有一个问题，就是你发的桥接插件安装了没有反应，你写完新的betterncm后打包成一键安装，然后告诉我这个项目允不允许我们更改并发布到自己的仓库」—— v1.7.6 初始音乐桥·独立版（ChuShiBridge）
+
+Work Log:
+- 【调研定案】BetterNCM 仓库已整体改名/重写为 chromatic（README 原文：作者迁移至 QQ 音乐、BetterNCM 疏于维护）；最后一版可用二进制 = BetterNCMII 1.3.4（2024-10，v2 分支，GPL-3.0）；chromatic master 2.0 是 Frida 风格通用注入工具链（Process/Memory/Interceptor API），无插件生态、无二进制发布、根目录无 LICENSE——「桥接插件装了没反应」根因 = 框架自身在新版网易云注入失败（EasyCEFHooks 依赖 CEF 内部特征，升级即失效），插件从未被加载
+- 【架构定案】独立版 ChuShiBridge = 启动器 exe（CDP 附加 + 10754 API）+ msimg32.dll 装载器（PEB 命令行追加调试端口），零 CEF 内部 hook——不随网易云升级失效；API 与 v1.7.5 bridge.dll 完全同契约（「初始」客户端零改动）
+- 【页内桥 bridge-core.js】window.__chushiBridge：三路状态源（dva store 经 webpackJsonp push 同步捕获 require→模块缓存扫描 / legacyNativeCmder PlayState·PlayProgress·Seek 事件 / 媒体元素 paused·currentTime·volume 音频真源）+ 8 种控制命令 dispatch + DOM 兜底；snapshot()/controlText() 双入口；Node 假 NCM 世界（webpack jsonp+dva+cmder+media 四件可开关）对拍 37/37
+- 【exe】chushibridge.c（main/配置/NCM 定位/进程操作/CDP 线程）+ cb_server.c（HTTP：ping/status/control/debug+OPTIONS，Origin 白名单，快照 4s 过期 503，命令 FIFO 队列）+ cb_cdp.c（/json/list 发现、RFC6455 最小 WS 客户端（掩码/ping-pong/分片聚合）、Runtime.evaluate returnByValue、JSON \uXXXX 反转义含代理对→UTF-8）；llvm-mingw x86_64 -Wall -Wextra 零警告；单实例互斥体；bridge.log + /api/debug（ncmRunning/cdp/bridge/diag.store…）排障面
+- 【装载器 cb_loader.c】msimg32 代理（5 导出懒解析转发，.def 命名）+ DLL_PROCESS_ATTACH 时 PEB→ProcessParameters(0x20)→CommandLine(0x70) 原地/换指针追加 --remote-debugging-port=18754 --remote-allow-origins=*（幂等、--type= 子进程跳过、零指令 patch）；导出表 objdump 自检 5/5
+- 【一键安装】install.ps1（注册表/常见路径/运行进程三路定位网易云→PE machine 架构检查（仅 x64 装装载器）→已有 msimg32 备份替换（BetterNCM 兼容）→本体+config→桌面快捷方式→可选自启→--kill-ncm 重启网易云→60s ping 健康检查→现场生成卸载脚本，目录不可写自动 UAC 提升）+ uninstall.ps1（还原备份/删快捷方式/延迟自删）；ps1 打包注入 UTF-8 BOM（PS5.1 中文律）
+- 【初始侧 v1.7.6】MusicPanel 指引改「接入三步（新版客户端推荐）」+ Release latest 固定资产直链（ChuShiBridge-2.0.0-Setup.zip，ASCII 名规避 URL 编码坑）+ 旧路线回落链接（v1.7.5 chromatic 插件）+ 失败文案「初始音乐桥未运行」；music.ts/版本号/README 同步
+- 【验证】verify-v175 全量回归 21/21（协议兼容性证明：客户端零改动）+ verify-v176 专项 13/13（新指引/直链/回落/失败文案/协议快通）+ 扩展冒烟 7/7（⚠持久化 profile 残留旧 sw 缓存致 A2 假阴——清 profile 即愈，扩展冒烟前 rm profile 入律）+ exe/loader 编译自检
+- 【发布】main 2897348；gh-pages b5ad26e（独立 clone 三件套，BUILD 20260904151607-2897348）；线上 chunk dcda66aded355cd6 特征实测 ✓；Release v1.7.6（id 382824140）双资产：扩展 zip 11.7MB + ChuShiBridge-2.0.0-Setup.zip 68KB
+- 【License 答复（已入 Release notes）】BetterNCM/BetterNCMII（chromatic v2 分支）= GPL-3.0：允许修改并发布到自己的仓库，条件=同 GPL-3.0 开源+保留版权声明+注明修改；chromatic master（2.0）无 LICENSE 文件=默认保留所有权利，不建议基于其修改再分发；ChuShiBridge 全部代码为原创实现（不含 BetterNCM 代码，仅借鉴 msimg32 劫持这一通用机制与自有协议），可自由发布/自选协议
+
+Stage Summary:
+- 产品律（v1.7.6 定稿）：外部能力接入的注入层必须「零目标内部 hook」——CEF 调试端口方案以「进程外协议」替代「进程内特征」，版本免疫；装载器只做命令行追加这类无副作用数据面操作
+- 排障律：本地服务三态可见性（/api/debug 结构化诊断 + 落盘日志 + 控制台），「装了没反应」类问题必须给用户可自助的三查路径
+- 测试律：持久化浏览器 profile 会缓存旧 sw——扩展冒烟前必须清 profile；二进制无法在沙箱真机运行时，「Node 孪生对拍 + 编译自检 + 导出表核验 + 真机 /api/ping 自证」四件套兜底
+- 交付：文叔叔 v1.7.6 合并交付包（见后续链接）；Release v1.7.6；Pages 已上线
+- 待办：Edge 商店提交材料仍未做；ChuShiBridge 真机首连待用户实测（安装器已内置健康检查自证）；歌词/收藏/队列未含（后续按需）
