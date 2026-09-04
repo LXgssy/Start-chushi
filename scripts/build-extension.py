@@ -3,7 +3,7 @@
 步骤：index.html 内联 <script> 外置为 ext-script-N.js（MV3 CSP 兼容）→
 写入 manifest.json（版本号此处维护）→ 复制 _locales/icons → zip。
 用法: python3 scripts/build-extension.py
-输出: download/v1.7.2/ChuShi-NewTab-v1.7.2.zip
+输出: download/v1.7.3/ChuShi-NewTab-v1.7.3.zip
 """
 import json
 import pathlib
@@ -16,8 +16,8 @@ ROOT = pathlib.Path("/home/z/my-project")
 OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
-VERSION = "1.7.2"
-DEST = ROOT / "download/v1.7.2/ChuShi-NewTab-v1.7.2.zip"
+VERSION = "1.7.3"
+DEST = ROOT / "download/v1.7.3/ChuShi-NewTab-v1.7.3.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():
     sys.exit("out/index.html 不存在——先跑 EXTENSION_MODE=1 bun run build:extension")

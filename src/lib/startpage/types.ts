@@ -50,6 +50,10 @@ export interface Settings {
   /** 掠影自定义壁纸的 URL 导入源（v1.7.2）：非空 = 使用远程图片/视频 URL；
    *  空串 = 使用 IndexedDB 里上传的本地壁纸。两种来源互斥，导入其一即清另一 */
   wallpaperUrl: string;
+  /** 自定义壁纸导入版本号（v1.7.3）：每次导入（本地文件或 URL）自增。
+   *  渲染端以它为依赖重读壁纸源——否则 custom 模式下重复导入（photoId/wallpaperUrl
+   *  均不变）effect 不重跑，壁纸停在旧画面（导入后不刷新的根因） */
+  wallpaperRev: number;
   pomodoro: PomodoroDurations;
 }
 
@@ -66,6 +70,7 @@ export const DEFAULT_SETTINGS: Settings = {
   photoLast: "mist-lake",
   searchSuggest: true,
   wallpaperUrl: "",
+  wallpaperRev: 0,
   pomodoro: DEFAULT_DURATIONS,
 };
 
