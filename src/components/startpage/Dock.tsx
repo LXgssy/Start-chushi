@@ -81,8 +81,10 @@ export const MOTION_PROFILES: Record<
   instant: { type: "spring", stiffness: 700, damping: 42 },
 };
 
-/** 选框出场 Q 弹（固定，非 profile 化——用户点名的产品行为；
- *  instant 档除外：显式要求直给时出场同参数） */
+/** 选框出场/滑移 Q 弹（backOut 型过冲回弹，非玻璃材质）。
+ *  v1.7.1 定位：出场（开面板时首次出现）固定用它；切换滑移仅 playful 档
+ *  （示例预设的动效语言）采用，其余档位恢复基线手感（用户：切换动画
+ *  没必要 Q 弹，恢复以前的样式；这个动画留在示例预设里） */
 const POPPING = { type: "spring" as const, stiffness: 520, damping: 20, mass: 0.9 };
 
 /* 退场加速曲线（与 globals.css 的 .panel-sink/.veil-out 同参） */
@@ -307,6 +309,14 @@ export default function Dock({
   const motionSpring = MOTION_PROFILES[motionProfile] ?? MOTION_PROFILES.standard;
   const undone = todos.filter((t) => !t.done).length;
 
+  /* 选框出场只在「无面板 → 打开面板」时播 Q 弹（null→panel）；面板间切换时
+     新按钮的选框不重播 initial（否则 Q 弹会重新出现——正是用户点名要退回去的
+     「切换动画」），layoutId 从旧按钮位置纯滑移，即基线（v1.1.x）手感。
+     渲染期同步 prevPanel（React 官方「渲染期间调整 state」模式，不用 effect） */
+  const prevPanelRef = useRef<PanelId>(null);
+  const pillPop = panel != null && prevPanelRef.current == null;
+  if (prevPanelRef.current !== panel) prevPanelRef.current = panel;
+
   /* dock 番茄钟：运行中或暂停中在按钮旁显示剩余分钟 + 呼吸灯 */
   const pomoText = useSyncExternalStore(subscribePomo, getPomoSnapshot, () => null);
   const pomoRunning = useSyncExternalStore(subscribePomo, getPomoRunning, () => false);
@@ -341,6 +351,8 @@ export default function Dock({
       >
         {/* 天气 */}
         <DockButton
+          motionProfile={motionProfile}
+          pillPop={pillPop}
           active={panel === "weather"}
           label={weather.temp != null ? `${weather.temp}° ${weatherText(weather.code)}` : "天气"}
           onClick={() => switchTo(panel === "weather" ? null : "weather")}
@@ -362,6 +374,8 @@ export default function Dock({
 
         {/* 待办 */}
         <DockButton
+          motionProfile={motionProfile}
+          pillPop={pillPop}
           active={panel === "todo"}
           label="待办"
           badge={undone > 0 ? undone : undefined}
@@ -377,6 +391,8 @@ export default function Dock({
 
         {/* 便签 */}
         <DockButton
+          motionProfile={motionProfile}
+          pillPop={pillPop}
           active={panel === "note"}
           label="便签"
           onClick={() => switchTo(panel === "note" ? null : "note")}
@@ -393,6 +409,8 @@ export default function Dock({
             呼吸灯 wrapper 与图标同高（17px）使其同心且不撑高行盒，p-1 留光晕缓冲；
             数字 digit-slot 必须带 overflow-hidden（盒底=基线模型前提）+ leading-none，否则墨迹悬低 */}
         <DockButton
+          motionProfile={motionProfile}
+          pillPop={pillPop}
           active={panel === "pomodoro"}
           label={pomoText ? `番茄钟 剩余 ${pomoText} 分钟` : "番茄钟"}
           onClick={() => switchTo(panel === "pomodoro" ? null : "pomodoro")}
@@ -439,7 +457,7 @@ export default function Dock({
         <Divider />
 
         {/* 命令面板 */}
-        <DockButton active={false} label="指令 ⌘K" onClick={openPalette} presetIcon={presetIcons.command}>
+        <DockButton motionProfile={motionProfile} pillPop={false} active={false} label="指令 ⌘K" onClick={openPalette} presetIcon={presetIcons.command}>
           {presetIcons.command ? (
             <PresetGlyph spec={presetIcons.command} />
           ) : (
@@ -454,6 +472,8 @@ export default function Dock({
 
         {/* 设置 */}
         <DockButton
+          motionProfile={motionProfile}
+          pillPop={pillPop}
           active={panel === "settings"}
           label="设置"
           onClick={() => switchTo(panel === "settings" ? null : "settings")}
@@ -473,6 +493,8 @@ export default function Dock({
           return (
             <DockButton
               key={d.key}
+              motionProfile={motionProfile}
+              pillPop={false}
               active={false}
               label={d.title}
               onClick={() => onRunAction(d.action)}
@@ -542,6 +564,8 @@ function DockButton({
   onClick,
   badge,
   presetIcon,
+  motionProfile,
+  pillPop,
 }: {
   children: React.ReactNode;
   label: string;
@@ -550,8 +574,19 @@ function DockButton({
   badge?: number;
   /** 预设图标覆写：存在时本按钮的 active 选框仍由宿主渲染（图标只换字形） */
   presetIcon?: string;
+  /** 动效语言档位：切换滑移 playful 档用 Q 弹，其余档位用基线标准弹簧 */
+  motionProfile: MotionProfile;
+  /** 本次挂载是否播 Q 弹出场（无面板→打开面板时为 true；面板间切换为 false → 纯滑移） */
+  pillPop: boolean;
 }) {
   const reduceMotion = useReducedMotion();
+  /* 选框三段动效（v1.7.1）：
+   *  - 出现（开面板首次挂载）：Q 弹 scale .6→1（POPPING，固定不变）；
+   *  - 切换（layoutId 跨按钮滑移）：恢复基线手感 standard 弹簧（420/34，与 v1.1.x 一致），
+   *    仅 playful 档（示例预设）换成 Q 弹滑移；
+   *  - 消失（关闭面板）：快速缩回 + 淡出（退场加速曲线，与出场对称）。 */
+  const pillSwitchSpring =
+    motionProfile === "playful" ? POPPING : MOTION_PROFILES.standard;
   return (
     <button
       type="button"
@@ -566,18 +601,31 @@ function DockButton({
           : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
       }`}
     >
-      {active && (
-        /* 选框 Q 弹出场（v1.7.0）：从 0.6 缩放弹到 1（backOut 型过冲回弹，非玻璃材质），
-            layoutId 继续承担按钮间滑动；reduceMotion 下不播出场 */
-        <motion.span
-          layoutId="dock-active-pill"
-          initial={reduceMotion ? false : { opacity: 0, scale: 0.6 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={POPPING}
-          className="absolute inset-0 rounded-full bg-[var(--pill-seg)] ring-1 ring-[color:var(--pill-seg-ring)]"
-          aria-hidden
-        />
-      )}
+      <AnimatePresence>
+        {active && (
+          /* 选框：layoutId 承担按钮间滑移（transition.layout）；出场/消失由
+             opacity/scale 承担。pillPop=false（面板间切换）时不播 initial，
+             新选框从旧按钮位置纯滑移（基线手感）；出场 Q 弹只在真首次出现时可见；
+             reduceMotion 下不播出场 */
+          <motion.span
+            layoutId="dock-active-pill"
+            initial={reduceMotion || !pillPop ? false : { opacity: 0, scale: 0.6 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{
+              opacity: 0,
+              scale: 0.6,
+              transition: { duration: 0.16, ease: EXIT_EASE },
+            }}
+            transition={{
+              layout: pillSwitchSpring,
+              opacity: POPPING,
+              scale: POPPING,
+            }}
+            className="absolute inset-0 rounded-full bg-[var(--pill-seg)] ring-1 ring-[color:var(--pill-seg-ring)]"
+            aria-hidden
+          />
+        )}
+      </AnimatePresence>
       <span className="relative flex items-center">{children}</span>
       <AnimatePresence initial={false}>
         {typeof badge === "number" && (

@@ -11,7 +11,7 @@
  * 导入支持：粘贴 JSON / 本地文件（.json 预设、.cshz/.zip 预设包，见 pack.ts）。 */
 
 import { useEffect, useRef, useState } from "react";
-import { AnimatePresence } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { PresenceClass } from "./PresenceClass";
 import PresetDocs from "./PresetDocs";
 import { ArrowLeft, BookOpen, FileUp, PackageOpen, Plus, Trash2, Wrench } from "lucide-react";
@@ -20,6 +20,30 @@ import { parsePack } from "@/lib/startpage/pack";
 
 /** 静态资源 basePath（Pages 项目站子路径 / 扩展根路径两种形态） */
 const base = (process.env.NEXT_PUBLIC_BASE_PATH as string | undefined) ?? "";
+
+/* 高度形变曲线：与全局面板/视图动画同参（拖拽提示、错误列表出现/消失时
+ *  下方按钮组被平滑推下/收回，不再瞬跳——v1.7.1） */
+const EASE = [0.22, 1, 0.36, 1] as const;
+
+/** 高度盒包裹器：0→auto 弹簧展开 / auto→0 折回（内边距放在子元素上，
+ *  否则 height:0 时 padding 仍占位）。宿主形变舞台的 ResizeObserver 会跟随。 */
+function Collapse({ show, children }: { show: boolean; children: React.ReactNode }) {
+  return (
+    <AnimatePresence initial={false}>
+      {show && (
+        <motion.div
+          initial={{ height: 0, opacity: 0 }}
+          animate={{ height: "auto", opacity: 1 }}
+          exit={{ height: 0, opacity: 0, transition: { duration: 0.2, ease: [0.4, 0, 1, 1] } }}
+          transition={{ duration: 0.32, ease: EASE }}
+          className="overflow-hidden"
+        >
+          {children}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
 
 export type PresetTab = "import" | "manage";
 
@@ -218,18 +242,20 @@ export default function PresetPanel({
                   data-drag={dragOver ? "true" : undefined}
                   className="slim-scroll h-44 w-full resize-none rounded-xl border border-dashed border-zinc-900/10 bg-white/40 p-3 font-mono text-xs leading-relaxed text-zinc-800 outline-none transition-colors duration-200 placeholder:text-zinc-400 focus:border-solid focus:border-zinc-900/20 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-white/20 data-[drag=true]:border-[var(--ui-accent)] data-[drag=true]:bg-[var(--ui-accent)]/[0.06] data-[drag=true]:border-solid"
                 />
-                {dragOver && (
+                <Collapse show={dragOver}>
                   <p className="mt-1.5 px-1 text-[11px] font-light tracking-wide text-[var(--ui-accent)]">
                     松开即导入该预设文件
                   </p>
-                )}
-                {errors.length > 0 && (
-                  <ul className="mt-2.5 space-y-1 rounded-xl bg-red-500/[0.07] p-3 text-xs font-light leading-relaxed text-red-600 dark:text-red-400">
-                    {errors.map((e, i) => (
-                      <li key={i}>{e}</li>
-                    ))}
-                  </ul>
-                )}
+                </Collapse>
+                <Collapse show={errors.length > 0}>
+                  {errors.length > 0 && (
+                    <ul className="mt-2.5 space-y-1 rounded-xl bg-red-500/[0.07] p-3 text-xs font-light leading-relaxed text-red-600 dark:text-red-400">
+                      {errors.map((e, i) => (
+                        <li key={i}>{e}</li>
+                      ))}
+                    </ul>
+                  )}
+                </Collapse>
                 <div className="mt-3 flex items-center gap-2">
                   <button
                     type="button"

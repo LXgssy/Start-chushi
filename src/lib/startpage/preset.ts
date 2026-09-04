@@ -131,15 +131,18 @@ export interface PresetMotion {
   speed?: number;
 }
 
-/** 时钟格式（v1.7.0 时钟作用面）：在用户设置之上叠加覆写，删除预设即还原。
+/** 时钟格式（v1.7.0 时钟作用面；v1.7.1 语义修正）：
+ *  - hour12 / showSeconds：安装时**一次性合入**用户设置（与 settings 字段同律），
+ *    之后由设置面板管辖，预设本身不再持续覆写（否则面板永远调不回——实证反馈）；
+ *  - showDate / greeting：无面板控件，保持声明式覆写，删除预设即还原。
  *  greeting 模板支持 {greet}（时段问候）与 {name}（用户名）占位，
  *  空字符串表示隐藏问候语。 */
 export interface PresetClock {
   hour12?: boolean;
   showSeconds?: boolean;
-  /** 「日期 · 农历 · 问候」行整体显隐 */
+  /** 「日期 · 农历 · 问候」行整体显隐（声明式，删除预设即还原） */
   showDate?: boolean;
-  /** 问候语模板：{greet} = 时段问候词，{name} = 用户名；空串 = 隐藏问候 */
+  /** 问候语模板：{greet} = 时段问候词，{name} = 用户名；空串 = 隐藏问候（声明式） */
   greeting?: string;
 }
 
