@@ -21,12 +21,14 @@ import { parsePack } from "@/lib/startpage/pack";
 /** 静态资源 basePath（Pages 项目站子路径 / 扩展根路径两种形态） */
 const base = (process.env.NEXT_PUBLIC_BASE_PATH as string | undefined) ?? "";
 
-/* 高度形变曲线：与全局面板/视图动画同参（拖拽提示、错误列表出现/消失时
- *  下方按钮组被平滑推下/收回，不再瞬跳——v1.7.1） */
-const EASE = [0.22, 1, 0.36, 1] as const;
+/* 高度形变曲线：与宿主形变舞台完全同参（v1.7.2 同步律）——指令面板外壳高度
+ *  盒用 SPRING_HEIGHT(460/38) 弹簧追随本组件实测高度；此前内部展开用 EASE
+ *  补间、外壳用弹簧，两条不同节奏叠加让「列表高度形变」与「按钮组下移」
+ *  视觉脱拍。同参后外壳只是晚一帧追随同一弹簧，形变一体。内边距放在
+ *  子元素上（否则 height:0 时 padding 仍占位）。 */
+const SPRING_HEIGHT = { type: "spring" as const, stiffness: 460, damping: 38 };
 
-/** 高度盒包裹器：0→auto 弹簧展开 / auto→0 折回（内边距放在子元素上，
- *  否则 height:0 时 padding 仍占位）。宿主形变舞台的 ResizeObserver 会跟随。 */
+/** 高度盒包裹器：0→auto 弹簧展开 / auto→0 折回 */
 function Collapse({ show, children }: { show: boolean; children: React.ReactNode }) {
   return (
     <AnimatePresence initial={false}>
@@ -35,7 +37,7 @@ function Collapse({ show, children }: { show: boolean; children: React.ReactNode
           initial={{ height: 0, opacity: 0 }}
           animate={{ height: "auto", opacity: 1 }}
           exit={{ height: 0, opacity: 0, transition: { duration: 0.2, ease: [0.4, 0, 1, 1] } }}
-          transition={{ duration: 0.32, ease: EASE }}
+          transition={SPRING_HEIGHT}
           className="overflow-hidden"
         >
           {children}
