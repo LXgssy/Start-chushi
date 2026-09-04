@@ -171,3 +171,29 @@ Stage Summary:
 - 指针律：setPointerCapture 必须在拖拽启动时刻而非 pointerdown（capture 重定目标 click）；无头 rAF 节流下弹簧验证要按仿真时间放宽等待
 - 交付：https://c.wss.ink/f/ksdfh4nwmfn（1 天过期）；Release v1.6.0；Pages 已上线
 - 待办：Edge 商店提交材料仍未做
+
+---
+Task ID: 60
+Agent: main (Super Z)
+Task: 用户指令（史6，最高优先级）「把液态玻璃所有相关代码删掉，添加通用换材质API（非液态玻璃特化，用户可经它实现液态玻璃甚至Win UI），更新日志写无法真正移植到'初始'；修 tab 栏液态玻璃动画+选框改Q弹；开发者文档正式化；API 覆盖动效语言与时钟格式；写 8 维示例预设包；导入面板加图形化开发工具下载按钮（HTML 单文件内嵌、含使用说明、离线可用）」—— v1.7.0
+
+Work Log:
+- 【考古排雷】push 被拒后发现远端已有 Task 56–59（v1.3.0–v1.6.0 液态玻璃试验线：WebGL 引擎内建/游乐场移植/玻璃动效/lgOn 门控）——史6 指令语义正是删除该线全部内容。裁决：以本地 v1.2.0 干净基线 + 史6 工作为主线 force push（试验线代码主体即待删对象；其伴随 API icons.override/theme.override 由本版声明式 icons/tokens 覆盖且更完整）；版本顺延 v1.7.0（v1.3.0–v1.6.0 不复用）；远端 worklog Task 56–59 并入本仓作历史档案；Release v1.3.0–v1.6.0 资产留在 GitHub 不可变
+- 【液态玻璃清剿】examples/液态玻璃预设.json、pw-lab lg-engine/build-lg-preset/verify-lg/verify-disp/verify-ext-v12 全删（git rm）；fx.ts/sandbox.ts/sandbox.js/preset-settings/SettingsPanel/ContextMenu 注释中液态玻璃措辞中性化为「材质」；宿主代码确认零液态玻璃实现（v1.1.3 架构律延续）
+- 【换材质 API】public/sandbox.js 新增 chushi.material.apply({css,svg?})/reset()：css 包 <style>（剥 </style 防提前闭合）、svg 直传，组包走 fx mount（挂载 id 固定 material，重复 apply 幂等替换不闪断）；材质 CSS 直接用公开元素钩子（.search-pill/.cl-dock/.cl-panel/.glass-card），无需感知 data-fx；高级折射类仍可下探 fx.onResize 动态贴图。删除预设宿主整组回收
+- 【四焕新作用面】preset.ts 新增声明式字段：icons（target 白名单六按钮 × icon=内置名/data:image base64 ≤8KB，<img> 静态渲染不执行脚本）；tokens（键白名单 --ui-accent/--pill-seg/--pill-seg-ring/--pill-line，值 ≤120 净空 ;{}<>）；motion（profile standard/playful/calm/instant + speed 0.5–2）；clock（hour12/showSeconds/showDate/greeting 模板 {greet}/{name} ≤40，空串=隐藏）。parsePreset 白名单整体拒绝制校验
+- 【接线】page.tsx presetExtras 派生（安装顺序后者胜）+ tokens 注入 effect（--mo-speed 同载；声明序在强调色 effect 后=预设胜，删预设 removeProperty 还原）；Dock 接 motionProfile/presetIcons；Clock 接 preset（字段存在即覆盖用户设置）
+- 【tab 栏】DockButton 选框（layoutId dock-active-pill）加 initial scale .6/opacity 0 → POPPING spring（520/20/0.9）Q 弹出场（backOut 过冲，非玻璃材质）；MOTION_PROFILES 四档接管面板高度弹簧与选框滑动；Dock 新增 PresetGlyph（lucide 名→组件 currentColor，data URL→img）
+- 【globals.css】--mo-speed 乘入九条入场/聚拢动画时长（intro-rise/panel-fade/veil-in/card-in/content-focus/ctx-in/ctx-item-in/docs-item-in/dock-rise 含延迟）；退场类恒定（JS 卸载计时一致性律——PresenceClass/framer exit 定时器变速会截断动画）
+- 【8 维示例预设】examples/焕新示例预设.json（1983 chars）：Fluent 亚克力材质（material.apply，亮暗双变体+圆角 10px）+ 4 磁贴 + layout 列数/缩放 + 磁贴微动效 animations + 3 图标替换（weather→cloud/todo→star/command→terminal）+ Fluent 蓝令牌 + playful/speed1.1 + 12h/问候模板；生成器 scripts/build-showcase-preset.py
+- 【图形化开发工具】public/preset-studio.html（39.9KB 单文件离线应用，零依赖）：四页签表单（基础/内容/焕新/样式与脚本）+ 动态列表编辑（命令/磁贴/栏按钮/图标/动画/脚本）+ 实时 JSON + 完整性提示（https/图标形态/speed 区间）+ 下载/复制/示例填充/JSON 导入回填 + 内嵌使用说明（三步上手/作用面速查表/换材质示例/上限表）；PresetPanel 导入视图「开发工具」按钮 a[download] 同源直下（basePath 兼容 Pages/扩展）；sw.js 预缓存该文件（离线下载保障）
+- 【文档正式化】PresetDocs.tsx：§07b 焕新四作用面新增；§08 重写「fx 效果作用面与换材质 API」（material 行入表、官方液态玻璃预设引用全清、settings 示例改「材质调校」）；§14 补图形化工具条目；§15「整页焕新能力评估」重写为「作用面总览」正式版（八维表+示例索引，删「按性价比排序/下一批最值得补」评估口吻）；docs/PRESET_DEV.md 同步（目录/§02 十三字段/§03 四行上限/§07b/§08/§10 material/§14/§15）；README（预设功能行/v1.7.0 注记含试验线说明/字段表四行/chushi API 表 material/换材质节重写/八维示例与工具节/沙箱容量 8000→16000 修正）
+- 【验证】verify-v13.mjs 21/21 全过（基线/tokens Fluent 蓝/mo-speed 1.1/12h+问候模板/material 挂载+亚克力滤镜/磁贴 6 列/CSS 注入/star 覆写/Q 弹 matrix(0.6)→none/工具 200+下载按钮/删除全还原/pageerror 0）；verify-ext-v13.mjs 扩展冒烟 6/6（unpacked 扩展 ID=路径 SHA256 前 32 hex→a-p 映射推导，headless=new 下 SW 探测不稳的替代律）
+- 【发布】main 3a7efd5 force push（e65b8be→3a7efd5）；gh-pages 9d89648 独立 clone 部署（线上 76ca538b chunk 含 material.apply+preset-studio ✓、sandbox.js material ×6 ✓、studio 39906B 200 ✓）；Release v1.7.0（id 382469849）+ ChuShi-NewTab-v1.7.0.zip（12.2MB）已传；交付物 download/v1.7.0/（更新说明+开发者文档+焕新示例预设+扩展 zip+合并交付包 11.7MB）
+
+Stage Summary:
+- 架构律（v1.7.0 定稿）：宿主零视觉引擎回归——液态玻璃试验线（v1.3.0–v1.6.0 四个版本）整体移除，「初始」以 v1.2.0 干净基线 + 通用作用面重新出发；材质/风格全部由预设经 chushi.material（首选）或 chushi.fx（高阶）自行实现
+- 声明式作用面扩至八维：材质（脚本 API）/内容/排版/动画/图标/令牌/动效/时钟；「装了即生效、删除即还原、白名单整体拒绝、后者胜」产品律全维适用
+- 版本考古律：push 前必查远端（git fetch + log HEAD..origin/main）——上一会话可能已在远端发布同号版本；撞号即顺延，历史档案（worklog）合并保留
+- 交付：文叔叔 v1.7.0 合并交付包（见下方链接）
+- 待办：Edge 商店提交材料仍未做
