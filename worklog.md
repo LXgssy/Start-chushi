@@ -243,3 +243,25 @@ Stage Summary:
 - 形变同步律：内部 Collapse 与宿主高度盒必须同参弹簧，异构时间线（EASE+spring）叠加必脱拍
 - 交付：文叔叔 v1.7.2 合并交付包 → https://c.wss.ink/f/ksjgnvm183x（1 天过期）；Release v1.7.2；Pages 已上线
 - 待办：Edge 商店提交材料仍未做
+
+---
+Task ID: 63
+Agent: main (Super Z)
+Task: 用户上传 123.mp4 反馈「视频作为壁纸导入后没有反应 + 导入视频后不会刷新」—— v1.7.3 壁纸视频修复批
+
+Work Log:
+- 【根因①黑屏】ffprobe 实证 123.mp4 = HEVC/H.265（hev1 tag, 4K60, 17.3Mbps, 43MB）——Chrome/Edge 默认无 HEVC 解码器（对照：用户旧 SVID = H.264 可播）；v1.7.2 渲染端 <video> 永不 canplay → photoReady 恒 false → 壁纸层恒 opacity-0，且导入时零提示 = 「没反应」
+- 【根因②不刷新】AuroraBackground 自定义壁纸 effect 依赖仅 [photoId, wallpaperUrl]——已处 custom 模式（wallpaperUrl=""）再导入本地文件时两依赖均不变 → effect 不重跑 → IDB 新文件永不读取；SettingsPanel 缩略图 effect 同病
+- 【修复①探测】SettingsPanel 新增 probeVideo（临时 <video> 试播：canplay=通过 / error=拒绝并提示「不支持该视频编码…请转码 H.264」/ 4s 超时放行防误拒）；本地视频入库前+URL 视频导入前均探测（URL 探测期间显示「正在探测直链视频…」）
+- 【修复②版本号】types.ts 新增 Settings.wallpaperRev（默认 0，迁移 effect 自动补齐）；每次导入（本地/URL）onPatch 自增；AuroraBackground 与 SettingsPanel 缩略图 effect 依赖均加入 → custom 模式重复导入必刷新；URL 重导同一 URL（对端换内容）也强制刷新
+- 【转码交付】双进程管道（ffmpeg rawvideo nut pipe：4K HEVC 解码与 x264 编码内存隔离——合并单进程被 SIGKILL×3 实证）→ 123-H264壁纸版.mp4（H.264 1080p60 CRF21, 8MB, +faststart, -an）；libx265 实拍测试资产 hevc-test.mp4 + w-red/w-blue.mp4 入库 pw-lab/media/
+- 【验证】verify-v173 21/21（红→蓝重复导入刷新像素级实证 [254,0,0]→[0,0,253]、HEVC 拦截+提示+rev/壁纸/IDB 三不变、直链导入生效+互斥清 IDB、图片直链回归、pageerror=0）；verify-ext-v173 7/7（扩展环境全链路；http 跨源视频 canvas 污染 px="taint" 属浏览器安全模型非缺陷，跨源以 readyState≥2 判定）
+- 【发布】main 6c24f7e；gh-pages 独立 clone 部署；Release v1.7.3（id 382588334）+ ChuShi-NewTab-v1.7.3.zip（11.7MB）已传；交付物 download/v1.7.3/（更新说明+开发者文档+示例预设+扩展 zip+H.264 转码视频+合并交付包 19.8MB）
+- 【事故·部署律新条】git rm -rf . 清 gh-pages 树把 .nojekyll 一并删掉、out/ 又不含它 → Pages 走 Jekyll 忽略 _next/ 全目录：HTML/sw（根级）200 而全部静态资产 404（Pages builds/latest status=built 且 sw 已新版的假象下 chunk 持续 404，排查耗时 ~20min）——修复=树里补回 .nojekyll 触发重建；教训：gh-pages 部署清单必须显式包含 .nojekyll（deploy-pages.sh 丢失后手工部署踩坑）
+
+Stage Summary:
+- 产品律（v1.7.3 定稿）：视频壁纸导入必有可解码性守门——探测通过才入库，解不出明确说人话（转码 H.264）；wallpaperRev 导入版本号 = 自定义壁纸刷新的强制依赖
+- 工具律：4K HEVC 转码在弱内存沙箱用 rawvideo nut 管道双进程隔离；chrome-extension 页对 http 跨源媒体 canvas 污染是安全模型，验证断言须按同源/跨源分流
+- 部署律：gh-pages 独立 clone 部署三件套 = 清树 + out/ + **.nojekyll（不可少）** + sw BUILD 戳替换
+- 交付：文叔叔 v1.7.3 合并交付包 → https://c.wss.ink/f/kskp3nsy0y5（1 天过期）；Pages 已上线（.nojekyll 修复后实测 ✓）
+- 待办：Edge 商店提交材料仍未做
