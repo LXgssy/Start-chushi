@@ -3,7 +3,7 @@
 /* 设置面板。除内置分区外，还会渲染「预设贡献」的设置分区（v1.2.0 设置面
  * 作用面）：预设脚本经 chushi.settings.define 声明白名单控件
  * （slider/toggle/select），宿主校验后渲染在此，值变更经
- * onPresetSettingChange 持久化并热推回脚本（如液态玻璃的折射强度/霜化/色散）。
+ * onPresetSettingChange 持久化并热推回脚本（如材质预设的折射强度/霜化/色散）。
  * 脚本冻结/预设删除 → 分区随之消失（失主 schema 由页面清理）。 */
 
 import { memo, useEffect, useRef, useState } from "react";

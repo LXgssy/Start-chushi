@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { useNow } from "@/hooks/use-start";
 import { getLunarText } from "@/lib/startpage/lunar";
 import type { Settings } from "@/lib/startpage/types";
+import type { PresetClock } from "@/lib/startpage/preset";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -97,27 +98,40 @@ export function Colon({
 function Clock({
   settings,
   mini = false,
+  preset,
 }: {
   settings: Settings;
   mini?: boolean;
+  /** 预设时钟格式覆写（v1.7.0 时钟作用面）：字段存在即覆盖用户设置，删除预设即还原 */
+  preset?: PresetClock;
 }) {
   const now = useNow();
+
+  const hour12 = preset?.hour12 ?? settings.hour12;
+  const showSeconds = preset?.showSeconds ?? settings.showSeconds;
+  const showDate = preset?.showDate ?? true;
 
   let hours = now.getHours();
   const minutes = pad(now.getMinutes());
   const seconds = pad(now.getSeconds());
 
   let ampm = "";
-  if (settings.hour12) {
+  if (hour12) {
     ampm = hours >= 12 ? "PM" : "AM";
     hours = hours % 12 || 12;
   }
-  const hh = settings.hour12 ? String(hours).padStart(2, " ") : pad(hours);
+  const hh = hour12 ? String(hours).padStart(2, " ") : pad(hours);
 
   const lunarText = getLunarText(now);
   const dateStr = `${now.getMonth() + 1}月${now.getDate()}日 星期${WEEKDAYS[now.getDay()]}`;
-  const greeting = greetingFor(now.getHours());
+  const greetWord = greetingFor(now.getHours());
   const name = settings.userName.trim();
+  /* 问候语：预设模板（{greet}/{name} 占位）> 默认「问候词，用户名」；
+     预设模板空串 = 显式隐藏问候 */
+  const greeting =
+    preset?.greeting != null
+      ? preset.greeting.replaceAll("{greet}", greetWord).replaceAll("{name}", name)
+      : `${greetWord}${name ? `，${name}` : ""}`;
 
   return (
     <div className="cl-clock flex flex-col items-center select-none">
@@ -141,7 +155,7 @@ function Clock({
         <Colon />
         <Digit char={minutes[0]} />
         <Digit char={minutes[1]} />
-        {settings.showSeconds && !mini && (
+        {showSeconds && !mini && (
           /* 秒数组（含第二个冒号）：冒号与秒数同字号同行盒，双点关于小字墨迹中心对称——
              构造性对齐秒数而非分钟；opacity 继承主色，photo/明暗主题自适应 */
           <span className="align-top text-[clamp(1.4rem,3vw,2.6rem)] opacity-60">
@@ -152,8 +166,8 @@ function Clock({
         )}
       </time>
 
-      {/* 日期 · 农历 · 问候 */}
-      {!mini && (
+      {/* 日期 · 农历 · 问候（预设 clock.showDate=false 时整行隐藏） */}
+      {!mini && showDate && (
         <div className="clock-sub mt-5 flex h-6 items-center gap-3 text-sm font-light tracking-wide text-zinc-500 dark:text-zinc-400">
           <span>{dateStr}</span>
           {lunarText && (
@@ -162,16 +176,19 @@ function Clock({
               <span>{lunarText}</span>
             </>
           )}
-          <span aria-hidden className="h-3 w-px bg-zinc-300 dark:bg-zinc-700" />
-          <motion.span
-            key={greeting}
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, ease: EASE }}
-          >
-            {greeting}
-            {name ? `，${name}` : ""}
-          </motion.span>
+          {greeting && (
+            <>
+              <span aria-hidden className="h-3 w-px bg-zinc-300 dark:bg-zinc-700" />
+              <motion.span
+                key={greeting}
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, ease: EASE }}
+              >
+                {greeting}
+              </motion.span>
+            </>
+          )}
         </div>
       )}
     </div>

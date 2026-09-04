@@ -107,6 +107,51 @@ export interface PresetWidget {
   html: string;
 }
 
+/** 图标替换（v1.7.0 图标作用面）：把 tab 栏内建按钮的图标换成预设指定的图标。
+ *  icon 值两种形态：① DOCK_ICONS 白名单内的 lucide 名（跟随主题色 currentColor）；
+ *  ② data:image/ URL（base64，≤8KB；<img> 渲染，SVG 脚本不执行天然安全）。 */
+export type PresetIconTarget =
+  | "weather"
+  | "todo"
+  | "note"
+  | "pomodoro"
+  | "settings"
+  | "command";
+
+export interface PresetIcon {
+  target: PresetIconTarget;
+  icon: string;
+}
+
+/** 动效语言（v1.7.0 动效作用面）：profile 切换面板/选框弹簧参数组，
+ *  speed 为 CSS 入退场动画时长倍率（0.5–2，经 --mo-speed 变量驱动）。 */
+export interface PresetMotion {
+  profile?: "standard" | "playful" | "calm" | "instant";
+  /** CSS 动画时长倍率：0.5（快一倍）– 2（慢一倍），缺省 1 */
+  speed?: number;
+}
+
+/** 时钟格式（v1.7.0 时钟作用面）：在用户设置之上叠加覆写，删除预设即还原。
+ *  greeting 模板支持 {greet}（时段问候）与 {name}（用户名）占位，
+ *  空字符串表示隐藏问候语。 */
+export interface PresetClock {
+  hour12?: boolean;
+  showSeconds?: boolean;
+  /** 「日期 · 农历 · 问候」行整体显隐 */
+  showDate?: boolean;
+  /** 问候语模板：{greet} = 时段问候词，{name} = 用户名；空串 = 隐藏问候 */
+  greeting?: string;
+}
+
+/** 主题令牌白名单（v1.7.0 主题令牌作用面）：可被预设覆写的 CSS 变量清单。
+ *  与 README 同步维护；不在清单内的键导入即拒绝。 */
+export const PRESET_TOKEN_KEYS: Record<string, string> = {
+  "--ui-accent": "全局强调色",
+  "--pill-seg": "tab 栏选框底色",
+  "--pill-seg-ring": "tab 栏选框描边",
+  "--pill-line": "tab 栏分隔线",
+};
+
 /** 声明式布局覆写：装了即生效，删除预设即还原（不写入用户设置） */
 export interface PresetLayout {
   hideClock?: boolean;
@@ -133,6 +178,10 @@ export interface PresetPayload {
   pages?: PresetPage[];
   widgets?: PresetWidget[];
   layout?: PresetLayout;
+  icons?: PresetIcon[];
+  tokens?: Record<string, string>;
+  motion?: PresetMotion;
+  clock?: PresetClock;
 }
 
 export interface InstalledPreset {
@@ -167,6 +216,10 @@ export const PRESET_LIMITS = {
   htmlLen: 24000,
   widgets: 3,
   widgetHtmlLen: 12000,
+  icons: 6,
+  iconLen: 8192,
+  tokenValLen: 120,
+  greetingLen: 40,
 } as const;
 
 export const SCRIPT_ID_RE = /^[A-Za-z0-9_-]{1,32}$/;
@@ -513,6 +566,126 @@ export function parsePreset(raw: unknown): ParseResult {
     if (Object.keys(patch).length > 0) layout = patch;
   }
 
+  /* 图标替换（v1.7.0）：target 白名单 + icon 两种形态校验（lucide 名 / data:image URL） */
+  const ICON_TARGETS = new Set<string>([
+    "weather", "todo", "note", "pomodoro", "settings", "command",
+  ]);
+  const icons: PresetIcon[] = [];
+  const iconTargets = new Set<string>();
+  const iconArr = parseArray(o.icons).slice(0, PRESET_LIMITS.icons);
+  if (parseArray(o.icons).length > PRESET_LIMITS.icons) {
+    errors.push(`icons 超过上限（最多 ${PRESET_LIMITS.icons} 条）`);
+  }
+  iconArr.forEach((item, i) => {
+    const where = `icons[${i}]`;
+    if (typeof item !== "object" || item == null) {
+      errors.push(`${where}：必须是对象`);
+      return;
+    }
+    const io = item as Record<string, unknown>;
+    const target = cleanStr(io.target, 16);
+    if (!ICON_TARGETS.has(target)) {
+      errors.push(
+        `${where}：target 必须是 ${[...ICON_TARGETS].join(" / ")} 之一`
+      );
+      return;
+    }
+    if (iconTargets.has(target)) {
+      errors.push(`${where}：target「${target}」重复（同一按钮只接受一个图标覆写）`);
+      return;
+    }
+    const icon = asString(io.icon) ?? "";
+    if (!icon) {
+      errors.push(`${where}：缺少 icon`);
+      return;
+    }
+    if (icon.startsWith("data:image/")) {
+      /* data URL 形态：仅 base64 图片（png/jpeg/webp/gif/svg+xml）；<img> 渲染
+         时 SVG 处于静态模式（脚本不执行、外链不加载），无需再净化 */
+      if (icon.length > PRESET_LIMITS.iconLen) {
+        errors.push(
+          `${where}：data URL 图标超过 ${PRESET_LIMITS.iconLen} 字符上限（当前 ${icon.length}）`
+        );
+        return;
+      }
+      if (!/^data:image\/(?:png|jpeg|webp|gif|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(icon)) {
+        errors.push(`${where}：data URL 图标必须是 base64 编码的 png/jpeg/webp/gif/svg+xml`);
+        return;
+      }
+    } else if (!(icon in DOCK_ICONS)) {
+      errors.push(
+        `${where}：icon 必须是内置图标名（${Object.keys(DOCK_ICONS).join(" / ")}）或 data:image/ base64 URL`
+      );
+      return;
+    }
+    iconTargets.add(target);
+    icons.push({ target: target as PresetIconTarget, icon });
+  });
+
+  /* 主题令牌覆写（v1.7.0）：键白名单整体拒绝制，值去掉 CSS 逃逸字符 */
+  let tokens: Record<string, string> | undefined;
+  if (typeof o.tokens === "object" && o.tokens != null) {
+    const to = o.tokens as Record<string, unknown>;
+    const patch: Record<string, string> = {};
+    for (const [k, v] of Object.entries(to)) {
+      if (!Object.prototype.hasOwnProperty.call(PRESET_TOKEN_KEYS, k)) {
+        errors.push(`tokens：键「${k}」不在可覆写清单内（允许：${Object.keys(PRESET_TOKEN_KEYS).join(" / ")}）`);
+        continue;
+      }
+      if (typeof v !== "string" || !v.trim()) {
+        errors.push(`tokens.${k}：值必须是彩色/尺寸等非空字符串`);
+        continue;
+      }
+      const val = v.replace(/[;{}<>]/g, "").trim();
+      if (!val) {
+        errors.push(`tokens.${k}：值净化后为空（不允许 ;{}<> 字符）`);
+        continue;
+      }
+      if (val.length > PRESET_LIMITS.tokenValLen) {
+        errors.push(`tokens.${k}：值超过 ${PRESET_LIMITS.tokenValLen} 字符上限`);
+        continue;
+      }
+      patch[k] = val;
+    }
+    if (Object.keys(patch).length > 0) tokens = patch;
+  }
+
+  /* 动效语言（v1.7.0）：profile 枚举 + speed 夹紧 0.5–2 */
+  let motion: PresetMotion | undefined;
+  if (typeof o.motion === "object" && o.motion != null) {
+    const mo = o.motion as Record<string, unknown>;
+    const patch: PresetMotion = {};
+    if (
+      mo.profile === "standard" || mo.profile === "playful" ||
+      mo.profile === "calm" || mo.profile === "instant"
+    ) {
+      patch.profile = mo.profile;
+    } else if (mo.profile != null) {
+      errors.push("motion.profile 必须是 standard / playful / calm / instant 之一");
+    }
+    if (typeof mo.speed === "number" && Number.isFinite(mo.speed)) {
+      patch.speed = Math.min(2, Math.max(0.5, mo.speed));
+    } else if (mo.speed != null) {
+      errors.push("motion.speed 必须是 0.5–2 之间的数字");
+    }
+    if (Object.keys(patch).length > 0) motion = patch;
+  }
+
+  /* 时钟格式（v1.7.0）：布尔直取 + greeting 模板净化 */
+  let clock: PresetClock | undefined;
+  if (typeof o.clock === "object" && o.clock != null) {
+    const co = o.clock as Record<string, unknown>;
+    const patch: PresetClock = {};
+    if (typeof co.hour12 === "boolean") patch.hour12 = co.hour12;
+    if (typeof co.showSeconds === "boolean") patch.showSeconds = co.showSeconds;
+    if (typeof co.showDate === "boolean") patch.showDate = co.showDate;
+    if (typeof co.greeting === "string") {
+      const g = co.greeting.replace(/[<>]/g, "").slice(0, PRESET_LIMITS.greetingLen);
+      patch.greeting = g; /* 空串合法 = 隐藏问候 */
+    }
+    if (Object.keys(patch).length > 0) clock = patch;
+  }
+
   const commands: PresetCommand[] = [];
   const cmdArr = parseArray(o.commands).slice(0, PRESET_LIMITS.commands);
   cmdArr.forEach((c, i) => {
@@ -597,12 +770,16 @@ export function parsePreset(raw: unknown): ParseResult {
     animations.length === 0 &&
     pages.length === 0 &&
     widgets.length === 0 &&
-    layout == null
+    layout == null &&
+    icons.length === 0 &&
+    tokens == null &&
+    motion == null &&
+    clock == null
   ) {
     return {
       ok: false,
       errors: [
-        "预设里没有任何内容（commands / links / dock / settings / scripts / animations / pages / widgets / layout 至少写一项）",
+        "预设里没有任何内容（commands / links / dock / settings / scripts / animations / pages / widgets / layout / icons / tokens / motion / clock 至少写一项）",
       ],
     };
   }
@@ -622,6 +799,10 @@ export function parsePreset(raw: unknown): ParseResult {
       pages: pages.length > 0 ? pages : undefined,
       widgets: widgets.length > 0 ? widgets : undefined,
       layout,
+      icons: icons.length > 0 ? icons : undefined,
+      tokens,
+      motion,
+      clock,
     },
   };
 }

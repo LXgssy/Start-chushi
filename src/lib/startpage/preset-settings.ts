@@ -3,7 +3,7 @@
  * 架构律：宿主只提供「作用面」，不做任何具体视觉引擎。预设脚本经
  * chushi.settings.define(schema) 声明一组白名单控件（slider/toggle/select），
  * 宿主校验后渲染进设置面板；值变更经 chushi.settings.onChange 推回脚本
- * （液态玻璃预设的折射强度/霜化/色散等即由此热调）。本模块是三方共用的
+ * （材质预设的折射强度/霜化/色散等参数即由此热调）。本模块是三方共用的
  * 类型与校验/持久化工具：沙箱桥（sandbox.ts）用它校验 schema，
  * 页面（page.tsx）用它读写 localStorage，设置面板（SettingsPanel.tsx）
  * 用它合并默认值。
