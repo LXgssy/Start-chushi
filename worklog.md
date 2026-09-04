@@ -285,3 +285,24 @@ Stage Summary:
 - 验证律：布局抖动类断言 = 抖动敏感视口（内容与 dvh 相互作用区间）+ 运动连续性判据（中间帧），单帧阈值在无头节流下不可用
 - 交付：文叔叔 v1.7.4 合并交付包 → https://c.wss.ink/f/kskx33uaxid（1 天过期）；Pages 已上线（.nojekyll 在位实测 ✓）
 - 待办：Edge 商店提交材料仍未做
+
+---
+Task ID: 65
+Agent: main (Super Z)
+Task: 用户需求「通过 chromatic 插件在『初始』上提供 API，接入后在初始添加音乐播放器页面」—— v1.7.5 网易云音乐接入批
+
+Work Log:
+- 【调研定案】chromatic 发布物实为 BetterNCMII.dll（BetterNCM 换名重写，NCM 插件管理器）；NCM 3.x 为 CEF 架构：渲染进程无 Node、插件 JS 不能监听端口；js-framework 提供 plugin.onLoad/onConfig/getConfig + betterncm.fs（HTTP 文件 API）+ betterncm_native.fs.watchDirectory；播放状态读取/控制逐行对标 InfLink-rs 适配器（webpackJsonp push 假模块捕获 require → dva getStore → store.getState().playing；控制=playing/resume|pause、playingList/jump2Track(±1)、playing/setPlayingPosition(秒)、playing/setVolume、switchMute；事件=legacyNativeCmder.appendRegisterCall("PlayState"/"PlayProgress"/"Seek","audioplayer")，Orpheus 1=播放 2=暂停 vs redux playingState===2=播放，两者相反需防混）
+- 【架构】双组件桥：index.js（渲染端）读播放状态→原子写 <datapath>\chushi-music\state.json（tmp+fs/rename，失败回落直写）+ watchDirectory/800ms 轮询消费 cmd\cmd-*.json→dispatch；bridge.dll（native_plugin 通道，与 InfLink backend.dll 同路数）llvm-mingw 交叉编译 x64（zig/npm 源超时弃用，GitHub release 84MB 秒下），零警告；导出 BetterNCMPluginMain（Win64 ABI 只收指针不展开结构体），命名互斥体 Local\ChuShiMusicBridgeServer 保证主/渲染进程重复加载时服务单例；Winsock 仅绑 127.0.0.1:10754 起顺延 10 个端口并写 server.json；路由 ping/status/control + OPTIONS 预检；Origin 白名单（扩展族/lxgssy.github.io/localhost 族）不回 ACAO 即拒绝读取；请求头 8KB/体 4KB/读超时 5s；cmd 落盘 tmp+MoveFileEx 原子；datapath=GetEnvironmentVariableW(BETTERNCM_PROFILE) else C:\betterncm 与 dllmain 严格同源
+- 【初始侧】PanelId+music；Dock 新增音乐按钮（番茄钟与指令面板之间）；MusicPanel（未接入三步指引+地址修正+重试 / 已连接：封面 https 升级+歌名歌手+可拖进度 seek+播放控制+音量 / 空态）；music.ts 客户端：1s 轮询 /api/status + 本地时钟插值（快照 ts 外推封顶曲长）+ 连续 3 败→error 态 + 5s 低频探测自愈；控制乐观 POST；⌘K「音乐」入口；预设 icons 上限 6→7、ICON_TARGETS/PANEL_IDS/panel action 增 music
+- 【事故】normalizeMusicUrl 给 parsed.pathname 赋 "" 被 URL 语义重置回 "/" 产生 //api 双斜杠 404——改为局部变量不回写（Playwright reqfail 抓获）；E1 插值断言首轮失败是 mock 语义错（每次轮询刷 ts = 每秒把进度"seek 回"30s），加 freeze 模式模拟插件写盘间隙后全绿——插值逻辑本身正确
+- 【验证】verify-v175 21/21（dock 按钮/指引/无协议地址规范化接入/快照渲染/插值推进 2.5s≥2s/toggle·next·prev·volume·seek 全链路到桥/暂停态回落/断连回落指引/Ctrl+K 入口/pageerror=0；G 项三个坑：Meta→Ctrl+K、面板退场 700ms 后才可开 ⌘K、text=音乐 需精确锚定 [cmdk-item] 因「网易云音乐」链接子串命中）；verify-ext-v175 7/7（扩展页 CORS 回显 chrome-extension:// 源接入 mock 桥全链路）；bridge.c 协议以 mock-bridge.mjs Node 孪生对拍（DLL 本体无法在 Linux 沙箱运行，真机首连以 /api/ping 自证）
+- 【发布】main df6420e；gh-pages 87ed1bd（.nojekyll 显式补齐 + sw BUILD 20260904124555-df6420e；线上 chunk dc1a914b 含 chushi-music-bridge 代码 200 实测）；Release v1.7.5（id 382724253）双资产：扩展 zip 11.7MB + **ChuShi-Music-Bridge-v1.0.0.zip（30KB，首次新增原生插件类交付物）**；交付物 download/v1.7.5/（扩展 zip+桥插件 zip+更新说明+开发者文档+示例预设+合并包 11.7MB）；PRESET_DEV.md 同步 music 图标目标
+- 工具律：llvm-mingw 解 mingw 交叉编译（apt 无 root / ziglang.org 慢源皆不可行时，GitHub release 单包工具链最稳）；npm 后台下载任务不随 bash 会话存活，长任务必须前台跑
+
+Stage Summary:
+- 产品律（v1.7.5 定稿）：外部能力接入一律走「本地回环服务 + Origin 白名单 + 轮询短请求」三件套，不用长连接（EventSource/流在 https→localhost 受 LNA/混合内容影响面大）；面板仅在打开时发起连接，未用功能零后台流量
+- 架构律：CEF 渲染进程无 Node，NCM 插件的本机能力通道 = BetterNCMII native_plugin DLL；JS↔DLL 文件契约（state.json 出 / cmd/*.json 入）跨进程零耦合，datapath 推导必须与 dllmain 同源（env BETTERNCM_PROFILE else C:\betterncm）
+- URL 律：URL API 的 pathname 赋空串会回弹 "/"——拼接型规范化一律局部变量，不回写 URL 对象
+- 交付：文叔叔 v1.7.5 合并交付包 → https://c.wss.ink/f/ksmeq0qn7z9（1 天过期）；Release v1.7.5；Pages 已上线
+- 待办：Edge 商店提交材料仍未做；bridge.dll 真机行为待用户实测首连（协议已对拍）；歌词/收藏/队列未含（后续按需）
