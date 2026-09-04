@@ -1,0 +1,7 @@
+LIBRARY msimg32
+EXPORTS
+  AlphaBlend = cb_AlphaBlend
+  TransparentBlt = cb_TransparentBlt
+  GradientFill = cb_GradientFill
+  vSetDdrawflag = cb_vSetDdrawflag
+  DllInitialize = cb_DllInitialize

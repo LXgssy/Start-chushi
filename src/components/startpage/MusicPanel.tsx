@@ -1,7 +1,11 @@
-/* 「初始」音乐面板 — 接入网易云音乐（经 初始音乐桥 插件 + 本地桥接服务）
+/* 「初始」音乐面板 — 接入网易云音乐（经 初始音乐桥·独立版 ChuShiBridge + 本地服务）
+ *
+ * 接入路线：ChuShiBridge 一键安装包（不依赖 BetterNCM/chromatic 框架，
+ * 用 CEF 调试端口替代内部 hook，不随网易云升级失效）；
+ * 旧版客户端（2.x/3.0.x）仍可用 v1.7.5 的 chromatic 插件路线。
  *
  * 三态：
- *   未接入/出错 → 连接指引 + 服务地址修正 + 重试
+ *   未接入/出错 → 连接指引（一键安装流程）+ 服务地址修正 + 重试
  *   已连接     → 封面 / 歌名 / 进度条（点击拖动 seek）/ 播放控制 / 音量
  *   空态       → 已连接但未在播放
  *
@@ -38,7 +42,7 @@ const RANGE_CLS =
 function reasonText(r: MusicFailReason | undefined): string {
   switch (r) {
     case "refused":
-      return "连不上桥接服务（网易云没开，或插件未安装/未启用）";
+      return "连不上桥接服务（网易云没开，或初始音乐桥未运行）";
     case "blocked":
       return "请求被浏览器拦截了（混合内容或本地网络权限）";
     case "bad":
@@ -47,6 +51,12 @@ function reasonText(r: MusicFailReason | undefined): string {
       return "连接失败";
   }
 }
+
+/* 一键安装包直链（GitHub Release latest 资产名固定） */
+const BRIDGE_DOWNLOAD_URL =
+  "https://github.com/LXgssy/Start-chushi/releases/latest/download/ChuShiBridge-2.0.0-Setup.zip";
+const LEGACY_PLUGIN_URL =
+  "https://github.com/LXgssy/Start-chushi/releases/tag/v1.7.5";
 
 export default function MusicPanel() {
   const [savedUrl, setSavedUrl] = useStored<string>("start:music-url", DEFAULT_MUSIC_URL);
@@ -151,17 +161,35 @@ export default function MusicPanel() {
 
         {status !== "connecting" && (
           <div className="rounded-xl bg-zinc-900/[0.03] px-3.5 py-3 text-xs font-light leading-relaxed text-zinc-500 dark:bg-white/5 dark:text-zinc-400">
-            <p className="mb-1.5 tracking-wide text-zinc-400 dark:text-zinc-500">接入三步</p>
+            <p className="mb-1.5 tracking-wide text-zinc-400 dark:text-zinc-500">接入三步（新版客户端推荐）</p>
             <ol className="list-decimal space-y-1 pl-4">
               <li>
-                在网易云音乐安装{" "}
-                <span className="font-mono text-[11px]">chromatic</span> 插件管理器
+                下载{" "}
+                <a
+                  href={BRIDGE_DOWNLOAD_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-normal text-zinc-700 underline decoration-zinc-300 underline-offset-2 transition-colors hover:decoration-zinc-500 dark:text-zinc-200 dark:decoration-zinc-600"
+                >
+                  初始音乐桥·独立版
+                </a>{" "}
+                一键安装包（Windows）
               </li>
-              <li>安装「初始音乐桥」插件包（ChuShi-Music-Bridge.zip）</li>
-              <li>重启网易云音乐，回到这里点「重试」</li>
+              <li>解压后双击「安装初始音乐桥.bat」，网易云会自动重启</li>
+              <li>回到这里点「重试」</li>
             </ol>
             <p className="mt-2 text-[11px] leading-relaxed text-zinc-400/90 dark:text-zinc-500">
-              网页版首次连接时浏览器可能询问「访问本地网络」，请允许；扩展版无需此步。
+              不依赖 BetterNCM/chromatic，支持最新版网易云客户端；网易云需保持运行且
+              ChuShiBridge 窗口开启。旧版客户端（2.x/3.0.x）仍可用{" "}
+              <a
+                href={LEGACY_PLUGIN_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="underline decoration-zinc-300 underline-offset-2 dark:decoration-zinc-600"
+              >
+                chromatic 插件路线
+              </a>
+              。网页版首次连接时浏览器可能询问「访问本地网络」，请允许；扩展版无需此步。
             </p>
           </div>
         )}
