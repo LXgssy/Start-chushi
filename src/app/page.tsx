@@ -584,6 +584,16 @@ export default function Home() {
   const closeEditor = useCallback(() => setEditor({ open: false, editing: null }), []);
   const gotoPanel = useCallback((p: PanelId) => setPanel(p), []);
   const openAddLink = useCallback(() => emitEditLink(null), []);
+  /* 批量管理磁贴（v1.7.1）：PC 端右键菜单直达——进入磁贴编辑模式（连点/连删/拖拽排序），
+     模式内点击空白处退出；与触屏长按进入的同一模式 */
+  const manageLinks = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("start:links-manage"));
+    toast({
+      title: "已进入磁贴批量管理",
+      description: "点 × 删除 · 点磁贴编辑 · 拖拽排序 · 点击空白处退出",
+      duration: 5000,
+    });
+  }, [toast]);
   const runSearch = useCallback((engineId: string, q: string) => {
     const engine = getEngine(engineId);
     window.location.href = engine.search(q);
@@ -605,13 +615,14 @@ export default function Home() {
     () => [
       { id: "palette", label: "指令面板", icon: CM_ICONS.palette, run: openPalette },
       { id: "add-link", label: "添加链接", icon: CM_ICONS.addLink, run: openAddLink },
+      { id: "manage-links", label: "批量管理磁贴", icon: CM_ICONS.manageLinks, run: manageLinks },
       { id: "theme", label: "明暗切换", icon: CM_ICONS.theme, run: toggleTheme, sep: true },
       { id: "zen", label: "禅模式", icon: CM_ICONS.zen, run: openZen },
       { id: "settings", label: "设置", icon: CM_ICONS.settings, run: openSettings, sep: true },
       { id: "dev-docs", label: "开发者文档", icon: CM_ICONS.docs, run: openDevDocs },
       { id: "export", label: "导出备份", icon: CM_ICONS.export, run: exportData },
     ],
-    [openPalette, openAddLink, toggleTheme, openZen, openSettings, openDevDocs, exportData]
+    [openPalette, openAddLink, manageLinks, toggleTheme, openZen, openSettings, openDevDocs, exportData]
   );
 
   /* ---------- 预设系统（声明式，白名单 action，零代码执行） ----------
@@ -641,6 +652,16 @@ export default function Home() {
       }
       /* 设置白名单字段一次性合并（用户可再改） */
       if (payload.settings) patchSettings(payload.settings);
+      /* 时钟格式中的小时制/秒数：一次性合入用户设置（v1.7.1 语义修正）——
+         原先的声明式覆写会永久遮蔽设置面板（预设装着时怎么调都无效）；
+         改为导入时写一次，之后与手调设置同源。日期行/问候语无面板控件，
+         仍走声明式覆写（删除预设即还原，见 presetExtras.clock） */
+      if (payload.clock && (payload.clock.hour12 !== undefined || payload.clock.showSeconds !== undefined)) {
+        patchSettings({
+          ...(payload.clock.hour12 !== undefined ? { hour12: payload.clock.hour12 } : null),
+          ...(payload.clock.showSeconds !== undefined ? { showSeconds: payload.clock.showSeconds } : null),
+        } as Partial<Settings>);
+      }
       const extras = [
         payload.scripts?.length ? `${payload.scripts.length} 个脚本` : null,
         payload.animations?.length ? `${payload.animations.length} 段样式` : null,

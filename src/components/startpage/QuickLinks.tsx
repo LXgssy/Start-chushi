@@ -248,6 +248,14 @@ function QuickLinks({
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
 
+  /* 批量管理入口（v1.7.1）：右键菜单「批量管理磁贴」派发全局事件进入本模式——
+     PC 端此前只能逐个悬浮编辑，无批量删除/连续编辑路径（触屏长按同款模式） */
+  useEffect(() => {
+    const onManage = () => setEditing(true);
+    window.addEventListener("start:links-manage", onManage);
+    return () => window.removeEventListener("start:links-manage", onManage);
+  }, []);
+
   /* 编辑模式：点击磁贴区域外的任意空白处退出（与移动端系统直觉一致） */
   useEffect(() => {
     if (!editing) return;

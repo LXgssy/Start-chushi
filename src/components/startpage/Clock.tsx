@@ -102,13 +102,16 @@ function Clock({
 }: {
   settings: Settings;
   mini?: boolean;
-  /** 预设时钟格式覆写（v1.7.0 时钟作用面）：字段存在即覆盖用户设置，删除预设即还原 */
+  /** 预设时钟覆写（v1.7.1 语义修正）：仅 showDate / greeting 两个无面板控件的字段
+   *  仍走声明式覆写（字段存在即生效，删除预设即还原）；hour12 / showSeconds
+   *  已改为安装时一次性合入用户设置（否则预设装着时设置面板永远调不动——实证反馈），
+   *  故此处一律以 settings 为准，不再读 preset 的这两个字段 */
   preset?: PresetClock;
 }) {
   const now = useNow();
 
-  const hour12 = preset?.hour12 ?? settings.hour12;
-  const showSeconds = preset?.showSeconds ?? settings.showSeconds;
+  const hour12 = settings.hour12;
+  const showSeconds = settings.showSeconds;
   const showDate = preset?.showDate ?? true;
 
   let hours = now.getHours();

@@ -365,7 +365,8 @@ export default function PresetDocs({
               <Sec n="07b" title="焕新四作用面：icons / tokens / motion / clock（v1.7.0）">
                 <P>
                   除 layout 外另有四个声明式作用面，与 layout 同律：<b>装了即生效、删除预设即还原</b>、
-                  数值自动夹紧、多预设同字段安装顺序后者胜。官方「焕新示例预设」（仓库{" "}
+                  数值自动夹紧、多预设同字段安装顺序后者胜。唯一例外：clock 的 hour12 / showSeconds
+                  在 v1.7.1 起改为<b>安装时一次性合入用户设置</b>（见下表）。官方「焕新示例预设」（仓库{" "}
                   <K>examples/焕新示例预设.json</K>）一次覆盖全部八个维度，可直接当结构模板使用。
                 </P>
                 <T
@@ -389,21 +390,24 @@ export default function PresetDocs({
                       <K>motion</K>,
                       <>&#123; profile?, speed? &#125;</>,
                       <><b>动效语言</b>：profile ∈ standard（标准）/ playful（Q 弹）/ calm（从容）/
-                      instant（直给），作用于面板高度弹簧与 tab 选框滑动；speed（0.5–2）为 CSS
+                      instant（直给），作用于面板高度弹簧与 tab 选框滑移（<b>playful 档连选框切换也换
+                      Q 弹滑移</b>，其余档位保持基线手感）；speed（0.5–2）为 CSS
                       入场/聚拢动画时长倍率——退场保持恒定以保证卸载计时一致</>,
                     ],
                     [
                       <K>clock</K>,
                       <>&#123; hour12?, showSeconds?, showDate?, greeting? &#125;</>,
-                      <><b>时钟格式</b>：12/24 小时制、秒数、「日期 · 农历 · 问候」行显隐；greeting 为
-                      问候语模板（&#123;greet&#125; = 时段问候、&#123;name&#125; = 用户名，≤40 字符，
-                      空串 = 隐藏问候）</>,
+                      <><b>时钟格式</b>：hour12 / showSeconds 为<b>安装时一次性合入用户设置</b>（与 settings
+                      字段同律：写入后随时可在设置面板调整，删除预设不回滚）；showDate（「日期 ·
+                      农历 · 问候」行显隐）与 greeting（问候语模板，&#123;greet&#125; = 时段问候、
+                      &#123;name&#125; = 用户名，≤40 字符，空串 = 隐藏问候）为声明式覆写，删除预设即还原</>,
                     ],
                   ]}
                 />
                 <P>
-                  tab 栏选框的 Q 弹出场（scale 0.6 → 1 过冲回弹）为 v1.7.0 产品默认行为，与
-                  motion.profile 相互独立；instant 档下出场同样收直。
+                  tab 栏选框动效三段式（v1.7.1）：出现（开面板时）固定 Q 弹出场（scale 0.6 → 1
+                  过冲回弹）；<b>按钮间切换滑移恢复基线标准弹簧手感</b>（仅 playful 档换 Q 弹滑移）；
+                  关闭面板时选框快速缩回淡出。reduceMotion 下出场不播放。
                 </P>
               </Sec>
 

@@ -21,6 +21,7 @@ import {
   Download,
   Images,
   Leaf,
+  ListChecks,
   Plus,
   Settings2,
   SunMoon,
@@ -163,6 +164,7 @@ export default function ContextMenu({
 export const CM_ICONS = {
   palette: <Command strokeWidth={1.5} />,
   addLink: <Plus strokeWidth={1.5} />,
+  manageLinks: <ListChecks strokeWidth={1.5} />,
   theme: <SunMoon strokeWidth={1.5} />,
   zen: <Leaf strokeWidth={1.5} />,
   wallpaper: <Images strokeWidth={1.5} />,
