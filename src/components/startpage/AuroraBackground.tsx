@@ -74,11 +74,15 @@ function AuroraBackground({
   mode,
   photoId,
   wallpaperUrl = "",
+  wallpaperRev = 0,
 }: {
   mode: BackgroundMode;
   photoId: string;
   /** 自定义壁纸的 URL 导入源（v1.7.2）：非空时优先于 IndexedDB 本地文件 */
   wallpaperUrl?: string;
+  /** 自定义壁纸导入版本号（v1.7.3）：每次导入自增——custom 模式下重复导入
+   *  时 photoId/wallpaperUrl 均不变，无此依赖则 effect 不重跑、壁纸不刷新 */
+  wallpaperRev?: number;
 }) {
   const [phase, setPhase] = useState<Phase>("night");
   const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
@@ -104,7 +108,9 @@ function AuroraBackground({
 
   /* 自定义壁纸（v1.7.2）：URL 导入优先（远程图片/视频直链，零下载持久化），
      否则回退 IndexedDB 本地上传（Blob objectURL）。两种来源互斥由设置侧维护。
-     photoId 离开 custom 时同步清引用，避免下次回到 custom 时闪旧画面 */
+     photoId 离开 custom 时同步清引用，避免下次回到 custom 时闪旧画面。
+     wallpaperRev（v1.7.3）：导入版本号入依赖——同一 custom 源下重复导入
+     （本地换新文件 / URL 重导）也强制重读，根除「导入后不刷新」 */
   useEffect(() => {
     if (photoId !== "custom") {
       customUrlRef.current = null;
@@ -143,7 +149,7 @@ function AuroraBackground({
     return () => {
       alive = false;
     };
-  }, [photoId, wallpaperUrl]);
+  }, [photoId, wallpaperUrl, wallpaperRev]);
 
   /* 卸载时回收 objectURL */
   useEffect(() => {

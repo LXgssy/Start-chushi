@@ -445,7 +445,37 @@ function SettingsPanel({
       alive = false;
       if (url) URL.revokeObjectURL(url);
     };
-  }, [settings.wallpaperUrl]);
+    /* wallpaperRev 入依赖（v1.7.3）：custom 模式下重复导入本地文件时
+       URL 源为空串不变，此前缩略图同样不刷新 */
+  }, [settings.wallpaperUrl, settings.wallpaperRev]);
+
+  /* ---------- 视频可解码性探测（v1.7.3）----------
+   * 临时 <video> 实际试播：canplay = 浏览器能解此编码；
+   * error = 编码不支持（HEVC/H.265 在 Chrome/Edge 无系统解码器时必中）；
+   * 超时放行 = 网络慢≠不能播，宁可上线后发现卡缓冲也不误拒。
+   * 根因背景：HEVC 视频此前静默入库，渲染端 <video> 永不 canplay，
+   * 壁纸层恒 opacity-0，用户看到的就是「导入后没反应」。 */
+  function probeVideo(src: string, budgetMs = 4000): Promise<"ok" | "error" | "timeout"> {
+    return new Promise((resolve) => {
+      const v = document.createElement("video");
+      let done = false;
+      const finish = (r: "ok" | "error" | "timeout") => {
+        if (done) return;
+        done = true;
+        v.oncanplay = null;
+        v.onerror = null;
+        v.removeAttribute("src");
+        v.load();
+        resolve(r);
+      };
+      v.muted = true;
+      v.preload = "auto";
+      v.oncanplay = () => finish("ok");
+      v.onerror = () => finish("error");
+      window.setTimeout(() => finish("timeout"), budgetMs);
+      v.src = src;
+    });
+  }
 
   async function handleWallFile(f: File) {
     const kind = wallpaperKindOf(f.name, f.type);
@@ -455,9 +485,21 @@ function SettingsPanel({
         setUploadHint(kind === "video" ? "视频过大（上限 80MB），请压缩后再试" : "GIF 过大（上限 80MB），请压缩后再试");
         return;
       }
+      /* 入库前探测视频编码（v1.7.3）：浏览器解不出的编码（如 HEVC）明确告知，
+         而不是静默收下后壁纸永远黑屏 */
+      if (kind === "video") {
+        const probeUrl = URL.createObjectURL(f);
+        const probe = await probeVideo(probeUrl);
+        URL.revokeObjectURL(probeUrl);
+        if (probe === "error") {
+          setUploadHint("当前浏览器不支持该视频编码（常见于 HEVC/H.265），请转码为 H.264 的 MP4 后再试");
+          return;
+        }
+      }
       await idbSet(CUSTOM_WALLPAPER_KEY, f);
-      /* 与 URL 导入互斥：本地文件生效即清 URL 源 */
-      onPatch({ photoId: "custom", photoLast: "custom", wallpaperUrl: "" });
+      /* 与 URL 导入互斥：本地文件生效即清 URL 源；
+         wallpaperRev 自增：custom 模式下重复导入也强制渲染端重读壁纸（刷新根因修复） */
+      onPatch({ photoId: "custom", photoLast: "custom", wallpaperUrl: "", wallpaperRev: (settings.wallpaperRev ?? 0) + 1 });
       setUploadHint(null);
       return;
     }
@@ -468,7 +510,7 @@ function SettingsPanel({
     try {
       const blob = await fileToSizedBlob(f);
       await idbSet(CUSTOM_WALLPAPER_KEY, blob);
-      onPatch({ photoId: "custom", photoLast: "custom", wallpaperUrl: "" });
+      onPatch({ photoId: "custom", photoLast: "custom", wallpaperUrl: "", wallpaperRev: (settings.wallpaperRev ?? 0) + 1 });
       setUploadHint(null);
     } catch {
       setUploadHint("图片处理失败，请换一张试试");
@@ -476,17 +518,27 @@ function SettingsPanel({
   }
 
   /* URL 导入（v1.7.2）：图片/视频直链零下载生效（设置存 URL，渲染时直取），
-     与本地上传互斥——生效即清 IndexedDB 文件 */
-  function handleUrlImport() {
+     与本地上传互斥——生效即清 IndexedDB 文件。
+     v1.7.3：视频直链先探测可解码性（显式 error 即拒绝，超时放行等慢网）；
+     wallpaperRev 自增——重复导入同一 URL（如对端已换内容）也强制刷新 */
+  async function handleUrlImport() {
     const u = urlInput.trim();
     if (!u) return;
     if (!/^https?:\/\//i.test(u)) {
       setUploadHint("请输入以 http(s):// 开头的直链地址");
       return;
     }
+    if (wallpaperKindOf(u) === "video") {
+      setUploadHint("正在探测直链视频…");
+      const probe = await probeVideo(u);
+      if (probe === "error") {
+        setUploadHint("直链视频无法在当前浏览器解码（常见于 HEVC/H.265 或链路失效），请换 H.264 直链");
+        return;
+      }
+    }
     setUrlInput("");
     void idbDel(CUSTOM_WALLPAPER_KEY);
-    onPatch({ photoId: "custom", photoLast: "custom", wallpaperUrl: u });
+    onPatch({ photoId: "custom", photoLast: "custom", wallpaperUrl: u, wallpaperRev: (settings.wallpaperRev ?? 0) + 1 });
     setUploadHint(null);
   }
 

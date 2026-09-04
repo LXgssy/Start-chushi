@@ -1008,7 +1008,7 @@ export default function Home() {
 
   return (
     <div className="relative min-h-dvh">
-      <AuroraBackground mode={settings.background} photoId={settings.photoId} wallpaperUrl={settings.wallpaperUrl} />
+      <AuroraBackground mode={settings.background} photoId={settings.photoId} wallpaperUrl={settings.wallpaperUrl} wallpaperRev={settings.wallpaperRev} />
 
       {/* 禅模式：内容雾化散场由 html.zen + .zen-fade/.search-pill/.zen-dock 各自承载。
           此包裹层绝不动画 opacity/filter——祖先 opacity<1 / filter≠none 会成为 backdrop root，
