@@ -197,3 +197,26 @@ Stage Summary:
 - 版本考古律：push 前必查远端（git fetch + log HEAD..origin/main）——上一会话可能已在远端发布同号版本；撞号即顺延，历史档案（worklog）合并保留
 - 交付：文叔叔 v1.7.0 合并交付包（见下方链接）
 - 待办：Edge 商店提交材料仍未做
+
+---
+Task ID: 61
+Agent: main (Super Z)
+Task: 用户反馈六问题（①开发工具导出 .cshz 包 ②开发工具显示/其它 bug ③tab 选框切换动画恢复旧样式+Q 弹进示例预设+补消失动画 ④导入面板拖拽提示无下移动画 ⑤PC 批量编辑/删除快捷服务进右键菜单 ⑥预设改时钟后设置面板调不回）—— v1.7.1 体验修缮批
+
+Work Log:
+- 【开发工具 .cshz 导出】preset-studio.html 内置零依赖 zip 写入器（CRC32 表 + STORE 法 + UTF-8 标志 + 固定 DOS 时间戳防部分解压器不兼容），「下载 .cshz 包」升为主按钮，manifest.json 单文件包与 pack.ts 解析端约定一致；文件名非法字符净化
+- 【studio bug 三连】①`all: unset` 会把 box-sizing 重置回 content-box——`.add`（width:100%+内边距）溢出面板 34px 被裁切（截图 bug 实证根因），修复后补 focus-visible 焦点环；②动态项卡片 padding-right 34px 给悬浮 × 让位；③帮助 dialog 补 max-height:84vh+overflow:auto；④【功能 bug】静态字段（名称/令牌/动效/时钟/布局）此前无任何监听，只有动态列表编辑才触发 update()——JSON 输出与完整性提示不实时刷新，补 main 下全局 input/change 监听；⑤dock open 动作补 https 前缀校验提示
+- 【选框三段式】出现=Q 弹固定保留（initial scale .6→POPPING）；切换=layoutId 滑移恢复基线弹簧 420/34（与 v1.1.x 一致），**且 pillPop 门控 initial**——无面板→开面板才播 Q 弹，面板间切换不重播（渲染期 prevPanelRef 同步，React 官方模式）；消失=AnimatePresence 包裹+exit scale .6/opacity 0（0.16s 退场加速曲线）；Q 弹滑移=playful 档专属（示例预设已用 playful=动画进示例预设）；per-value transition 语法 transition={{layout,opacity,scale}}
+- 【导入面板形变】Collapse 组件（AnimatePresence+motion.div height 0↔auto+overflow-hidden，内边距放子元素防 height:0 占位）包住拖拽提示与错误列表，按钮组被平滑推下；宿主形变舞台 ResizeObserver 自然跟随
+- 【批量管理磁贴】QuickLinks 监听 start:links-manage 全局事件→setEditing(true)（与触屏长按同模式：jiggle+× 删除+点击编辑+拖拽排序+空白退出）；ContextMenu 加 ListChecks 图标；page.tsx 右键动作「批量管理磁贴」+进入 toast 操作指引
+- 【时钟语义修正】Clock 只从 preset 读 showDate/greeting（无面板控件，声明式，删除即还原）；hour12/showSeconds 改 installPreset 时一次性 patchSettings（与 settings 字段同律），面板随时可调回；PresetClock 注释/文档同步
+- 【验证】verify-v171.mjs 25/25：studio .add 右缘 701≤面板 720 / .cshz 下载→fflate 解包 manifest 含 clock.hour12 / 拖入安装→settings.hour12=true / 预设装着时面板切 24 时→UI 立即回 24 时制 / 选框出场 matrix(0.6) 起步 / 切换 matrix(1,0,0,1,-43,0) 纯滑移 / 消失中间态 opacity 0.295 / 拖拽提示位移+高度盒 / 右键 8 项含批量管理 / pageerror=0；verify-ext-v171.mjs 扩展冒烟 7/7（unpacked ID 推导律沿用）
+- 【测试环境律重申】无头 rAF 节流 ~13fps：0.32s 形变只够采 2-3 帧，中间帧断言按仿真时间放宽（位移发生+framer 高度盒 overflow:hidden 在管 兜底判定）；evaluate 内联 dragover+rAF 采样消除 roundtrip 延迟
+- 【事故】正则批量注入 JSX 把 `=>` 当标签结束截坏 Dock.tsx——git checkout 回滚后改手动 MultiEdit 七处注入；bun run build（standalone 变体）≠ build:export（Pages 导出）——out/ 未更新导致首轮 studio 断言全炸，Pages 部署一律 build:export
+- 【发布】main 4048061；gh-pages e64eb92 独立 clone 部署（线上 chunk b0e17f69 含「批量管理磁贴」、studio 含 zipStore 实测 ✓）；Release v1.7.1（id 382489131）+ ChuShi-NewTab-v1.7.1.zip（12.2MB）已传；交付物 download/v1.7.1/（更新说明+开发者文档+焕新示例预设+扩展 zip+合并交付包 12.3MB）
+
+Stage Summary:
+- 产品律（v1.7.1 定稿）：选框动效三段式——出现 Q 弹/切换标准滑移（playful 档例外）/消失缩回淡出；预设 clock 拆两语义（hour12/showSeconds 一次性合入面板可调，showDate/greeting 声明式删除还原）
+- 架构律：`all: unset` 后必须重申 box-sizing；Next.js 双构建变体（build=standalone / build:export=Pages）别混用；静态表单字段必须统一挂更新监听
+- 交付：文叔叔合并交付包（见下）；Release v1.7.1；Pages 已上线
+- 待办：Edge 商店提交材料仍未做
