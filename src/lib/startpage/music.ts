@@ -1,8 +1,9 @@
 /* 「初始」× 网易云音乐 本地桥接客户端
  *
- * 对端：初始音乐桥插件（BetterNCMII/chromatic）+ bridge.dll 本地服务
+ * 对端：初始音乐桥·独立版（ChuShiBridge.exe，CEF 调试协议方案，不依赖 BetterNCM 框架）
+ *       旧对端：BetterNCMII 插件 + bridge.dll（v1.7.5 路线，协议完全兼容）
  *   GET  /api/ping     → {"ok":true,"name":"chushi-music-bridge","version":...}
- *   GET  /api/status   → MusicSnapshot（对端无状态文件时 503）
+ *   GET  /api/status   → MusicSnapshot（对端无快照时 503）
  *   POST /api/control  → {"action":"play"|"pause"|"toggle"|"next"|"prev"
  *                         |"seek","positionMs":ms} | {"action":"volume","volume":0-1}
  *                         | {"action":"mute"}
