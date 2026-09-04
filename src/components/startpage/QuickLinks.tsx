@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Pencil, X } from "lucide-react";
 import type { IconStyle, StartLink } from "@/lib/startpage/types";
 import { hostOf } from "@/lib/startpage/link-utils";
+import { useMorphHeight } from "./use-morph-height";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -247,6 +248,11 @@ function QuickLinks({
   const dragFrom = useRef<number | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  /* 网格高度形变盒（v1.7.4）：删/增磁贴跨排界时网格行数变化，容器高度此前瞬跳
+     → justify-center 的整列内容（时钟/搜索）随之瞬移——「删除抖动」的第二根因。
+     现由 ResizeObserver 测高 + 弹簧高度盒承接（与 Dock 面板同套 morph 律），
+     换排时高度滑移，配合 main 的 padding 过渡整列连续无跳变 */
+  const { contentH, measureRef } = useMorphHeight(500);
 
   /* 批量管理入口（v1.7.1）：右键菜单「批量管理磁贴」派发全局事件进入本模式——
      PC 端此前只能逐个悬浮编辑，无批量删除/连续编辑路径（触屏长按同款模式） */
@@ -309,10 +315,20 @@ function QuickLinks({
 
   return (
     <div ref={rootRef} className="cl-links flex flex-col items-center">
-      <div
-        className="flex max-w-[680px] flex-wrap items-start justify-center gap-x-4 gap-y-6 px-4"
-        style={columns ? { maxWidth: `${6 * columns + 1}rem` } : undefined}
+      {/* 高度盒：px 弹簧跟随网格自然高度；relative 让 popLayout 退场磁贴的
+          absolute 钉位落在本盒内；不裁剪溢出——退场磁贴/阴影/悬浮态不可被切 */}
+      <motion.div
+        className="relative w-full"
+        style={{ contain: "layout" }}
+        initial={false}
+        animate={{ height: contentH == null ? "auto" : contentH }}
+        transition={LAYOUT_SPRING}
       >
+        <div
+          ref={measureRef}
+          className="mx-auto flex max-w-[680px] flex-wrap items-start justify-center gap-x-4 gap-y-6 px-4"
+          style={columns ? { maxWidth: `${6 * columns + 1}rem` } : undefined}
+        >
         <AnimatePresence mode="popLayout">
           {links.map((l, i) => (
             <Tile
@@ -365,7 +381,8 @@ function QuickLinks({
             </span>
           </button>
         </motion.div>
-      </div>
+        </div>
+      </motion.div>
     </div>
   );
 }
