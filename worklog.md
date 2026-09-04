@@ -218,5 +218,5 @@ Work Log:
 Stage Summary:
 - 产品律（v1.7.1 定稿）：选框动效三段式——出现 Q 弹/切换标准滑移（playful 档例外）/消失缩回淡出；预设 clock 拆两语义（hour12/showSeconds 一次性合入面板可调，showDate/greeting 声明式删除还原）
 - 架构律：`all: unset` 后必须重申 box-sizing；Next.js 双构建变体（build=standalone / build:export=Pages）别混用；静态表单字段必须统一挂更新监听
-- 交付：文叔叔合并交付包（见下）；Release v1.7.1；Pages 已上线
+- 交付：文叔叔 v1.7.1 合并交付包 → https://c.wss.ink/f/ksj2vh8gfwz（1 天过期）；Release v1.7.1；Pages 已上线
 - 待办：Edge 商店提交材料仍未做
