@@ -31,11 +31,14 @@
   header .sub { font-size: 12px; color: var(--ink3); letter-spacing: .04em; }
   header .sp { flex: 1; }
   button, .btn {
-    all: unset; cursor: pointer; font-size: 12px; font-weight: 300;
+    /* box-sizing 必须在 all:unset 之后重申：all 会把它重置为 content-box，
+       令 .add（width:100% + 内边距）溢出面板被裁切（v1.7.0 实证 bug） */
+    all: unset; box-sizing: border-box; cursor: pointer; font-size: 12px; font-weight: 300;
     padding: 7px 16px; border-radius: 999px; border: 1px solid var(--line);
     color: var(--ink2); transition: all .15s; background: var(--card); text-align: center;
   }
   button:hover, .btn:hover { border-color: var(--accent); color: var(--accent); }
+  button:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
   button.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); font-weight: 400; }
   button.primary:hover { opacity: .85; color: var(--bg); }
   main {
@@ -63,8 +66,9 @@
   .hint { font-size: 11px; color: var(--ink3); margin-top: 4px; line-height: 1.5; }
   .items { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
   .item {
-    border: 1px dashed var(--line); border-radius: 10px; padding: 10px 12px;
+    border: 1px dashed var(--line); border-radius: 10px; padding: 10px 34px 10px 12px;
     display: grid; gap: 8px; position: relative;
+    /* 右侧留白：给悬浮的 × 删除钮让位，字段不再顶到角落 */
   }
   .item .del {
     all: unset; cursor: pointer; position: absolute; right: 8px; top: 8px;
@@ -88,7 +92,7 @@
   .out-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
   dialog {
     border: 1px solid var(--line); border-radius: 16px; background: var(--card); color: var(--ink);
-    max-width: 760px; width: 92vw; padding: 26px 30px; line-height: 1.75;
+    max-width: 760px; width: 92vw; max-height: 84vh; overflow: auto; padding: 26px 30px; line-height: 1.75;
   }
   dialog::backdrop { background: rgba(0,0,0,.4); backdrop-filter: blur(3px); }
   dialog h2 { font-size: 15px; font-weight: 400; letter-spacing: .1em; margin-bottom: 10px; }
@@ -114,7 +118,7 @@
 <body>
 <header>
   <h1>初始 · 预设开发工具</h1>
-  <span class="sub">图形化编辑 → 导出 JSON → 导入「初始」 · 离线可用</span>
+  <span class="sub">图形化编辑 → 导出 .cshz 预设包 → 导入「初始」 · 离线可用</span>
   <span class="sp"></span>
   <button id="btn-import-mode">从 JSON 导入</button>
   <button id="btn-help">使用说明</button>
@@ -214,7 +218,7 @@
         <div>
           <label style="margin-top:0">小时制</label>
           <select id="f-clock-hour12">
-            <option value="">保持用户设置</option>
+            <option value="">不修改</option>
             <option value="false">24 小时制</option>
             <option value="true">12 小时制（AM/PM）</option>
           </select>
@@ -222,7 +226,7 @@
         <div>
           <label style="margin-top:0">秒数</label>
           <select id="f-clock-seconds">
-            <option value="">保持用户设置</option>
+            <option value="">不修改</option>
             <option value="true">显示</option>
             <option value="false">隐藏</option>
           </select>
@@ -236,6 +240,7 @@
           </select>
         </div>
       </div>
+      <div class="hint">小时制与秒数：导入时一次性写入用户设置，之后随时可在「初始」的设置面板调整；日期行与问候语：随预设持续生效，删除预设即还原。</div>
       <div class="row" style="margin-top:10px">
         <div>
           <label style="margin-top:0">问候语</label>
@@ -297,7 +302,8 @@
     <pre id="out">{ }</pre>
     <div class="checks" id="checks"></div>
     <div class="out-actions">
-      <button class="primary" id="btn-download">下载 .json</button>
+      <button class="primary" id="btn-download-pack">下载 .cshz 包</button>
+      <button id="btn-download">下载 .json</button>
       <button id="btn-copy">复制 JSON</button>
       <button id="btn-fill-sample">填入示例</button>
     </div>
@@ -321,8 +327,8 @@
   <h3>三步上手</h3>
   <ol>
     <li>在左侧表单填写内容：基础信息、⌘K 命令 / 磁贴 / 栏按钮、焕新四件套（图标 / 主题令牌 / 动效语言 / 时钟格式）、自定义样式与脚本；</li>
-    <li>右侧实时生成 JSON 并给出完整性提示，确认无误后点「下载 .json」（或复制）；</li>
-    <li>回到「初始」→ ⌘K → 预设系统 → 导入预设：粘贴 JSON、选择文件或直接把文件拖进导入面板。删除预设即整体还原。</li>
+    <li>右侧实时生成 JSON 并给出完整性提示，确认无误后点「下载 <b>.cshz 包</b>」（也可下载 .json 或直接复制）；</li>
+    <li>回到「初始」→ ⌘K → 预设系统 → 导入预设：把 .cshz 包拖进面板（或粘贴 JSON、选择文件）。删除预设即整体还原。</li>
   </ol>
 
   <h3>能换什么（作用面速查）</h3>
@@ -332,8 +338,8 @@
     <tr><td>排版</td><td>layout</td><td>隐藏区块 / 时钟缩放 / 磁贴列数 / 垂直对齐</td></tr>
     <tr><td>图标</td><td>icons</td><td>替换 tab 栏六个内建按钮的图标（内置名或 base64 图片）</td></tr>
     <tr><td>主题令牌</td><td>tokens</td><td>覆写 --ui-accent / --pill-seg / --pill-seg-ring / --pill-line</td></tr>
-    <tr><td>动效语言</td><td>motion</td><td>profile 弹簧档位（standard / playful / calm / instant）+ speed 入场倍率</td></tr>
-    <tr><td>时钟格式</td><td>clock</td><td>12/24 小时制、秒数、日期行、问候语模板（{greet} / {name} 占位）</td></tr>
+    <tr><td>动效语言</td><td>motion</td><td>profile 弹簧档位（standard / playful / calm / instant）+ speed 入场倍率；playful 档含 tab 栏选框 Q 弹滑移切换</td></tr>
+    <tr><td>时钟格式</td><td>clock</td><td>小时制/秒数（导入时一次性写入用户设置，面板可再调）、日期行、问候语模板（随预设生效，删除即还原）</td></tr>
     <tr><td>动画</td><td>animations</td><td>注入自定义 CSS（净化后作用于公开元素钩子）</td></tr>
     <tr><td>材质</td><td>chushi.material.apply</td><td>脚本中调用，整体换装玻璃/面板材质（见下）</td></tr>
     <tr><td>功能</td><td>scripts / pages / widgets</td><td>沙箱脚本、自定义页、角落小部件</td></tr>
@@ -363,7 +369,7 @@
 
   <h3>注意</h3>
   <ul>
-    <li>本工具生成的是单文件预设（.json）；带图片等资源时可改用 .cshz 包格式，见开发者文档。</li>
+    <li><b>.cshz</b> 是「初始」官方预设包格式（zip 结构：manifest.json 必需 + assets/ 可选资源目录）。本工具导出的包把预设主体作为 manifest.json 打包，可直接拖进「初始」的导入面板；带图片等资源的高级包可参考开发者文档。</li>
     <li>右侧提示只是辅助——最终以「初始」导入时的整体校验为准，校验失败会列出每条错误。</li>
     <li>请尊重安装者：不要做高频通知、抢焦点之类的体验。</li>
   </ul>
@@ -528,6 +534,13 @@
     });
   });
 
+  /* 静态字段（名称/令牌/动效/时钟/布局等）统一接 update：此前只有动态列表编辑
+     才会触发重算，改静态字段后 JSON 输出与完整性提示不实时刷新（v1.7.1 实证 bug） */
+  document.querySelectorAll("main input, main select, main textarea").forEach(function (i) {
+    i.addEventListener("input", update);
+    i.addEventListener("change", update);
+  });
+
   /* ---------- 生成 JSON ---------- */
   function buildPreset() {
     var p = { chushi: 1 };
@@ -646,6 +659,10 @@
     (p.links || []).concat().forEach(function (l, i) {
       if (!/^https:\/\//i.test(l.url)) out.push(warn("磁贴[" + i + "]「" + l.name + "」网址必须以 https:// 开头"));
     });
+    (p.dock || []).forEach(function (d, i) {
+      if (d.action.type === "open" && !/^https:\/\//i.test(d.action.url || ""))
+        out.push(warn("栏按钮[" + i + "]「" + d.title + "」网址必须以 https:// 开头"));
+    });
     (p.icons || []).forEach(function (i) {
       var v = i.icon;
       var isName = ICON_NAMES.indexOf(v) >= 0;
@@ -671,14 +688,91 @@
   }
 
   /* ---------- 导出 ---------- */
-  $("btn-download").addEventListener("click", function () {
-    var blob = new Blob([lastJSON], { type: "application/json" });
+
+  /* ---- 极简 zip 写入器（STORE 不压缩，零依赖）——用于导出 .cshz 官方预设包。
+     包结构 = manifest.json（预设主体）+ 可选 assets/；与「初始」pack.ts 解析端约定一致 */
+  var CRC_TABLE = (function () {
+    var t = new Array(256), c, k, n;
+    for (n = 0; n < 256; n++) {
+      c = n;
+      for (k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+      t[n] = c >>> 0;
+    }
+    return t;
+  })();
+  function crc32(u8) {
+    var c = 0xFFFFFFFF;
+    for (var i = 0; i < u8.length; i++) c = CRC_TABLE[(c ^ u8[i]) & 0xFF] ^ (c >>> 8);
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  }
+  function zipStore(entries) {
+    var enc = new TextEncoder();
+    var local = [], central = [], offset = 0;
+    /* 固定 DOS 时间戳（2024-01-01 00:00）：时间零值在部分解压器上不兼容 */
+    var DOS_TIME = 0, DOS_DATE = (44 << 9) | (1 << 5) | 1;
+    entries.forEach(function (e) {
+      var nameB = enc.encode(e.name), crc = crc32(e.data), sz = e.data.length;
+      var lh = new DataView(new ArrayBuffer(30));
+      lh.setUint32(0, 0x04034b50, true);
+      lh.setUint16(4, 20, true);
+      lh.setUint16(6, 0x0800, true);   /* UTF-8 文件名标志 */
+      lh.setUint16(8, 0, true);        /* STORE */
+      lh.setUint16(10, DOS_TIME, true); lh.setUint16(12, DOS_DATE, true);
+      lh.setUint32(14, crc, true);
+      lh.setUint32(18, sz, true); lh.setUint32(22, sz, true);
+      lh.setUint16(26, nameB.length, true); lh.setUint16(28, 0, true);
+      local.push(new Uint8Array(lh.buffer), nameB, e.data);
+      var ch = new DataView(new ArrayBuffer(46));
+      ch.setUint32(0, 0x02014b50, true);
+      ch.setUint16(4, 20, true); ch.setUint16(6, 20, true);
+      ch.setUint16(8, 0x0800, true); ch.setUint16(10, 0, true);
+      ch.setUint16(12, DOS_TIME, true); ch.setUint16(14, DOS_DATE, true);
+      ch.setUint32(16, crc, true);
+      ch.setUint32(20, sz, true); ch.setUint32(24, sz, true);
+      ch.setUint16(28, nameB.length, true);
+      /* extra/comment/disk/internal/external 全零，local header 偏移在 42 */
+      ch.setUint32(42, offset, true);
+      central.push(new Uint8Array(ch.buffer), nameB);
+      offset += 30 + nameB.length + sz;
+    });
+    var cdSize = central.reduce(function (n, c) { return n + c.length; }, 0);
+    var eocd = new DataView(new ArrayBuffer(22));
+    eocd.setUint32(0, 0x06054b50, true);
+    eocd.setUint16(8, entries.length, true); eocd.setUint16(10, entries.length, true);
+    eocd.setUint32(12, cdSize, true); eocd.setUint32(16, offset, true);
+    var all = local.concat(central, [new Uint8Array(eocd.buffer)]);
+    var total = all.reduce(function (n, c) { return n + c.length; }, 0);
+    var out = new Uint8Array(total), pos = 0;
+    all.forEach(function (c) { out.set(c, pos); pos += c.length; });
+    return out;
+  }
+
+  function safeFileName(s) {
+    var n = (s || "preset").replace(/[\\/:*?"<>|\s]+/g, "_").slice(0, 40);
+    return n || "preset";
+  }
+
+  function triggerDownload(blob, name) {
     var a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    var name = ($("f-name").value.trim() || "preset") + ".json";
     a.download = name;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 3000);
+  }
+
+  /* .cshz 官方预设包：manifest.json 单文件 zip（STORE） */
+  $("btn-download-pack").addEventListener("click", function () {
+    var bytes = new TextEncoder().encode(lastJSON);
+    var zip = zipStore([{ name: "manifest.json", data: bytes }]);
+    triggerDownload(
+      new Blob([zip], { type: "application/zip" }),
+      safeFileName($("f-name").value.trim()) + ".cshz"
+    );
+  });
+
+  $("btn-download").addEventListener("click", function () {
+    triggerDownload(new Blob([lastJSON], { type: "application/json" }),
+      safeFileName($("f-name").value.trim()) + ".json");
   });
   $("btn-copy").addEventListener("click", function () {
     var done = function () {
