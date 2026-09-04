@@ -1,0 +1,61 @@
+初始音乐桥（ChuShi Music Bridge）v1.0.0
+==========================================
+
+把网易云音乐桌面客户端「正在播放」的歌曲暴露给「初始」起始页
+（https://lxgssy.github.io/Start-chushi/ 或其 Edge/Chrome 扩展版），
+并提供播放控制（播放/暂停/上下曲/进度/音量）。
+
+系统要求
+--------
+- Windows 10/11 x64
+- 网易云音乐 3.x，已安装 chromatic（BetterNCMII）插件管理器
+  https://github.com/std-microblock/chromatic
+- 「初始」v1.7.5 或更新版本
+
+安装步骤
+--------
+1. 解压本 zip，得到包含 manifest.json / index.js / bridge.dll 的文件夹。
+2. 将整个文件夹放入 BetterNCM 数据目录的 plugins_dev 文件夹内：
+   · 默认数据目录为 C:\betterncm（若设置过 BETTERNCM_PROFILE 环境变量则以它为准）
+   · 即最终结构形如：
+       C:\betterncm\plugins_dev\初始音乐桥\
+         ├─ manifest.json
+         ├─ index.js
+         └─ bridge.dll
+   （也可以直接把 zip 拖进网易云「插件管理」界面安装，或放入 plugins 文件夹由管理器自动解压。）
+3. 完全退出并重启网易云音乐。
+4. 打开「初始」，点击底部 Dock 的「音乐」按钮 → 自动连接。
+
+工作原理
+--------
+- index.js：读取网易云内部播放状态（Redux store + 原生播放事件），
+  把快照写入 BetterNCM 数据目录 chushi-music\state.json；
+- bridge.dll：在网易云进程内启动一个仅绑定 127.0.0.1 的本地 HTTP 服务
+  （默认端口 10754，被占用时向后顺延），把状态暴露给「初始」，
+  并把「初始」发来的控制命令落到 chushi-music\cmd\ 由 index.js 执行；
+- 「初始」侧每秒轮询 /api/status 获取最新状态，进度条用本地时钟插值。
+
+安全说明
+--------
+- HTTP 服务只绑定本机回环地址（127.0.0.1），局域网内其他设备无法访问；
+- Origin 白名单：仅允许浏览器扩展与「初始」线上域/本机开发地址读取，
+  其他网站的跨源请求会被拒绝；
+- 命令文件只写入固定目录、文件名由服务端生成，无路径拼接风险；
+- 若要改端口：在网易云「设置 → 插件管理 → 初始音乐桥」里修改后重启网易云。
+
+卸载
+----
+删除 plugins_dev 下的本插件文件夹并重启网易云即可；
+chushi-music 数据目录可一并删除。
+
+常见问题
+--------
+Q: 「初始」一直显示未连接？
+A: ①确认网易云正在运行且插件已启用；②确认地址栏端口与
+   C:\betterncm\chushi-music\server.json 中的端口一致；
+   ③网页版首次连接时浏览器可能弹出「访问本地网络」权限，请允许
+   （扩展版无需此步）。
+
+Q: 端口被占用了？
+A: 桥会自动顺延端口并在 chushi-music\server.json 写入实际端口，
+   在「初始」音乐面板的地址栏改成该端口后点「重试」。
