@@ -7,35 +7,19 @@
  *  2. 向脚本提供受控 API `chushi`——注册 ⌘K 命令、脚本入口、通知、
  *     打开网址、复制、fetchJSON、fx 视觉效果面（v1.1.3：挂载 style/svg
  *     白名单结构、订阅玻璃容器 resize 快照）、设置面（v1.2.0：define/get/
- *     onChange，预设向设置面板贡献调节项）、液态玻璃引擎调用面
- *     （v1.3.0：enable/patch/disable，引擎内建于宿主实时渲染）。所有越界
- *     副作用仅以 postMessage 上报宿主，由宿主复核白名单后代为执行；
+ *     onChange，预设向设置面板贡献调节项）、换材质（v1.7.0：material.apply/
+ *     reset，通用材质作用面）。所有越界副作用仅以
+ *     postMessage 上报宿主，由宿主复核白名单后代为执行；
  *     本文档自身拿不到主文档、localStorage、Cookie 与任何扩展 API；
- *     白名单结构、订阅玻璃容器 resize 快照；v1.3.0：attachCanvas 画布
- *     绘制权移交、getBackdrop 背景事实数据、onPositions 位置跟踪）、
- *     图标覆写（v1.3.0：icons.override）、主题令牌覆写（v1.3.0：
- *     theme.override）、设置面（v1.2.0：define/get/onChange，预设向
- *     设置面板贡献调节项）。所有越界副作用仅以 postMessage 上报宿主，
- *     由宿主复核白名单后代为执行；本文档自身拿不到主文档、localStorage、
- *     Cookie 与任何扩展 API；
  *  3. invoke 路由：命令复合键（"scriptKey:cmdId"）查命令表，
  *     纯 scriptKey 查脚本入口（chushi.run），统一入口便于宿主无差别调用。
  *
- * 协议（host → sandbox）：boot{scriptKey,code} / invoke{id}
- *                        / fxResize{scriptKey,items} / fxPositions{scriptKey,items}
+ * 协议（host → sandbox）：boot{scriptKey,code} / invoke{id} / fxResize{scriptKey,items}
  *                        / fxResult{scriptKey,fxId,ok,message?}
- *                        / glassResult{scriptKey,gid,ok,message?}
- *                        / fxCanvas{scriptKey,fxId,seq,ok}
- *                        / fxFrameResult{scriptKey,fxId,seq,ok,message?}
- *                        / fxBackdrop{scriptKey,seq,ok,desc,bitmap?}
  *                        / settingsValues{scriptKey,values}（get 回执）
  *                        / settingsPush{scriptKey,values}（面板变更推送）
  * 协议（sandbox → host）：hello / ready{scriptKey} / bootError{scriptKey,message}
  *                        / api{op:cmd|notify|open|copy|fxMount|fxUnmount|fxSubscribe|fxUnsubscribe
- *                             |settingsDefine{schema}|settingsGet|glassEnable{cfg}|glassPatch{cfg}
- *                             |glassDisable,...}
- *                             |fxCanvas{fxId,seq}|fxFrame{fxId,seq,bitmap,w,h}|fxBackdrop{seq}
- *                             |iconsOverride{map}|themeOverride{groups}
  *                             |settingsDefine{schema}|settingsGet,...}
  *                        / invokeResult{id,ok,message?}
  *                        / runtimeError{message,scriptKey?}
@@ -77,28 +61,18 @@
   /** 设置面（v1.2.0）：get 回执 pending 表 + onChange 回调集（必须与消息处理器同作用域） */
   var pendingSettings = {};
   var settingsTargets = new Map();
-  /** 液态玻璃引擎调用面（v1.3.0）：enable/patch 回执 pending 表 */
-  var pendingGlass = {};
-  var glassSeq = 0;
-  /** fx 请求（v1.3.0 attachCanvas/getBackdrop）：seq → resolver（与消息处理器同作用域） */
-  var pendingFxReq = {};
-  var fxReqSeq = 0;
-  /** fxPositions 定向派发注册表：scriptKey → onPositions 回调集 */
-  var fxPosTargets = new Map();
 
   /** 为指定脚本构造受控 API（每个脚本一份，命令/入口互不可见对方内部状态） */
   function makeChushi(scriptKey) {
     /* ---------- fx 视觉效果面（v1.1.3）----------
      * mount(id, html)：把 <style>/<svg> 白名单结构幂等挂进宿主 fx-root；
-     *   液态玻璃等视觉引擎的全部代码住在预设脚本里，宿主只提供作用面。
+     *   高级材质（折射/高光等）的全部引擎代码住在预设脚本里，宿主只提供作用面。
      * unmount(id)：摘除单挂载。删除预设时宿主整组回收，无需脚本配合。
      * onResize(cb)：订阅宿主玻璃容器快照（[{fx,key,w,h,radius}]），
      *   订阅即推全量，后续尺寸/增减变化随推；返回退订函数。 */
     var fxResizeCbs = [];
     var settingsCbs = [];
     settingsTargets.set(scriptKey, settingsCbs);
-    var fxPosCbs = [];
-    fxPosTargets.set(scriptKey, fxPosCbs);
 
     function fxApi(op, id, html) {
       post({ type: "api", op: op, scriptKey: scriptKey, fxId: id, html: html });
@@ -108,26 +82,6 @@
           resolve({ ok: false, message: "fx 调用超时" });
         }, 8000);
         pendingFx[id] = {
-          f: function (r) {
-            clearTimeout(t);
-            resolve(r);
-          },
-        };
-      });
-    }
-    /** v1.3.0 请求/回执（attachCanvas/getBackdrop）：seq 对账，宿主
-     *  回包可能带 transfer（OffscreenCanvas/ImageBitmap） */
-    function fxReq(op, extra) {
-      var seq = ++fxReqSeq;
-      var msg = { type: "api", op: op, scriptKey: scriptKey, seq: seq };
-      if (extra) for (var k in extra) msg[k] = extra[k];
-      post(msg);
-      return new Promise(function (resolve) {
-        var t = setTimeout(function () {
-          delete pendingFxReq[seq];
-          resolve({ ok: false, message: "fx 调用超时" });
-        }, 8000);
-        pendingFxReq[seq] = {
           f: function (r) {
             clearTimeout(t);
             resolve(r);
@@ -218,74 +172,27 @@
             if (i >= 0) fxResizeCbs.splice(i, 1);
           };
         },
-        /* v1.3.0：订阅玻璃容器视口位置变化（transform 动画期 RO 不触发，
-         * 宿主 rAF 跟踪；items = [{fx,x,y}]）——折射采样坐标据此对齐壁纸 */
-        onPositions: function (cb) {
-          if (typeof cb !== "function") return function () {};
-          fxPosCbs.push(cb);
-          return function () {
-            var i = fxPosCbs.indexOf(cb);
-            if (i >= 0) fxPosCbs.splice(i, 1);
-          };
-        },
-        /* v1.3.0：在玻璃元素内创建透明占位画布（位图通道随后由
-         * pushFrame 供给）。成功返回 {ok:true}；配合 pushFrame 使用。 */
-        attachCanvas: function (id) {
-          var fid = str(id, 32);
-          if (!ID_RE.test(fid)) return Promise.resolve({ ok: false, message: "fx id 不合法" });
-          return fxReq("fxCanvas", { fxId: fid }).then(function (r) {
-            if (r && r.ok) return { ok: true };
-            return { ok: false, message: (r && r.message) || "画布创建失败" };
-          });
-        },
-        /* v1.3.0：把引擎本地画好的位图帧交给宿主 blit 到占位画布。
-         * bitmap（ImageBitmap）随消息转移，宿主消费后关闭；返回 {ok}。 */
-        pushFrame: function (id, bitmap, w, h) {
-          var fid = str(id, 32);
-          if (!ID_RE.test(fid)) return Promise.resolve({ ok: false, message: "fx id 不合法" });
-          if (!bitmap || typeof bitmap.width !== "number") return Promise.resolve({ ok: false, message: "缺 bitmap" });
-          return fxReq("fxFrame", {
-            fxId: fid,
-            bitmap: bitmap,
-            w: typeof w === "number" ? w : bitmap.width,
-            h: typeof h === "number" ? h : bitmap.height,
-          }).then(function (r) {
-            if (r && r.ok) return { ok: true };
-            return { ok: false, message: (r && r.message) || "帧上屏失败" };
-          });
-        },
-        /* v1.3.0：背景事实数据。{kind:'photo', scrim, bitmap?} /
-         * {kind:'glow', base, blobs[]} / {kind:'flat', base}；photo 的
-         * bitmap 为宿主代取后转移的 ImageBitmap（零污染）。 */
-        getBackdrop: function () {
-          return fxReq("fxBackdrop", {}).then(function (r) {
-            if (r && r.ok) {
-              return {
-                ok: true,
-                desc: r.desc && typeof r.desc === "object" && r.desc.kind ? r.desc : { kind: "flat", base: "" },
-                bitmap: r.bitmap || null,
-              };
-            }
-            return { ok: false, message: (r && r.message) || "背景获取失败" };
-          });
-        },
       },
-      /* ---------- 图标覆写（v1.3.0）----------
-       * override(map)：槽位 → 图片（https/data:image）白名单，宿主校验后
-       * 转交页面在 FxIcon 渲染点替换内置图标；空 map = 清除本脚本覆写。 */
-      icons: {
-        override: function (map) {
-          if (!map || typeof map !== "object") return;
-          post({ type: "api", op: "iconsOverride", scriptKey: scriptKey, map: map });
+      /* ---------- 换材质（v1.7.0）：通用材质作用面 ----------
+       * apply(spec)：spec = { css?, svg? } —— css 包 <style>、svg 直传，组包后
+       *   走 fx mount（挂载 id 固定 "material"，重复 apply 幂等替换不闪断）。
+       *   材质 CSS 直接用公开元素钩子（.search-pill/.cl-dock/.cl-panel/.glass-card）；
+       *   高级贴图材质（折射类）配合 fx.onResize 快照按 data-fx 标记动态构造。
+       * reset()：摘除本脚本的材质挂载（删除预设时宿主也会整组回收）。 */
+      material: {
+        apply: function (spec) {
+          spec = spec && typeof spec === "object" ? spec : {};
+          var css = typeof spec.css === "string" ? spec.css : "";
+          var svg = typeof spec.svg === "string" ? spec.svg : "";
+          var chunks = [];
+          if (css) chunks.push("<style>" + css.replace(/<\/style/gi, "") + "</style>");
+          if (svg) chunks.push(svg);
+          if (chunks.length === 0)
+            return Promise.resolve({ ok: false, message: "material.apply 需要 css 或 svg 至少一项" });
+          return fxApi("fxMount", "material", chunks.join("\n"));
         },
-      },
-      /* ---------- 主题令牌覆写（v1.3.0）----------
-       * override({light,dark})：亮/暗双域 CSS 令牌覆写（白名单令牌集，
-       * 宿主校验整体拒绝制）；删除预设即整组回收。 */
-      theme: {
-        override: function (groups) {
-          if (!groups || typeof groups !== "object") return;
-          post({ type: "api", op: "themeOverride", scriptKey: scriptKey, groups: groups });
+        reset: function () {
+          return fxApi("fxUnmount", "material", undefined);
         },
       },
       /* ---------- 设置面（v1.2.0）：预设向设置面板贡献调节项 ----------
@@ -322,38 +229,7 @@
           };
         },
       },
-      /* ---------- 液态玻璃引擎调用面（v1.5.0 玻璃游乐场移植版）----------
-       * 引擎内建于宿主（WebGL 光学管线 + rAF 实时渲染），预设只传游乐场语义配置：
-       * enable(cfg)：启用并持有引擎（单持有者，他预设已持有时 ok:false）；
-       * patch(cfg)：热更新部分参数（折射高度/折射量/模糊/色散等）；
-       * disable()：停用并交还引擎。cfg 字段：refractionHeight/refractionAmount/
-       *   blur（px 数值）、chromatic（0..1）、saturation/brightness（%），
-       *   highlight（布尔）、coverage（"core"|"full"）；宿主逐字段夹紧，非法回默认。
-       * 物理模型/参数体系移植自 https://github.com/martin65536/liquid-glass-webgl
-       *   （作者 martin65536，Apache-2.0），原型 Kyant0/AndroidLiquidGlass。 */
-      glass: {
-        enable: function (cfg) { return glassApi("glassEnable", cfg); },
-        patch: function (cfg) { return glassApi("glassPatch", cfg); },
-        disable: function () { return glassApi("glassDisable", undefined); },
-      },
     };
-
-    function glassApi(op, cfg) {
-      var gid = "g" + ++glassSeq;
-      post({ type: "api", op: op, scriptKey: scriptKey, gid: gid, cfg: cfg });
-      return new Promise(function (resolve) {
-        var t = setTimeout(function () {
-          delete pendingGlass[gid];
-          resolve({ ok: false, message: "glass 调用超时" });
-        }, 8000);
-        pendingGlass[gid] = {
-          f: function (r) {
-            clearTimeout(t);
-            resolve(r);
-          },
-        };
-      });
-    }
   }
 
   /** 统一调用路由：命令与脚本入口共用同一结果回报通道 */
@@ -577,65 +453,12 @@ window.addEventListener("message", function (e) {
       return;
     }
 
-    if (m.type === "fxPositions" && typeof m.scriptKey === "string") {
-      /* 位置推送（v1.3.0）：transform 动画期元素视口坐标变化 */
-      var posTargets = fxPosTargets.get(m.scriptKey);
-      if (!posTargets || posTargets.length === 0) return;
-      var posItems = Array.isArray(m.items) ? m.items : [];
-      for (var pi = 0; pi < posTargets.length; pi++) {
-        try {
-          posTargets[pi](posItems);
-        } catch (err) {
-          post({ type: "runtimeError", message: errMsg(err) });
-        }
-      }
-      return;
-    }
-
-    if (m.type === "fxCanvas" && typeof m.seq === "number") {
-      var pc = pendingFxReq[m.seq];
-      if (pc) {
-        delete pendingFxReq[m.seq];
-        pc.f({ ok: m.ok === true, message: str(m.message, 100) });
-      }
-      return;
-    }
-
-    if (m.type === "fxFrameResult" && typeof m.seq === "number") {
-      var pf = pendingFxReq[m.seq];
-      if (pf) {
-        delete pendingFxReq[m.seq];
-        pf.f({ ok: m.ok === true, message: str(m.message, 100) });
-      }
-      return;
-    }
-
-    if (m.type === "fxBackdrop" && typeof m.seq === "number") {
-      var pb = pendingFxReq[m.seq];
-      if (pb) {
-        delete pendingFxReq[m.seq];
-        pb.f({ ok: m.ok === true, message: str(m.message, 100), desc: m.desc || null, bitmap: m.bitmap || null });
-      }
-      return;
-    }
-
     if (m.type === "fxResult") {
       var fid = str(m.fxId, 32);
       var p = pendingFx[fid];
       if (p) {
         delete pendingFx[fid];
         p.f({ ok: m.ok === true, message: str(m.message, 100) });
-      }
-      return;
-    }
-
-    if (m.type === "glassResult") {
-      /* 引擎调用回执：兑现 pending（同 fxResult 律） */
-      var gg = str(m.gid, 32);
-      var gp = pendingGlass[gg];
-      if (gp) {
-        delete pendingGlass[gg];
-        gp.f({ ok: m.ok === true, message: str(m.message, 100) });
       }
       return;
     }
