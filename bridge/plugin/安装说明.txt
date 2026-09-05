@@ -1,16 +1,31 @@
-初始音乐桥（ChuShi Music Bridge）v1.0.0
+初始音乐桥（ChuShi Music Bridge）v1.1.0（BetterNCM 插件版）
 ==========================================
 
 把网易云音乐桌面客户端「正在播放」的歌曲暴露给「初始」起始页
 （https://lxgssy.github.io/Start-chushi/ 或其 Edge/Chrome 扩展版），
 并提供播放控制（播放/暂停/上下曲/进度/音量）。
 
+v1.1.0 相对 1.0.0 的升级
+------------------------
+- 新增 /api/debug 诊断端点：浏览器打开
+  http://127.0.0.1:10754/api/debug 可直接看到桥接自检信息
+  （版本/端口/state.json 存在性与年龄/页内三源状态），排障不再抓瞎；
+- 页内状态源适配 webpack5（新版网易云内核）：store 发现逻辑
+  webpack4（webpackJsonp）/ webpack5（webpackChunk*）双兼容；
+- 页内诊断落盘 diag.json（store/事件/媒体元素/页面地址），
+  随 /api/debug 一并输出；
+- 预检响应补发 Access-Control-Allow-Private-Network（PNA 护栏）。
+
 系统要求
 --------
 - Windows 10/11 x64
-- 网易云音乐 3.x，已安装 chromatic（BetterNCMII）插件管理器
-  https://github.com/std-microblock/chromatic
+- 网易云音乐 2.10 ~ 3.x，已安装 BetterNCM / BetterNCMII(chromatic) 插件管理器
+  （官方安装器 BetterNCM-Installer 1.2.0：
+   https://github.com/std-microblock/BetterNCM-Installer/releases ）
 - 「初始」v1.7.5 或更新版本
+- ⚠ 已知边界：BetterNCM 框架停更于网易云 3.0 前后的内核（1.3.4 发布于
+  2024-10）。若安装后网易云无法启动或插件管理不出现，多为内核不兼容
+  ——这正是我们另备「独立版 ChuShiBridge.exe」路线的原因（见 Release）。
 
 安装步骤
 --------
@@ -54,7 +69,19 @@ Q: 「初始」一直显示未连接？
 A: ①确认网易云正在运行且插件已启用；②确认地址栏端口与
    C:\betterncm\chushi-music\server.json 中的端口一致；
    ③网页版首次连接时浏览器可能弹出「访问本地网络」权限，请允许
-   （扩展版无需此步）。
+   （扩展版无需此步）；
+   ④浏览器打开 http://127.0.0.1:10754/api/debug 自检：
+     - 有输出 = bridge.dll 已工作；看 stateFile/stateAgeMs：
+       stateFile=false → 插件 JS 未注入成功（插件管理器里检查是否启用，
+       或新版网易云内核与 BetterNCM 不兼容，见「已知边界」）；
+       stateAgeMs 很大 → JS 活着但没数据；
+     - diag 段：storeReady/eventsHooked/media 三源状态与页面地址，
+       全 false 且 href 是 orpheus 页 → 内核探测失败，把 /api/debug
+       全文反馈给开发者。
+
+Q: 怎么确认插件 JS 注入成功？
+A: 网易云里按 F12 打开开发者工具，Console 里过滤 [ChuShiMusicBridge]，
+   正常应看到「桥接就绪 v1.1.0」与「dva Redux store 已获取」。
 
 Q: 端口被占用了？
 A: 桥会自动顺延端口并在 chushi-music\server.json 写入实际端口，
