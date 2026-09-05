@@ -4,7 +4,7 @@
 
 #include <windows.h>
 
-#define CB_VERSION     "2.0.3"
+#define CB_VERSION     "2.0.4"
 #define CB_NAME        "chushi-music-bridge"
 #define CB_DEFAULT_PORT 10754
 #define CB_PORT_SPAN   10
@@ -16,6 +16,10 @@ typedef struct {
     CRITICAL_SECTION lock;
     char  *snap;                /* 最新快照 JSON 文本（malloc，归属本结构） */
     ULONGLONG snap_tick;        /* 快照更新时刻（GetTickCount64） */
+    /* r5：快照回执诊断（外层 {ok,diag,error}；/api/debug 真实读出） */
+    char  *diag_json;           /* 页内 diag 段原文（"{\"store\":...}"） */
+    int    snap_ok_flag;        /* 最近回执 ok 布尔 */
+    char   snap_err[96];        /* 最近回执 error（ok=false 时） */
     volatile LONG cdp_ok;           /* CDP 已附加到网易云页面 */
     volatile LONG bridge_installed; /* 页内桥 JS 已安装 */
     int   cdp_port;             /* CEF 调试端口（配置/启动参数决定） */
@@ -47,6 +51,9 @@ void cb_snap_set(const char *snap_json);
 char *cb_snap_get(void);
 /* 快照年龄 ms；从未有 → 0xFFFFFFFF */
 ULONGLONG cb_snap_age(void);
+
+/* r5：快照回执诊断落库（cdp 线程写，server 线程读） */
+void cb_diag_set(int ok, const char *diag_json, const char *err);
 
 /* 宽字符串 → JSON 字符串体（非 ASCII/控制字符 → \uXXXX） */
 void cb_json_escape_w(const wchar_t *w, char *out, size_t cap);
