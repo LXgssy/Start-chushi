@@ -463,3 +463,25 @@ Work Log:
 Stage Summary:
 - 结论：用户双旧——网页旧（无诊断按钮）+ 插件仍 1.2.0（debug version 实锤，控制命令路径错位根因未升级）。回复升级路径：删 1.2.0 .plugin → 放 1.3.0 → 重启网易云；网页再开一次标签页/硬刷新；验证 /api/debug version=1.3.0 且 stateAgeMs<5000
 - 待办：等用户实测 1.3.0 反馈；任务B 继续迭代；任务A/史7遗留/Edge 商店材料未动
+
+---
+Task ID: 75
+Agent: main (Super Z)
+Task: 用户反馈「插件 1.3.0 已上但网页仍连不上 + 插件里改了服务端口后面板显示的还是 10754」→ v1.7.8 端口自动发现
+
+Work Log:
+- 读用户新 debug：version/stateAgeMs=3795/port=8008 全健康 → 桥已在 8008 服务，面板仍敲 10754 = 端口错位（面板保存地址 start:music-url 默认 10754，不知道插件配置页改的端口）
+- 审计插件 index.js：plugin.onConfig 提供「服务端口」UI，写 BetterNCM config + DIR/config.json，DLL 读之换端口 → 机制本身正常，缺的是面板跟随
+- music.ts：MUSIC_PORT_CANDIDATES=[10754,8008] + candidateMusicUrls()；MusicBridgeClient 增 onAdopted 回调；connect() 主址快败后 scanCandidates()；pollOnce 5s 重连环增扫描（运行中换端口也能跟）；probe 拆 probeUrl(url)
+- MusicPanel：onAdopted→setSavedUrl+setUrlDraft（记住+回填）；reasonText refused 提及改端口；错误态加「自动尝试常见端口（10754/8008）/自定义端口填法」提示行
+- verify-v178.mjs（新写 43 项）：A/G/C/D/E/I 回归 + K1 挂载即扫描、K2 记住 8008（useStored JSON 包裹，断言需 JSON.parse）、F0/B1/B2（无协议直连非候选端口 19099/错误地址扫描自愈）、K4 重挂载再扫描、I2 诊断端口回显 :8008、K5/K5b/K5c 异名服务 CORS+name 校验拒绝+错误态输入框回填、K7 恢复重试回归
+- 【⚠新坑】①连接成功后错误态 UI（地址输入/重试按钮）整体卸载——点击这类按钮会 detach 超时，必须 catch 容错 + waitForSelector 等结果 ②B2 前必须先关上一个桥回错误态腾出输入框 ③面板重开（cmdk/点按钮）后新客户端立刻 connect，早前用「点击重试」断言挂载扫描会和自动接入竞态（按钮被已连接 UI 换掉）
+- gh-pages 部署 BUILD 20260905114942-fd775b1；线上 chunk 6f318335a334bd39 特征「自动尝试常见端口」实测命中（⚠首个 chunk 不含面板代码，须遍历全部 chunks）
+- build-extension.py VERSION→1.7.8（/tmp/ext-ref 从 v1.1.2 zip 重解压）；扩展 zip 11.7MB manifest 1.7.8 验包 ✓
+- rel-v178.py：Release v1.7.8（id 383231768）五资产（新扩展 zip + 四个 1.3.0 桥资产原样重传保 latest 直链齐全）直链 SHA-256 ALL OK
+- 文叔叔发扩展 zip → https://c.wss.ink/f/ksw8ufwzo7h；main c3279fb 推送
+
+Stage Summary:
+- 结论：桥(8008)与面板(10754)端口错位；v1.7.8 面板自动扫描 10754/8008 命中即接入并记住，用户改任意候选端口零操作跟随，非候选端口可在地址栏手填
+- 用户动作：网页版重开标签页两次/Ctrl+F5（SW 换新）；扩展版重装 v1.7.8 zip；之后面板应自动连上 8008 并恢复全部控制
+- 待办：用户实测反馈；任务A/史7遗留/Edge 商店材料未动
