@@ -361,25 +361,29 @@ function pageMode() {
   post({ type: "hello" });
 }
 
-/* ---------- 沙箱小部件模式（?mode=widget，v1.0.7）----------
- * 作为角落小部件的「沙箱宿主」：接收应用层 renderWidget（含主题/强调色），
+/* ---------- 沙箱小部件模式（?mode=widget，v1.0.7 角落磁贴 / v1.8.2 dock 弹出面板）----------
+ * 作为小部件的「沙箱宿主」：接收应用层 renderWidget（含主题/强调色/panelMode），
  * 把 HTML 写进嵌套的 srcdoc iframe（sandbox="allow-scripts"，不透明源），并把
- * 部件内 chushi API（notify/open/storage/resize）带上 widgetKey 中继回应用层；
+ * 部件内 chushi API（notify/open/storage/resize/close）带上 widgetKey 中继回应用层；
  * 应用层回传的 storage 结果与主题变更反向下发进部件。
+ * panelMode（v1.8.2）：dock 表面部件以面板形态渲染，置 dataset.panel=1
+ * （部件据此直开展开卡），chushi.close() 上报 closePanel 由应用层关闭弹层。
  * 两层隔离：应用层 → 本页（唯一源）→ 部件（不透明源），部件拿不到
- * 主文档/localStorage/扩展 API；open/storage 均由应用层白名单复核。 */
-function widgetShim(theme, accent) {
+ * 主文档/localStorage/扩展 API；open/storage/close 均由应用层白名单复核。 */
+function widgetShim(theme, accent, panelMode) {
   var accentSet = /^#[0-9a-fA-F]{3,8}$/.test(accent || "")
     ? "document.documentElement.style.setProperty('--w-accent','" + accent + "');"
     : "";
   return (
     "<script>(function(){var seq=0,pending={};function post(m){try{parent.postMessage(m,'*')}catch(e){}}" +
     "document.documentElement.dataset.theme='" + (theme === "dark" ? "dark" : "light") + "';" +
+    (panelMode ? "document.documentElement.dataset.panel='1';" : "") +
     accentSet +
     "var smtcCbs=[];" +
     "window.chushi={notify:function(o){o=o||{};post({type:'widgetApi',op:'notify'," +
     "title:String(o.title||'').slice(0,24),description:String(o.description||'').slice(0,60)})}," +
     "open:function(u){post({type:'widgetApi',op:'open',url:String(u||'').slice(0,500)})}," +
+    "close:function(){post({type:'widgetApi',op:'closePanel'})}," +
     "resize:function(w,h){post({type:'widgetApi',op:'resize',width:+w||0,height:+h||0})}," +
     "storage:{get:function(k){return new Promise(function(res){var id=++seq;pending[id]={f:res,op:'storageGet'};" +
     "post({type:'widgetApi',op:'storageGet',key:String(k||'').slice(0,64),reqId:id})})}," +
@@ -426,7 +430,7 @@ function widgetMode() {
       inner.setAttribute("title", "初始自定义小部件");
       inner.style.cssText =
         "position:fixed;inset:0;width:100%;height:100%;border:0;background:transparent";
-      inner.srcdoc = widgetShim(theme, accent) + m.html;
+      inner.srcdoc = widgetShim(theme, accent, m.panelMode === true) + m.html;
       document.body.appendChild(inner);
       window.addEventListener("message", function (ev) {
         if (!inner || ev.source !== inner.contentWindow) return;

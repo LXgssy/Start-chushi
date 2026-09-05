@@ -63,14 +63,16 @@ preset = {
     "chushi": 1,
     "name": "初始 · SMTC 音乐",
     "author": "初始",
-    "description": "系统媒体音乐磁贴（dock 面板风格）：网易云等即播即显，⌘K 可控",
+    "description": "系统媒体音乐面板：dock 按钮弹出，网易云等即播即显，⌘K 可控",
     "widgets": [
         {
             "id": "music",
-            "name": "SMTC 音乐磁贴",
-            "corner": "bottom-right",
+            "name": "音乐",
+            # v1.8.2 dock 表面：不出角落磁贴，改为 tab 栏音乐按钮 + 弹出面板
+            "surface": "dock",
+            "icon": "music",
             "width": 340,
-            "height": 64,
+            "height": 92,  # 初始空态高度；接入媒体后部件自 resize 到 248，宿主弹簧跟随
             "html": html,
         }
     ],
@@ -84,11 +86,11 @@ preset = {
     "animations": [
         {
             "id": "smtc-motion",
-            "name": "磁贴高度弹簧",
+            "name": "面板内容过渡",
             "css": (
-                "/* SMTC 音乐磁贴：紧凑条 ⇄ 展开卡的高度过渡（与面板高度弹簧同曲线） */\n"
-                ".cl-widget { transition: height .5s cubic-bezier(.22,1,.36,1) !important; }\n"
-                ".cl-widget iframe { transition: opacity .3s ease; }\n"
+                "/* SMTC 音乐面板：模式切换时部件内容淡入（面板高度弹簧由宿主承载） */\n"
+                ".cl-dockwidget iframe { transition: opacity .3s ease; }\n"
+                ".cl-dockwidget .card, .cl-widget .card { transition: background .3s ease; }\n"
             ),
         }
     ],

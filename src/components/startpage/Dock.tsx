@@ -31,6 +31,7 @@ import type {
   TodoItem,
   WeatherState,
 } from "@/lib/startpage/types";
+import type { ActiveWidget } from "./PresetWidgets";
 import type { PresetSettingValues, PresetSettingsSchema } from "@/lib/startpage/preset-settings";
 import type { PresetIconTarget } from "@/lib/startpage/preset";
 import { weatherText } from "@/lib/startpage/weather";
@@ -277,6 +278,10 @@ export default function Dock({
   resetAll,
   presetDock,
   onRunAction,
+  presetDockWidgets,
+  dockWidgetOpen,
+  onToggleDockWidget,
+  onCloseDockWidget,
   presetSettingSections,
   onPresetSettingChange,
   presetIcons,
@@ -299,6 +304,12 @@ export default function Dock({
   resetAll: () => void;
   presetDock: (PresetDockItem & { key: string })[];
   onRunAction: (a: PresetAction) => void;
+  /** dock 表面预设小部件（v1.8.2）：每个注册一个 tab 栏按钮，点击开/关弹出面板 */
+  presetDockWidgets: ActiveWidget[];
+  /** 当前打开的 dock 弹出面板 widget 键（null = 全关） */
+  dockWidgetOpen: string | null;
+  onToggleDockWidget: (key: string) => void;
+  onCloseDockWidget: () => void;
   presetSettingSections: PresetSettingSection[];
   onPresetSettingChange: (scriptKey: string, values: PresetSettingValues) => void;
   /** 预设图标覆写（v1.7.0 图标作用面）：target → lucide 名 / data:image URL */
@@ -350,11 +361,12 @@ export default function Dock({
     <>
       {/* 关闭遮罩：纯点击捕获层（无视觉），不做任何动画——原 framer opacity 入场 +
           veil-out 退场是隐形 div 上的纯 WAAPI 开销（合并自远端 bb1e0d6）；
-          卸载时机随 panel 状态即时切换 */}
-      {panel && (
+          卸载时机随 panel 状态即时切换。
+          dock 弹出面板（v1.8.2）与内建面板互斥，同一时刻至多一个遮罩存在 */}
+      {(panel || dockWidgetOpen) && (
         <div
           className="fixed inset-0 z-30"
-          onClick={() => switchTo(null)}
+          onClick={() => (panel ? switchTo(null) : onCloseDockWidget())}
           aria-hidden
         />
       )}
@@ -523,6 +535,28 @@ export default function Dock({
             </DockButton>
           );
         })}
+
+        {/* dock 表面预设小部件（v1.8.2）：点击开/关 dock 上方的弹出面板，
+            active 时选框滑移与内建按钮同一套 layoutId 语言 */}
+        {presetDockWidgets.length > 0 && <Divider />}
+        {presetDockWidgets.map((w) => (
+          <DockButton
+            key={w.key}
+            motionProfile={motionProfile}
+            pillPop={false}
+            active={dockWidgetOpen === w.key}
+            label={w.name}
+            onClick={() => onToggleDockWidget(w.key)}
+          >
+            {w.icon ? (
+              <PresetGlyph spec={w.icon} />
+            ) : (
+              <span className="flex h-4 w-4 items-center justify-center rounded-full border border-current text-[9px] leading-none opacity-80">
+                {w.name[0]}
+              </span>
+            )}
+          </DockButton>
+        ))}
 
       </nav>
 

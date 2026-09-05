@@ -124,6 +124,8 @@ export default function Home() {
   const [devDocs, setDevDocs] = useState(false);
   /** 正在展示的预设自定义页面（沙箱 overlay） */
   const [activePage, setActivePage] = useState<ActivePage | null>(null);
+  /** 预设 dock 表面小部件的弹出面板（v1.8.2）：存 widget 运行时复合键，null = 关闭 */
+  const [dockWidget, setDockWidget] = useState<string | null>(null);
 
   /* ---------- 沙箱 JS（高阶模式）状态：冻结标记持久化 + 运行时注册的命令 ----------
      另有预设设置面 schema（v1.2.0）：脚本经 chushi.settings.define 声明，
@@ -356,12 +358,19 @@ export default function Home() {
   useEffect(() => {
     if (zen) {
       setPanel(null);
+      setDockWidget(null);
       setPaletteOpen(false);
       setEditor({ open: false, editing: null });
       setCtxMenu(false);
       setDevDocs(false);
     }
   }, [zen]);
+
+  /* ---------- 面板与预设 dock 弹出面板互斥（同一时间至多一个浮层，遮罩/动画语义才成立） ----------
+     打开内建面板即收起 dock 弹出面板；反向互斥在 toggleDockWidget 内做 */
+  useEffect(() => {
+    if (panel != null) setDockWidget(null);
+  }, [panel]);
 
   /* ---------- 「初始」专属右键菜单：拦截浏览器默认菜单 ----------
    * 触发判定与 ContextMenu 组件内换位判定同律：输入区/文字选区让路给
@@ -489,6 +498,10 @@ export default function Home() {
           setPanel(null);
           return;
         }
+        if (dockWidget != null) {
+          setDockWidget(null);
+          return;
+        }
         return;
       }
       // 「/」聚焦搜索；任意可打印字符直接开始搜索
@@ -508,7 +521,7 @@ export default function Home() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [mounted, paletteOpen, editor.open, panel, zen, activePage, ctxMenu, devDocs]);
+  }, [mounted, paletteOpen, editor.open, panel, dockWidget, zen, activePage, ctxMenu, devDocs]);
 
   /* ---------- 首次访问提示 ---------- */
   useEffect(() => {
@@ -781,7 +794,8 @@ export default function Home() {
     [presets, activeScriptKeys]
   );
 
-  /* 预设角落小部件派生：装了即生效，删除即失效（与命令/dock 同律） */
+  /* 预设小部件派生：装了即生效，删除即失效（与命令/dock 同律）。
+     surface（v1.8.2）：corner = 角落磁贴；dock = tab 栏按钮 + 弹出面板 */
   const presetWidgets = useMemo<ActiveWidget[]>(
     () =>
       presets.flatMap((p) =>
@@ -789,6 +803,8 @@ export default function Home() {
           key: `${p.id}:${w.id}`,
           presetName: p.name,
           name: w.name ?? w.id,
+          surface: w.surface ?? ("corner" as const),
+          icon: w.icon,
           corner: w.corner ?? ("top-left" as const),
           width: w.width ?? 216,
           height: w.height ?? 88,
@@ -797,6 +813,27 @@ export default function Home() {
       ),
     [presets]
   );
+  /** dock 表面小部件（tab 栏按钮 + 弹出面板的清单，传给 Dock 渲染按钮） */
+  const presetDockWidgets = useMemo(
+    () => presetWidgets.filter((w) => w.surface === "dock"),
+    [presetWidgets]
+  );
+
+  /* dock 弹出面板开关（v1.8.2）：与内建面板互斥（开 dock 弹层即收内建面板）；
+     预设被删除时对应弹层自动关闭（下面 effect 兕底） */
+  const toggleDockWidget = useCallback(
+    (key: string) => {
+      setPanel(null);
+      setDockWidget((k) => (k === key ? null : key));
+    },
+    []
+  );
+  const closeDockWidget = useCallback(() => setDockWidget(null), []);
+
+  /* 兕底：dock 弹出面板指向的小部件被删（预设移除）时自动关闭 */
+  useEffect(() => {
+    setDockWidget((k) => (k != null && !presetDockWidgets.some((w) => w.key === k) ? null : k));
+  }, [presetDockWidgets]);
 
   /* ---------- 沙箱桥事件与同步生命周期 ---------- */
   useEffect(() => {
@@ -1087,6 +1124,10 @@ export default function Home() {
         resetAll={resetAll}
         presetDock={presetDock}
         onRunAction={runPresetAction}
+        presetDockWidgets={presetDockWidgets}
+        dockWidgetOpen={dockWidget}
+        onToggleDockWidget={toggleDockWidget}
+        onCloseDockWidget={closeDockWidget}
         presetSettingSections={presetSettingSections}
         onPresetSettingChange={changePresetSetting}
         presetIcons={presetExtras.icons}
@@ -1145,14 +1186,16 @@ export default function Home() {
         onOpenUrl={openUrlFromPage}
       />
 
-      {/* 预设角落小部件层（沙箱隔离，见 PresetWidgets / sandbox.js widgetMode） */}
+      {/* 预设小部件层（角落磁贴 + dock 弹出面板，沙箱隔离，见 PresetWidgets / sandbox.js widgetMode） */}
       <PresetWidgets
         widgets={presetWidgets}
         isDark={isDark}
         accent={settings.accent}
         onNotify={notifyFromPage}
         onOpenUrl={openUrlFromPage}
- />
+        dockPanelKey={dockWidget}
+        onCloseDockPanel={closeDockWidget}
+      />
 
       {/* 链接编辑对话框 */}
       <LinkDialog

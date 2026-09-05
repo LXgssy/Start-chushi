@@ -25,7 +25,7 @@
   /* ---------- 紧凑条 ---------- */
   .cp{position:absolute;inset:0;display:flex;align-items:center;gap:10px;padding:0 10px;
     transition:opacity .25s ease .12s}
-  .mode-fl .cp{opacity:0;pointer-events:none;transition:opacity .25s ease}
+  .mode-fl .cp,.mode-em .cp{opacity:0;pointer-events:none;transition:opacity .25s ease}
   .ar,.he{position:relative;overflow:hidden}
   .ar{width:44px;height:44px;border-radius:12px;flex:none;background:linear-gradient(135deg,var(--acc32),var(--acc20));box-shadow:0 2px 8px rgba(0,0,0,.16)}
   .pl .ar{animation:br 3.6s ease-in-out infinite}
@@ -105,7 +105,7 @@
   .hd{display:none!important}
 </style>
 
-<svg width="0" height="0"><defs>
+<svg width="0" height="0" style="position:absolute" aria-hidden><defs>
   <polygon id="i-pl" points="7 4 19 12 7 20 7 4"/>
   <g id="i-pa"><rect x="6.6" y="4.6" width="3.6" height="14.8" rx="1.3"/><rect x="13.8" y="4.6" width="3.6" height="14.8" rx="1.3"/></g>
   <g id="i-pv"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></g>
@@ -163,6 +163,9 @@
 (function(){
 "use strict";
 var $=function(id){return document.getElementById(id)};
+/* dock 面板形态（v1.8.2）：沙箱宿主置 dataset.panel=1 时，部件以弹出面板形态渲染——
+   连接后直开展开卡（跳过紧凑条），收起键改为 chushi.close() 关闭面板 */
+var PANEL=false;try{PANEL=document.documentElement.dataset.panel==="1"}catch(e){}
 var card=$("card"),cp=$("cp"),sk=$("sk");
 var E={aS:$("aS"),t1s:$("t1s"),t2s:$("t2s"),yS:$("yS"),nS:$("nS"),
   aF:$("aF"),t1f:$("t1f"),t2f:$("t2f"),t3f:$("t3f"),yF:$("yF"),nF:$("nF"),
@@ -218,7 +221,8 @@ function render(){
   txt(E.t2f,t.artist||"未知艺术家");
   txt(E.t3f,t.album||"");
   txt(E.ap,"已连接 · "+(t.app||"系统媒体"));
-  if(mode==="em")setMode("cp");/* 先切模式：setMode 整写 className，须在 pl 类之前 */
+  if(mode==="em")setMode(PANEL?"fl":"cp");/* 先切模式：setMode 整写 className，须在 pl 类之前；
+                                              面板形态直开展开卡（紧凑条只属角落磁贴） */
   cover(E.aS,st.cover);cover(E.aF,st.cover);
   playIcons(t.playing);
 }
@@ -239,10 +243,11 @@ $("pS0").addEventListener("click",function(e){e.stopPropagation();ctl("toggle")}
 $("pF0").addEventListener("click",function(){ctl("toggle")});
 $("nx").addEventListener("click",function(){ctl("next")});
 $("pv").addEventListener("click",function(){ctl("prev")});
-/* 展开 / 收起：点紧凑条任意处展开（按钮除外） */
+/* 展开 / 收起：点紧凑条任意处展开（按钮除外）；面板形态下收起键=关闭面板 */
 function open(){setMode("fl")}
+function closePanel(){try{chushi.close()}catch(e){}}
 cp.addEventListener("click",function(e){if(!e.target.closest(".bt"))open()});
-$("cxB").addEventListener("click",function(){setMode("cp")});
+$("cxB").addEventListener("click",function(){PANEL?closePanel():setMode("cp")});
 /* seek：按住拖动，松手提交 */
 function ratio(e){
   var r=sk.getBoundingClientRect();
