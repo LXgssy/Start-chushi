@@ -330,3 +330,23 @@ Stage Summary:
 - 测试律：持久化浏览器 profile 会缓存旧 sw——扩展冒烟前必须清 profile；二进制无法在沙箱真机运行时，「Node 孪生对拍 + 编译自检 + 导出表核验 + 真机 /api/ping 自证」四件套兜底
 - 交付：文叔叔 v1.7.6 合并交付包（见后续链接）；Release v1.7.6；Pages 已上线
 - 待办：Edge 商店提交材料仍未做；ChuShiBridge 真机首连待用户实测（安装器已内置健康检查自证）；歌词/收藏/队列未含（后续按需）
+
+---
+Task ID: 68
+Agent: main (Super Z)
+Task: r3 运行态热修——用户 r2 实测反馈「网易云启动了但桥接不起（attach: eval-fail-1）」+「网易云运行中无法安装，只能关闭后安装」；另：本会话现场再次被清理（bridge 源码/v1.7.6 交付物/Task56-67 worklog 丢失），先 git 考古重建现场再修复
+
+Work Log:
+- 【现场重建】git remote URL 内嵌 PAT 完好 → 提取存回 .pkgtmp/gh-token；远端 main(3b38437) 含全部桥接源码（本地曾停在 Task55 2159fb9，仅多一条等价 worklog 提交，reset --hard 对齐）；llvm-mingw 20260826 工具链重下（83.9MB，路径与 build 脚本一致）；确认 r2 改动（install.ps1 重写+版本 2.0.1+attach 字段）只存在于 Release 资产未入仓 → 本轮源码全部重建后立即 commit 防再丢
+- 【根因分析】用户日志：CDP 目标清单已拿到（page|orpheus://orpheus/pub/app.html，HTTP 发现层通）但 cdp/bridge=false、attach=eval-fail-1、日志无「已附加」→ 失败在 ws_connect/probe/注入/快照四步之一且全部静默。r2 的 probe 判据仅认 window.legacyNativeCmder——新版网易云 3.x 若移除该对象则永远 attach 不上（头号嫌疑）；附带发现真 bug：①ws_eval 分片处理 r==4 时 free 聚合缓冲、continuation 数据丢失 ②--kill-ncm 在 launch 之后的循环里才消费——会误杀刚代启的带参实例再「等用户手动开网易云」（与用户「网易云明明启动了但系统没反应」体感吻合）③PowerShell 5.1 ConvertTo-Json 输出 \uXXXX 路径 C 端不解析（中文目录场景）
+- 【C 修复】probe 三路判据放宽（cmder || webpackJsonp || webpackChunk* 前缀扫描 || url 含 orpheus/music.163.com）+ PROBE_MISS/PROBE_EVAL_FAIL 细分返回码；attach_fail_log 节流上报（同签名 5min 不刷屏）+ cb_attach_set/get 状态机（/api/debug 新增 attach/attachDetail 字段，9 类状态：ok/ws-fail/probe-eval-fail/probe-miss/install-fail/snap-fail/poll-fail/idle）；cb_cdp.c 新增 ws_read_message 跨帧聚合修分片 bug + cdp_last_error 捕获失败详情（ws-handshake 状态行/cdp-error message/eval-no-value 响应原文/timeout）+ cdp_list_targets 节流日志（目标清单变化才打，恢复 r2 日志格式）；kill_ncm 移到 cdp_thread 开头（先杀再 launch 不误杀）；json_wstr 支持 \uXXXX+代理对→UTF-8；CB_VERSION 2.0.2
+- 【页内桥】bridge-core.js 2.0.2：captureRequireSync 双兼容 webpack4（webpackJsonp.push 模块工厂）与 webpack5（webpackChunk* 全局 push([ids,{},runtimeFn])）；版本幂等改为同版本才 return（旧版本自动覆盖升级）
+- 【install.ps1 r3 全量重写】①第 0 步 Stop-Process cloudmusic 提前到一切文件操作之前+等待句柄释放——运行中安装根治（用户无需手动关网易云），装完第 8 步带参重启 ②Clean-Path 消毒+Find-Asset 四路候选自探测+自提升不回传 -Root ③全量 -LiteralPath ④Copy-Item-Retry 5 次锁定重试+同尺寸跳过 ⑤卸载脚本自复制进数据目录+卸载 bat 纯 ASCII 无路径参数（uninstall.ps1 从 config.json 自读 ncmPath，param 块删除）⑥config.json 以 UTF8Encoding(false) 无 BOM 写入
+- 【验证】verify-installer-r3.py 64/64 全绿（PS1 词法平衡/Clean-Path 孪生五组脏参数/bat 调用行无 -Root/zip 顶层 ChuShiBridge-Setup 布局+BOM+一致性/停进程早于 DLL 拷贝序/C 源 r3 特征/cdp_js.h 状态机反转义全量比对/exe 版本串/dll UTF-16 参数串）；⚠验证脚本自身三轮误报教训：PS1 无 param 块时 split("param") 失效、C 源转义序列匹配要按源文件字面、宽字符字面量在 PE 里是 UTF-16LE 而非字节序
+- 【发布】commit 0a06c7e 推 main（17 文件，源码+build 产物+交付物全部入仓）；Release v1.7.6 资产 ChuShiBridge-2.0.0-Setup.zip 同名替换（75115B→76597B，id 545245980，直链与 MusicPanel 零改动）+ notes 追加 r3 记录（幂等 MARK）；线上直链实测 SHA-256 8d69c9bf… 与本地一致
+- 【交付】文叔叔 ChuShiBridge-一键安装包.zip → https://c.wss.ink/f/kss9sz8hmw5（1 天过期）
+
+Stage Summary:
+- 结论：r3 修复「运行中无法安装」（install.ps1 第 0 步停进程）与「桥接不起」（probe 判据放宽+分片 bug+kill 时序三重修复）；用户下次实测若仍连不上，bridge.log 与 /api/debug 的 attach/attachDetail 字段可一次定位到具体环节
+- 新律：①跨会话交付物必须 commit 入仓——Release 资产不是版本控制，环境清理后源码即失传（r2 源码已永久丢失，本轮重建）②WS 客户端读消息必须跨帧聚合（continuation 帧缓冲与循环作用域同生命周期）③CDP 页面判据不可绑定单一全局对象（legacyNativeCmder 随网易云版本存亡），多路特征兜底 ④PowerShell ConvertTo-Json 的 \uXXXX 输出必须假设消费端只认 \\\\ 转义——要么消费端解码、要么 WriteAllText 手动构造
+- 待办：用户实测 r3 → 依据 attach 字段定位残余问题；任务B（音乐面板体验）收尾；任务A（磁贴抖动）；Edge 商店材料
