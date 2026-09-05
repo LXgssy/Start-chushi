@@ -506,3 +506,24 @@ Stage Summary:
 - 架构律：宿主媒体能力=「SMTC 作用面」——数据/控制/订阅三 API 两通道（脚本+widget）同契约；系统媒体会话是正确的集成层（不侵入任何播放器、随 Windows 天然稳定），侵入式桥（CDP/BetterNCM）路线教训完结
 - 新律：①Playwright 鼠标事件在「唯一源宿主→srcdoc」嵌套 frame 里可能整体丢失——跨层交互断言用 DOM click；②addInitScript 会进 sandboxed iframe，碰 localStorage 必须 try/catch；③PS 5.1 脚本 UTF-8 BOM 是交付纪律；④Release 资产 ASCII 名律之外，release 脚本基址拼接也要逐段核对（/releases 双拼 404 三连）
 - 待办：用户实测 SMTC 桥+预设包（真机 Windows 是 SMTC 链路唯一未验证环节：网易云 SMTC 会话行为/TrySeek 可用性/封面流读取）；任务A/史7遗留/Edge 商店材料未动
+
+---
+Task ID: 77
+Agent: main (Super Z)
+Task: 用户反馈两问题——①双击启动 bat 报「'敤' 不是内部或外部命令 / '垵濮?SMTC' 不是内部或外部命令」乱码假命令；②播放器样式要回上一个 dock 栏版本样式，且预设包用 .cshz 打包 UI 不要单 JSON —— v1.8.1 SMTC 预设包修订
+
+Work Log:
+- 【bat 乱码根因】源 bat 为 UTF-8 无 BOM + `chcp 65001`：cmd 按控制台代码页(936)逐行解码批处理，中途切码页后重读文件字节错位，把注释/title 的 UTF-8 中文按 GBK 误读成假命令执行（'敤'/'垵濮' 即 mojibake）；修复=3×bat 改按 ANSI/GBK 编码发布（build-smtc-delivery.py 统一 utf-8→gbk 转写 + GBK 往返断言 + 禁含 chcp）并移除 chcp——cmd(936) 读 GBK 天然一致
+- 【ps1 加固】git mv 更名 ASCII `ChuShi-SMTC-Bridge.ps1`（消除 -File 参数一切路径编码变数），源文件补 UTF-8 BOM（此前源无 BOM，靠交付脚本加 BOM 才合格；现源即 BOM），版本 1.0.0→1.1.0，.NOTES 写明双编码纪律；⚠确认 v1.8.0 交付的 ps1 实际带 BOM（build 脚本第 20-21 行加过），用户侧 ps1 无恙，锅只在 bat
+- 【.cshz 预设包】build-smtc-preset.py 改产 zip：manifest.json + assets/cover.svg（新增 1.2KB 紫渐变唱片 SVG 默认封面），包结构/引用完整性自检；html 里 `asset:cover.svg` 经 pack.ts parsePack 白名单内联为 data:URL——单 JSON 形态作废（git rm examples/初始SMTC音乐预设.json，asset: 引用只在包导入路径解析）
+- 【dock 面板复刻 UI】music-widget.html 重写展开卡（340×248）：96px 封面(ring16)+播放态 accent 光晕(blur12 op.24)/scale1.02/右上 emerald 绿点、标题15/歌手12/专辑11 三级信息、4px 细进度条 accent 填充+常显 10px 白 thumb(accent 描边)、居中控制排(38px ghost×2+46px accent 主键 active:scale.94)、底部「已连接 · {app}」状态行(emerald/amber 点)；紧凑条 64/空态 92 同语言保留；lucide stroke 图标 defs+use 复用（play/pause/pv/nx/chevron 5 定义 6 引用）；主键渐变改纯 accent、砍 -webkit- 前缀/微进度条/♪占位层，压线 11751/12000 字符
+- 【磁贴真 bug】W3f 实证：render() 里 setMode 整写 className 会抹掉 playIcons 先加的 pl 类（v1.8.0 靠封面异步第二帧重播掩盖，coverRev 空时暴露）——setMode 先于 playIcons 修复
+- 【验证】verify-v181.mjs 26/26 全绿：.cshz 导入(setInputFiles)/defs+use/空态→播放态/默认唱片(svg dataURL)→真封面(png)/暂停降饱和/toggle 上行/展开 248+专辑行+footer+光晕/seek/收起 64/⌘K/gutter/删磁贴/pageerror=0；shot-v181.mjs 双主题六截图视觉验收（dock 面板气质到位）
+- 【发布】main 66344a4 推送；Release v1.8.1（id 383293830）双资产 ChuShi-SMTC-Delivery.zip + ChuShi-SMTC-Preset.cshz 直链 SHA-256 ALL OK；app 本体零改动（无 gh-pages/扩展重打包）；文叔叔 https://c.wss.ink/f/ksxzra8jup1（1 天过期）
+- 【文档】README v1.8.1 段 + v1.8.0 段 .cshz 引用、PRESET_DEV §12 官方示例引用、使用说明 md 全面改 .cshz 导入与编码 FAQ、说明.txt v1.1.0
+
+Stage Summary:
+- 编码律升级：**bat=发布态 GBK、源码态 UTF-8 经 build 转写并断言往返**；ps1=源文件即 UTF-8 BOM，不依赖交付层补救；被 cmd/PS 解释的脚本，编码是发布物的一部分
+- 预设包律：带资源的预设一律 .cshz（manifest+assets），`asset:` 引用与单 JSON 互斥；parsePack 的 ASSET_REF_RE 白名单字符集 [A-Za-z0-9._-] 是引用命名硬约束
+- widget className 整写型状态机：模式切换类与状态类共存时，先整写再叠加，顺序是契约
+- 待办：用户真机复测（启动 bat 不再乱码→导入 .cshz→dock 风格磁贴）；任务A（磁贴删除抖动已被 scrollbar-gutter 根治，待用户确认）/史7遗留/Edge 商店材料未动
