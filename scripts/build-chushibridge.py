@@ -88,16 +88,19 @@ def package(version_dir):
     if os.path.exists(zip_path):
         os.remove(zip_path)
     inst = f"{SRC}/installer"
+    # 顶层唯一目录：解压即得 ChuShiBridge-Setup/，避免散落文件（r2 律）
+    TOP = "ChuShiBridge-Setup"
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
-        z.write(f"{OUT}/ChuShiBridge.exe", "ChuShiBridge/ChuShiBridge.exe")
-        z.write(f"{OUT}/msimg32.dll", "ChuShiBridge/msimg32.dll")
-        z.writestr("ChuShiBridge/install.ps1", _ps1_bytes(f"{inst}/install.ps1"))
-        z.writestr("ChuShiBridge/uninstall.ps1", _ps1_bytes(f"{inst}/uninstall.ps1"))
-        z.write(f"{inst}/安装初始音乐桥.bat", "安装初始音乐桥.bat")
-        z.write(f"{inst}/卸载初始音乐桥.bat", "卸载初始音乐桥.bat")
-        z.write(f"{inst}/使用说明.md", "使用说明.md")
+        z.write(f"{OUT}/ChuShiBridge.exe", f"{TOP}/ChuShiBridge/ChuShiBridge.exe")
+        z.write(f"{OUT}/msimg32.dll", f"{TOP}/ChuShiBridge/msimg32.dll")
+        z.writestr(f"{TOP}/ChuShiBridge/install.ps1", _ps1_bytes(f"{inst}/install.ps1"))
+        z.writestr(f"{TOP}/ChuShiBridge/uninstall.ps1", _ps1_bytes(f"{inst}/uninstall.ps1"))
+        z.write(f"{inst}/安装初始音乐桥.bat", f"{TOP}/安装初始音乐桥.bat")
+        z.write(f"{inst}/卸载初始音乐桥.bat", f"{TOP}/卸载初始音乐桥.bat")
+        z.write(f"{inst}/使用说明.md", f"{TOP}/使用说明.md")
     print(f"[5] 打包完成：{zip_path}（{os.path.getsize(zip_path)//1024} KB）")
-    # Release 资产用 ASCII 名（GitHub latest/download 直链更稳）
+    # Release 资产名固定为 ChuShiBridge-2.0.0-Setup.zip（与网页 MusicPanel 直链一致，
+    # 同名替换即可，版本演进体现在包内 CB_VERSION）
     setup_path = f"{dl}/ChuShiBridge-2.0.0-Setup.zip"
     shutil.copyfile(zip_path, setup_path)
     print(f"[5b] Release 资产：{setup_path}")

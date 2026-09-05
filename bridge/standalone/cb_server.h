@@ -4,7 +4,7 @@
 
 #include <windows.h>
 
-#define CB_VERSION     "2.0.0"
+#define CB_VERSION     "2.0.2"
 #define CB_NAME        "chushi-music-bridge"
 #define CB_DEFAULT_PORT 10754
 #define CB_PORT_SPAN   10
@@ -50,6 +50,12 @@ ULONGLONG cb_snap_age(void);
 
 /* 宽字符串 → JSON 字符串体（非 ASCII/控制字符 → \uXXXX） */
 void cb_json_escape_w(const wchar_t *w, char *out, size_t cap);
+
+/* attach 诊断状态（cdp 线程写，server 线程读）：
+ * state ∈ ok / ws-fail / probe-eval-fail / probe-miss / install-fail /
+ *          snap-fail / poll-fail / idle；detail 为最近失败详情（人读） */
+void cb_attach_set(const char *state, const char *detail);
+void cb_attach_get(char *state, size_t scap, char *detail, size_t dcap);
 
 /* 日志（控制台 + 文件），cb_main.c 实现 */
 void cb_log(const char *line);

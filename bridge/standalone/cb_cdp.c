@@ -15,11 +15,48 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 
 #include "cb_cdp.h"
 #include "cb_server.h"
 
 static int send_all_local(SOCKET s, const char *buf, int len);
+
+/* ---------- 最近失败原因（排障） ---------- */
+
+static char g_last_err[256] = "";
+
+static void cdp_set_err(const char *fmt, ...)
+{
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(g_last_err, sizeof(g_last_err), fmt, ap);
+    g_last_err[sizeof(g_last_err) - 1] = 0;
+    va_end(ap);
+}
+
+const char *cdp_last_error(void) { return g_last_err; }
+
+/* 在 [json, p) 范围内找最后一次出现的 "key":"..." 值（同一 target 对象内
+ * url/type 字段位于 webSocketDebuggerUrl 之前，故向前搜最后一个命中）。 */
+static const char *last_str_before(const char *json, const char *p,
+                                   const char *key, char *out, size_t cap)
+{
+    char pat[24];
+    snprintf(pat, sizeof(pat), "\"%s\":\"", key);
+    const char *hit = NULL;
+    for (const char *q = json; q && q < p; ) {
+        const char *r = strstr(q, pat);
+        if (!r || r >= p) break;
+        hit = r + strlen(pat);
+        q = hit;
+    }
+    if (!hit) { out[0] = 0; return NULL; }
+    size_t i = 0;
+    for (; hit[i] && hit[i] != '"' && i + 1 < cap; i++) out[i] = hit[i];
+    out[i] = 0;
+    return out;
+}
 
 /* ---------- 基础 socket 工具 ---------- */
 
@@ -99,7 +136,19 @@ int cdp_list_targets(int port, char wsurls[][256], int max) {
 
     int found = 0;
     const char *p = json;
+    char desc[512];
+    size_t doff = 0;
+    desc[0] = 0;
     while (found < max && (p = strstr(p, "webSocketDebuggerUrl")) != NULL) {
+        /* 同步提取该 target 的 type/url（在 wsurl 之前、同一对象内）供日志 */
+        char ttype[32], turl[192];
+        last_str_before(json, p, "type", ttype, sizeof(ttype));
+        last_str_before(json, p, "url", turl, sizeof(turl));
+        if (doff < sizeof(desc) - 220 && doff)
+            desc[doff++] = ';';
+        if (doff < sizeof(desc) - 220)
+            doff += (size_t)snprintf(desc + doff, sizeof(desc) - doff, "%s|%s",
+                                     ttype[0] ? ttype : "page", turl);
         const char *colon = strchr(p, ':');
         if (!colon) break;
         const char *q1 = strchr(colon + 1, '"');
@@ -114,6 +163,18 @@ int cdp_list_targets(int port, char wsurls[][256], int max) {
             found++;
         }
         p = q2 + 1;
+    }
+    if (found > 0) {
+        /* 节流日志：仅目标清单变化时打（避免 3s 轮询刷屏） */
+        static int    last_n = -1;
+        static int    last_port = -1;
+        static char   last_desc[512];
+        if (found != last_n || port != last_port || strcmp(desc, last_desc) != 0) {
+            cb_logf("CDP 目标清单（cdp %d，%d 个）：%s", port, found, desc);
+            last_n = found; last_port = port;
+            strncpy(last_desc, desc, sizeof(last_desc) - 1);
+            last_desc[sizeof(last_desc) - 1] = 0;
+        }
     }
     return found;
 }
@@ -249,7 +310,10 @@ static int ws_read_frame(SOCKET s, ws_msg *m, DWORD deadline_ms) {
 
 SOCKET ws_connect(const char *wsurl) {
     /* ws://127.0.0.1:PORT/devtools/page/XXXX */
-    if (strncmp(wsurl, "ws://", 5) != 0) return INVALID_SOCKET;
+    if (strncmp(wsurl, "ws://", 5) != 0) {
+        cdp_set_err("ws-url-bad");
+        return INVALID_SOCKET;
+    }
     const char *hostport = wsurl + 5;
     const char *slash = strchr(hostport, '/');
     if (!slash) return INVALID_SOCKET;
@@ -299,7 +363,20 @@ SOCKET ws_connect(const char *wsurl) {
         if (got >= 4 && !memcmp(resp + got - 4, "\r\n\r\n", 4)) break;
     }
     resp[got] = 0;
-    if (!strstr(resp, " 101")) { closesocket(s); return INVALID_SOCKET; }
+    if (!strstr(resp, " 101")) {
+        /* 记录状态行（403=Origin 校验被拒 / 404=target 已销毁等） */
+        char line[80];
+        size_t li = 0;
+        const char *st = strstr(resp, "HTTP/1.");
+        if (st) {
+            while (st[li] && st[li] != '\r' && li + 1 < sizeof(line)) { line[li] = st[li]; li++; }
+        }
+        line[li] = 0;
+        cdp_set_err("ws-handshake: %s", li ? line : "no-http-status");
+        closesocket(s);
+        return INVALID_SOCKET;
+    }
+    cdp_set_err("");
     return s;
 }
 
@@ -404,6 +481,29 @@ static int json_str_value(const char *json, const char *key, char *out, size_t c
     return 1;
 }
 
+/* 读一条完整消息（跨 continuation 帧聚合在同一缓冲，修复分片丢失 bug）。
+ * ping 自动回 pong 后续读；close/断开返回 0；完整消息返回 1。 */
+static int ws_read_message(SOCKET s, ws_msg *m, DWORD deadline_ms)
+{
+    ULONGLONG end = GetTickCount64() + deadline_ms;
+    m->len = 0;
+    if (m->buf) m->buf[0] = 0;
+    m->done_opcode = -1;
+    for (;;) {
+        ULONGLONG left = end > GetTickCount64() ? end - GetTickCount64() : 0;
+        if (left == 0) return 0;
+        int r = ws_read_frame(s, m, (DWORD)left);
+        if (r == 1) return 1;   /* fin 帧：数据已全部聚合在 m */
+        if (r == 4) continue;   /* 分片未完：缓冲保留，继续读 */
+        if (r == 2 || r == 5) { /* ping/忽略帧：清临时数据继续 */
+            m->len = 0;
+            if (m->buf) m->buf[0] = 0;
+            continue;
+        }
+        return 0;               /* close / 断开 */
+    }
+}
+
 /* ---------- Runtime.evaluate ---------- */
 
 static volatile LONG g_eval_seq = 0;
@@ -430,31 +530,36 @@ int ws_eval(SOCKET s, const char *expression, char *out, size_t out_cap) {
     if (!ws_send_frame(s, 0x1, frame, strlen(frame))) { free(frame); return 0; }
     free(frame);
 
-    /* 读到 id 匹配的响应（跳过事件帧/ping/close） */
+    /* 读到 id 匹配的响应（事件帧/ping 自动跳过；分片跨帧聚合） */
     ULONGLONG end = GetTickCount64() + 10000;
     char idpat[32];
     sprintf_s(idpat, sizeof(idpat), "\"id\":%ld,", id);
+    ws_msg m;
+    ws_msg_init(&m);
+    if (!m.buf) { cdp_set_err("eval-oom"); return 0; }
     for (;;) {
         ULONGLONG left = end > GetTickCount64() ? end - GetTickCount64() : 0;
-        if (left == 0) return 0;
-        ws_msg m;
-        ws_msg_init(&m);
-        if (!m.buf) return 0;
-        int r = ws_read_frame(s, &m, left);
-        if (r == 2 || r == 4 || r == 5) { ws_msg_free(&m); continue; }   /* ping/分片/忽略 */
-        if (r != 1) { ws_msg_free(&m); return 0; }                       /* close/断开 */
-        int match = m.buf && strstr(m.buf, idpat) != NULL;
-        if (match && strstr(m.buf, "\"error\"")) {
-            /* CDP 报错（页面可能在跳转） */
+        if (left == 0) { ws_msg_free(&m); cdp_set_err("eval-timeout(10s)"); return 0; }
+        int r = ws_read_message(s, &m, (DWORD)left);
+        if (r != 1 || !m.buf) { ws_msg_free(&m); cdp_set_err("eval-ws-closed"); return 0; }
+        if (!strstr(m.buf, idpat)) continue;   /* 事件帧，继续等 */
+        if (strstr(m.buf, "\"error\"")) {
+            char emsg[160];
+            if (json_str_value(m.buf, "message", emsg, sizeof(emsg)) && emsg[0])
+                cdp_set_err("cdp-error: %.110s", emsg);
+            else
+                cdp_set_err("cdp-error(frame %.140s)", m.buf);
             ws_msg_free(&m);
             return 0;
         }
-        if (match) {
-            int ok = json_str_value(m.buf, "value", out, out_cap);
+        if (json_str_value(m.buf, "value", out, out_cap)) {
+            cdp_set_err("");
             ws_msg_free(&m);
-            return ok;
+            return 1;
         }
+        /* 无 value 字段：可能是 exceptionDetails（JS 抛异常）等 */
+        cdp_set_err("eval-no-value: %.170s", m.buf);
         ws_msg_free(&m);
-        /* 事件帧继续等 */
+        return 0;
     }
 }

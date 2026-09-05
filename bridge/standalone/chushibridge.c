@@ -112,11 +112,57 @@ static void json_wstr(const char *json, const char *key, wchar_t *out, size_t ca
     p = strchr(p + strlen(pat), '"');
     if (!p) return;
     p++;
-    char raw[MAX_PATH * 2];
+    /* 先解码成 UTF-8 字节流（支持 \\ \/ \" 与 \uXXXX 含代理对），再转宽字符。
+     * PowerShell 5.1 的 ConvertTo-Json 会把中文路径写成 \uXXXX 转义。 */
+    char raw[MAX_PATH * 4];
     size_t ri = 0;
-    while (*p && *p != '"' && ri + 1 < sizeof(raw)) {
-        if (*p == '\\' && p[1]) { p++; raw[ri++] = *p++; }
-        else raw[ri++] = *p++;
+    while (*p && *p != '"' && ri + 8 < sizeof(raw)) {
+        if (*p == '\\' && p[1]) {
+            p++;
+            if (*p == 'u') {
+                unsigned int cp = 0;
+                int hexok = 0;
+                for (int i = 1; i <= 4 && p[i]; i++) {
+                    char c = p[i];
+                    if (c >= '0' && c <= '9') { cp = cp << 4 | (unsigned)(c - '0'); hexok = 1; }
+                    else if (c >= 'a' && c <= 'f') { cp = cp << 4 | (unsigned)(c - 'a' + 10); hexok = 1; }
+                    else if (c >= 'A' && c <= 'F') { cp = cp << 4 | (unsigned)(c - 'A' + 10); hexok = 1; }
+                    else break;
+                }
+                if (!hexok) { raw[ri++] = *p ? *p++ : 'u'; continue; }
+                p += 5;
+                /* 代理对 */
+                if (cp >= 0xD800 && cp <= 0xDBFF && p[0] == '\\' && p[1] == 'u') {
+                    unsigned int lo = 0;
+                    int ok = 1;
+                    for (int i = 2; i <= 5 && p[i]; i++) {
+                        char c = p[i]; lo <<= 4;
+                        if (c >= '0' && c <= '9') lo |= (unsigned)(c - '0');
+                        else if (c >= 'a' && c <= 'f') lo |= (unsigned)(c - 'a' + 10);
+                        else if (c >= 'A' && c <= 'F') lo |= (unsigned)(c - 'A' + 10);
+                        else ok = 0;
+                    }
+                    if (ok && lo >= 0xDC00 && lo <= 0xDFFF) {
+                        cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+                        p += 6;
+                    }
+                }
+                if (cp < 0x80) raw[ri++] = (char)cp;
+                else if (cp < 0x800) {
+                    raw[ri++] = (char)(0xC0 | (cp >> 6));
+                    raw[ri++] = (char)(0x80 | (cp & 0x3F));
+                } else if (cp < 0x10000) {
+                    raw[ri++] = (char)(0xE0 | (cp >> 12));
+                    raw[ri++] = (char)(0x80 | ((cp >> 6) & 0x3F));
+                    raw[ri++] = (char)(0x80 | (cp & 0x3F));
+                } else {
+                    raw[ri++] = (char)(0xF0 | (cp >> 18));
+                    raw[ri++] = (char)(0x80 | ((cp >> 12) & 0x3F));
+                    raw[ri++] = (char)(0x80 | ((cp >> 6) & 0x3F));
+                    raw[ri++] = (char)(0x80 | (cp & 0x3F));
+                }
+            } else raw[ri++] = *p++;
+        } else raw[ri++] = *p++;
     }
     raw[ri] = 0;
     MultiByteToWideChar(CP_UTF8, 0, raw, -1, out, (int)cap);
@@ -325,15 +371,44 @@ static BOOL WINAPI ctrl_handler(DWORD type) {
     return TRUE;
 }
 
+/* attach 失败细分上报：状态实时写入 /api/debug；
+ * 日志打点按签名节流（同一原因 5 分钟内不重复刷屏） */
+static void attach_fail_log(const char *state, const char *detail) {
+    cb_attach_set(state, detail);
+    static char last_sig[256] = "";
+    static ULONGLONG last_tick = 0;
+    char sig[256];
+    sprintf_s(sig, sizeof(sig), "%s|%s", state, detail ? detail : "");
+    ULONGLONG now = GetTickCount64();
+    if (strcmp(sig, last_sig) == 0 && now - last_tick < 300000) return;
+    strncpy_s(last_sig, sizeof(last_sig), sig, _TRUNCATE);
+    last_tick = now;
+    cb_logf("[attach] %s：%s", state, detail && detail[0] ? detail : "无详情");
+}
+
+#define PROBE_OK          1
+#define PROBE_EVAL_FAIL   0
+#define PROBE_MISS        (-1)
+
 static int probe_target(SOCKET ws, char *desc, size_t cap) {
     char out[1024];
-    const char *PROBE =
+    static const char PROBE[] =
         "(function(){try{return JSON.stringify({cmder:(typeof window.legacyNativeCmder!==\"undefined\"),"
-        "wp:(typeof window.webpackJsonp!==\"undefined\"),b:!!window.__chushiBridge,"
-        "url:String(location.href).slice(0,80)})}catch(e){return \"{}\"}})()";
-    if (!ws_eval(ws, PROBE, out, sizeof(out))) return 0;
-    if (!strstr(out, "\"cmder\":true")) return 0;
-    /* 主界面特征：cmder 存在即认；url 取出供日志 */
+        "wp:(typeof window.webpackJsonp!==\"undefined\"),"
+        "wc:(function(){for(var k in window){if(k.indexOf(\"webpackChunk\")===0)return true}return false})(),"
+        "b:!!window.__chushiBridge,url:String(location.href).slice(0,120)})}catch(e){return \"{}\"}})()";
+    if (!ws_eval(ws, PROBE, out, sizeof(out))) return PROBE_EVAL_FAIL;
+    /* 三路判据任一命中即认是网易云页面（r2 只认 cmder，新版网易云
+     * 若已移除 legacyNativeCmder 则永远 attach 不上——r3 放宽）：
+     * cmder=原生桥 / wp=webpackJsonp(webpack4) / wc=webpackChunk*(webpack5)
+     * / url 含 orpheus（网易云页面 scheme 兜底） */
+    int is_ncm = strstr(out, "\"cmder\":true") != NULL
+              || strstr(out, "\"wp\":true") != NULL
+              || strstr(out, "\"wc\":true") != NULL
+              || strstr(out, "orpheus:") != NULL
+              || strstr(out, "music.163.com") != NULL;
+    if (!is_ncm) return PROBE_MISS;
+    /* 网易云页面命中；url 取出供日志 */
     if (desc && cap) {
         char url[160];
         const char *p = strstr(out, "\"url\":\"");
@@ -345,7 +420,7 @@ static int probe_target(SOCKET ws, char *desc, size_t cap) {
             sprintf_s(desc, cap, "%s", url);
         } else desc[0] = 0;
     }
-    return 1;
+    return PROBE_OK;
 }
 
 typedef struct {
@@ -367,18 +442,52 @@ static int discover_and_attach(const cfg *c, target_pick *tp) {
             char out[1024];
             for (int i = 0; i < n; i++) {
                 SOCKET ws = ws_connect(wsurls[i]);
-                if (ws == INVALID_SOCKET) continue;
+                if (ws == INVALID_SOCKET) {
+                    attach_fail_log("ws-fail", cdp_last_error());
+                    continue;
+                }
                 char desc[160];
-                if (!probe_target(ws, desc, sizeof(desc))) { ws_shutdown(ws); continue; }
+                int pr = probe_target(ws, desc, sizeof(desc));
+                if (pr == PROBE_EVAL_FAIL) {
+                    ws_shutdown(ws);
+                    attach_fail_log("probe-eval-fail", cdp_last_error());
+                    continue;
+                }
+                if (pr == PROBE_MISS) {
+                    ws_shutdown(ws);
+                    attach_fail_log("probe-miss", "cmder/wp/webpackChunk/orpheus 判据均未命中（非网易云页面？）");
+                    continue;
+                }
                 /* 注入页内桥 */
-                if (!ws_eval(ws, BRIDGE_INSTALL_JS, out, sizeof(out))) { ws_shutdown(ws); continue; }
-                if (!strstr(out, "chushi-bridge-installed")) { ws_shutdown(ws); continue; }
+                if (!ws_eval(ws, BRIDGE_INSTALL_JS, out, sizeof(out))) {
+                    ws_shutdown(ws);
+                    attach_fail_log("install-fail", cdp_last_error());
+                    continue;
+                }
+                if (!strstr(out, "chushi-bridge-installed")) {
+                    ws_shutdown(ws);
+                    char rd[192];
+                    sprintf_s(rd, sizeof(rd), "注入回执异常：%.150s", out);
+                    attach_fail_log("install-fail", rd);
+                    continue;
+                }
                 char snap[CB_SNAP_MAX];
-                if (!ws_eval(ws, "window.__chushiBridge.snapshot()", snap, sizeof(snap))) { ws_shutdown(ws); continue; }
-                if (!strstr(snap, "\"ok\":true") && !strstr(snap, "\"ok\":false")) { ws_shutdown(ws); continue; }
+                if (!ws_eval(ws, "window.__chushiBridge.snapshot()", snap, sizeof(snap))) {
+                    ws_shutdown(ws);
+                    attach_fail_log("snap-fail", cdp_last_error());
+                    continue;
+                }
+                if (!strstr(snap, "\"ok\":true") && !strstr(snap, "\"ok\":false")) {
+                    ws_shutdown(ws);
+                    char rd[192];
+                    sprintf_s(rd, sizeof(rd), "快照回执异常：%.150s", snap);
+                    attach_fail_log("snap-fail", rd);
+                    continue;
+                }
                 /* 快照无论 ok 与否（no-source 也算页面正确），桥已可用 */
                 InterlockedExchange(&g_cb.cdp_ok, 1);
                 InterlockedExchange(&g_cb.bridge_installed, 1);
+                cb_attach_set("ok", "");
                 if (strstr(snap, "\"ok\":true")) {
                     const char *sp = strstr(snap, "\"snap\":{");
                     if (sp) {
@@ -411,6 +520,14 @@ static int discover_and_attach(const cfg *c, target_pick *tp) {
 static DWORD WINAPI cdp_thread(LPVOID arg) {
     cfg *c = (cfg *)arg;
     int first_boot = 1;
+
+    /* --kill-ncm：先杀再 launch（安装器第 0 步已停则空操作）。
+     * r2 版在 launch 之后的循环里才 kill——会把刚代启的带参实例误杀。 */
+    if (c->kill_ncm) {
+        c->kill_ncm = 0;
+        kill_ncm();
+        Sleep(500);
+    }
 
     for (;;) {
         if (!InterlockedCompareExchange(&g_running, 1, 1)) break;
@@ -447,9 +564,8 @@ static DWORD WINAPI cdp_thread(LPVOID arg) {
             continue;
         }
 
-        if (c->kill_ncm) {
+        if (c->kill_ncm) {   /* 理论不可达（开头已消费）；保底防误杀 */
             c->kill_ncm = 0;
-            kill_ncm();
             Sleep(1000);
             continue;
         }
@@ -524,6 +640,7 @@ static DWORD WINAPI cdp_thread(LPVOID arg) {
             } else {
                 eval_fail++;
                 if (eval_fail >= EV_FRAME_MAX) {
+                    attach_fail_log("poll-fail", cdp_last_error());
                     cb_log("CDP 求值连续失败，重新发现目标…");
                     break;
                 }

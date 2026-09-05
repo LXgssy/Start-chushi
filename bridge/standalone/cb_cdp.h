@@ -24,4 +24,8 @@ void js_escape_string(const char *in, char *out, size_t cap);
 /* JSON 字符串转义（表达式 → CDP 请求体；输出纯 ASCII） */
 void json_escape_string(const char *in, char *out, size_t cap);
 
+/* 最近一次 CDP/WS 失败的简短原因（排障用；随每次成功清空）。
+ * 供 /api/debug 的 attachDetail 与 bridge.log 输出。 */
+const char *cdp_last_error(void);
+
 #endif
