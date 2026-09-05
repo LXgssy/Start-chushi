@@ -32,7 +32,6 @@ import {
   Download,
   Globe,
   Moon,
-  Music2,
   NotebookPen,
   Package,
   PackagePlus,
@@ -59,7 +58,7 @@ function CommandPalette(props: {
   runSearch: (engineId: string, q: string) => void;
   toggleTheme: () => void;
   themeIsDark: boolean;
-  setPanel: (p: "weather" | "todo" | "note" | "settings" | "music") => void;
+  setPanel: (p: "weather" | "todo" | "note" | "settings") => void;
   openAddLink: () => void;
   exportData: () => void;
   presetCommands: { title: string; action: PresetAction; key: string; presetName: string }[];
@@ -92,7 +91,7 @@ function PaletteInner({
   runSearch: (engineId: string, q: string) => void;
   toggleTheme: () => void;
   themeIsDark: boolean;
-  setPanel: (p: "weather" | "todo" | "note" | "settings" | "music") => void;
+  setPanel: (p: "weather" | "todo" | "note" | "settings") => void;
   openAddLink: () => void;
   exportData: () => void;
   presetCommands: { title: string; action: PresetAction; key: string; presetName: string }[];
@@ -298,7 +297,6 @@ function PaletteInner({
                       <StaticItem icon={<CheckSquare />} label="待办清单" onSelect={() => exec(() => setPanel("todo"))} />
                       <StaticItem icon={<NotebookPen />} label="便签" onSelect={() => exec(() => setPanel("note"))} />
                       <StaticItem icon={<CloudSun />} label="天气" onSelect={() => exec(() => setPanel("weather"))} />
-                      <StaticItem icon={<Music2 />} label="音乐" onSelect={() => exec(() => setPanel("music"))} />
                       <StaticItem icon={<Settings2 />} label="设置" onSelect={() => exec(() => setPanel("settings"))} />
                     </CmdGroup>
 

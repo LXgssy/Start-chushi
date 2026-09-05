@@ -126,6 +126,12 @@
     -webkit-user-select: none;
     user-select: none;
     -webkit-touch-callout: none;
+    /* 滚动条槽位常驻（v1.8.0）：磁贴删到行数变少时内容可能从「超出视口」
+       缩回视口内，Windows 经典滚动条出现/消失会改变布局宽度（±15px），
+       整页居中内容随之水平瞬跳——用户口中的「两排变一排时页面抖动」。
+       stable 让槽位常驻，滚动条有无不再改变内容宽度（headless 为 overlay
+       滚动条复现不到，真机 Windows/Chrome 经典滚动条必现）。 */
+    scrollbar-gutter: stable;
   }
   input,
   textarea,

@@ -25,7 +25,7 @@ export type PresetAction =
   | { type: "open"; url: string }
   | { type: "copy"; text: string }
   | { type: "search"; engine: string; q: string }
-  | { type: "panel"; id: "weather" | "todo" | "note" | "pomodoro" | "settings" | "music" }
+  | { type: "panel"; id: "weather" | "todo" | "note" | "pomodoro" | "settings" }
   | { type: "theme"; mode: "light" | "dark" }
   /** 触发本预设内脚本的入口（chushi.run）或由导入期校验引用完整性 */
   | { type: "script"; id: string }
@@ -116,8 +116,7 @@ export type PresetIconTarget =
   | "note"
   | "pomodoro"
   | "settings"
-  | "command"
-  | "music";
+  | "command";
 
 export interface PresetIcon {
   target: PresetIconTarget;
@@ -235,7 +234,7 @@ export type ParseResult =
   | { ok: false; errors: string[] };
 
 const ENGINE_IDS = new Set(ENGINES.map((e) => e.id));
-const PANEL_IDS = new Set<string>(["weather", "todo", "note", "pomodoro", "settings", "music"]);
+const PANEL_IDS = new Set<string>(["weather", "todo", "note", "pomodoro", "settings"]);
 
 function asString(v: unknown): string | null {
   return typeof v === "string" ? v : null;
@@ -307,7 +306,7 @@ function parseAction(
     case "panel": {
       const id = cleanStr(a.id, 20);
       if (!PANEL_IDS.has(id)) {
-        errors.push(`${where}：panel id 必须是 weather / todo / note / pomodoro / settings / music 之一`);
+        errors.push(`${where}：panel id 必须是 weather / todo / note / pomodoro / settings 之一`);
         return null;
       }
       return { type: "panel", id } as PresetAction;
@@ -572,7 +571,7 @@ export function parsePreset(raw: unknown): ParseResult {
 
   /* 图标替换（v1.7.0）：target 白名单 + icon 两种形态校验（lucide 名 / data:image URL） */
   const ICON_TARGETS = new Set<string>([
-    "weather", "todo", "note", "pomodoro", "settings", "command", "music",
+    "weather", "todo", "note", "pomodoro", "settings", "command",
   ]);
   const icons: PresetIcon[] = [];
   const iconTargets = new Set<string>();

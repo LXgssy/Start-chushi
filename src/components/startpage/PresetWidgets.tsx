@@ -14,6 +14,7 @@
 
 import { memo, useEffect, useRef, useState } from "react";
 import { sandboxWidgetSrc } from "@/lib/startpage/sandbox";
+import { smtc, SMTC_COMMANDS, type SmtcState } from "@/lib/startpage/smtc";
 
 export interface ActiveWidget {
   /** 运行时复合键 `${presetId}:${widgetId}` */
@@ -50,6 +51,9 @@ type WidgetApiMsg = {
   title?: unknown;
   description?: unknown;
   url?: unknown;
+  /** SMTC 通道（v1.8.0）：控制命令与 seek 位置 */
+  cmd?: unknown;
+  position?: unknown;
 };
 
 const s = (v: unknown, max: number): string => (typeof v === "string" ? v.slice(0, max) : "");
@@ -73,6 +77,20 @@ function writeKv(kv: Record<string, string>) {
   }
 }
 
+/** 回推快照给单个部件帧（reqId 携带则同时视作 get 回执） */
+function replySmtc(host: Window | null | undefined, wkey: string, reqId?: unknown) {
+  if (!host) return;
+  const state: SmtcState = smtc.getSnapshot();
+  try {
+    host.postMessage(
+      { type: "widgetSmtc", widgetKey: wkey, state, reqId: typeof reqId === "number" ? reqId : 0 },
+      "*"
+    );
+  } catch {
+    /* noop */
+  }
+}
+
 function PresetWidgets(props: {
   widgets: ActiveWidget[];
   isDark: boolean;
@@ -83,6 +101,8 @@ function PresetWidgets(props: {
   /* 盒高：预设初始值 → 沙箱 chushi.resize 跟随（删除的部件自动清理） */
   const [heights, setHeights] = useState<Record<string, number>>({});
   const framesRef = useRef<Map<string, HTMLIFrameElement>>(new Map());
+  /** SMTC 通道（v1.8.0）：订阅了快照推送的部件 key 集合（回调期读 ref，见下方 widgetsRef 同模式） */
+  const smtcSubsRef = useRef<Set<string>>(new Set());
   /* 消息监听器只挂一次 → 经 ref 读取最新值；ref 写入放 effect（React Compiler 律：
      渲染期不可触 ref，与 page.tsx contentHRef 镜像同模式） */
   const widgetsRef = useRef(props.widgets);
@@ -102,6 +122,24 @@ function PresetWidgets(props: {
   /* 挂载时读一次 KV；部件列表清空（全部预设删除）时无框架可服务 */
   useEffect(() => {
     kvRef.current = readKv();
+  }, []);
+
+  /* SMTC 快照广播（v1.8.0）：smtc 单例签名变化才触发；
+     只推已订阅部件帧（widgetSmtc 下行经沙箱宿主转发进部件） */
+  useEffect(() => {
+    smtc.start();
+    return smtc.subscribe(() => {
+      const state = smtc.getSnapshot();
+      for (const wkey of smtcSubsRef.current) {
+        const host = framesRef.current.get(wkey)?.contentWindow;
+        if (!host) continue;
+        try {
+          host.postMessage({ type: "widgetSmtc", widgetKey: wkey, state }, "*");
+        } catch {
+          /* noop */
+        }
+      }
+    });
   }, []);
 
   function onMessage(e: MessageEvent) {
@@ -135,6 +173,41 @@ function PresetWidgets(props: {
         const h = Math.round(typeof raw === "number" && Number.isFinite(raw) ? raw : 0);
         if (h < H_MIN || h > H_MAX) return;
         setHeights((prev) => (prev[wkey] === h ? prev : { ...prev, [wkey]: h }));
+        break;
+      }
+      /* ---------- SMTC 通道（v1.8.0）----------
+         smtcGet：立即回推当前快照；smtcSubscribe：登记后同样回推（
+         后续变化由 smtc.subscribe 广播承接）；smtcControl：白名单复核后
+         转桥，回执 widgetSmtcResult。快照里 track/cover 均为宿主白名单产物。 */
+      case "smtcGet": {
+        smtc.start();
+        replySmtc(framesRef.current.get(wkey)?.contentWindow ?? null, wkey, m.reqId);
+        break;
+      }
+      case "smtcSubscribe": {
+        smtc.start();
+        smtcSubsRef.current.add(wkey);
+        replySmtc(framesRef.current.get(wkey)?.contentWindow ?? null, wkey, m.reqId);
+        break;
+      }
+      case "smtcControl": {
+        const cmd = s(m.cmd, 8);
+        if (!SMTC_COMMANDS.has(cmd)) break;
+        const posRaw = m.position as unknown;
+        const pos =
+          typeof posRaw === "number" && Number.isFinite(posRaw)
+            ? Math.max(0, Math.min(86400, posRaw))
+            : undefined;
+        smtc.start();
+        void smtc.control(cmd, pos).then((ok) => {
+          const host = framesRef.current.get(wkey)?.contentWindow;
+          if (!host) return;
+          try {
+            host.postMessage({ type: "widgetSmtcResult", widgetKey: wkey, reqId: m.reqId, ok }, "*");
+          } catch {
+            /* noop */
+          }
+        });
         break;
       }
       case "storageGet": {

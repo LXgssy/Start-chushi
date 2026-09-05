@@ -16,7 +16,7 @@ export interface TodoItem {
 export type ThemeMode = "light" | "dark" | "system";
 export type BackgroundMode = "glow" | "pure" | "photo";
 export type IconStyle = "letter" | "favicon";
-export type PanelId = "weather" | "todo" | "note" | "pomodoro" | "settings" | "music" | null;
+export type PanelId = "weather" | "todo" | "note" | "pomodoro" | "settings" | null;
 
 /** 番茄钟时长设置（分钟） */
 export interface PomodoroDurations {

@@ -16,7 +16,7 @@ ROOT = pathlib.Path("/home/z/my-project")
 OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
-VERSION = "1.7.8"
+VERSION = "1.8.0"
 DEST = ROOT / "download/v1.7.8/ChuShi-NewTab-v1.7.8.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():

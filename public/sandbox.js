@@ -61,6 +61,11 @@
   /** 设置面（v1.2.0）：get 回执 pending 表 + onChange 回调集（必须与消息处理器同作用域） */
   var pendingSettings = {};
   var settingsTargets = new Map();
+  /** SMTC 媒体作用面（v1.8.0）：get/control 共用 pending 表（reqId 全局递增）
+   *  + 定向推送回调集（scriptKey → cbs） */
+  var pendingSmtc = {};
+  var smtcTargets = new Map();
+  var smtcSeq = 0;
 
   /** 为指定脚本构造受控 API（每个脚本一份，命令/入口互不可见对方内部状态） */
   function makeChushi(scriptKey) {
@@ -73,6 +78,8 @@
     var fxResizeCbs = [];
     var settingsCbs = [];
     settingsTargets.set(scriptKey, settingsCbs);
+    var smtcCbs = [];
+    smtcTargets.set(scriptKey, smtcCbs);
 
     function fxApi(op, id, html) {
       post({ type: "api", op: op, scriptKey: scriptKey, fxId: id, html: html });
@@ -229,6 +236,62 @@
           };
         },
       },
+      /* ---------- SMTC 媒体作用面（v1.8.0）----------
+       * get()：Promise<state|null> —— 当前系统媒体会话快照（含连接态/封面 data URL）。
+       * control(cmd, position?)：play/pause/toggle/next/prev/seek（seek 附秒），
+       *   Promise<boolean> 兑现执行结果；cmd 白名单在宿主复核。
+       * subscribe(cb)：快照变化即回调（position 不推，消费方按 fetchedAt 插值），
+       *   订阅即回推当前值；返回退订函数。删除/冻结预设时宿主回收订阅。 */
+      smtc: {
+        get: function () {
+          return new Promise(function (resolve) {
+            var id = ++smtcSeq;
+            var t = setTimeout(function () {
+              delete pendingSmtc[id];
+              resolve(null);
+            }, 8000);
+            pendingSmtc[id] = {
+              f: function (v) {
+                clearTimeout(t);
+                resolve(v);
+              },
+            };
+            post({ type: "api", op: "smtcGet", scriptKey: scriptKey, reqId: id });
+          });
+        },
+        control: function (cmd, position) {
+          return new Promise(function (resolve) {
+            var id = ++smtcSeq;
+            var t = setTimeout(function () {
+              delete pendingSmtc[id];
+              resolve(false);
+            }, 8000);
+            pendingSmtc[id] = {
+              f: function (v) {
+                clearTimeout(t);
+                resolve(v === true);
+              },
+            };
+            post({
+              type: "api",
+              op: "smtcControl",
+              scriptKey: scriptKey,
+              cmd: str(cmd, 8),
+              position: typeof position === "number" && isFinite(position) ? position : null,
+              reqId: id,
+            });
+          });
+        },
+        subscribe: function (cb) {
+          if (typeof cb !== "function") return function () {};
+          smtcCbs.push(cb);
+          post({ type: "api", op: "smtcSubscribe", scriptKey: scriptKey });
+          return function () {
+            var i = smtcCbs.indexOf(cb);
+            if (i >= 0) smtcCbs.splice(i, 1);
+          };
+        },
+      },
     };
   }
 
@@ -313,6 +376,7 @@ function widgetShim(theme, accent) {
     "<script>(function(){var seq=0,pending={};function post(m){try{parent.postMessage(m,'*')}catch(e){}}" +
     "document.documentElement.dataset.theme='" + (theme === "dark" ? "dark" : "light") + "';" +
     accentSet +
+    "var smtcCbs=[];" +
     "window.chushi={notify:function(o){o=o||{};post({type:'widgetApi',op:'notify'," +
     "title:String(o.title||'').slice(0,24),description:String(o.description||'').slice(0,60)})}," +
     "open:function(u){post({type:'widgetApi',op:'open',url:String(u||'').slice(0,500)})}," +
@@ -321,10 +385,22 @@ function widgetShim(theme, accent) {
     "post({type:'widgetApi',op:'storageGet',key:String(k||'').slice(0,64),reqId:id})})}," +
     "set:function(k,v){return new Promise(function(res){var id=++seq;pending[id]={f:res,op:'storageSet'};var s='';" +
     "try{var j=JSON.stringify(v);s=j==null?'':j}catch(e){}" +
-    "post({type:'widgetApi',op:'storageSet',key:String(k||'').slice(0,64),value:s.slice(0,4000),reqId:id})})}}};" +
+    "post({type:'widgetApi',op:'storageSet',key:String(k||'').slice(0,64),value:s.slice(0,4000),reqId:id})})}}," +
+    /* SMTC 媒体作用面（v1.8.0）：与脚本通道同契约（get/control/subscribe） */
+    "smtc:{get:function(){return new Promise(function(res){var id=++seq;pending[id]={f:res,op:'smtcGet'};" +
+    "post({type:'widgetApi',op:'smtcGet',reqId:id})})}," +
+    "control:function(c,p){return new Promise(function(res){var id=++seq;pending[id]={f:res,op:'smtcControl'};" +
+    "post({type:'widgetApi',op:'smtcControl',cmd:String(c||'').slice(0,8)," +
+    "position:(typeof p==='number'&&isFinite(p))?p:null,reqId:id})})}," +
+    "subscribe:function(cb){if(typeof cb!=='function')return function(){};smtcCbs.push(cb);" +
+    "post({type:'widgetApi',op:'smtcSubscribe'});return function(){var i=smtcCbs.indexOf(cb);" +
+    "if(i>=0)smtcCbs.splice(i,1)}}}};" +
     "window.addEventListener('message',function(ev){var d=ev.data;if(!d||typeof d!=='object')return;" +
     "if(d.type==='widgetStorage'){var p=pending[d.reqId];if(!p)return;delete pending[d.reqId];" +
     "if(p.op==='storageGet'){var v=null;if(typeof d.value==='string'&&d.value.length){try{v=JSON.parse(d.value)}catch(e){v=d.value}}p.f(v)}else{p.f(d.ok===true)}};" +
+    "if(d.type==='widgetSmtcResult'){var pc=pending[d.reqId];if(!pc)return;delete pending[d.reqId];pc.f(d.ok===true)};" +
+    "if(d.type==='widgetSmtc'){var s=d.state&&typeof d.state==='object'?d.state:null;" +
+    "for(var i=smtcCbs.length-1;i>=0;i--){try{smtcCbs[i](s)}catch(e){}}};" +
     "if(d.type==='widgetTheme'){document.documentElement.dataset.theme=d.theme==='dark'?'dark':'light';" +
     "if(d.accent)document.documentElement.style.setProperty('--w-accent',d.accent)}});" +
     "})();</script>"
@@ -368,6 +444,8 @@ function widgetMode() {
             title: str(d.title, 24),
             description: str(d.description, 60),
             url: str(d.url, 500),
+            cmd: str(d.cmd, 8),
+            position: typeof d.position === "number" ? d.position : null,
           });
         }
       });
@@ -384,6 +462,14 @@ function widgetMode() {
       return;
     }
     if (m.type === "widgetStorage" && inner && inner.contentWindow) {
+      try {
+        inner.contentWindow.postMessage(m, "*");
+      } catch (e) {
+        /* noop */
+      }
+    }
+    if ((m.type === "widgetSmtc" || m.type === "widgetSmtcResult") && inner && inner.contentWindow) {
+      /* SMTC 通道下行：快照推送与控制回执原样透传进部件 */
       try {
         inner.contentWindow.postMessage(m, "*");
       } catch (e) {
@@ -485,6 +571,39 @@ window.addEventListener("message", function (e) {
         } catch (err) {
           post({ type: "runtimeError", message: errMsg(err) });
         }
+      }
+      return;
+    }
+
+    if (m.type === "smtcPush" && typeof m.scriptKey === "string") {
+      /* SMTC 快照定向推送（签名变化才到）：state 整包透传（宿主已白名单构造） */
+      var st = smtcTargets.get(m.scriptKey);
+      if (!st || st.length === 0) return;
+      var sst = m.state && typeof m.state === "object" ? m.state : null;
+      for (var si = 0; si < st.length; si++) {
+        try {
+          st[si](sst);
+        } catch (err) {
+          post({ type: "runtimeError", message: errMsg(err) });
+        }
+      }
+      return;
+    }
+
+    if (m.type === "smtcGetResult") {
+      var pg = pendingSmtc[m.reqId];
+      if (pg) {
+        delete pendingSmtc[m.reqId];
+        pg.f(m.state && typeof m.state === "object" ? m.state : null);
+      }
+      return;
+    }
+
+    if (m.type === "smtcControlResult") {
+      var pc = pendingSmtc[m.reqId];
+      if (pc) {
+        delete pendingSmtc[m.reqId];
+        pc.f(m.ok === true);
       }
       return;
     }

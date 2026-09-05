@@ -620,6 +620,18 @@ chushi.settings.onChange((values) => { /* 整组热更新 */ });`}</Code>
                       "写 KV（Promise），值 JSON 序列化后 ≤4000 字符",
                     ],
                     [<K>chushi.notify / open</K>, "与 pages 相同"],
+                    [
+                      <K>chushi.smtc.get()</K>,
+                      "媒体作用面（v1.8.0）：读系统媒体会话快照（Promise），返回 {connected, version, track, cover}；数据来自本机「初始SMTC桥」（网易云等任何 SMTC 播放器）",
+                    ],
+                    [
+                      <K>chushi.smtc.control(cmd, position?)</K>,
+                      "媒体控制（Promise<boolean>）：cmd ∈ play / pause / toggle / next / prev / seek（seek 附秒）",
+                    ],
+                    [
+                      <K>chushi.smtc.subscribe(cb)</K>,
+                      "订阅快照：签名变化才回调（position 不推，按 fetchedAt 插值）；订阅即回推当前值，返回退订函数",
+                    ],
                   ]}
                 />
                 <P>
