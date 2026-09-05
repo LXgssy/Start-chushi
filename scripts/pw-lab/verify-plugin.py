@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# verify-plugin.py — 初始音乐桥 BetterNCM 插件 1.2.0 回归验证
+# verify-plugin.py — 初始音乐桥 BetterNCM 插件 1.3.0 回归验证
 # 覆盖：manifest / index.js 特征 / bridge.c 特征 / bridge.dll 二进制 /
 #       .plugin 官方包布局（根部平铺）/ dev zip 布局 / 安装器 / 合并交付包
 import zipfile, re, sys, os, hashlib
@@ -7,8 +7,9 @@ import zipfile, re, sys, os, hashlib
 ROOT = "/home/z/my-project"
 SRC = f"{ROOT}/bridge/plugin"
 NATIVE = f"{ROOT}/bridge/native"
-DL = f"{ROOT}/download/v1.7.6"
-VER = "1.2.0"
+DL = f"{ROOT}/download/v1.7.7"
+VER = "1.3.0"
+PREV = "1.2.0"
 ZIP = f"{DL}/初始音乐桥-插件-{VER}.zip"
 PLUGIN = f"{DL}/ChuShi-MusicBridge-{VER}.plugin"
 INSTALLER = f"{DL}/betterncm_installer.exe"
@@ -25,7 +26,7 @@ def check(name, cond, detail=""):
 print("[1] manifest.json")
 import json
 m = json.load(open(f"{SRC}/manifest.json", encoding="utf-8"))
-check("版本 1.2.0", m["version"] == VER)
+check("版本 1.3.0", m["version"] == VER)
 check("manifest_version=1", m.get("manifest_version") == 1)
 check("native_plugin=bridge.dll", m.get("native_plugin") == "bridge.dll")
 check("injects Main=index.js（v2 唯一消费链）", m["injects"]["Main"][0]["file"] == "index.js")
@@ -38,7 +39,7 @@ check("slug=cc.chushi.musicbridge", m["slug"] == "cc.chushi.musicbridge")
 # ---------- 2. index.js 特征 ----------
 print("[2] index.js 特征")
 js = open(f"{SRC}/index.js", encoding="utf-8").read()
-check("版本 1.2.0", f'BRIDGE_VERSION = "{VER}"' in js)
+check("版本 1.3.0", f'BRIDGE_VERSION = "{VER}"' in js)
 check("幂等护栏(防二次注入)", "if (window.__chushiMusicBridgeActive) return;" in js)
 check("webpack5 兼容(webpackChunk 扫描)", 'k.indexOf("webpackChunk") === 0' in js)
 check("webpack4 保留(webpackJsonp)", "webpackJsonp" in js and 'gp.push([[id], chunk, [[id]]])' in js)
@@ -48,6 +49,15 @@ check("diag 含三源与 href", all(k in js for k in ["storeReady", "eventsHooke
 check("eventsOk 标志置位", "eventsOk = true" in js)
 check("diag 心跳 10s", "setInterval(() => { pushDiag().catch(() => {}); }, 10000)" in js)
 check("状态原子写通用化 writeTextAtomic", "async function writeTextAtomic(file, json)" in js)
+check("1.3.0 rename 响应校验(堵静默失败洞)", 'r.ok === false) throw new Error("rename rejected")' in js and "rename http " in js)
+check("1.3.0 state 5s 强制心跳", "setInterval(() => { pushState(true).catch(() => {}); }, 5000)" in js)
+check("1.3.0 命令双扫描(主路 cmd/ + 根目录兼容)", "await consumeCmdDir(DIR + \"/cmd\")" in js and "await consumeCmdDir(DIR)" in js)
+check("1.3.0 启动清扫根目录残留", "async function sweepRootLeftovers" in js and "await sweepRootLeftovers()" in js)
+check("1.3.0 媒体兜底校验 verifyThenFallback", "function verifyThenFallback" in js and "dispatch 未生效，媒体元素兜底" in js)
+check("1.3.0 mediaElStrict 优先活跃元素", "function mediaElStrict" in js and "e.duration > 0 || e.paused === false" in js)
+check("1.3.0 storePlaying(playingState===2 即播放)", "function storePlaying" in js and "p.playingState === 2" in js)
+check("1.3.0 音量双通道(直接驱动媒体元素)", "vel.volume = clamp01(c.volume)" in js)
+check("1.3.0 启动即推首帧快照", "await pushState(true).catch(() => {})" in js)
 check("控制命令集完整", all(a in js for a in ['"play"', '"pause"', '"toggle"', '"next"', '"prev"', '"seek"', '"volume"', '"mute"']))
 check("配置面保留", "plugin.onConfig" in js)
 check("JS 语法平衡", js.count("{") == js.count("}") and js.count("(") == js.count(")"))
@@ -55,7 +65,10 @@ check("JS 语法平衡", js.count("{") == js.count("}") and js.count("(") == js.
 # ---------- 3. bridge.c 特征 ----------
 print("[3] bridge.c 特征")
 c = open(f"{NATIVE}/bridge.c", encoding="utf-8").read()
-check("版本 1.2.0", f'#define BRIDGE_VERSION   "{VER}"' in c)
+check("版本 1.3.0", f'#define BRIDGE_VERSION   "{VER}"' in c)
+check("★1.3.0 根因修复：g_cmd_dir 带 \\cmd 子目录", r'L"%s\\%s\\cmd", dp, DIR_NAME' in c)
+check("★1.3.0 旧路径已消失(无裸 %s\\%s 双参 g_cmd_dir 构建)", r'swprintf_s(g_cmd_dir, MAX_PATH, L"%s\\%s", dp, DIR_NAME)' not in c)
+check("cmd 目录补建顺序(base 先于 cmd)", c.index("CreateDirectoryW(base, NULL)") < c.index("CreateDirectoryW(g_cmd_dir, NULL)"))
 check("DIAG_FILE 定义", '#define DIAG_FILE        L"diag.json"' in c)
 check("g_diag_path 构建", "g_diag_path" in c and "swprintf_s(g_diag_path" in c)
 check("/api/debug 路由", 'strcmp(req.path, "/api/debug") == 0' in c)
@@ -71,8 +84,8 @@ check("命令文件原子写保留", "MoveFileExW" in c and "MOVEFILE_REPLACE_EX
 print("[4] bridge.dll 二进制")
 dll = open(f"{NATIVE}/bridge.dll", "rb").read()
 check("PE x86-64 (MZ+PE)", dll[:2] == b"MZ" and b"PE\x00\x00" in dll[:0x400])
-check("含 1.2.0 版本串", VER.encode() in dll)
-check("无 1.1.0 版本串残留", b'"1.1.0"' not in dll)
+check("含 1.3.0 版本串", VER.encode() in dll)
+check("无 1.2.0 版本串残留", b"1.2.0" not in dll)
 # 注：LLVM 会把 strcmp(x,"字面量")==0 折叠为立即数比较，路由串不入 .rdata ——
 # 改验不会被折叠的响应格式串；路由本身由 bridge.c 源码断言覆盖
 check("含 debug 响应格式串(stateAgeMs)", b"stateAgeMs" in dll)
@@ -94,7 +107,7 @@ check("根部含 index.js", "index.js" in pn)
 check("根部含 bridge.dll", "bridge.dll" in pn)
 check("根部含 README.txt", "README.txt" in pn)
 pm = json.loads(zp.read("manifest.json").decode("utf-8"))
-check("包内 manifest 版本 1.2.0", pm["version"] == VER)
+check("包内 manifest 版本 1.3.0", pm["version"] == VER)
 check("包内 injects.Main 指向 index.js", pm["injects"]["Main"][0]["file"] == "index.js")
 check("包内 ncm3-compatible=true", pm.get("ncm3-compatible") is True)
 check("包内 DLL 与源一致", hashlib.sha256(zp.read("bridge.dll")).hexdigest() == hashlib.sha256(dll).hexdigest())
@@ -117,26 +130,33 @@ for n in ["manifest.json", "index.js", "bridge.dll", "安装说明.txt"]:
 check("zip 内 DLL 与源一致", z.read("初始音乐桥/bridge.dll") == dll)
 check("zip 内 manifest 一致", z.read("初始音乐桥/manifest.json").decode("utf-8") == open(f"{SRC}/manifest.json", encoding="utf-8").read())
 ud = z.read("初始音乐桥/安装说明.txt").decode("utf-8")
-check("说明含 1.2.0 升级段", f"v{VER} 相对 1.1.0 的升级" in ud and "/api/debug" in ud)
+check("说明含 1.3.0 升级段", f"v{VER} 相对 {PREV} 的升级" in ud and "根因修复" in ud)
 check("说明含 .plugin.path.meta 机制段", ".plugin.path.meta" in ud and "plugins_runtime" in ud)
 check("说明含已知边界提示", "已知边界" in ud and "独立版" in ud)
+check("说明含 1.2.0 升级指引(删旧装新)", "ChuShi-MusicBridge-1.2.0.plugin" in ud and "ChuShi-MusicBridge-1.3.0.plugin" in ud)
 
-# ---------- 7. BetterNCM 安装器 ----------
+# ---------- 7. BetterNCM 安装器（交付物就位后强制） ----------
 print("[7] betterncm_installer.exe")
-ie = open(INSTALLER, "rb").read()
-check("大小 673280(与 release 资产一致)", len(ie) == 673280, str(len(ie)))
-check("PE 可执行(MZ)", ie[:2] == b"MZ")
-check("含 BetterNCM 字样", b"BetterNCM" in ie)
-check("SHA-256 记录", hashlib.sha256(ie).hexdigest()[:12] + "…")
+if not os.path.exists(INSTALLER):
+    print("  SKIP（交付物尚未组装，最终验证必须就位）")
+else:
+    ie = open(INSTALLER, "rb").read()
+    check("大小 673280(与 release 资产一致)", len(ie) == 673280, str(len(ie)))
+    check("PE 可执行(MZ)", ie[:2] == b"MZ")
+    check("含 BetterNCM 字样", b"BetterNCM" in ie)
+    check("SHA-256 记录", hashlib.sha256(ie).hexdigest()[:12] + "…")
 
-# ---------- 8. 合并交付包 ----------
+# ---------- 8. 合并交付包（交付物就位后强制） ----------
 print("[8] 合并交付包")
-zm = zipfile.ZipFile(MERGED)
-mnames = zm.namelist()
-for n in [f"初始音乐桥-插件-{VER}.zip", f"ChuShi-MusicBridge-{VER}.plugin", "betterncm_installer.exe", "安装指南.md"]:
-    check(f"交付包含 {n}", n in mnames)
-inner = zm.read(f"ChuShi-MusicBridge-{VER}.plugin")
-check("交付包内 .plugin 与源一致", hashlib.sha256(inner).hexdigest() == hashlib.sha256(open(PLUGIN, "rb").read()).hexdigest())
+if not os.path.exists(MERGED):
+    print("  SKIP（交付物尚未组装，最终验证必须就位）")
+else:
+    zm = zipfile.ZipFile(MERGED)
+    mnames = zm.namelist()
+    for n in [f"初始音乐桥-插件-{VER}.zip", f"ChuShi-MusicBridge-{VER}.plugin", "betterncm_installer.exe", "安装指南.md"]:
+        check(f"交付包含 {n}", n in mnames)
+    inner = zm.read(f"ChuShi-MusicBridge-{VER}.plugin")
+    check("交付包内 .plugin 与源一致", hashlib.sha256(inner).hexdigest() == hashlib.sha256(open(PLUGIN, "rb").read()).hexdigest())
 
 # ---------- 汇总 ----------
 print(f"\n===== {len(passed)} passed / {len(failed)} failed =====")

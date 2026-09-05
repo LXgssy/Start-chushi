@@ -1,12 +1,14 @@
-/* 「初始」音乐面板 — 接入网易云音乐（经 初始音乐桥·独立版 ChuShiBridge + 本地服务）
+/* 「初始」音乐面板 — 接入网易云音乐（经初始音乐桥）
  *
- * 接入路线：ChuShiBridge 一键安装包（不依赖 BetterNCM/chromatic 框架，
- * 用 CEF 调试端口替代内部 hook，不随网易云升级失效）；
- * 旧版客户端（2.x/3.0.x）仍可用 v1.7.5 的 chromatic 插件路线。
+ * v1.7.7 翻新（配插件 1.3.0）：
+ *   - 大封面 + 播放态 accent 光晕；歌名 / 歌手 / 专辑信息层级
+ *   - 诊断卡（/api/debug）：桥版本、三源状态、状态文件年龄，一键复制回传排障
+ *   - 状态陈旧自解释提示（1.2.0 及更早插件暂停时不写盘 → stateAgeMs 虚高）
+ *   - 接入指引改 BetterNCM 插件路线主推（.plugin 与官方商店同构），独立版兜底
  *
  * 三态：
- *   未接入/出错 → 连接指引（一键安装流程）+ 服务地址修正 + 重试
- *   已连接     → 封面 / 歌名 / 进度条（点击拖动 seek）/ 播放控制 / 音量
+ *   未接入/出错 → 连接指引 + 服务地址修正 + 重试
+ *   已连接     → 封面 / 歌名 / 进度条（可拖 seek）/ 播放控制 / 音量 / 诊断
  *   空态       → 已连接但未在播放
  *
  * 数据面见 lib/startpage/music.ts：1s 轮询快照 + 本地时钟插值出平滑进度；
@@ -16,12 +18,16 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  Activity,
+  Check,
+  Copy,
   Music2,
   Pause,
   Play,
   RefreshCw,
   SkipBack,
   SkipForward,
+  TriangleAlert,
   Volume2,
   VolumeX,
 } from "lucide-react";
@@ -30,6 +36,7 @@ import {
   MusicBridgeClient,
   fmtTime,
   normalizeMusicUrl,
+  type MusicBridgeDebug,
   type MusicFailReason,
   type MusicSnapshot,
   type MusicStatus,
@@ -42,7 +49,7 @@ const RANGE_CLS =
 function reasonText(r: MusicFailReason | undefined): string {
   switch (r) {
     case "refused":
-      return "连不上桥接服务（网易云没开，或初始音乐桥未运行）";
+      return "连不上桥接服务（网易云没开，或初始音乐桥未装/未运行）";
     case "blocked":
       return "请求被浏览器拦截了（混合内容或本地网络权限）";
     case "bad":
@@ -52,11 +59,16 @@ function reasonText(r: MusicFailReason | undefined): string {
   }
 }
 
-/* 一键安装包直链（GitHub Release latest 资产名固定） */
-const BRIDGE_DOWNLOAD_URL =
+/* 直链（GitHub Release latest 资产名固定，ASCII 规避 URL 编码坑） */
+const BRIDGE_PLUGIN_URL =
+  "https://github.com/LXgssy/Start-chushi/releases/latest/download/ChuShi-MusicBridge-1.3.0.plugin";
+const BETTERNCM_INSTALLER_URL =
+  "https://github.com/std-microblock/BetterNCM-Installer/releases";
+const STANDALONE_URL =
   "https://github.com/LXgssy/Start-chushi/releases/latest/download/ChuShiBridge-2.0.0-Setup.zip";
-const LEGACY_PLUGIN_URL =
-  "https://github.com/LXgssy/Start-chushi/releases/tag/v1.7.5";
+
+const LINK_CLS =
+  "font-normal text-zinc-700 underline decoration-zinc-300 underline-offset-2 transition-colors hover:decoration-zinc-500 dark:text-zinc-200 dark:decoration-zinc-600";
 
 export default function MusicPanel() {
   const [savedUrl, setSavedUrl] = useStored<string>("start:music-url", DEFAULT_MUSIC_URL);
@@ -67,6 +79,10 @@ export default function MusicPanel() {
   const clientRef = useRef<MusicBridgeClient | null>(null);
   const [, setTick] = useState(0);
   const [coverOk, setCoverOk] = useState(true);
+  const [diagOpen, setDiagOpen] = useState(false);
+  const [diag, setDiag] = useState<MusicBridgeDebug | null>(null);
+  const [diagLoading, setDiagLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   /* 面板挂载即接入（地址变化由「重试」触发重连，不在输入时抖动重连） */
   useEffect(() => {
@@ -105,13 +121,41 @@ export default function MusicPanel() {
     const u = normalizeMusicUrl(urlDraft);
     setUrlDraft(u);
     setSavedUrl(u);
+    setDiagOpen(false);
+    setDiag(null);
     void clientRef.current?.connect(u);
+  }
+
+  async function toggleDiag() {
+    const next = !diagOpen;
+    setDiagOpen(next);
+    if (next) {
+      setDiagLoading(true);
+      try {
+        setDiag((await clientRef.current?.debug()) ?? null);
+      } finally {
+        setDiagLoading(false);
+      }
+    }
+  }
+
+  async function copyDiag() {
+    if (!diag) return;
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(diag, null, 2));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch {
+      /* 剪贴板不可用时静默 */
+    }
   }
 
   const song = snap?.song ?? null;
   const playing = snap?.playing ?? false;
   const dur = song?.durationMs ?? 0;
   const pos = clientRef.current?.getPositionMs() ?? snap?.positionMs ?? 0;
+  const staleSec =
+    diag?.stateAgeMs != null ? Math.max(1, Math.round(diag.stateAgeMs / 1000)) : null;
 
   /* ---------- 未连接 ---------- */
   if (status !== "connected") {
@@ -161,33 +205,34 @@ export default function MusicPanel() {
 
         {status !== "connecting" && (
           <div className="rounded-xl bg-zinc-900/[0.03] px-3.5 py-3 text-xs font-light leading-relaxed text-zinc-500 dark:bg-white/5 dark:text-zinc-400">
-            <p className="mb-1.5 tracking-wide text-zinc-400 dark:text-zinc-500">接入三步（新版客户端推荐）</p>
+            <p className="mb-1.5 tracking-wide text-zinc-400 dark:text-zinc-500">
+              接入三步（BetterNCM 插件路线 · 推荐）
+            </p>
             <ol className="list-decimal space-y-1 pl-4">
               <li>
-                下载{" "}
-                <a
-                  href={BRIDGE_DOWNLOAD_URL}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-normal text-zinc-700 underline decoration-zinc-300 underline-offset-2 transition-colors hover:decoration-zinc-500 dark:text-zinc-200 dark:decoration-zinc-600"
-                >
-                  初始音乐桥·独立版
-                </a>{" "}
-                一键安装包（Windows）
+                安装{" "}
+                <a href={BETTERNCM_INSTALLER_URL} target="_blank" rel="noreferrer" className={LINK_CLS}>
+                  BetterNCM 框架
+                </a>
+                （已装可跳过）
               </li>
-              <li>解压后双击「安装初始音乐桥.bat」，网易云会自动重启</li>
-              <li>回到这里点「重试」</li>
+              <li>
+                下载{" "}
+                <a href={BRIDGE_PLUGIN_URL} target="_blank" rel="noreferrer" className={LINK_CLS}>
+                  初始音乐桥插件包
+                </a>{" "}
+               （.plugin 文件）
+              </li>
+              <li>
+                放入 <code className="font-mono text-[11px]">C:\betterncm\plugins\</code>{" "}
+                文件夹，重启网易云音乐 → 回来点「重试」
+              </li>
             </ol>
             <p className="mt-2 text-[11px] leading-relaxed text-zinc-400/90 dark:text-zinc-500">
-              不依赖 BetterNCM/chromatic，支持最新版网易云客户端；网易云需保持运行且
-              ChuShiBridge 窗口开启。旧版客户端（2.x/3.0.x）仍可用{" "}
-              <a
-                href={LEGACY_PLUGIN_URL}
-                target="_blank"
-                rel="noreferrer"
-                className="underline decoration-zinc-300 underline-offset-2 dark:decoration-zinc-600"
-              >
-                chromatic 插件路线
+              从旧版升级：删除 plugins 里的旧 .plugin 再放入新版（1.3.0 修复了控制不生效）。
+              不想用框架可用{" "}
+              <a href={STANDALONE_URL} target="_blank" rel="noreferrer" className={LINK_CLS}>
+                独立版 ChuShiBridge
               </a>
               。网页版首次连接时浏览器可能询问「访问本地网络」，请允许；扩展版无需此步。
             </p>
@@ -199,47 +244,68 @@ export default function MusicPanel() {
 
   /* ---------- 已连接 ---------- */
   return (
-    <div className="flex flex-col gap-3.5" data-testid="music-player">
-      {/* 曲目行 */}
-      <div className="flex items-center gap-3">
-        <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-zinc-900/[0.05] shadow-sm dark:bg-white/10">
-          {song?.cover && coverOk ? (
-            <img
-              src={song.cover}
-              alt=""
-              referrerPolicy="no-referrer"
-              draggable={false}
-              onError={() => setCoverOk(false)}
-              className="h-full w-full object-cover"
-            />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center text-zinc-300 dark:text-zinc-600">
-              <Music2 className="h-6 w-6" strokeWidth={1.25} />
-            </div>
-          )}
+    <div className="flex flex-col gap-4" data-testid="music-player">
+      {/* 封面 + 曲目信息 */}
+      <div className="flex items-center gap-3.5">
+        <div className="relative shrink-0">
           {playing && (
-            <span
-              className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full accent-bg animate-pulse"
+            <div
+              className="accent-bg absolute -inset-1.5 rounded-[1.3rem] opacity-20 blur-md"
               aria-hidden
             />
           )}
+          <div
+            className={`relative h-24 w-24 overflow-hidden rounded-2xl bg-zinc-900/[0.05] shadow-md ring-1 ring-zinc-900/5 transition-transform duration-500 dark:bg-white/10 dark:ring-white/10 ${
+              playing ? "scale-[1.02]" : "scale-100"
+            }`}
+          >
+            {song?.cover && coverOk ? (
+              <img
+                src={song.cover}
+                alt=""
+                referrerPolicy="no-referrer"
+                draggable={false}
+                onError={() => setCoverOk(false)}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center text-zinc-300 dark:text-zinc-600">
+                <Music2 className="h-8 w-8" strokeWidth={1.25} />
+              </div>
+            )}
+            {playing && (
+              <span
+                className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.9)]"
+                aria-hidden
+              />
+            )}
+          </div>
         </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-normal text-zinc-800 dark:text-zinc-100">
+          <p
+            className="truncate text-[15px] font-normal leading-snug text-zinc-800 dark:text-zinc-100"
+            title={song?.name}
+          >
             {song ? song.name : "未在播放"}
           </p>
-          <p className="mt-0.5 truncate text-xs font-light text-zinc-500 dark:text-zinc-400">
-            {song
-              ? song.artists.join(" / ") || "未知艺术家"
-              : "打开网易云音乐放一首歌吧"}
+          <p
+            className="mt-1 truncate text-xs font-light text-zinc-500 dark:text-zinc-400"
+            title={song ? song.artists.join(" / ") : undefined}
+          >
+            {song ? song.artists.join(" / ") || "未知艺术家" : "打开网易云音乐放一首歌吧"}
           </p>
+          {song?.album && (
+            <p className="mt-0.5 truncate text-[11px] font-light text-zinc-400 dark:text-zinc-500">
+              {song.album}
+            </p>
+          )}
         </div>
         <button
           type="button"
           onClick={() => void clientRef.current?.connect(savedUrl)}
           aria-label="重新连接"
           title="重新连接"
-          className="rounded-full p-1.5 text-zinc-400 opacity-70 transition-all hover:bg-zinc-900/5 hover:opacity-100 dark:text-zinc-500 dark:hover:bg-white/10"
+          className="self-start rounded-full p-1.5 text-zinc-400 opacity-70 transition-all hover:bg-zinc-900/5 hover:opacity-100 dark:text-zinc-500 dark:hover:bg-white/10"
         >
           <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.5} />
         </button>
@@ -336,11 +402,119 @@ export default function MusicPanel() {
         </div>
       )}
 
-      {/* 连接状态脚注 */}
-      <p className="flex items-center gap-1.5 text-[10px] font-light tracking-wide text-zinc-400 dark:text-zinc-500">
-        <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden />
-        已连接 · 网易云音乐
-      </p>
+      {/* 连接状态脚注 + 诊断开关 */}
+      <div className="flex items-center justify-between">
+        <p className="flex items-center gap-1.5 text-[10px] font-light tracking-wide text-zinc-400 dark:text-zinc-500">
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden />
+          已连接 · 网易云音乐
+        </p>
+        <button
+          type="button"
+          onClick={() => void toggleDiag()}
+          aria-expanded={diagOpen}
+          aria-label="桥接诊断"
+          className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-light transition-colors ${
+            diagOpen
+              ? "bg-zinc-900/[0.06] text-zinc-600 dark:bg-white/10 dark:text-zinc-300"
+              : "text-zinc-400 hover:bg-zinc-900/5 hover:text-zinc-600 dark:text-zinc-500 dark:hover:bg-white/10 dark:hover:text-zinc-300"
+          }`}
+        >
+          <Activity className="h-3 w-3" strokeWidth={1.5} />
+          诊断
+        </button>
+      </div>
+
+      {/* 诊断卡 */}
+      {diagOpen && (
+        <div
+          data-testid="music-diag"
+          className="rounded-xl bg-zinc-900/[0.03] px-3.5 py-3 dark:bg-white/5"
+        >
+          {diagLoading ? (
+            <p className="text-xs font-light text-zinc-500 dark:text-zinc-400">拉取诊断中…</p>
+          ) : !diag ? (
+            <p className="text-xs font-light leading-relaxed text-zinc-500 dark:text-zinc-400">
+              诊断不可用（1.0.0 之前的旧版桥没有 /api/debug，或连接已中断）。
+            </p>
+          ) : (
+            <>
+              <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-[11px] font-light text-zinc-600 dark:text-zinc-300">
+                <span className="text-zinc-400 dark:text-zinc-500">桥版本</span>
+                <span className="font-mono">
+                  {diag.version ?? "?"}
+                  {diag.native ? ` · ${diag.native}` : ""}
+                  {diag.port ? ` · :${diag.port}` : ""}
+                </span>
+                <span className="text-zinc-400 dark:text-zinc-500">状态文件</span>
+                <span className="font-mono">
+                  {diag.stateFile
+                    ? `存在${staleSec != null ? ` · ${staleSec}s 前更新` : ""}`
+                    : "不存在"}
+                </span>
+                <span className="text-zinc-400 dark:text-zinc-500">数据源</span>
+                <span className="flex flex-wrap gap-1">
+                  {(
+                    [
+                      ["store", diag.diag?.storeReady],
+                      ["events", diag.diag?.eventsHooked],
+                      ["song", diag.diag?.getPlayingSong],
+                      ["media", diag.diag?.media],
+                    ] as const
+                  ).map(([k, v]) => (
+                    <span
+                      key={k}
+                      className={`rounded-full px-1.5 py-0.5 text-[10px] leading-none ${
+                        v
+                          ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                          : "bg-zinc-500/10 text-zinc-400 dark:text-zinc-500"
+                      }`}
+                    >
+                      {k} {v ? "✓" : "✕"}
+                    </span>
+                  ))}
+                </span>
+                {diag.diag?.href && (
+                  <>
+                    <span className="text-zinc-400 dark:text-zinc-500">注入页</span>
+                    <span className="truncate font-mono" title={diag.diag.href}>
+                      {diag.diag.href}
+                    </span>
+                  </>
+                )}
+              </div>
+
+              {diag.stateAgeMs != null && diag.stateAgeMs > 15000 && (
+                <p className="mt-2.5 flex items-start gap-1.5 rounded-lg bg-amber-500/10 px-2.5 py-2 text-[11px] font-light leading-relaxed text-amber-700 dark:text-amber-400">
+                  <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" strokeWidth={1.5} />
+                  <span>
+                    状态已 {staleSec}s 未更新——1.2.0 及更早的插件暂停时不写盘属已知现象；
+                    若播放中也不更新、或控制不生效，请升级插件到 1.3.0（删除 plugins
+                    里的旧 .plugin，换新后重启网易云）。
+                  </span>
+                </p>
+              )}
+
+              <div className="mt-2.5 flex items-center justify-between">
+                <span className="text-[10px] font-light text-zinc-400 dark:text-zinc-500">
+                  /api/debug{diag.diag?.v ? ` · 插件 ${diag.diag.v}` : ""}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void copyDiag()}
+                  className="flex items-center gap-1 rounded-lg bg-zinc-900/[0.05] px-2 py-1 text-[11px] font-light text-zinc-600 transition-colors hover:bg-zinc-900/10 dark:bg-white/10 dark:text-zinc-300 dark:hover:bg-white/15"
+                >
+                  {copied ? (
+                    <Check className="h-3 w-3" strokeWidth={1.5} />
+                  ) : (
+                    <Copy className="h-3 w-3" strokeWidth={1.5} />
+                  )}
+                  {copied ? "已复制" : "复制诊断"}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

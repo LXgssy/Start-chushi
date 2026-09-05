@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-# build-plugin.py — 初始音乐桥 BetterNCM 插件打包（1.2.0）
+# build-plugin.py — 初始音乐桥 BetterNCM 插件打包（1.3.0）
 #   编译 bridge/native/bridge.c → bridge.dll（llvm-mingw）→ 复制进 plugin/ → 组装两种包：
-#   ① ChuShi-MusicBridge-1.2.0.plugin  —— 官方安装包（zip 平铺：manifest.json 必须在包根部，
+#   ① ChuShi-MusicBridge-1.3.0.plugin  —— 官方安装包（zip 平铺：manifest.json 必须在包根部，
 #      放入 C:\betterncm\plugins\ 由 BetterNCM 自动解压 → plugins_runtime + .plugin.path.meta）
-#   ② 初始音乐桥-插件-1.2.0.zip —— plugins_dev 文件夹安装路线（顶层目录式）
+#   ② 初始音乐桥-插件-1.3.0.zip —— plugins_dev 文件夹安装路线（顶层目录式）
 import subprocess, os, sys, zipfile, shutil
 
 ROOT = "/home/z/my-project"
@@ -12,8 +12,8 @@ NATIVE = f"{ROOT}/bridge/native"
 TC = "/home/z/toolchain/llvm-mingw-20260826-ucrt-ubuntu-22.04-x86_64/bin"
 CC = f"{TC}/x86_64-w64-mingw32-gcc"
 OBJDUMP = f"{TC}/x86_64-w64-mingw32-objdump"
-DL = f"{ROOT}/download/v1.7.6"
-VER = "1.2.0"
+DL = f"{ROOT}/download/v1.7.7"
+VER = "1.3.0"
 ZIP_NAME = f"初始音乐桥-插件-{VER}.zip"
 PLUGIN_NAME = f"ChuShi-MusicBridge-{VER}.plugin"
 TOP = "初始音乐桥"
@@ -53,9 +53,14 @@ def zip_assert(names, flat, label):
 def package():
     shutil.copyfile(f"{NATIVE}/bridge.dll", f"{SRC}/bridge.dll")
     os.makedirs(DL, exist_ok=True)
-    stale = f"{DL}/初始音乐桥-插件-1.1.0.zip"
-    if os.path.exists(stale):
-        os.remove(stale); print("[*] 已清除旧包 初始音乐桥-插件-1.1.0.zip")
+    for stale_name in (
+        f"初始音乐桥-插件-1.1.0.zip",
+        f"初始音乐桥-插件-1.2.0.zip",
+        f"ChuShi-MusicBridge-1.2.0.plugin",
+    ):
+        stale = f"{DL}/{stale_name}"
+        if os.path.exists(stale):
+            os.remove(stale); print(f"[*] 已清除旧包 {stale_name}")
 
     # ① 官方 .plugin 安装包：zip 平铺（与 resource/PluginMarket.plugin 同构），后缀 .plugin
     zp_plugin = f"{DL}/{PLUGIN_NAME}"
