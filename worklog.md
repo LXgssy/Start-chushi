@@ -350,3 +350,21 @@ Stage Summary:
 - 结论：r3 修复「运行中无法安装」（install.ps1 第 0 步停进程）与「桥接不起」（probe 判据放宽+分片 bug+kill 时序三重修复）；用户下次实测若仍连不上，bridge.log 与 /api/debug 的 attach/attachDetail 字段可一次定位到具体环节
 - 新律：①跨会话交付物必须 commit 入仓——Release 资产不是版本控制，环境清理后源码即失传（r2 源码已永久丢失，本轮重建）②WS 客户端读消息必须跨帧聚合（continuation 帧缓冲与循环作用域同生命周期）③CDP 页面判据不可绑定单一全局对象（legacyNativeCmder 随网易云版本存亡），多路特征兜底 ④PowerShell ConvertTo-Json 的 \uXXXX 输出必须假设消费端只认 \\\\ 转义——要么消费端解码、要么 WriteAllText 手动构造
 - 待办：用户实测 r3 → 依据 attach 字段定位残余问题；任务B（音乐面板体验）收尾；任务A（磁贴抖动）；Edge 商店材料
+
+---
+Task ID: 69
+Agent: main (Super Z)
+Task: r4 通道重构——用户 r3 实测日志「CDP 目标清单 1 个：page|（url 空）」+「[attach] probe-eval-fail：eval-ws-closed」，初始仍连不上
+
+Work Log:
+- 【决定性诊断】r3 细分诊断生效：probe-eval-fail + eval-ws-closed = **WS 握手成功（101）后、发 PROBE 求值时连接被 CloudMusic CEF 主动关闭**——失败发生在页面判据之前，r3 放宽判据未触及真因；`page|` 空 url 同时暴露 /json/list 字段序非标准（type 在前 url 在后）
+- 【r4 重构】cb_cdp.c：新增 cdp_command（通用 CDP 命令往返，支持 sessionId）+ ws_eval_ex（会话版 evaluate）；**主路改 browser flatten**：/json/version→browser WS→Target.getTargets（needle 依次 orpheus/music.163/任意 page）→Target.attachToTarget(flatten:true)→sessionId→页内 evaluate；**页端点降为回退**（网易云生态适配器同款路径）；ws_read_message 解析 close 帧状态码/原因（1002 协议错/1000/1011）进 cdp_last_error——下次被拒 attachDetail 直出证据；cdp_http_body 抽取（list/version 共用）+ target_desc_at 前后双搜 + cdp_port_alive 探活；discover_and_attach 改「探活→cdp_open_target→注入→快照」，通道复用进轮询（不再二次 connect），附加日志标注 flatten/page 模式；chushibridge.c 删旧 probe_target（判定移 cb_cdp.c cdp_probe_page）
+- 【验证】verify-installer-r4.py 74/74 全绿（新增 flatten 主路/attachToTarget/pick_page_target/close 解析/通道复用/探活 10 项）；⚠教训：验证脚本代际升级用 cp+替换比 heredoc 嵌套引号可靠（连续两次 Python 内联转义翻车，改用 Edit 工具）
+- 【发布事故】使用说明更新后重打包 → 本地 zip 与刚传的线上资产不一致 → 立即重跑 rel-installer-r4.py（幂等）再替换，直链 SHA d53de6e2… 复核一致；⚠律：改包内任何文件后必须重跑 Release 替换并复核哈希，不能只改一处
+- 【发布】main ccf23a3 + ddcd31e（11+ 文件）；Release 资产 78845B（id 545267623）；文叔叔 https://c.wss.ink/f/kssfsfr6wpx
+- 【版本】桥接器 2.0.3；Release notes r3 段已由 r4 段替换（MARK 幂等）
+
+Stage Summary:
+- 结论：页端点直连被 CloudMusic CEF 拒（握手后 close）是「初始连不上」的真因层；flatten 会话是网易云 CDP 生态验证过的正路；若 flatten 也被拒，close 帧状态码会给出下一步证据
+- 新律：①CDP 对客制化 CEF（CloudMusic）不要假设页端点可用——browser flatten 优先、页端点回退 ②close 帧负载（状态码+原因）是最便宜的深诊断，第一次实现 WS 客户端就该解析它 ③多文件交付物（zip）任何成员变更后都要视为「新包」重新走完整发布链
+- 待办：用户实测 r4 → attach=flatten+ok 则收尾「初始侧连接」；残余问题看 attachDetail（ws-close 码/timeout/probe-miss）
