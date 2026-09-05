@@ -14,7 +14,8 @@
  *   GET  /api/ping      → {"ok":true,"name":"chushi-music-bridge",...}
  *   GET  /api/status    → state.json 原文透传（无状态文件时 503）
  *   POST /api/control   → 请求体(≤4KB)写入 cmd-*.json 返回 {"ok":true}
- *   OPTIONS *           → CORS 预检
+ *   GET  /api/debug     → 桥接诊断（diag.json 透传 + state 存在性/年龄，排障用）
+ *   OPTIONS *           → CORS 预检（含 PNA 头）
  *
  * 安全设计：
  *   - 仅绑定 127.0.0.1，端口 10754 起向后顺延最多 10 个
@@ -37,10 +38,11 @@
 #include <string.h>
 #include <stdint.h>
 
-#define BRIDGE_VERSION   "1.0.0"
+#define BRIDGE_VERSION   "1.1.0"
 #define DIR_NAME         L"chushi-music"
 #define STATE_FILE       L"state.json"
 #define STATE_TMP        L"state.tmp.json"
+#define DIAG_FILE        L"diag.json"
 #define CMD_PREFIX       L"cmd-"
 #define CMD_TMP_PREFIX   L"tmp-"
 #define DEFAULT_PORT     10754
@@ -55,6 +57,7 @@ static HANDLE g_thread = NULL;
 static volatile LONG g_running = 0;
 
 static wchar_t g_state_path[MAX_PATH];
+static wchar_t g_diag_path[MAX_PATH];
 static wchar_t g_cmd_dir[MAX_PATH];
 
 /* ---------- 日志 ---------- */
@@ -78,6 +81,8 @@ static int build_paths(void) {
     while (n > 0 && dp[n - 1] == L'\\') { dp[--n] = 0; }   /* 规范化尾反斜杠 */
 
     int r = swprintf_s(g_state_path, MAX_PATH, L"%s\\%s\\%s", dp, DIR_NAME, STATE_FILE);
+    if (r < 0) return 0;
+    r = swprintf_s(g_diag_path, MAX_PATH, L"%s\\%s\\%s", dp, DIR_NAME, DIAG_FILE);
     if (r < 0) return 0;
     r = swprintf_s(g_cmd_dir, MAX_PATH, L"%s\\%s", dp, DIR_NAME);
     if (r < 0) return 0;
@@ -200,6 +205,7 @@ static void respond(SOCKET s, int code, const char *reason, const char *ctype,
             "Content-Length: 0\r\n"
             "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
             "Access-Control-Allow-Headers: Content-Type\r\n"
+            "Access-Control-Allow-Private-Network: true\r\n"
             "Access-Control-Max-Age: 600\r\n"
             "Connection: close\r\n"
             "%s\r\n", code, reason, acao);
@@ -312,6 +318,48 @@ static void handle_status(SOCKET s, const char *origin) {
     }
     respond(s, 200, "OK", "application/json; charset=utf-8", (char *)buf, len, origin, 0);
     free(buf);
+}
+
+/* ---------- /api/debug（1.1.0）：diag.json 透传 + state 存在性/年龄 ---------- */
+
+static void handle_debug(SOCKET s, const char *origin, int port) {
+    char body[6 * 1024];
+    /* diag 段：插件 JS 写的 diag.json 原文透传（首尾括号快检防半截 JSON）；
+     * 缺失时兜底全 false 段 */
+    char dseg[4096];
+    size_t dlen = 0;
+    unsigned char *diag = read_file(g_diag_path, sizeof(dseg) - 1, &dlen);
+    if (diag && dlen > 1 && diag[0] == '{' && diag[dlen - 1] == '}' && dlen < sizeof(dseg)) {
+        memcpy(dseg, diag, dlen);
+        dseg[dlen] = 0;
+    } else {
+        strcpy_s(dseg, sizeof(dseg),
+                 "{\"storeReady\":false,\"eventsHooked\":false,\"getPlayingSong\":false,\"media\":false}");
+    }
+    free(diag);
+
+    /* state.json 存在性与年龄（ms） */
+    int state_exists = 0;
+    unsigned long long state_age_ms = 0;
+    {
+        WIN32_FILE_ATTRIBUTE_DATA fa;
+        if (GetFileAttributesExW(g_state_path, GetFileExInfoStandard, &fa)) {
+            state_exists = 1;
+            ULARGE_INTEGER mt, now;
+            mt.HighPart = fa.ftLastWriteTime.dwHighDateTime;
+            mt.LowPart = fa.ftLastWriteTime.dwLowDateTime;
+            GetSystemTimeAsFileTime(&fa.ftLastWriteTime);
+            now.HighPart = fa.ftLastWriteTime.dwHighDateTime;
+            now.LowPart = fa.ftLastWriteTime.dwLowDateTime;
+            state_age_ms = (now.QuadPart > mt.QuadPart) ? (now.QuadPart - mt.QuadPart) / 10000ULL : 0;
+        }
+    }
+    sprintf_s(body, sizeof(body),
+              "{\"ok\":true,\"version\":\"%s\",\"native\":\"bridge.dll\",\"port\":%d,"
+              "\"stateFile\":%s,\"stateAgeMs\":%llu,\"diag\":%s}",
+              BRIDGE_VERSION, port,
+              state_exists ? "true" : "false", state_age_ms, dseg);
+    respond(s, 200, "OK", "application/json; charset=utf-8", body, strlen(body), origin, 0);
 }
 
 static void handle_control(SOCKET s, const char *origin, char *headbuf,
@@ -455,6 +503,8 @@ static DWORD WINAPI server_thread(LPVOID arg) {
             handle_ping(c, req.origin, port);
         } else if (strcmp(req.path, "/api/status") == 0 && strcmp(req.method, "GET") == 0) {
             handle_status(c, req.origin);
+        } else if (strcmp(req.path, "/api/debug") == 0 && strcmp(req.method, "GET") == 0) {
+            handle_debug(c, req.origin, port);
         } else if (strcmp(req.path, "/api/control") == 0 && strcmp(req.method, "POST") == 0) {
             handle_control(c, req.origin, buf, hdr_len, extra, &req);
         } else {

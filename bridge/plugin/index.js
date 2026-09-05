@@ -28,14 +28,16 @@
   const clamp01 = (n) => Math.max(0, Math.min(1, n));
 
   const DIR = "chushi-music";
-  const BRIDGE_VERSION = "1.0.0";
+  const BRIDGE_VERSION = "1.1.0";
 
   /* ---------- 运行时句柄 ---------- */
   let store = null;              // dva Redux store（NCM 3.x）
   let getPlayingSong = null;     // betterncm.ncm.getPlayingSong（兜底）
   let lastPlaying = false;       // 最近一次已知播放态（toggle 用）
   let lastProgressMs = 0;        // 最近一次已知进度（PlayProgress 事件）
+  let eventsOk = false;          // 原生事件注册成功
   let disposed = false;
+  const installedAt = Date.now();
 
   /* ---------- 等待 NCM 世界就绪 ---------- */
   for (let i = 0; i < 100 && !window.legacyNativeCmder; i++) await sleep(200);
@@ -55,19 +57,20 @@
   }
 
   const enc = encodeURIComponent;
-  async function writeStateAtomic(json) {
+  async function writeTextAtomic(file, json) {
     /* 原子写：tmp + /fs/rename；失败回落直写（DLL 对瞬时坏 JSON 有容错） */
     try {
-      await window.betterncm.fs.writeFileText(DIR + "/state.tmp.json", json);
+      await window.betterncm.fs.writeFileText(DIR + "/" + file + ".tmp.json", json);
       await window.betterncm.betterncmFetch(
-        `/fs/rename?path=${enc(DIR + "/state.tmp.json")}&dest=${enc(DIR + "/state.json")}`
+        `/fs/rename?path=${enc(DIR + "/" + file + ".tmp.json")}&dest=${enc(DIR + "/" + file)}`
       );
       return;
     } catch (e) { /* fallthrough */ }
-    try { await window.betterncm.fs.writeFileText(DIR + "/state.json", json); } catch (e2) {
-      warn("state.json 直写失败", e2);
+    try { await window.betterncm.fs.writeFileText(DIR + "/" + file, json); } catch (e2) {
+      warn(file + " 直写失败", e2);
     }
   }
+  async function writeStateAtomic(json) { await writeTextAtomic("state.json", json); }
 
   /* ---------- 状态快照 ---------- */
   function httpsUp(u) {
@@ -184,6 +187,31 @@
   /* 1s 心跳：播放中推动进度（暂停时快照不变不写盘） */
   setInterval(() => { pushState(false).catch(() => {}); }, 1000);
 
+  /* ---------- 诊断落盘（diag.json → /api/debug 透传） ---------- */
+  let lastDiagSig = "";
+  function buildDiag() {
+    return {
+      v: BRIDGE_VERSION,
+      ts: Date.now(),
+      installedAt,
+      storeReady: !!store,
+      eventsHooked: eventsOk,
+      getPlayingSong: !!getPlayingSong,
+      media: !!mediaEl(),
+      href: String((typeof location !== "undefined" && location.href) || "").slice(0, 80),
+    };
+  }
+  async function pushDiag() {
+    try {
+      const d = JSON.stringify(buildDiag());
+      if (d === lastDiagSig) return;
+      lastDiagSig = d;
+      await writeTextAtomic("diag.json", d);
+    } catch (e) { /* 诊断非关键 */ }
+  }
+  /* 10s 心跳：三源状态变化即写（媒体元素/store 晚到也能反映） */
+  setInterval(() => { pushDiag().catch(() => {}); }, 10000);
+
   /* ---------- NCM 原生事件 ---------- */
   try {
     const cmder = window.legacyNativeCmder;
@@ -205,25 +233,49 @@
         }
       });
       log("原生事件已注册（PlayState/PlayProgress/Seek）");
+      eventsOk = true;
+      pushDiag().catch(() => {});
     }
   } catch (e) { warn("注册原生事件失败", e); }
 
-  /* ---------- Redux store 发现（NCM 3.x dva） ---------- */
+  /* ---------- Redux store 发现（NCM 3.x dva；webpack4/5 双兼容） ---------- */
 
   function captureWebpackRequire() {
     return new Promise((resolve) => {
+      /* webpack4：window.webpackJsonp.push 假模块捕获（push 时同步调用工厂） */
       try {
         const gp = window.webpackJsonp;
-        if (!gp || typeof gp.push !== "function") return resolve(null);
-        const id = "__chushi_req_" + Date.now();
-        const chunk = {};
-        chunk[id] = function (module, exports, require) {
-          try { resolve(typeof require === "function" ? require : null); } catch (e) { resolve(null); }
-        };
-        if (Array.isArray(gp[0])) gp.push([[id], chunk, [[id]]]);
-        else gp.push([[id], chunk]);
-        setTimeout(() => resolve(null), 3000);
-      } catch (e) { resolve(null); }
+        if (gp && typeof gp.push === "function") {
+          const id = "__chushi_req_" + Date.now() + "_" + Math.floor(Math.random() * 1e6);
+          const chunk = {};
+          chunk[id] = function (module, exports, require) {
+            try { resolve(typeof require === "function" ? require : null); } catch (e) { resolve(null); }
+          };
+          if (Array.isArray(gp[0])) gp.push([[id], chunk, [[id]]]);
+          else gp.push([[id], chunk]);
+          setTimeout(() => resolve(null), 3000);
+          return;
+        }
+      } catch (e) { /* 落入 webpack5 尝试 */ }
+      /* webpack5：全局名 webpackChunk<AppName>，push([chunkIds, modules, runtime]) */
+      try {
+        for (const k in window) {
+          if (k.indexOf("webpackChunk") === 0 && window[k] && typeof window[k].push === "function") {
+            let req = null;
+            window[k].push([
+              ["__chushi_" + Date.now()],
+              {},
+              function (r0, r1) {
+                if (typeof r0 === "function") req = r0;
+                else if (typeof r1 === "function") req = r1;
+              },
+            ]);
+            resolve(req);
+            return;
+          }
+        }
+      } catch (e) { /* 忽略 */ }
+      resolve(null);
     });
   }
 
@@ -252,6 +304,7 @@
         if (dva && dva.a && dva.a.inited && dva.a.app && dva.a.app._store) {
           store = dva.a.app._store;
           log("dva Redux store 已获取");
+          pushDiag().catch(() => {});
           /* 订阅：切歌（resourceTrackId 变化）立即推送 */
           try {
             let lastTrackId = null;
@@ -386,6 +439,7 @@
   /* ---------- 启动 ---------- */
   await ensureDirs();
   log("桥接就绪 v" + BRIDGE_VERSION + "（状态文件 → " + DIR + "/state.json，命令 ← " + DIR + "/cmd/）");
+  await pushDiag().catch(() => {});
 
   /* 调试句柄 */
   try {
