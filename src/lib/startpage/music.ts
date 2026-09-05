@@ -66,6 +66,16 @@ export type MusicFailReason =
 
 export const DEFAULT_MUSIC_URL = "http://127.0.0.1:10754";
 
+/** 端口自动发现候选（按序探测）。
+ *  背景：插件设置页可改「服务端口」（写 config.json，重启网易云生效），
+ *  改完面板不知道就会敲旧端口 → 永远连不上。探测目标必须过
+ *  /api/ping 的 name=chushi-music-bridge 精确校验，不会误认别的本地服务。 */
+export const MUSIC_PORT_CANDIDATES = [10754, 8008] as const;
+
+export function candidateMusicUrls(): string[] {
+  return MUSIC_PORT_CANDIDATES.map((p) => `http://127.0.0.1:${p}`);
+}
+
 /** 规范化用户输入的桥接地址：补协议、去尾斜杠、限 http(s) */
 export function normalizeMusicUrl(raw: string): string {
   let u = raw.trim();
@@ -100,6 +110,8 @@ export class MusicBridgeClient {
     private opts: {
       onSnapshot: (s: MusicSnapshot | null) => void;
       onStatus: (status: MusicStatus, reason?: MusicFailReason) => void;
+      /** 自动发现命中了与请求不同的地址时回调（面板据此持久化，v1.7.8） */
+      onAdopted?: (url: string) => void;
     }
   ) {}
 
@@ -127,12 +139,31 @@ export class MusicBridgeClient {
     this.started = true;
     this.failStreak = 0;
     this.opts.onStatus("connecting");
-    const ok = await this.probe();
+    let ok = await this.probeUrl(this.url);
+    if (!ok) {
+      /* 请求的地址不通 → 按候选端口自动扫描（用户改过插件端口时自救） */
+      ok = await this.scanCandidates();
+    }
     if (ok) {
       this.startPolling();
     } else {
       this.opts.onStatus("error", this.lastReason);
     }
+  }
+
+  /** 依序探测候选端口；命中即换址并通知面板记住（v1.7.8） */
+  private async scanCandidates(): Promise<boolean> {
+    for (const c of candidateMusicUrls()) {
+      const u = normalizeMusicUrl(c);
+      if (u === this.url) continue; // 刚失败过的地址不重复敲
+      const ok = await this.probeUrl(u);
+      if (ok) {
+        this.url = u;
+        this.opts.onAdopted?.(u);
+        return true;
+      }
+    }
+    return false;
   }
 
   disconnect() {
@@ -148,13 +179,13 @@ export class MusicBridgeClient {
 
   private lastReason: MusicFailReason = "unknown";
 
-  /** 探测一次：区分「服务没起」与「被浏览器拦截」 */
-  private async probe(): Promise<boolean> {
+  /** 探测指定地址：区分「服务没起」与「被浏览器拦截」 */
+  private async probeUrl(url: string): Promise<boolean> {
     this.lastReason = "unknown";
     try {
       const ctl = new AbortController();
       const t = setTimeout(() => ctl.abort(), 2500);
-      const r = await fetch(`${this.url}/api/ping`, { signal: ctl.signal, mode: "cors" });
+      const r = await fetch(`${url}/api/ping`, { signal: ctl.signal, mode: "cors" });
       clearTimeout(t);
       if (!r.ok) {
         this.lastReason = "bad";
@@ -226,7 +257,9 @@ export class MusicBridgeClient {
         setTimeout(() => {
           if (!this.started) return;
           void (async () => {
-            if (await this.probe()) this.startPolling();
+            let ok = await this.probeUrl(this.url);
+            if (!ok) ok = await this.scanCandidates(); // 服务换了端口也能跟过去
+            if (ok) this.startPolling();
             else this.opts.onStatus("error", this.lastReason);
           })();
         }, 5000);
