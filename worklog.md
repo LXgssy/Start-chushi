@@ -406,3 +406,23 @@ Stage Summary:
 - 结论：插件路线交付完毕——BetterNCM 官方安装器 + 升级到 1.1.0 的插件（webpack5 兼容 + /api/debug 诊断）。插件与独立版同端口同 API，数据契约 v1.7.5 起未变，「初始」侧无需任何改动
 - 新律：①strcmp 常量折叠——编译期优化会把字符串比较烙进指令流，二进制特征断言要挑「响应格式串/宽字符」这类不会被折叠的目标 ②文件契约（state.json/diag.json/cmd/*.json）是 JS↔DLL 的进程边界，diag 也走同一条原子写管道，排障数据与业务数据同通道最省心
 - 待办：用户实测插件路线——装 BetterNCM（若网易云起不来即框架/内核不兼容，回独立版）→ 装插件 → F12 看 [ChuShiMusicBridge] 日志 → /api/debug 反馈；Edge 商店提交材料仍未做
+
+---
+Task ID: 72
+Agent: main (Super Z)
+Task: 用户实测反馈「安装不成功，而且我怎么没有看到 .plugin.path.meta 和要放在 plugins 文件夹里的 .plugin 文件」——对照 BetterNCMII(v2 分支) 源码考古插件装载全链，修正插件包格式与安装指南
+
+Work Log:
+- 【源码考古定案】chromatic 已迁至 std-microblock/chromatic（MicroCBer/BetterNCM 301 跳转）；v2 分支（BetterNCMII 1.3.4）双装载通道全链确认：①C++ extractPackedPlugins：plugins 目录只认 *.plugin 后缀（本质 zip），zip_entry_open 直读根部 "manifest.json" 条目 → 解压到 plugins_runtime\<slug>\ 并自动写入 .plugin.path.meta（内容=来源 .plugin 相对路径，供商店更新）；plugins_runtime 每次启动全量重建（第 225-243 行先清后解）②js-framework（子模块 BetterNCM/js-framework）loader.ts：pageMap={"/pub/app.html":"Main"}，读 plugins_runtime+plugins_dev 的 manifest.json → injects["Main"] → AsyncFunction("plugin", code) 执行——injects.Main 是 v2 唯一 JS 消费链（App.cpp 的 startup_script 是并存 C++ 通道，二者同声明会双重执行，故只保留 injects）
+- 【根因】Task 71 交付包只有「顶层带目录的 .zip」+ plugins_dev 文件夹安装说明：zip 放进 plugins 不被认领（只认 .plugin 后缀）、拖拽安装提示是误导、用户找不到 .plugin/.plugin.path.meta 两个「本该由 BetterNCM 自动生成」的产物——安装姿势与生态机制错位，插件从未被装载
+- 【兼容门核对】from_json 第 72 行读的就是 "ncm3-compatible"（带连字符，与我们写法一致）；ncm-version-req 缺省 "> 2.10.2"（NCM3.x 满足），本轮显式写入 manifest；loadInPath(plugins_dev) 不走兼容门；native_plugin 先按原名 LoadLibrary，失败才试 *.x64.dll——bridge.dll x64 原名即可；与 v2 内置 resource/PluginMarket.plugin 解包对拍（根部平铺 main.js+manifest.json、无 startup_script、无 type 字段）完全同构
+- 【插件 1.2.0】manifest 补 ncm-version-req 显式声明+安装提示描述；index.js BRIDGE_VERSION 1.2.0+幂等护栏（__chushiMusicBridgeActive 防同页二次注入重复写盘）+加载日志；bridge.c 版本串同步；llvm-mingw 重编译零警告（60KB）
+- 【打包修正】build-plugin.py 双产线：①ChuShi-MusicBridge-1.2.0.plugin（zip 根部平铺 manifest.json/index.js/bridge.dll/README.txt，条目全 ASCII+无目录前缀断言——BetterNCM zip 库直读条款）②初始音乐桥-插件-1.2.0.zip（顶层目录式，plugins_dev 路线保留）；清陈旧 1.1.0 包
+- 【验证】verify-plugin.py 升级到 74/74 全绿（新增：.plugin 平铺布局/ASCII/根部 manifest、与官方 PluginMarket 同构比对、防 startup_script 双通道断言、幂等护栏、包内 DLL/JS 与源哈希一致、交付包内 .plugin 一致）；node --check 过
+- 【文档】安装指南.md 重写（.plugin 与 .plugin.path.meta 机制专段/路线 A 放 C:\betterncm\plugins\ 主推/路线 B plugins_dev 兜底/安装器失败四查：官网桌面版非商店版/管理员+SmartScreen 仍要运行/杀软放行/内核不兼容回落独立版/装后 plugins_runtime 产物自证）；插件内安装说明.txt 同步（含卸载对应两路线差异）
+- 【发布】main 推送；文叔叔合并交付包（443KB）：https://c.wss.ink/f/ksukoeyldar
+
+Stage Summary:
+- 结论：「安装不成功」根因 = 交付物格式与 BetterNCM 生态机制错位（.zip ≠ .plugin；.plugin.path.meta 是 BetterNCM 解压时自动生成的来源指针，用户无需也不能手动创建）；1.2.0 起交付与插件商店同构的 .plugin 包，放 C:\betterncm\plugins\ 重启网易云即装
+- 新律：①给插件生态做交付必须先读它的加载器源码——「看起来合理的 zip/manifest」与「装载器实际认领的格式」之间隔着整条 extractPackedPlugins ②多装载通道（C++ startup_script vs JS injects）并存时只能择一声明，否则双重执行 ③官方内置插件包（resource/*.plugin）是最便宜的格式参照物，解包对拍胜过任何文档 ④plugins_runtime 类「每次启动重建」的缓存目录绝不能当安装目标
+- 待办：用户按新指南实测 1.2.0（装完看 plugins_runtime\cc.chushi.musicbridge\ 是否自动出现 → F12 Console [ChuShiMusicBridge] → /api/debug）；若框架层就失败（网易云起不来/管理界面空白）= 内核不兼容，回独立版 2.0.4；Edge 商店提交材料仍未做

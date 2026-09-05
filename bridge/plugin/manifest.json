@@ -2,10 +2,11 @@
   "manifest_version": 1,
   "name": "初始音乐桥",
   "slug": "cc.chushi.musicbridge",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "ChuShi",
-  "description": "把网易云音乐正在播放的歌曲暴露给「初始」起始页：本地回环 HTTP 服务 + 播放控制 + /api/debug 诊断。需与初始 v1.7.5+ 配合使用。",
+  "description": "把网易云音乐正在播放的歌曲暴露给「初始」起始页：本地回环 HTTP 服务 + 播放控制 + /api/debug 诊断。需与初始 v1.7.5+ 配合使用。安装：把 .plugin 包放入 BetterNCM 数据目录的 plugins 文件夹，重启网易云。",
   "ncm3-compatible": true,
+  "ncm-version-req": "> 2.10.2",
   "betterncm_version": ">=1.0.0",
   "injects": {
     "Main": [
