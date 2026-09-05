@@ -15,9 +15,9 @@
  */
 (function () {
   "use strict";
-  if (window.__chushiBridge && window.__chushiBridge.__v === "2.0.0") return;
+  if (window.__chushiBridge && window.__chushiBridge.__v === "2.0.2") return;
 
-  var VERSION = "2.0.0";
+  var VERSION = "2.0.2";
   var B = {
     __v: VERSION,
     store: null,          // dva Redux store
@@ -41,22 +41,42 @@
     return s;
   }
 
-  /* ---------- ① webpack require 同步捕获 + dva store 发现 ---------- */
+  /* ---------- ① webpack require 同步捕获 + dva store 发现 ----------
+   * 兼容 webpack4（window.webpackJsonp.push）与 webpack5（webpackChunk* 前缀全局），
+   * 两者均为 push 时同步调用模块工厂/runtime 函数，require 此刻即就绪。 */
   function captureRequireSync() {
+    var req = null;
     try {
       var gp = window.webpackJsonp;
-      if (!gp || typeof gp.push !== "function") return null;
-      var req = null;
-      var id = "__chushi_req_" + Date.now() + "_" + Math.floor(Math.random() * 1e6);
-      var chunk = {};
-      chunk[id] = function (module, exports, require) {
-        try { req = typeof require === "function" ? require : null; } catch (e) { req = null; }
-      };
-      if (Array.isArray(gp[0])) gp.push([[id], chunk, [[id]]]);
-      else gp.push([[id], chunk]);
-      /* webpack 的 jsonp push 同步调用模块工厂，req 此刻已就绪 */
-      return req;
-    } catch (e) { return null; }
+      if (gp && typeof gp.push === "function") {
+        var id = "__chushi_req_" + Date.now() + "_" + Math.floor(Math.random() * 1e6);
+        var chunk = {};
+        chunk[id] = function (module, exports, require) {
+          try { req = typeof require === "function" ? require : null; } catch (e) { req = null; }
+        };
+        if (Array.isArray(gp[0])) gp.push([[id], chunk, [[id]]]);
+        else gp.push([[id], chunk]);
+        return req;
+      }
+    } catch (e) { /* 落入 webpack5 尝试 */ }
+    try {
+      /* webpack5：全局名 webpackChunk<AppName>，push([chunkIds, modules, runtimeFn]) */
+      for (var k in window) {
+        if (k.indexOf("webpackChunk") === 0 && window[k] && typeof window[k].push === "function") {
+          req = null;
+          window[k].push([
+            ["__chushi_" + Date.now()],
+            {},
+            function (r0, r1) {
+              if (typeof r0 === "function") req = r0;
+              else if (typeof r1 === "function") req = r1;
+            },
+          ]);
+          if (req) return req;
+        }
+      }
+    } catch (e) { /* 忽略 */ }
+    return null;
   }
 
   function findDvaStore(req) {

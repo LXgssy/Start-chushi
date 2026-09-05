@@ -311,8 +311,11 @@ static void handle_control(SOCKET s, const char *origin, char *headbuf,
     }
 }
 
+/* ASCII 安全化（防 attachDetail 里的引号/控制字符/UTF-8 截断破坏 debug JSON） */
+static void json_sanitize_ascii(const char *in, char *out, size_t cap);
+
 static void handle_debug(SOCKET s, const char *origin, int port) {
-    char body[1024];
+    char body[1536];
     char ncmpath[300];
     cb_json_escape_w(g_cb.ncm_path, ncmpath, sizeof(ncmpath));
     ULONGLONG age = cb_snap_age();
@@ -332,10 +335,17 @@ static void handle_debug(SOCKET s, const char *origin, int port) {
         }
         LeaveCriticalSection(&g_cb.lock);
     }
+    /* attach 诊断：cdp_ok 时恒为 ok，否则展示最近失败状态 + 详情 */
+    char ats[32], atd[192], ats_esc[72], atd_esc[384];
+    cb_attach_get(ats, sizeof(ats), atd, sizeof(atd));
+    if (c) { strcpy_s(ats, sizeof(ats), "ok"); atd[0] = 0; }
+    json_sanitize_ascii(ats, ats_esc, sizeof(ats_esc));
+    json_sanitize_ascii(atd, atd_esc, sizeof(atd_esc));
     sprintf_s(body, sizeof(body),
         "{\"ok\":true,\"version\":\"%s\",\"port\":%d,\"cdpPort\":%d,"
         "\"cdp\":%s,\"bridge\":%s,\"ncmRunning\":%s,\"ncmPid\":%lu,"
         "\"lastEvalAgoMs\":%llu,\"diag\":{\"store\":%s,\"events\":%s,\"media\":%s},"
+        "\"attach\":\"%s\",\"attachDetail\":\"%s\","
         "\"ncmPath\":\"%s\"}",
         CB_VERSION, port, g_cb.cdp_port,
         c ? "true" : "false", b ? "true" : "false", nr ? "true" : "false",
@@ -344,8 +354,40 @@ static void handle_debug(SOCKET s, const char *origin, int port) {
         diag_store ? "true" : "false",
         diag_events ? "true" : "false",
         diag_media ? "true" : "false",
-        ncmpath);
+        ats_esc, atd_esc, ncmpath);
     respond(s, 200, "OK", "application/json; charset=utf-8", body, strlen(body), origin, 0);
+}
+
+/* ---------- attach 诊断状态 ---------- */
+
+static char g_attach_state[32] = "idle";
+static char g_attach_detail[192] = "";
+
+void cb_attach_set(const char *state, const char *detail) {
+    EnterCriticalSection(&g_cb.lock);
+    strncpy_s(g_attach_state, sizeof(g_attach_state), state ? state : "", _TRUNCATE);
+    strncpy_s(g_attach_detail, sizeof(g_attach_detail), detail ? detail : "", _TRUNCATE);
+    LeaveCriticalSection(&g_cb.lock);
+}
+
+void cb_attach_get(char *state, size_t scap, char *detail, size_t dcap) {
+    EnterCriticalSection(&g_cb.lock);
+    strncpy_s(state, scap, g_attach_state, _TRUNCATE);
+    strncpy_s(detail, dcap, g_attach_detail, _TRUNCATE);
+    LeaveCriticalSection(&g_cb.lock);
+}
+
+/* ASCII 安全化（防 attachDetail 里的引号/控制字符/UTF-8 截断破坏 debug JSON） */
+static void json_sanitize_ascii(const char *in, char *out, size_t cap) {
+    size_t oi = 0;
+    for (size_t i = 0; in[i] && oi + 7 < cap; i++) {
+        unsigned char c = (unsigned char)in[i];
+        if (c == '"') { out[oi++] = '\\'; out[oi++] = '"'; }
+        else if (c == '\\') { out[oi++] = '\\'; out[oi++] = '\\'; }
+        else if (c < 0x20 || c > 0x7E) out[oi++] = ' ';
+        else out[oi++] = (char)c;
+    }
+    out[oi] = 0;
 }
 
 /* 宽字符串 JSON 转义（非 ASCII → \uXXXX，代理对成对处理） */
