@@ -1,19 +1,30 @@
-初始音乐桥（ChuShi Music Bridge）v1.2.0（BetterNCM 插件版）
+初始音乐桥（ChuShi Music Bridge）v1.3.0（BetterNCM 插件版）
 ==========================================
 
 把网易云音乐桌面客户端「正在播放」的歌曲暴露给「初始」起始页
 （https://lxgssy.github.io/Start-chushi/ 或其 Edge/Chrome 扩展版），
 并提供播放控制（播放/暂停/上下曲/进度/音量）。
 
-v1.2.0 相对 1.1.0 的升级
+v1.3.0 相对 1.2.0 的升级（重要，建议所有用户更新）
 ------------------------
-- 新增官方 .plugin 安装包（ChuShi-MusicBridge-1.2.0.plugin）：
-  放入 BetterNCM 数据目录的 plugins 文件夹即可，由 BetterNCM 自动解压安装，
-  与插件商店安装的插件完全同构；
-- 补充 manifest 的 ncm-version-req 声明（>= 2.10.2，NCM 3.x 均满足）；
-- 页内脚本增加幂等护栏（防止同页二次注入导致重复写盘）；
-- 1.1.0 已有：/api/debug 诊断端点、webpack5 内核兼容、diag.json 三源诊断、
-  PNA 预检护栏（详见下文）。
+- ★ 根因修复：1.2.0 及之前 bridge.dll 把控制命令文件误写到
+  chushi-music\ 根目录（少拼了 \cmd 子目录），而插件脚本只轮询
+  chushi-music\cmd\ 子目录 —— 「初始」面板点播放/暂停等按钮后命令
+  永远不被网易云执行（接口虽返回成功）。本轮修正落盘路径，
+  并在插件侧兼容扫描根目录残留 + 启动时自动清扫积压；
+- 插件脚本控制命令执行后 420ms 校验实际效果，未生效时直接驱动
+  媒体元素兜底（防新版网易云内部接口变化导致静默无效）；
+- state.json 增加 5 秒强制心跳：暂停时也保底刷新，
+  /api/debug 的 stateAgeMs 恒小于 5 秒 = 桥存活的可靠信号；
+- 原子写管道补齐 rename 响应校验，写盘失败必回落直写；
+- 1.2.0 已有：官方 .plugin 安装包（与插件商店同构）、/api/debug
+  诊断端点、webpack5 内核兼容、diag.json 三源诊断、PNA 预检护栏。
+
+从 1.2.0 升级
+-------------
+1. 删除 C:\betterncm\plugins\ChuShi-MusicBridge-1.2.0.plugin；
+2. 放入本版 ChuShi-MusicBridge-1.3.0.plugin；
+3. 完全退出并重启网易云音乐（plugins_runtime 会自动重建）。
 
 关于 .plugin 文件与 .plugin.path.meta
 ----------------------------------------
@@ -23,6 +34,8 @@ v1.2.0 相对 1.1.0 的升级
   plugins_runtime\<slug>\ 文件夹，并在其中自动生成 .plugin.path.meta
   （内容是来源 .plugin 包的相对路径，供插件商店跟踪更新用）——
   这两个产物都是 BetterNCM 自己生成的，不需要也无法手动创建；
+  手动放 .plugin 包同样走这条自动解压流程，与商店安装唯一区别是
+  不在商店列表里显示"已安装"；
 - plugins_runtime 每次启动都会按 plugins 里的 .plugin 全量重建，
   因此不要把插件文件夹手动放进 plugins_runtime（会被清掉）。
 
@@ -42,13 +55,13 @@ v1.2.0 相对 1.1.0 的升级
   1. 打开 BetterNCM 数据目录下的 plugins 文件夹：
      · 默认数据目录为 C:\betterncm（文件管理器地址栏直接粘贴回车即可）
      · 即目标文件夹为 C:\betterncm\plugins\（不存在就新建，注意英文小写）
-  2. 把 ChuShi-MusicBridge-1.2.0.plugin 整个文件复制进去；
+  2. 把 ChuShi-MusicBridge-1.3.0.plugin 整个文件复制进去；
   3. 完全退出并重启网易云音乐；
   4. 确认安装成功：C:\betterncm\plugins_runtime\cc.chushi.musicbridge\
      文件夹自动出现（内含 .plugin.path.meta、manifest.json、index.js、bridge.dll）。
 
 【路线 B：文件夹安装（开发者方式，支持改文件热重载）】
-  1. 解压 初始音乐桥-插件-1.2.0.zip，得到包含 manifest.json / index.js /
+  1. 解压 初始音乐桥-插件-1.3.0.zip，得到包含 manifest.json / index.js /
      bridge.dll 的文件夹；
   2. 将整个文件夹放入数据目录的 plugins_dev 文件夹内，最终结构形如：
        C:\betterncm\plugins_dev\初始音乐桥\
@@ -79,13 +92,21 @@ v1.2.0 相对 1.1.0 的升级
 
 卸载
 ----
-- 路线 A 安装的：删除 C:\betterncm\plugins\ChuShi-MusicBridge-1.2.0.plugin，
+- 路线 A 安装的：删除 C:\betterncm\plugins\ChuShi-MusicBridge-1.3.0.plugin，
   重启网易云（plugins_runtime 下的同名文件夹会随之自动消失）；
 - 路线 B 安装的：删除 plugins_dev 下的本插件文件夹并重启网易云；
 - chushi-music 数据目录可一并删除。
 
 常见问题
 --------
+Q: 升级 1.3.0 后控制还是不生效？
+A: ①确认 plugins\ 里旧版 1.2.0 的 .plugin 已删除（两个版本并存时
+   plugins_runtime 的重建顺序不定，可能加载到旧 DLL）；
+   ②网易云 F12 Console 过滤 [ChuShiMusicBridge]，应看到
+   「加载中 v1.3.0…」——若还是 v1.2.0 说明旧包没删干净；
+   ③浏览器打开 http://127.0.0.1:10754/api/debug 看 version 字段，
+   应为 1.3.0。
+
 Q: 「初始」一直显示未连接？
 A: ①确认网易云正在运行且插件已启用；②确认地址栏端口与
    C:\betterncm\chushi-music\server.json 中的端口一致；
@@ -95,15 +116,16 @@ A: ①确认网易云正在运行且插件已启用；②确认地址栏端口�
      - 有输出 = bridge.dll 已工作；看 stateFile/stateAgeMs：
        stateFile=false → 插件 JS 未注入成功（插件管理器里检查是否启用，
        或新版网易云内核与 BetterNCM 不兼容，见「已知边界」）；
-       stateAgeMs 很大 → JS 活着但没数据；
+       stateAgeMs 恒大于 5 秒 → 插件 JS 写盘环异常（把 /api/debug
+       全文反馈给开发者）；
      - diag 段：storeReady/eventsHooked/media 三源状态与页面地址，
        全 false 且 href 是 orpheus 页 → 内核探测失败，把 /api/debug
        全文反馈给开发者。
 
 Q: 怎么确认插件 JS 注入成功？
 A: 网易云里按 F12 打开开发者工具（或 BetterNCM 提供的 F12），Console 里
-   过滤 [ChuShiMusicBridge]，正常应看到「加载中 v1.2.0…」「桥接就绪
-   v1.2.0」与「dva Redux store 已获取」。
+   过滤 [ChuShiMusicBridge]，正常应看到「加载中 v1.3.0…」「桥接就绪
+   v1.3.0」与「dva Redux store 已获取」。
 
 Q: 插件管理器列表里看不到「初始音乐桥」？
 A: ①路线 A 检查 .plugin 是否真在 C:\betterncm\plugins\ 下（注意后缀是

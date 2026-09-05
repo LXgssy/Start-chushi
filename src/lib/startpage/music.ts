@@ -35,6 +35,28 @@ export interface MusicSnapshot {
 
 export type MusicStatus = "idle" | "connecting" | "connected" | "error";
 
+/** /api/debug 诊断（bridge.dll 1.1.0+ 提供；独立版字段形状不同，容忍缺失） */
+export interface MusicBridgeDiag {
+  v?: string;
+  ts?: number;
+  installedAt?: number;
+  storeReady?: boolean;
+  eventsHooked?: boolean;
+  getPlayingSong?: boolean;
+  media?: boolean;
+  href?: string;
+}
+
+export interface MusicBridgeDebug {
+  ok?: boolean;
+  version?: string;
+  native?: string;
+  port?: number;
+  stateFile?: boolean;
+  stateAgeMs?: number;
+  diag?: MusicBridgeDiag;
+}
+
 /** 连接失败原因分类（面板按此给指引文案） */
 export type MusicFailReason =
   | "refused" // 连不上（服务没起来：NCM 没开/插件未装）
@@ -223,6 +245,21 @@ export class MusicBridgeClient {
       });
     } catch {
       /* 失败静默：下一次轮询会反映真实状态 */
+    }
+  }
+
+  /** 拉取诊断（/api/debug；旧版桥或连接中断时返回 null） */
+  async debug(): Promise<MusicBridgeDebug | null> {
+    try {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 2500);
+      const r = await fetch(`${this.url}/api/debug`, { signal: ctl.signal, mode: "cors" });
+      clearTimeout(t);
+      if (!r.ok) return null;
+      const j = (await r.json()) as MusicBridgeDebug;
+      return j && typeof j === "object" ? j : null;
+    } catch {
+      return null;
     }
   }
 }

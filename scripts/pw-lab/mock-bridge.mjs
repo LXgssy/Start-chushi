@@ -28,6 +28,25 @@ export function createMockBridge({ portA, portB }) {
     volume: 0.7,
     mode: "playOrder",
   };
+  /* /api/debug 诊断（bridge.dll 1.1.0+ 同形状） */
+  let debug = {
+    ok: true,
+    version: "1.3.0",
+    native: "bridge.dll",
+    port: portA,
+    stateFile: true,
+    stateAgeMs: 800,
+    diag: {
+      v: "1.3.0",
+      ts: Date.now(),
+      installedAt: Date.now() - 60000,
+      storeReady: true,
+      eventsHooked: true,
+      getPlayingSong: true,
+      media: true,
+      href: "orpheus://orpheus/pub/app.html",
+    },
+  };
   const originAllowed = (o) =>
     !o ||
     o.startsWith("chrome-extension://") ||
@@ -90,6 +109,12 @@ export function createMockBridge({ portA, portB }) {
       });
       return;
     }
+    if (path === "/api/debug") {
+      const out = { ...debug, diag: { ...debug.diag, ts: Date.now() } };
+      res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify(out));
+      return;
+    }
     if (path === "/api/__controls") {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(controls));
@@ -111,6 +136,9 @@ export function createMockBridge({ portA, portB }) {
     controls,
     snapRef: () => snap,
     setSnap: (patch) => { snap = { ...snap, ...patch, ts: Date.now() }; },
+    setDebug: (patch) => {
+      debug = { ...debug, ...patch, diag: { ...debug.diag, ...(patch.diag || {}) } };
+    },
     freeze: (on) => { frozenTs = on ? Date.now() : 0; },
     ready: Promise.all(servers),
   };

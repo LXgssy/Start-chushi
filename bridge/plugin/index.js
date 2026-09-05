@@ -15,6 +15,15 @@
  * 控制命令（与初始 v1.7.5+ 音乐面板一一对应）：
  *   play / pause / toggle / next / prev / seek(positionMs) / volume(0-1) / mute
  *
+ * 1.3.0 变更（配套 bridge.dll 1.3.0 根因修复）：
+ *   - bridge.dll 1.2.0 及之前把 cmd-*.json 误写到 chushi-music 根目录（少拼 \\cmd），
+ *     本 JS 只轮询 cmd/ 子目录 → 控制命令永远不被消费；本轮 DLL 修正路径，
+ *     本 JS 启动时兼扫根目录残留并清扫（兼容旧 DLL + 清理积压）
+ *   - state.json 增加 5s 强制心跳：暂停不再零写盘，stateAgeMs 成为真实活性信号
+ *   - writeTextAtomic 补 rename 响应校验（失败必回落直写，堵静默失败洞）
+ *   - 控制命令 dispatch 后校验媒体元素实际状态，不符则直接媒体元素兜底
+ *     （防新版网易云 dva action 形状变化导致静默无效果）
+ *
  * 本文件由 BetterNCMII(js-framework) 以 AsyncFunction("plugin", code) 直接调用执行，
  * 顶层即为异步上下文，可直接 await。
  * 注入通道：manifest 的 injects.Main（v2 唯一消费链，loader.ts pageMap
@@ -34,7 +43,7 @@
   const clamp01 = (n) => Math.max(0, Math.min(1, n));
 
   const DIR = "chushi-music";
-  const BRIDGE_VERSION = "1.2.0";
+  const BRIDGE_VERSION = "1.3.0";
 
   /* ---------- 运行时句柄 ---------- */
   let store = null;              // dva Redux store（NCM 3.x）
@@ -65,12 +74,19 @@
 
   const enc = encodeURIComponent;
   async function writeTextAtomic(file, json) {
-    /* 原子写：tmp + /fs/rename；失败回落直写（DLL 对瞬时坏 JSON 有容错） */
+    /* 原子写：tmp + /fs/rename；失败回落直写（DLL 对瞬时坏 JSON 有容错）。
+     * 1.3.0：rename 响应显式校验 —— 若 betterncmFetch 把 HTTP 错误吞成非抛出
+     * 返回值，旧版会静默 return 导致数据永久丢失（静默失败洞）。 */
     try {
       await window.betterncm.fs.writeFileText(DIR + "/" + file + ".tmp.json", json);
-      await window.betterncm.betterncmFetch(
+      const r = await window.betterncm.betterncmFetch(
         `/fs/rename?path=${enc(DIR + "/" + file + ".tmp.json")}&dest=${enc(DIR + "/" + file)}`
       );
+      if (r && typeof r === "object") {
+        if (r.ok === false) throw new Error("rename rejected");
+        if (typeof r.status === "number" && (r.status < 200 || r.status >= 300))
+          throw new Error("rename http " + r.status);
+      }
       return;
     } catch (e) { /* fallthrough */ }
     try { await window.betterncm.fs.writeFileText(DIR + "/" + file, json); } catch (e2) {
@@ -191,8 +207,11 @@
     await writeStateAtomic(JSON.stringify(snap));
   }
 
-  /* 1s 心跳：播放中推动进度（暂停时快照不变不写盘） */
+  /* 1s 心跳：播放中推动进度（签名去重省写盘） */
   setInterval(() => { pushState(false).catch(() => {}); }, 1000);
+  /* 5s 强制心跳：暂停时也保底写盘 —— stateAgeMs 恒 <5s，成为「桥活着」的
+   * 真实活性信号（否则暂停几分钟的 stateAgeMs 与桥挂了无法区分，误导排障） */
+  setInterval(() => { pushState(true).catch(() => {}); }, 5000);
 
   /* ---------- 诊断落盘（diag.json → /api/debug 透传） ---------- */
   let lastDiagSig = "";
@@ -343,6 +362,49 @@
     return false;
   }
 
+  /* redux playingState 语义：===2 即播放中（与 Orpheus 1/2 相反，InfLink 对标结论） */
+  function storePlaying() {
+    try {
+      const p = store && store.getState && store.getState().playing;
+      if (p && typeof p.playingState === "number") return p.playingState === 2;
+    } catch (e) { /* 忽略 */ }
+    return null;
+  }
+
+  /* 媒体元素兜底（优先选「正在播或有时长」的那个，避免命中预加载空元素） */
+  function mediaElStrict() {
+    try {
+      const els = Array.from(document.querySelectorAll("video,audio"));
+      return els.find((e) => e && (e.duration > 0 || e.paused === false)) || els[0] || null;
+    } catch (e) { return null; }
+  }
+
+  /* dispatch 后校验实际效果，不符则直接驱动媒体元素（ audible 级兜底，
+   * 防新版网易云 dva action 形状变化导致「dispatch 成功但无效果」） */
+  function verifyThenFallback(intent, positionMs) {
+    setTimeout(() => {
+      try {
+        if (disposed) return;
+        const el = mediaElStrict();
+        const sp = storePlaying();
+        if (intent === "play" || intent === "pause") {
+          const effective = sp !== null ? sp : el ? !el.paused : null;
+          if (effective !== null && effective !== intent) {
+            warn("dispatch 未生效，媒体元素兜底：", intent);
+            if (intent === "play") { try { el && el.play && el.play().catch(() => {}); } catch (e) {} }
+            else { try { el && el.pause && el.pause(); } catch (e) {} }
+          }
+        } else if (intent === "seek" && typeof positionMs === "number" && el && el.duration > 0) {
+          if (Math.abs((el.currentTime || 0) * 1000 - positionMs) > 1500) {
+            warn("seek 未生效，媒体元素兜底：", positionMs);
+            try { el.currentTime = positionMs / 1000; } catch (e) {}
+          }
+        }
+        setTimeout(() => pushState(true).catch(() => {}), 200);
+      } catch (e) { /* 兕底层不得抛出 */ }
+    }, 420);
+  }
+
   /* 只读降级时的 DOM 控制兜底（尽力而为） */
   function domControl(act) {
     try {
@@ -363,22 +425,40 @@
     if (!c || typeof c.action !== "string") return;
     const a = c.action;
     log("命令", a, c);
-    const ok =
-      a === "play" ? dispatchAction({ type: "playing/resume", payload: { triggerScene: "desktopLyric" } }) :
-      a === "pause" ? dispatchAction({ type: "playing/pause", payload: { triggerScene: "desktopLyric" } }) :
-      a === "toggle" ? (lastPlaying
-        ? dispatchAction({ type: "playing/pause", payload: { triggerScene: "desktopLyric" } })
-        : dispatchAction({ type: "playing/resume", payload: { triggerScene: "desktopLyric" } })) :
-      a === "next" ? dispatchAction({ type: "playingList/jump2Track", payload: { flag: 1, type: "call", triggerScene: "hotKey" } }) :
-      a === "prev" ? dispatchAction({ type: "playingList/jump2Track", payload: { flag: -1, type: "call", triggerScene: "hotKey" } }) :
-      a === "seek" && typeof c.positionMs === "number"
-        ? dispatchAction({ type: "playing/setPlayingPosition", payload: { duration: c.positionMs / 1000 } }) :
-      a === "volume" && typeof c.volume === "number"
-        ? dispatchAction({ type: "playing/setVolume", payload: { volume: clamp01(c.volume) } }) :
-      a === "mute" ? dispatchAction({ type: "playing/switchMute" }) : false;
+    let intent = null;   // play/pause 意图（供 420ms 后媒体元素校验兑底）
+    let seekMs = null;
+    let ok = false;
+    if (a === "play") {
+      intent = "play";
+      ok = dispatchAction({ type: "playing/resume", payload: { triggerScene: "desktopLyric" } });
+    } else if (a === "pause") {
+      intent = "pause";
+      ok = dispatchAction({ type: "playing/pause", payload: { triggerScene: "desktopLyric" } });
+    } else if (a === "toggle") {
+      intent = lastPlaying ? "pause" : "play";
+      ok = dispatchAction(intent === "pause"
+        ? { type: "playing/pause", payload: { triggerScene: "desktopLyric" } }
+        : { type: "playing/resume", payload: { triggerScene: "desktopLyric" } });
+    } else if (a === "next") {
+      ok = dispatchAction({ type: "playingList/jump2Track", payload: { flag: 1, type: "call", triggerScene: "hotKey" } });
+    } else if (a === "prev") {
+      ok = dispatchAction({ type: "playingList/jump2Track", payload: { flag: -1, type: "call", triggerScene: "hotKey" } });
+    } else if (a === "seek" && typeof c.positionMs === "number") {
+      seekMs = c.positionMs;
+      ok = dispatchAction({ type: "playing/setPlayingPosition", payload: { duration: c.positionMs / 1000 } });
+    } else if (a === "volume" && typeof c.volume === "number") {
+      ok = dispatchAction({ type: "playing/setVolume", payload: { volume: clamp01(c.volume) } });
+      /* 音量同步直接驱动媒体元素：无副作用、即时可听，双通道幂等 */
+      const vel = mediaElStrict();
+      if (vel) { try { vel.volume = clamp01(c.volume); } catch (e) { /* 忽略 */ } }
+    } else if (a === "mute") {
+      ok = dispatchAction({ type: "playing/switchMute" });
+    }
     if (!ok && (a === "toggle" || a === "next" || a === "prev" || a === "play" || a === "pause")) {
       domControl(a === "play" ? "toggle" : a === "pause" ? "toggle" : a);
     }
+    if (intent !== null) verifyThenFallback(intent, 0);
+    if (seekMs !== null) verifyThenFallback("seek", seekMs);
     setTimeout(() => pushState(true).catch(() => {}), 250);
   }
 
@@ -387,23 +467,42 @@
 
   function baseName(p) { return String(p).split(/[\\/]/).pop(); }
 
+  async function consumeCmdDir(dirPath) {
+    let files = [];
+    try { files = (await window.betterncm.fs.readDir(dirPath)) || []; } catch (e) { return; }
+    for (const f of files) {
+      const name = baseName(f);
+      if (!/^cmd-.+\.json$/.test(name) || processedCmds.has(name)) continue;
+      processedCmds.add(name);
+      if (processedCmds.size > 500) processedCmds.clear();
+      try {
+        const txt = await window.betterncm.fs.readFileText(dirPath + "/" + name);
+        let cmd = null;
+        try { cmd = JSON.parse(txt); } catch (e) { /* 坏文件跳过 */ }
+        if (cmd) handleCommand(cmd);
+      } catch (e) { /* 忽略 */ }
+      try { await window.betterncm.fs.remove(dirPath + "/" + name); } catch (e) { /* 忽略 */ }
+    }
+  }
+
   async function pollCmds() {
+    /* 主路：cmd/ 子目录（1.3.0 起 DLL 正确落点） */
+    await consumeCmdDir(DIR + "/cmd");
+    /* 兼容兑底：1.2.x DLL 误写到 chushi-music 根目录的命令文件（用户不换 DLL 也能控） */
+    await consumeCmdDir(DIR);
+  }
+
+  /* 启动清扫：1.2.x DLL 误写到根目录且永远无人消费的 cmd-xx.json / tmp-xx.json 积压 */
+  async function sweepRootLeftovers() {
     try {
-      const files = (await window.betterncm.fs.readDir(DIR + "/cmd")) || [];
+      const files = (await window.betterncm.fs.readDir(DIR)) || [];
       for (const f of files) {
         const name = baseName(f);
-        if (!/^cmd-.+\.json$/.test(name) || processedCmds.has(name)) continue;
-        processedCmds.add(name);
-        if (processedCmds.size > 500) processedCmds.clear();
-        try {
-          const txt = await window.betterncm.fs.readFileText(DIR + "/cmd/" + name);
-          let cmd = null;
-          try { cmd = JSON.parse(txt); } catch (e) { /* 坏文件跳过 */ }
-          if (cmd) handleCommand(cmd);
-        } catch (e) { /* 忽略 */ }
-        try { await window.betterncm.fs.remove(DIR + "/cmd/" + name); } catch (e) { /* 忽略 */ }
+        if (/^(cmd|tmp)-.+\.json$/.test(name)) {
+          try { await window.betterncm.fs.remove(DIR + "/" + name); } catch (e) { /* 忽略 */ }
+        }
       }
-    } catch (e) { /* 目录未就绪等瞬时错误静默 */ }
+    } catch (e) { /* 忽略 */ }
   }
 
   try {
@@ -445,8 +544,11 @@
 
   /* ---------- 启动 ---------- */
   await ensureDirs();
+  await sweepRootLeftovers();
   log("桥接就绪 v" + BRIDGE_VERSION + "（状态文件 → " + DIR + "/state.json，命令 ← " + DIR + "/cmd/）");
   await pushDiag().catch(() => {});
+  /* 立即推一帧（fallback 源）：「初始」无需等 store 发现即可拿到快照 */
+  await pushState(true).catch(() => {});
 
   /* 调试句柄 */
   try {

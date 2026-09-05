@@ -8,6 +8,9 @@
  * 文件契约（datapath = BETTERNCM_PROFILE 环境变量，缺省 C:\betterncm）：
  *   <datapath>/chushi-music/state.json      ← 插件 JS 写入（原子：tmp + rename）
  *   <datapath>/chushi-music/cmd/cmd-*.json  ← 本 DLL 写入（原子：tmp + MoveFileEx）
+ *   ⚠ 1.2.0 及之前 g_cmd_dir 少拼 "\\cmd" 子目录，命令文件落在 chushi-music 根目录，
+ *     而插件 JS 只轮询 cmd/ 子目录 —— 控制命令永远不被消费（1.3.0 根因修复）；
+ *     插件 JS 1.3.0 起启动时兼扫根目录残留并清扫
  *   <datapath>/chushi-music/config.json     ← 可选 {"port":10754}，启动时读取
  *
  * HTTP 接口（绑定 127.0.0.1）：
@@ -38,7 +41,7 @@
 #include <string.h>
 #include <stdint.h>
 
-#define BRIDGE_VERSION   "1.2.0"
+#define BRIDGE_VERSION   "1.3.0"
 #define DIR_NAME         L"chushi-music"
 #define STATE_FILE       L"state.json"
 #define STATE_TMP        L"state.tmp.json"
@@ -84,7 +87,9 @@ static int build_paths(void) {
     if (r < 0) return 0;
     r = swprintf_s(g_diag_path, MAX_PATH, L"%s\\%s\\%s", dp, DIR_NAME, DIAG_FILE);
     if (r < 0) return 0;
-    r = swprintf_s(g_cmd_dir, MAX_PATH, L"%s\\%s", dp, DIR_NAME);
+    /* 1.3.0 根因修复：命令目录必须带 \cmd 子目录（与插件 JS 轮询路径
+     * chushi-music/cmd 严格同源）；1.2.0 及之前写到了 chushi-music 根目录 */
+    r = swprintf_s(g_cmd_dir, MAX_PATH, L"%s\\%s\\cmd", dp, DIR_NAME);
     if (r < 0) return 0;
 
     /* 目录补建（best effort；JS 侧也会建） */
