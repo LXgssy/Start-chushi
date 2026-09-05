@@ -15,12 +15,18 @@
  * 控制命令（与初始 v1.7.5+ 音乐面板一一对应）：
  *   play / pause / toggle / next / prev / seek(positionMs) / volume(0-1) / mute
  *
- * 本文件由 js-framework 以 AsyncFunction("plugin", code) 直接调用执行，
+ * 本文件由 BetterNCMII(js-framework) 以 AsyncFunction("plugin", code) 直接调用执行，
  * 顶层即为异步上下文，可直接 await。
+ * 注入通道：manifest 的 injects.Main（v2 唯一消费链，loader.ts pageMap
+ *   "/pub/app.html" → "Main"）；勿再声明 startup_script，否则会双重执行。
  */
 
 /* eslint-disable */
 (async function () {
+  /* 幂等护栏：同一页面上下文被二次注入时直接退出 */
+  if (window.__chushiMusicBridgeActive) return;
+  window.__chushiMusicBridgeActive = true;
+
   const TAG = "[ChuShiMusicBridge]";
   const log = (...a) => console.log(TAG, ...a);
   const warn = (...a) => console.warn(TAG, ...a);
@@ -28,7 +34,7 @@
   const clamp01 = (n) => Math.max(0, Math.min(1, n));
 
   const DIR = "chushi-music";
-  const BRIDGE_VERSION = "1.1.0";
+  const BRIDGE_VERSION = "1.2.0";
 
   /* ---------- 运行时句柄 ---------- */
   let store = null;              // dva Redux store（NCM 3.x）
@@ -38,6 +44,7 @@
   let eventsOk = false;          // 原生事件注册成功
   let disposed = false;
   const installedAt = Date.now();
+  log("加载中 v" + BRIDGE_VERSION + "…");
 
   /* ---------- 等待 NCM 世界就绪 ---------- */
   for (let i = 0; i < 100 && !window.legacyNativeCmder; i++) await sleep(200);

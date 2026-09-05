@@ -38,7 +38,7 @@
 #include <string.h>
 #include <stdint.h>
 
-#define BRIDGE_VERSION   "1.1.0"
+#define BRIDGE_VERSION   "1.2.0"
 #define DIR_NAME         L"chushi-music"
 #define STATE_FILE       L"state.json"
 #define STATE_TMP        L"state.tmp.json"
