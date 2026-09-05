@@ -4,7 +4,7 @@
 
 #include <windows.h>
 
-#define CB_VERSION     "2.0.2"
+#define CB_VERSION     "2.0.3"
 #define CB_NAME        "chushi-music-bridge"
 #define CB_DEFAULT_PORT 10754
 #define CB_PORT_SPAN   10

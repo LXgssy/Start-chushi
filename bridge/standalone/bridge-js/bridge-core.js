@@ -15,9 +15,9 @@
  */
 (function () {
   "use strict";
-  if (window.__chushiBridge && window.__chushiBridge.__v === "2.0.2") return;
+  if (window.__chushiBridge && window.__chushiBridge.__v === "2.0.3") return;
 
-  var VERSION = "2.0.2";
+  var VERSION = "2.0.3";
   var B = {
     __v: VERSION,
     store: null,          // dva Redux store
