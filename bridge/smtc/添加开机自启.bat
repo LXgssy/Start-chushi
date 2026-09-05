@@ -1,8 +1,8 @@
 @echo off
 rem 「初始」SMTC 桥 · 添加开机自启（写 HKCU Run 注册表，登录即后台启动桥）
-chcp 65001 >nul
+rem 本文件按 ANSI(GBK) 编码发布，请勿另存为 UTF-8
 set "BRIDGE_DIR=%~dp0"
-reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v ChuShiSmtcBridge /t REG_SZ /d "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"%BRIDGE_DIR%ChuShi-SMTC桥.ps1\"" /f >nul
+reg add "HKCU\Software\Microsoft\Windows\CurrentVersion\Run" /v ChuShiSmtcBridge /t REG_SZ /d "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File \"%BRIDGE_DIR%ChuShi-SMTC-Bridge.ps1\"" /f >nul
 if %errorlevel%==0 (
   echo.
   echo  已添加开机自启：下次登录 Windows 时 SMTC 桥将隐藏窗口自动运行。

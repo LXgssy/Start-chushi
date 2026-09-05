@@ -1,6 +1,6 @@
-<#
+﻿<#
 .SYNOPSIS
-  「初始」SMTC 桥 v1.0.0 —— 把 Windows 系统媒体会话（SMTC）暴露给本机 HTTP
+  「初始」SMTC 桥 v1.1.0 —— 把 Windows 系统媒体会话（SMTC）暴露给本机 HTTP
 
 .DESCRIPTION
   零依赖：Windows 10/11 自带 PowerShell 5.1 + WinRT，无需安装任何运行库。
@@ -19,6 +19,8 @@
   最后取第一个会话。
 
 .NOTES
+  v1.1.0：启动器 bat 改为 ANSI(GBK) 编码发布（UTF-8+chcp 会触发 cmd 重读错位乱码）；
+  本文件必须以 UTF-8 with BOM 保存（PS 5.1 对无 BOM 文件按 ANSI 解析，中文全乱码）。
   双击同目录「启动SMTC桥.bat」即可运行；关闭窗口即停止。
   Ctrl+C 亦可退出。绑定 127.0.0.1 回环地址，不监听外网。
 #>
@@ -31,7 +33,7 @@ param(
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-$BRIDGE_VERSION = '1.0.0'
+$BRIDGE_VERSION = '1.1.0'
 
 # ---------- WinRT 投影（PowerShell 5.1 专用；请勿在 PowerShell 7 下运行） ----------
 if ($PSVersionTable.PSVersion.Major -ge 6) {
