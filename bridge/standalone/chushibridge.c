@@ -386,132 +386,86 @@ static void attach_fail_log(const char *state, const char *detail) {
     cb_logf("[attach] %s：%s", state, detail && detail[0] ? detail : "无详情");
 }
 
-#define PROBE_OK          1
-#define PROBE_EVAL_FAIL   0
-#define PROBE_MISS        (-1)
-
-static int probe_target(SOCKET ws, char *desc, size_t cap) {
-    char out[1024];
-    static const char PROBE[] =
-        "(function(){try{return JSON.stringify({cmder:(typeof window.legacyNativeCmder!==\"undefined\"),"
-        "wp:(typeof window.webpackJsonp!==\"undefined\"),"
-        "wc:(function(){for(var k in window){if(k.indexOf(\"webpackChunk\")===0)return true}return false})(),"
-        "b:!!window.__chushiBridge,url:String(location.href).slice(0,120)})}catch(e){return \"{}\"}})()";
-    if (!ws_eval(ws, PROBE, out, sizeof(out))) return PROBE_EVAL_FAIL;
-    /* 三路判据任一命中即认是网易云页面（r2 只认 cmder，新版网易云
-     * 若已移除 legacyNativeCmder 则永远 attach 不上——r3 放宽）：
-     * cmder=原生桥 / wp=webpackJsonp(webpack4) / wc=webpackChunk*(webpack5)
-     * / url 含 orpheus（网易云页面 scheme 兜底） */
-    int is_ncm = strstr(out, "\"cmder\":true") != NULL
-              || strstr(out, "\"wp\":true") != NULL
-              || strstr(out, "\"wc\":true") != NULL
-              || strstr(out, "orpheus:") != NULL
-              || strstr(out, "music.163.com") != NULL;
-    if (!is_ncm) return PROBE_MISS;
-    /* 网易云页面命中；url 取出供日志 */
-    if (desc && cap) {
-        char url[160];
-        const char *p = strstr(out, "\"url\":\"");
-        if (p) {
-            p += 7;
-            size_t i = 0;
-            while (p[i] && p[i] != '"' && i + 1 < sizeof(url)) { url[i] = p[i]; i++; }
-            url[i] = 0;
-            sprintf_s(desc, cap, "%s", url);
-        } else desc[0] = 0;
-    }
-    return PROBE_OK;
-}
+/* 页面判定探针见 cb_cdp.c：cdp_probe_page（三路判据 + location.href 兜底） */
 
 typedef struct {
     int port_hit;
-    char wsurl[256];
+    cdp_chan ch;      /* r4：已连接通道（flatten 或 page 直连） */
 } target_pick;
 
 static int discover_and_attach(const cfg *c, target_pick *tp) {
     int ports[2] = { c->cdp_port, DEFAULT_CDP_PORT };
-    char wsurls[8][256];
     for (int pi = 0; pi < 2; pi++) {
         for (int off = 0; off <= 5; off++) {
             int port = ports[pi] + off;
-            int n = cdp_list_targets(port, wsurls, 8);
-            if (n <= 0) continue;
+            if (pi > 0 && port == ports[0]) continue;   /* 与主端口重复不重扫 */
+            if (!cdp_port_alive(port)) continue;
             EnterCriticalSection(&g_cb.lock);
             g_cb.cdp_port = port;
             LeaveCriticalSection(&g_cb.lock);
+
+            char desc[160];
+            cdp_chan ch;
+            if (!cdp_open_target(port, &ch, desc, sizeof(desc))) {
+                attach_fail_log("probe-miss", cdp_last_error());
+                continue;
+            }
             char out[1024];
-            for (int i = 0; i < n; i++) {
-                SOCKET ws = ws_connect(wsurls[i]);
-                if (ws == INVALID_SOCKET) {
-                    attach_fail_log("ws-fail", cdp_last_error());
-                    continue;
-                }
-                char desc[160];
-                int pr = probe_target(ws, desc, sizeof(desc));
-                if (pr == PROBE_EVAL_FAIL) {
-                    ws_shutdown(ws);
-                    attach_fail_log("probe-eval-fail", cdp_last_error());
-                    continue;
-                }
-                if (pr == PROBE_MISS) {
-                    ws_shutdown(ws);
-                    attach_fail_log("probe-miss", "cmder/wp/webpackChunk/orpheus 判据均未命中（非网易云页面？）");
-                    continue;
-                }
-                /* 注入页内桥 */
-                if (!ws_eval(ws, BRIDGE_INSTALL_JS, out, sizeof(out))) {
-                    ws_shutdown(ws);
-                    attach_fail_log("install-fail", cdp_last_error());
-                    continue;
-                }
-                if (!strstr(out, "chushi-bridge-installed")) {
-                    ws_shutdown(ws);
-                    char rd[192];
-                    sprintf_s(rd, sizeof(rd), "注入回执异常：%.150s", out);
-                    attach_fail_log("install-fail", rd);
-                    continue;
-                }
-                char snap[CB_SNAP_MAX];
-                if (!ws_eval(ws, "window.__chushiBridge.snapshot()", snap, sizeof(snap))) {
-                    ws_shutdown(ws);
-                    attach_fail_log("snap-fail", cdp_last_error());
-                    continue;
-                }
-                if (!strstr(snap, "\"ok\":true") && !strstr(snap, "\"ok\":false")) {
-                    ws_shutdown(ws);
-                    char rd[192];
-                    sprintf_s(rd, sizeof(rd), "快照回执异常：%.150s", snap);
-                    attach_fail_log("snap-fail", rd);
-                    continue;
-                }
-                /* 快照无论 ok 与否（no-source 也算页面正确），桥已可用 */
-                InterlockedExchange(&g_cb.cdp_ok, 1);
-                InterlockedExchange(&g_cb.bridge_installed, 1);
-                cb_attach_set("ok", "");
-                if (strstr(snap, "\"ok\":true")) {
-                    const char *sp = strstr(snap, "\"snap\":{");
-                    if (sp) {
-                        /* 提取 snap 对象（括号配对） */
-                        int depth = 0;
-                        const char *q = sp + 8;
-                        const char *end = q;
-                        for (; *end; end++) {
-                            if (*end == '{') depth++;
-                            else if (*end == '}') { depth--; if (depth == 0) { end++; break; } }
-                        }
-                        if (depth == 0 && end - sp < CB_SNAP_MAX) {
-                            char obj[CB_SNAP_MAX];
-                            memcpy(obj, sp + 8, (size_t)(end - (sp + 8)));
-                            obj[end - (sp + 8)] = 0;
-                            cb_snap_set(obj);
-                        }
+            /* 注入页内桥 */
+            if (!cdp_eval(&ch, BRIDGE_INSTALL_JS, out, sizeof(out))) {
+                cdp_close(&ch);
+                attach_fail_log("install-fail", cdp_last_error());
+                continue;
+            }
+            if (!strstr(out, "chushi-bridge-installed")) {
+                cdp_close(&ch);
+                char rd[192];
+                sprintf_s(rd, sizeof(rd), "注入回执异常：%.150s", out);
+                attach_fail_log("install-fail", rd);
+                continue;
+            }
+            char snap[CB_SNAP_MAX];
+            if (!cdp_eval(&ch, "window.__chushiBridge.snapshot()", snap, sizeof(snap))) {
+                cdp_close(&ch);
+                attach_fail_log("snap-fail", cdp_last_error());
+                continue;
+            }
+            if (!strstr(snap, "\"ok\":true") && !strstr(snap, "\"ok\":false")) {
+                cdp_close(&ch);
+                char rd[192];
+                sprintf_s(rd, sizeof(rd), "快照回执异常：%.150s", snap);
+                attach_fail_log("snap-fail", rd);
+                continue;
+            }
+            /* 快照无论 ok 与否（no-source 也算页面正确），桥已可用 */
+            InterlockedExchange(&g_cb.cdp_ok, 1);
+            InterlockedExchange(&g_cb.bridge_installed, 1);
+            cb_attach_set("ok", "");
+            if (strstr(snap, "\"ok\":true")) {
+                const char *sp = strstr(snap, "\"snap\":{");
+                if (sp) {
+                    /* 提取 snap 对象（括号配对） */
+                    int depth = 0;
+                    const char *q = sp + 8;
+                    const char *end = q;
+                    for (; *end; end++) {
+                        if (*end == '{') depth++;
+                        else if (*end == '}') { depth--; if (depth == 0) { end++; break; } }
+                    }
+                    if (depth == 0 && end - sp < CB_SNAP_MAX) {
+                        char obj[CB_SNAP_MAX];
+                        memcpy(obj, sp + 8, (size_t)(end - (sp + 8)));
+                        obj[end - (sp + 8)] = 0;
+                        cb_snap_set(obj);
                     }
                 }
-                cb_logf("已附加网易云页面（cdp %d）：%s", port, desc[0] ? desc : "(主界面)");
-                tp->port_hit = port;
-                strncpy_s(tp->wsurl, 256, wsurls[i], _TRUNCATE);
-                return 1;
             }
+            cb_logf("已附加网易云页面（cdp %d，%s 模式）：%s",
+                    port, ch.flatten ? "flatten" : "page",
+                    desc[0] ? desc : "(主界面)");
+            tp->port_hit = port;
+            tp->ch = ch;
+            return 1;
         }
     }
     return 0;
@@ -584,9 +538,9 @@ static DWORD WINAPI cdp_thread(LPVOID arg) {
         first_boot = 0;
 
         /* ③ 附加后循环：命令消费 + 快照轮询 */
-        SOCKET ws = ws_connect(tp.wsurl);
+        cdp_chan *ch = &tp.ch;
         int eval_fail = 0;
-        while (ws != INVALID_SOCKET && InterlockedCompareExchange(&g_running, 1, 1)) {
+        while (ch->ws != INVALID_SOCKET && InterlockedCompareExchange(&g_running, 1, 1)) {
             /* 进程还活着？ */
             if (!find_ncm_process(NULL, NULL, 0)) {
                 cb_log("网易云已退出，桥接挂起等待");
@@ -601,7 +555,7 @@ static DWORD WINAPI cdp_thread(LPVOID arg) {
                 char expr[CB_BODY_MAX * 6 + 128];
                 sprintf_s(expr, sizeof(expr), "window.__chushiBridge.controlText(\"%s\")", esc);
                 char out[512];
-                if (ws_eval(ws, expr, out, sizeof(out))) {
+                if (cdp_eval(ch, expr, out, sizeof(out))) {
                     if (strstr(out, "\"ok\":false")) cb_logf("命令执行失败：%s", out);
                 } else {
                     cb_log("命令求值失败（连接断开？）");
@@ -614,7 +568,7 @@ static DWORD WINAPI cdp_thread(LPVOID arg) {
             if (eval_fail >= EV_FRAME_MAX) break;
             /* 快照 */
             char snap[CB_SNAP_MAX];
-            if (ws_eval(ws, "window.__chushiBridge.snapshot()", snap, sizeof(snap))) {
+            if (cdp_eval(ch, "window.__chushiBridge.snapshot()", snap, sizeof(snap))) {
                 eval_fail = 0;
                 if (strstr(snap, "\"ok\":true")) {
                     const char *sp = strstr(snap, "\"snap\":{");
@@ -647,7 +601,7 @@ static DWORD WINAPI cdp_thread(LPVOID arg) {
                 Sleep(500);
             }
         }
-        if (ws != INVALID_SOCKET) ws_shutdown(ws);
+        cdp_close(ch);
         InterlockedExchange(&g_cb.cdp_ok, 0);
         InterlockedExchange(&g_cb.bridge_installed, 0);
         Sleep(2000);

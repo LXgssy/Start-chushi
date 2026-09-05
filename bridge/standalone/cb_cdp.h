@@ -28,4 +28,42 @@ void json_escape_string(const char *in, char *out, size_t cap);
  * 供 /api/debug 的 attachDetail 与 bridge.log 输出。 */
 const char *cdp_last_error(void);
 
+/* 页面判定探针返回码：非网易云页（eval 成功但判据未命中） */
+#define CDP_PROBE_MISS (-1)
+
+/* 会话版 evaluate（flatten 时带 sessionId）；ws_eval 为无会话包装 */
+int ws_eval_ex(SOCKET ws, const char *session, const char *expression,
+               char *out, size_t out_cap);
+
+/* 端口活性（/json/version 可达即活） */
+int cdp_port_alive(int port);
+
+/* ---------- r4：browser flatten 会话通道 ---------- */
+
+/* 一条已打通的 CDP 通道：
+ *   mode=flatten → ws 为 browser 端点连接，session_id 为 Target.attachToTarget
+ *                  (flatten:true) 返回的会话，evaluate 带 sessionId 字段；
+ *   mode=page    → ws 直连页端点，session_id 为空。 */
+typedef struct {
+    SOCKET ws;
+    char   session_id[64];
+    int    flatten;          /* 1=flatten 会话 0=page 直连 */
+} cdp_chan;
+
+/* 打开一条「eval 可用且为网易云页面」的通道。
+ * 优先 browser flatten（/json/version → Target.getTargets 按 orpheus/music.163
+ * 选 page → Target.attachToTarget flatten:true → probe 判定），
+ * 失败回退页端点直连（/json/list 逐 target probe）。
+ * desc 输出页面 url（排障）。返回 1=成功。失败原因进 cdp_last_error()。 */
+int cdp_open_target(int port, cdp_chan *ch, char *desc, size_t dcap);
+
+/* 页面判定：返回 1=网易云页（desc=location.href）0=eval 失败 -1=非网易云页 */
+int cdp_probe_page(cdp_chan *ch, char *desc, size_t dcap);
+
+/* 在通道上执行 JS（flatten 时自动带 sessionId），语义同 ws_eval。 */
+int cdp_eval(cdp_chan *ch, const char *expression, char *out, size_t out_cap);
+
+/* 关闭通道。 */
+void cdp_close(cdp_chan *ch);
+
 #endif
