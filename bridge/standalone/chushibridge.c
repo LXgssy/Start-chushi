@@ -388,6 +388,41 @@ static void attach_fail_log(const char *state, const char *detail) {
 
 /* 页面判定探针见 cb_cdp.c：cdp_probe_page（三路判据 + location.href 兜底） */
 
+/* r5：快照回执（外层 {ok,snap,diag,error}）诊断落库。
+ * 此前只提取内层 snap，diag/error 全丢 —— /api/debug 的 diag 永远全 false，
+ * 页内三源真实状态（store/events/media/href）无从排障。 */
+static void record_snap_receipt(const char *resp) {
+    int ok = strstr(resp, "\"ok\":true") != NULL;
+    char diag[512];
+    diag[0] = 0;
+    const char *d = strstr(resp, "\"diag\":{");
+    if (d) {
+        const char *q = d + 7;   /* 指向 '{' */
+        int depth = 0;
+        const char *end = q;
+        for (; *end; end++) {
+            if (*end == '{') depth++;
+            else if (*end == '}') { depth--; if (depth == 0) { end++; break; } }
+        }
+        if (depth == 0 && (size_t)(end - q) < sizeof(diag)) {
+            memcpy(diag, q, (size_t)(end - q));
+            diag[end - q] = 0;
+        }
+    }
+    char err[96];
+    err[0] = 0;
+    if (!ok) {
+        const char *e = strstr(resp, "\"error\":\"");
+        if (e) {
+            e += 9;
+            size_t i = 0;
+            for (; e[i] && e[i] != '"' && i + 1 < sizeof(err); i++) err[i] = e[i];
+            err[i] = 0;
+        }
+    }
+    cb_diag_set(ok, diag, err);
+}
+
 typedef struct {
     int port_hit;
     cdp_chan ch;      /* r4：已连接通道（flatten 或 page 直连） */
@@ -437,6 +472,7 @@ static int discover_and_attach(const cfg *c, target_pick *tp) {
                 attach_fail_log("snap-fail", rd);
                 continue;
             }
+            record_snap_receipt(snap);
             /* 快照无论 ok 与否（no-source 也算页面正确），桥已可用 */
             InterlockedExchange(&g_cb.cdp_ok, 1);
             InterlockedExchange(&g_cb.bridge_installed, 1);
@@ -570,6 +606,7 @@ static DWORD WINAPI cdp_thread(LPVOID arg) {
             char snap[CB_SNAP_MAX];
             if (cdp_eval(ch, "window.__chushiBridge.snapshot()", snap, sizeof(snap))) {
                 eval_fail = 0;
+                record_snap_receipt(snap);
                 if (strstr(snap, "\"ok\":true")) {
                     const char *sp = strstr(snap, "\"snap\":{");
                     if (sp) {

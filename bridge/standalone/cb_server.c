@@ -36,6 +36,8 @@ void cb_state_free(cb_state *s) {
     EnterCriticalSection(&s->lock);
     free(s->snap);
     s->snap = NULL;
+    free(s->diag_json);
+    s->diag_json = NULL;
     struct cb_cmd *c = s->cmd_head;
     while (c) { struct cb_cmd *n = c->next; free(c); c = n; }
     s->cmd_head = s->cmd_tail = NULL;
@@ -115,6 +117,24 @@ ULONGLONG cb_snap_age(void) {
     return r;
 }
 
+/* ---------- r5：快照回执诊断（外层 {ok,diag,error}） ---------- */
+
+void cb_diag_set(int ok, const char *diag_json, const char *err) {
+    char *copy = NULL;
+    if (diag_json && diag_json[0]) {
+        size_t n = strlen(diag_json);
+        if (n > 400) n = 400;
+        copy = (char *)malloc(n + 1);
+        if (copy) { memcpy(copy, diag_json, n); copy[n] = 0; }
+    }
+    EnterCriticalSection(&g_cb.lock);
+    free(g_cb.diag_json);
+    g_cb.diag_json = copy;
+    g_cb.snap_ok_flag = ok ? 1 : 0;
+    strncpy_s(g_cb.snap_err, sizeof(g_cb.snap_err), err ? err : "", _TRUNCATE);
+    LeaveCriticalSection(&g_cb.lock);
+}
+
 /* ---------- HTTP 基础（沿 bridge.c） ---------- */
 
 typedef struct {
@@ -165,6 +185,7 @@ static void respond(SOCKET s, int code, const char *reason, const char *ctype,
             "Content-Length: 0\r\n"
             "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n"
             "Access-Control-Allow-Headers: Content-Type\r\n"
+            "Access-Control-Allow-Private-Network: true\r\n"
             "Access-Control-Max-Age: 600\r\n"
             "Connection: close\r\n"
             "%s\r\n", code, reason, acao);
@@ -315,26 +336,33 @@ static void handle_control(SOCKET s, const char *origin, char *headbuf,
 static void json_sanitize_ascii(const char *in, char *out, size_t cap);
 
 static void handle_debug(SOCKET s, const char *origin, int port) {
-    char body[1536];
+    char body[2048];
     char ncmpath[300];
     cb_json_escape_w(g_cb.ncm_path, ncmpath, sizeof(ncmpath));
     ULONGLONG age = cb_snap_age();
     int b = InterlockedCompareExchange(&g_cb.bridge_installed, 0, 0);
     int c = InterlockedCompareExchange(&g_cb.cdp_ok, 0, 0);
     int nr = InterlockedCompareExchange(&g_cb.ncm_running, 0, 0);
-    int diag_store = 0, diag_media = 0, diag_events = 0;
+    /* r5：真实 diag（页内回执）；从未收到时给出全 false 兜底段 */
+    char diagbuf[512], diag_esc[640];
+    int okflag = 0;
+    char serr[96], serr_esc[160];
     {
-        /* 从最近快照抓 diag 布尔（快照体是页内 JS 生成的 {"ok":..,"snap":..,"diag":{...}}） */
         EnterCriticalSection(&g_cb.lock);
-        const char *sp = g_cb.snap;
-        if (sp) {
-            const char *d = strstr(sp, "\"diag\":{");
-            if (d) diag_store = !!strstr(d, "\"store\":true");
-            if (d) diag_media = !!strstr(d, "\"media\":true");
-            if (d) diag_events = !!strstr(d, "\"events\":true");
-        }
+        if (g_cb.diag_json) {
+            strncpy_s(diagbuf, sizeof(diagbuf), g_cb.diag_json, _TRUNCATE);
+        } else diagbuf[0] = 0;
+        okflag = g_cb.snap_ok_flag;
+        memcpy(serr, g_cb.snap_err, sizeof(serr));
         LeaveCriticalSection(&g_cb.lock);
     }
+    if (!diagbuf[0]) {
+        strcpy_s(diagbuf, sizeof(diagbuf),
+                 "{\"store\":false,\"cmder\":false,\"events\":false,\"media\":false}");
+    }
+    /* diag 段是页内 JSON.stringify 产物（合法 JSON）；非 ASCII/引号安全化后内嵌 */
+    json_sanitize_ascii(diagbuf, diag_esc, sizeof(diag_esc));
+    json_sanitize_ascii(serr, serr_esc, sizeof(serr_esc));
     /* attach 诊断：cdp_ok 时恒为 ok，否则展示最近失败状态 + 详情 */
     char ats[32], atd[192], ats_esc[72], atd_esc[384];
     cb_attach_get(ats, sizeof(ats), atd, sizeof(atd));
@@ -344,16 +372,16 @@ static void handle_debug(SOCKET s, const char *origin, int port) {
     sprintf_s(body, sizeof(body),
         "{\"ok\":true,\"version\":\"%s\",\"port\":%d,\"cdpPort\":%d,"
         "\"cdp\":%s,\"bridge\":%s,\"ncmRunning\":%s,\"ncmPid\":%lu,"
-        "\"lastEvalAgoMs\":%llu,\"diag\":{\"store\":%s,\"events\":%s,\"media\":%s},"
+        "\"lastEvalAgoMs\":%llu,\"diag\":%s,\"snapOk\":%s,\"snapErr\":\"%s\","
         "\"attach\":\"%s\",\"attachDetail\":\"%s\","
         "\"ncmPath\":\"%s\"}",
         CB_VERSION, port, g_cb.cdp_port,
         c ? "true" : "false", b ? "true" : "false", nr ? "true" : "false",
         (unsigned long)g_cb.ncm_pid,
         (age == 0xFFFFFFFF) ? 0ULL : age,
-        diag_store ? "true" : "false",
-        diag_events ? "true" : "false",
-        diag_media ? "true" : "false",
+        diag_esc,
+        okflag ? "true" : "false",
+        serr_esc,
         ats_esc, atd_esc, ncmpath);
     respond(s, 200, "OK", "application/json; charset=utf-8", body, strlen(body), origin, 0);
 }

@@ -15,9 +15,9 @@
  */
 (function () {
   "use strict";
-  if (window.__chushiBridge && window.__chushiBridge.__v === "2.0.3") return;
+  if (window.__chushiBridge && window.__chushiBridge.__v === "2.0.4") return;
 
-  var VERSION = "2.0.3";
+  var VERSION = "2.0.4";
   var B = {
     __v: VERSION,
     store: null,          // dva Redux store
@@ -199,7 +199,10 @@
   }
 
   function snapshot() {
-    var diag = { store: false, cmder: false, media: false, events: false };
+    var diag = {
+      store: false, cmder: false, media: false, events: false,
+      href: (typeof location !== "undefined" && location.href || "").slice(0, 80),
+    };
     try {
       ensureStore();
       hookEvents();
@@ -272,6 +275,7 @@
     return JSON.stringify({
       v: VERSION, store: B.storeReady, cmder: B.cmderReady,
       events: B.eventsHooked, media: !!mediaEl(), installedAt: B.installedAt,
+      href: (typeof location !== "undefined" && location.href || "").slice(0, 80),
     });
   };
   try { window.__chushiBridge = B; } catch (e) { /* 忽略 */ }
