@@ -447,3 +447,19 @@ Stage Summary:
 - 结论：「无法控制」根因 = DLL 命令文件落盘路径与 JS 轮询路径错位（一行代码，两层静默）；1.3.0 双端修复 + 兜底三层（双扫描/媒体元素校验/音量直驱）。用户升级：删旧 .plugin → 放 1.3.0 → 重启网易云
 - 新律：①「协议对拍必须覆盖文件落点」——JS↔DLL 文件契约的路径拼接两端各自独立推导，mock 层测不出路径错位，真机契约验证要用目录清单对拍 ②GitHub Release 资产名 ASCII 硬约束（中文被静默剥离成乱码名，不报错）③Release 资产删除→重传需传播窗口（422）④JS 注释里写 glob 模式（*/）会终结块注释 ⑤verify 断言中文字符串要与源码逐码点核对（兜/兑形近字假阴）⑥诊断卡 fetch 是异步渲染，端到端断言用 waitForFunction 等内容而非固定 sleep
 - 待办：用户实测 1.3.0（升级后 /api/debug version 应为 1.3.0，stateAgeMs 恒<5s，控制应全部生效）；任务B（音乐面板体验）继续按反馈迭代；任务A（磁贴抖动 v1.7.4 已修待确认）；史7遗留（开发工具显示 bug、预设覆盖可调回、⌘K 面板外点关闭、ContextMenu/PresetDocs blur、预设导入拖拽）；Edge 商店提交材料仍未做
+
+---
+Task ID: 74
+Agent: main (Super Z)
+Task: 回应用户反馈「没有看到诊断按钮 + 控制仍无效，是否网页问题」——现场审计 + 诊断回复
+
+Work Log:
+- 审计 git log：Task 71/72/73 已闭环（插件 1.2.0→1.3.0、v1.7.7 面板翻新、gh-pages 已部署 BUILD 20260905094248-e8b3d8b、Release v1.7.7 五资产直链 SHA 全对拍）
+- 确认 MusicPanel v1.7.7 诊断按钮位置：面板底部连接状态行右侧（Activity 图标 +「诊断」文字，aria-label=桥接诊断）
+- 确认 sw.js 更新策略：导航 stale-while-revalidate + skipWaiting/clients.claim → 部署后首次打开仍见旧页，需再开一次/硬刷新
+- 验证 GitHub Release v1.7.7 五资产全部 uploaded（authenticated API）
+- 复用 Task 73 已发文叔叔链接 https://c.wss.ink/f/ksvdij7fm37 作备份，主推 Release 直链
+
+Stage Summary:
+- 结论：用户双旧——网页旧（无诊断按钮）+ 插件仍 1.2.0（debug version 实锤，控制命令路径错位根因未升级）。回复升级路径：删 1.2.0 .plugin → 放 1.3.0 → 重启网易云；网页再开一次标签页/硬刷新；验证 /api/debug version=1.3.0 且 stateAgeMs<5000
+- 待办：等用户实测 1.3.0 反馈；任务B 继续迭代；任务A/史7遗留/Edge 商店材料未动
