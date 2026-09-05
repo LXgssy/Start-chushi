@@ -305,7 +305,7 @@ CSS 直接注入起始页本体，可以写动画、调玻璃观感。注入前�
 
 > SMTC 数据来自 Windows 系统媒体会话（经本机「初始SMTC桥」127.0.0.1:20754），
 > 网易云音乐 / QQ 音乐 / Spotify / 浏览器视频等任何注册 SMTC 的播放器都会出现。
-> 官方示例「初始 · SMTC 音乐」预设（`examples/初始SMTC音乐预设.json`）：
+> 官方示例「初始 · SMTC 音乐」预设（`examples/初始SMTC音乐预设.cshz`，包形态含 assets/cover.svg 默认唱片，经 `parsePack` 导入）：
 > 双形态磁贴 + ⌘K 命令，两通道 API 的完整用例。
 
 官方示例「倒数日」预设（仓库 `examples/倒数日预设.json`）：点击卡片改事件与日期，配置经 storage 保存在本机——照抄它的结构最快上手。

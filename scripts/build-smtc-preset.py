@@ -1,8 +1,10 @@
-# build-smtc-preset.py — 组装「初始 · SMTC 音乐」预设包 JSON
-# 源：preset-src/smtc/music-widget.html + music-commands.js
-# 出：examples/初始SMTC音乐预设.json
-# 校验：widget html ≤12000 字符、script code ≤16000 字符（PRESET_LIMITS）
-import json, re, pathlib
+# build-smtc-preset.py — 组装「初始 · SMTC 音乐」预设包 .cshz（v1.8.1 起改包形态）
+# 源：preset-src/smtc/music-widget.html + music-commands.js + assets/cover.svg
+# 出：examples/初始SMTC音乐预设.cshz（zip：manifest.json + assets/cover.svg，
+#     与 src/lib/startpage/pack.ts parsePack 的白名单结构一一对应）
+# 校验：widget html ≤12000、script code ≤16000、animation css ≤6000（PRESET_LIMITS）
+# ⚠ html 里的 "asset:cover.svg" 引用只能在 .cshz 导入时被内联 —— 本包不再产单 JSON 形态
+import json, re, pathlib, zipfile
 
 ROOT = pathlib.Path("/home/z/my-project")
 SRC = ROOT / "preset-src" / "smtc"
@@ -47,17 +49,21 @@ def minify_html(s: str) -> str:
 
 html = minify_html((SRC / "music-widget.html").read_text(encoding="utf-8"))
 code = minify_js((SRC / "music-commands.js").read_text(encoding="utf-8"))
+cover_svg = (SRC / "assets" / "cover.svg").read_text(encoding="utf-8")
 
 assert len(html) <= 12000, f"widget html 超限: {len(html)} > 12000"
 assert len(code) <= 16000, f"script code 超限: {len(code)} > 16000"
 # widget html 不能含外链脚本/资源（iframe 不透明源本就加载不了，这里防手滑）
 assert "http://" not in html and "https://" not in html, "widget html 不应包含外链 URL"
+# 资产引用自检：html 里必须恰好引用 cover.svg（pack.ts ASSET_REF_RE 白名单字符集）
+refs = set(re.findall(r"asset:([A-Za-z0-9._-]{1,64})", html))
+assert refs == {"cover.svg"}, f"asset 引用异常: {refs}"
 
 preset = {
     "chushi": 1,
     "name": "初始 · SMTC 音乐",
     "author": "初始",
-    "description": "系统媒体会话音乐磁贴：网易云等播放器即播即显，⌘K 可控",
+    "description": "系统媒体音乐磁贴（dock 面板风格）：网易云等即播即显，⌘K 可控",
     "widgets": [
         {
             "id": "music",
@@ -88,6 +94,18 @@ preset = {
     ],
 }
 
-out = ROOT / "examples" / "初始SMTC音乐预设.json"
-out.write_text(json.dumps(preset, ensure_ascii=False, indent=2), encoding="utf-8")
-print(f"OK widget={len(html)} chars, script={len(code)} chars -> {out}")
+out = ROOT / "examples" / "初始SMTC音乐预设.cshz"
+if out.exists():
+    out.unlink()
+with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as z:
+    z.writestr("manifest.json", json.dumps(preset, ensure_ascii=False, indent=2))
+    z.writestr("assets/cover.svg", cover_svg)
+
+# 回读验包：结构 + 引用完整性
+with zipfile.ZipFile(out) as z:
+    names = set(z.namelist())
+    assert names == {"manifest.json", "assets/cover.svg"}, f"包结构异常: {names}"
+    m = json.loads(z.read("manifest.json"))
+    assert m["chushi"] == 1 and m["widgets"] and m["widgets"][0]["html"] == html
+
+print(f"OK widget={len(html)} chars, script={len(code)} chars -> {out} ({out.stat().st_size/1024:.1f} KB)")

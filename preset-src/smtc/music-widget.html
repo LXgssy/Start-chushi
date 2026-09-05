@@ -3,22 +3,22 @@
   *{margin:0;padding:0;box-sizing:border-box}
   html,body{width:100%;height:100%;overflow:hidden}
   body{
-    font-family:var(--font-geist-sans,ui-sans-serif,system-ui,"PingFang SC","Microsoft YaHei",sans-serif);
-    -webkit-font-smoothing:antialiased;user-select:none;
-    --ink:#18181b;--ink2:#52525b;--ink3:#a1a1aa;--line:rgba(0,0,0,.08);
-    --card:rgba(255,255,255,.86);--card2:rgba(255,255,255,.55);
+    font-family:ui-sans-serif,system-ui,"PingFang SC","Microsoft YaHei",sans-serif;
+    user-select:none;
+    --ink:#27272a;--ink2:#71717a;--ink3:#a1a1aa;--line:rgba(0,0,0,.08);
+    --pr:rgba(0,0,0,.10);--ok:#34d399;--card:rgba(255,255,255,.86);--card2:rgba(255,255,255,.55);
     --acc:var(--w-accent,#8b5cf6);
-    --acc20:color-mix(in oklab,var(--acc) 20%,transparent);--ez:var(--ez);--r9:999px;
+    --acc20:color-mix(in oklab,var(--acc) 20%,transparent);
     --acc32:color-mix(in oklab,var(--acc) 32%,transparent);
     --acc66:color-mix(in oklab,var(--acc) 66%,transparent);
+    --ez:var(--ez);--r9:999px;
   }
   [data-theme=dark] body{
     --ink:#f4f4f5;--ink2:#a1a1aa;--ink3:#71717a;--line:rgba(255,255,255,.09);
-    --card:rgba(24,24,28,.88);--card2:rgba(39,39,44,.55);
+    --pr:rgba(255,255,255,.12);--card:rgba(24,24,28,.88);--card2:rgba(39,39,44,.55);
   }
-  /* 卡片底座：微磨砂圆角（与「初始」面板同材质语言） */
   .card{position:relative;width:100%;height:100%;background:var(--card);
-    backdrop-filter:blur(22px) saturate(1.5);-webkit-backdrop-filter:blur(22px) saturate(1.5);
+    backdrop-filter:blur(22px) saturate(1.5);
     border:1px solid var(--line);border-radius:18px;overflow:hidden;
     box-shadow:0 10px 34px rgba(0,0,0,.13),0 1px 0 rgba(255,255,255,.14) inset;
     }
@@ -29,15 +29,11 @@
   .ar,.he{position:relative;overflow:hidden}
   .ar{width:44px;height:44px;border-radius:12px;flex:none;background:linear-gradient(135deg,var(--acc32),var(--acc20));box-shadow:0 2px 8px rgba(0,0,0,.16)}
   .pl .ar{animation:br 3.6s ease-in-out infinite}
-  @keyframes br{0%,100%{box-shadow:0 2px 8px rgba(0,0,0,.16),0 0 0 0 transparent}
-    50%{box-shadow:0 2px 10px rgba(0,0,0,.18),0 0 0 5px var(--acc20)}}
+  @keyframes br{50%{box-shadow:0 2px 10px rgba(0,0,0,.18),0 0 0 5px var(--acc20)}}
   .ar img,.he img{width:100%;height:100%;object-fit:cover;display:block;opacity:0;
     transition:opacity .6s var(--ez),filter .5s ease}
   .ar img.on,.he img.on{opacity:1}
   .pz{filter:saturate(.55) brightness(.9)}
-  .ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-    color:var(--acc66);font-size:17px}
-  .ar:has(img.on) .ph,.he:has(img.on) .ph{display:none}
   .mt{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
   .t1{font-size:13px;font-weight:550;color:var(--ink);line-height:1.25;white-space:nowrap;
     overflow:hidden;text-overflow:ellipsis}
@@ -45,68 +41,61 @@
     text-overflow:ellipsis}
   .sw{animation:ri .5s var(--ez)}
   @keyframes ri{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
-  .mn{position:absolute;left:64px;right:58px;bottom:7px;height:2px;border-radius:2px;
-    background:var(--line);overflow:hidden}
-  .mn i{display:block;height:100%;width:0%;border-radius:2px;background:var(--acc);
-    transition:width .12s linear}
   /* ---------- 按钮 ---------- */
   .bt{appearance:none;border:0;background:transparent;color:var(--ink2);width:34px;height:34px;
     border-radius:var(--r9);flex:none;display:flex;align-items:center;justify-content:center;
-    cursor:pointer;transition:transform .25s var(--ez),background .25s,color .25s}
+    cursor:pointer;transition:transform .25s var(--ez)}
+  .bt svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.75;
+    stroke-linecap:round;stroke-linejoin:round}
+  .bt svg.pc{fill:currentColor;stroke:none}
   .bt:hover{background:var(--card2);color:var(--ink);transform:scale(1.06)}
-  .bt svg{width:17px;height:17px}
   .bt.mi{width:38px;height:38px;color:var(--ink);background:var(--card2)}
   .bt.mi:hover{background:var(--acc20);color:var(--acc)}
-  .cx{position:absolute;appearance:none;border:0;cursor:pointer;display:flex;align-items:center;
-    justify-content:center;width:24px;height:24px;border-radius:var(--r9);color:var(--ink3);
-    background:var(--card2);opacity:0;
-    transition:opacity .3s,transform .35s var(--ez)}
-  .cx svg,.ic{stroke:currentColor;stroke-linecap:round;stroke-linejoin:round}
-  .cx svg{width:13px;height:13px;stroke-width:2}
-  .ic{stroke-width:1.4}
-  /* ---------- 展开卡 ---------- */
-  .fl{position:absolute;inset:0;display:flex;flex-direction:column;opacity:0;pointer-events:none;
-    transition:opacity .32s ease}
+  .cx{position:absolute;right:10px;top:10px;appearance:none;border:0;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;width:24px;height:24px;
+    border-radius:var(--r9);color:#fff;background:rgba(0,0,0,.28);opacity:.8;
+    transition:transform .35s var(--ez)}
+  .cx svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2;
+    stroke-linecap:round;stroke-linejoin:round}
+  .cx:hover{transform:scale(1.08)}
+  .ic{stroke:currentColor;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round}
+  /* ---------- 展开卡：dock 面板复刻 ---------- */
+  .fl{position:absolute;inset:0;display:flex;flex-direction:column;padding:14px 16px 11px;
+    opacity:0;pointer-events:none;transition:opacity .32s ease}
   .mode-fl .fl{opacity:1;pointer-events:auto}
-  .he{height:126px;flex:none}
-  .he .ph{font-size:34px;color:#fff;opacity:.9;
-    background:linear-gradient(135deg,var(--acc32),var(--acc20))}
-  .hf{position:absolute;inset:0;
-    background:linear-gradient(180deg,rgba(0,0,0,.06),rgba(0,0,0,.02) 40%,color-mix(in oklab,var(--card) 94%,transparent))}
-  .cx{right:9px;top:9px;opacity:.8;color:#fff;background:rgba(0,0,0,.28);
-    backdrop-filter:blur(6px)}
-  .cx:hover{transform:scale(1.08);color:#fff}
-  .bd{position:absolute;left:12px;bottom:10px;display:flex;align-items:center;gap:5px;
-    font-size:10.5px;color:rgba(255,255,255,.94);
-    background:rgba(0,0,0,.30);backdrop-filter:blur(8px);
-    border:1px solid rgba(255,255,255,.14);padding:3px 9px;border-radius:var(--r9)}
-  .dt{width:5px;height:5px;border-radius:var(--r9);background:#34d399}
-  .dt.pz{background:#fbbf24}
-  .fm{padding:12px 16px 4px}
-  .fm .t1{font-size:15px}
-  .fm .t2{font-size:12px;margin-top:3px}
-  /* 进度条（可拖 seek） */
-  .sk{margin:10px 16px 2px;height:14px;display:flex;align-items:center;cursor:pointer;touch-action:none}
-  .rl{position:relative;width:100%;height:3px;border-radius:3px;background:var(--line);
-    transition:height .2s ease}
-  .sk:hover .rl,.sk.dr .rl{height:5px}
-  .rl i{position:absolute;left:0;top:0;height:100%;width:0%;border-radius:3px;
-    background:linear-gradient(90deg,var(--acc66),var(--acc))}
-  .rl u{position:absolute;top:50%;width:11px;height:11px;border-radius:var(--r9);background:#fff;
-    border:2px solid var(--acc);box-shadow:0 1px 5px rgba(0,0,0,.25);
-    transform:translate(-50%,-50%) scale(0);
-    transition:transform .2s var(--ez);pointer-events:none}
-  .sk:hover .rl u,.sk.dr .rl u{transform:translate(-50%,-50%) scale(1)}
-  .tm{display:flex;justify-content:space-between;padding:0 18px;font-size:10.5px;
+  .rw{display:flex;align-items:center;gap:14px}
+  .cw{position:relative;flex:none}
+  .glow{position:absolute;inset:-7px;border-radius:22px;background:var(--acc);opacity:0;
+    filter:blur(12px);transition:opacity .55s ease}
+  .pl .glow{opacity:.24}
+  .he{width:96px;height:96px;border-radius:16px;
+    background:linear-gradient(135deg,var(--acc32),var(--acc20));
+    box-shadow:0 4px 14px rgba(0,0,0,.16);transition:transform .5s var(--ez)}
+  .pl .he{transform:scale(1.02)}
+  .dot{position:absolute;right:6px;top:6px;width:6px;height:6px;border-radius:var(--r9);
+    background:var(--ok);box-shadow:0 0 6px var(--ok);opacity:0;transition:opacity .4s}
+  .pl .dot{opacity:1}
+  .info{flex:1;min-width:0;padding-right:24px}
+  .info .t1{font-size:15px;font-weight:560;line-height:1.3}
+  .info .t2{font-size:12px;color:var(--ink2);margin-top:3px}
+  .info .t3{font-size:11px;color:var(--ink3);margin-top:2px}
+  .sk{margin-top:13px;height:14px;display:flex;align-items:center;cursor:pointer;touch-action:none}
+  .rl{position:relative;width:100%;height:4px;border-radius:4px;background:var(--pr)}
+  .rl i{position:absolute;left:0;top:0;height:100%;width:0%;border-radius:4px;background:var(--acc)}
+  .rl u{position:absolute;top:50%;width:10px;height:10px;border-radius:var(--r9);background:#fff;
+    border:2px solid var(--acc);transform:translate(-50%,-50%);pointer-events:none}
+  .tm{display:flex;justify-content:space-between;margin-top:2px;font-size:10.5px;
     color:var(--ink3);font-variant-numeric:tabular-nums}
-  .ct{flex:1;display:flex;align-items:center;justify-content:center;gap:22px;padding-bottom:10px}
-  .ct .bt{width:38px;height:38px;color:var(--ink2)}
-  .ct .bt.mi{width:52px;height:52px;color:#fff;
-    background:linear-gradient(145deg,color-mix(in oklab,var(--acc) 88%,#fff),color-mix(in oklab,var(--acc) 80%,#000));
-    box-shadow:0 4px 14px color-mix(in oklab,var(--acc) 38%,transparent),
-    0 1px 0 rgba(255,255,255,.2) inset}
-  .ct .bt.mi:hover{transform:scale(1.07)}
-  .ct .bt.mi svg{width:21px;height:21px}
+  .ct{flex:1;display:flex;align-items:center;justify-content:center;gap:20px}
+  .ct .bt{width:38px;height:38px}
+  .ct .bt svg{width:19px;height:19px}
+  .ct .bt.mi{width:46px;height:46px;color:#fff;background:var(--acc);
+    box-shadow:0 4px 14px var(--acc32),0 1px 0 rgba(255,255,255,.22) inset}
+  .ct .bt.mi svg{width:20px;height:20px}
+  .ct .bt.mi:active{transform:scale(.94)}
+  .ft{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--ink3)}
+  .dt{width:6px;height:6px;border-radius:var(--r9);background:var(--ok);flex:none;transition:background .3s}
+  .dt.pz{background:#fbbf24}
   /* ---------- 空态 ---------- */
   .em{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
     justify-content:center;gap:7px;text-align:center;padding:12px}
@@ -116,55 +105,55 @@
   .hd{display:none!important}
 </style>
 
+<svg width="0" height="0"><defs>
+  <polygon id="i-pl" points="7 4 19 12 7 20 7 4"/>
+  <g id="i-pa"><rect x="6.6" y="4.6" width="3.6" height="14.8" rx="1.3"/><rect x="13.8" y="4.6" width="3.6" height="14.8" rx="1.3"/></g>
+  <g id="i-pv"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></g>
+  <g id="i-nx"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></g>
+  <polyline id="i-up" points="6 15 12 9 18 15"/>
+</defs></svg>
+
 <div class="card mode-em" id="card">
   <div class="cp" id="cp">
-    <div class="ar">
-      <img id="aS" alt="">
-      <div class="ph" id="pS">♪</div>
-    </div>
+    <div class="ar"><img id="aS" alt=""></div>
     <div class="mt">
       <div class="t1" id="t1s">—</div>
       <div class="t2" id="t2s">正在等待媒体</div>
     </div>
     <button class="bt mi" id="pS0" aria-label="播放或暂停">
-      <svg id="yS" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-      <svg id="nS" viewBox="0 0 24 24" fill="currentColor" class="hd">M6 19h4V5H6v14zm8-14v14h4V5h-4z</svg>
+      <svg id="yS" viewBox="0 0 24 24"><use href="#i-pl"/></svg>
+      <svg id="nS" viewBox="0 0 24 24" class="hd pc"><use href="#i-pa"/></svg>
     </button>
-    <div class="mn"><i id="barS"></i></div>
   </div>
 
   <div class="fl" id="fl">
-    <div class="he">
-      <img id="aF" alt="">
-      <div class="ph" id="pF">♪</div>
-      <div class="hf"></div>
-      <button class="cx" id="cxB" aria-label="收起">
-        <svg viewBox="0 0 24 24" fill="none"><polyline points="6 9 12 15 18 9"/></svg>
-      </button>
-      <div class="bd"><span class="dt" id="dt"></span><span id="ap"></span></div>
+    <div class="rw">
+      <div class="cw">
+        <div class="glow"></div>
+        <div class="he"><img id="aF" alt=""><span class="dot" id="dot"></span></div>
+      </div>
+      <div class="info">
+        <div class="t1" id="t1f">—</div>
+        <div class="t2" id="t2f"></div>
+        <div class="t3" id="t3f"></div>
+      </div>
     </div>
-    <div class="fm">
-      <div class="t1" id="t1f">—</div>
-      <div class="t2" id="t2f"></div>
-    </div>
+    <button class="cx" id="cxB" aria-label="收起"><svg viewBox="0 0 24 24"><use href="#i-up"/></svg></button>
     <div class="sk" id="sk"><div class="rl"><i id="barF"></i><u id="th"></u></div></div>
     <div class="tm"><span id="tC">0:00</span><span id="tD">0:00</span></div>
     <div class="ct">
-      <button class="bt" id="pv" aria-label="上一首">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
-      </button>
+      <button class="bt" id="pv" aria-label="上一首"><svg viewBox="0 0 24 24"><use href="#i-pv"/></svg></button>
       <button class="bt mi" id="pF0" aria-label="播放或暂停">
-        <svg id="yF" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-        <svg id="nF" viewBox="0 0 24 24" fill="currentColor" class="hd">M6 19h4V5H6v14zm8-14v14h4V5h-4z</svg>
+        <svg id="yF" viewBox="0 0 24 24"><use href="#i-pl"/></svg>
+        <svg id="nF" viewBox="0 0 24 24" class="hd pc"><use href="#i-pa"/></svg>
       </button>
-      <button class="bt" id="nx" aria-label="下一首">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
-      </button>
+      <button class="bt" id="nx" aria-label="下一首"><svg viewBox="0 0 24 24"><use href="#i-nx"/></svg></button>
     </div>
+    <div class="ft"><span class="dt" id="dt"></span><span id="ap">已连接</span></div>
   </div>
 
   <div class="em" id="em">
-    <svg class="ic" width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M12 3v10.55A4 4 0 1014 17V7h4V3h-6z"/></svg>
+    <svg class="ic" width="26" height="26" viewBox="0 0 24 24" fill="none"><circle cx="8" cy="18" r="4"/><path d="M12 18V2l7 4"/></svg>
     <div class="e1" id="e1">系统媒体待接入</div>
     <div class="e2" id="e2">启动初始SMTC桥后接入</div>
   </div>
@@ -175,11 +164,11 @@
 "use strict";
 var $=function(id){return document.getElementById(id)};
 var card=$("card"),cp=$("cp"),sk=$("sk");
-var E={aS:$("aS"),pS:$("pS"),t1s:$("t1s"),t2s:$("t2s"),yS:$("yS"),nS:$("nS"),barS:$("barS"),
-  aF:$("aF"),pF:$("pF"),t1f:$("t1f"),t2f:$("t2f"),yF:$("yF"),nF:$("nF"),
+var E={aS:$("aS"),t1s:$("t1s"),t2s:$("t2s"),yS:$("yS"),nS:$("nS"),
+  aF:$("aF"),t1f:$("t1f"),t2f:$("t2f"),t3f:$("t3f"),yF:$("yF"),nF:$("nF"),
   barF:$("barF"),th:$("th"),tC:$("tC"),tD:$("tD"),ap:$("ap"),dt:$("dt"),
   e1:$("e1"),e2:$("e2")};
-var H={cp:64,fl:300,em:92},mode="em",st=null,lastKey="",drag=false,dragRatio=0;
+var H={cp:64,fl:248,em:92},mode="em",st=null,lastKey="",drag=false,dragRatio=0;
 var ctl=function(c,p){try{return chushi.smtc.control(c,p)}catch(e){return Promise.resolve(false)}};
 function fmt(s){s=Math.max(0,Math.floor(s));return Math.floor(s/60)+":"+(s%60<10?"0":"")+s%60}
 function posNow(){
@@ -199,9 +188,12 @@ function playIcons(on){
   E.dt.classList.toggle("pz",!on);card.classList.toggle("pl",on);
   E.aS.classList.toggle("pz",!on);E.aF.classList.toggle("pz",!on);
 }
+/* 封面：有则显示，无则落到包内默认唱片（asset:cover.svg，.cshz 导入时内联） */
+var DEF="asset:cover.svg";
 function cover(img,u){
-  if(u){if(img.src!==u)img.src=u;img.classList.add("on")}
-  else{img.classList.remove("on");img.src=""}
+  var s=u||DEF;
+  if(img.__s!==s){img.src=s;img.__s=s}
+  img.classList.add("on");
 }
 function txt(el,v){if(el.textContent!==v)el.textContent=v}
 function render(){
@@ -217,17 +209,18 @@ function render(){
   var key=[t.title,t.artist,t.album,t.app].join("|");
   if(key!==lastKey){
     lastKey=key;
-    var els=[E.t1s,E.t2s,E.t1f,E.t2f];
-    for(var i=0;i<4;i++){els[i].classList.remove("sw");void els[i].offsetWidth;els[i].classList.add("sw")}
+    var els=[E.t1s,E.t2s,E.t1f,E.t2f,E.t3f];
+    for(var i=0;i<els.length;i++){els[i].classList.remove("sw");void els[i].offsetWidth;els[i].classList.add("sw")}
   }
   txt(E.t1s,t.title||"未知曲目");
   txt(E.t2s,t.artist||"未知艺术家");
   txt(E.t1f,t.title||"未知曲目");
-  txt(E.t2f,(t.artist||"未知艺术家")+(t.album?" · "+t.album:""));
-  txt(E.ap,t.app||"系统媒体");
+  txt(E.t2f,t.artist||"未知艺术家");
+  txt(E.t3f,t.album||"");
+  txt(E.ap,"已连接 · "+(t.app||"系统媒体"));
+  if(mode==="em")setMode("cp");/* 先切模式：setMode 整写 className，须在 pl 类之前 */
   cover(E.aS,st.cover);cover(E.aF,st.cover);
   playIcons(t.playing);
-  if(mode==="em")setMode("cp");
 }
 /* 进度插值：rAF 逐帧（拖动时以预览为准） */
 function tick(){
@@ -235,7 +228,7 @@ function tick(){
     var t=st.track,p=drag?dragRatio*t.duration:posNow();
     var r=t.duration>0?Math.min(1,Math.max(0,p/t.duration)):0;
     var w=(r*100).toFixed(2)+"%";
-    E.barS.style.width=w;E.barF.style.width=w;E.th.style.left=w;
+    E.barF.style.width=w;E.th.style.left=w;
     txt(E.tC,fmt(p));txt(E.tD,t.duration>0?fmt(t.duration):"--:--");
   }
   requestAnimationFrame(tick);
@@ -246,7 +239,7 @@ $("pS0").addEventListener("click",function(e){e.stopPropagation();ctl("toggle")}
 $("pF0").addEventListener("click",function(){ctl("toggle")});
 $("nx").addEventListener("click",function(){ctl("next")});
 $("pv").addEventListener("click",function(){ctl("prev")});
-/* 展开 / 收起：点紧凑条任意处展开（按钮除外），右上箭头同样有效 */
+/* 展开 / 收起：点紧凑条任意处展开（按钮除外） */
 function open(){setMode("fl")}
 cp.addEventListener("click",function(e){if(!e.target.closest(".bt"))open()});
 $("cxB").addEventListener("click",function(){setMode("cp")});
@@ -266,7 +259,7 @@ sk.addEventListener("pointerup",function(){
   var t=st&&st.track;
   if(t&&t.duration>0)ctl("seek",dragRatio*t.duration);
 });
-/* 订阅 SMTC 快照（订阅即回推，后续变化自动到达）+ 兜底 get 一次 */
+/* 订阅 SMTC 快照（订阅即回推）+ 兜底 get 一次 */
 try{chushi.smtc.subscribe(function(s){st=s;render()})}catch(e){}
 try{chushi.smtc.get().then(function(s){if(!st){st=s;render()}})}catch(e){}
 setMode("em");
