@@ -527,3 +527,24 @@ Stage Summary:
 - 预设包律：带资源的预设一律 .cshz（manifest+assets），`asset:` 引用与单 JSON 互斥；parsePack 的 ASSET_REF_RE 白名单字符集 [A-Za-z0-9._-] 是引用命名硬约束
 - widget className 整写型状态机：模式切换类与状态类共存时，先整写再叠加，顺序是契约
 - 待办：用户真机复测（启动 bat 不再乱码→导入 .cshz→dock 风格磁贴）；任务A（磁贴删除抖动已被 scrollbar-gutter 根治，待用户确认）/史7遗留/Edge 商店材料未动
+
+---
+Task ID: 78
+Agent: main (Super Z)
+Task: 用户反馈「不是作为磁贴啊，是把音乐面板放到dock，在dock栏加一个音乐的按钮，然后要有弹出动画，做不到就加API；启动bat又弹假命令：'ANSI'/'桥'/'e'/'MTC'」—— v1.8.2 dock 音乐按钮+弹出面板（API 扩展）+ bat 编码终修
+
+Work Log:
+- 【bat 乱码第二轮根因】v1.8.1 交付 bat 虽已 GBK，但换行符 LF（Unix）：cmd 批处理解析器遇「LF-only + 多字节 GBK」行偏移错位，把行中片段当命令执行（'ANSI'/'桥'/'e'/'MTC' 全部可由行内切位复现）——与 v1.8.0 的「UTF-8 被 GBK 误读」是两种独立病；fix-bats-v182.py 三 bat 重写为**纯 ASCII 内容 + CRLF + 无 BOM**（三重保险：任何代码页/解析器行为一致），窗口提示改英文（说明.txt 带 BOM 承载中文），build-smtc-delivery.py 断言升级（全 ASCII/无 bare LF/无 BOM/chcp 禁令）
+- 【API 扩展】PresetWidget 增 surface(corner|dock)/icon 字段：dock 表面不在角落出磁贴，由 Dock.tsx 注册 tab 栏按钮（icon=lucide 白名单或 data:image），点击在 dock 上方弹出同源沙箱面板——PresetWidgets 渲染 PresenceClass(panel-rise/panel-sink)+motion 高度弹簧(420/34)与内建 PanelStage 同语言；width/height 语义=弹出面板宽/初始高；关闭=再点按钮/外点遮罩/Esc/部件内 chushi.close()（sandbox.js widgetShim 新 API，op=closePanel，宿主复核仅 dock 表面且在开态）；与内建面板互斥（page.tsx 双向 effect+toggle）；dock 形态沙箱置 dataset.panel=1
+- 【预设改版】SMTC 音乐预设 widget：surface=dock+icon=music+width 340+height 92；部件 html panel 形态=连接后直开展开卡（跳过紧凑条）、收起键改 chushi.close()；⌘K 四命令保留
+- 【⚠新坑①（v1.8.1 就带着的）】music-widget.html 的 <svg width=0 height=0> 是 inline 元素，body 行盒撑 19px 把 .card 顶下去→弹层顶部 19px 白条（沙箱宿主白底透出）；空态层 .em 与紧凑条 .cp 同屏叠加——修：svg 加 position:absolute + .mode-em .cp 隐藏；Playwright frame API 探针（elementFromPoint+computed style）实锤
+- 【⚠新坑②】npm run build 默认 standalone；verify 服务的 out/ 是 EXPORT_MODE 产物——改完源码忘跑 EXPORT_MODE=1 重导出，验证全跑在旧 bundle 上（表现：parsePreset「丢」surface/icon，实为旧代码）。「验证前先核对被测产物的时间戳与构建模式」
+- 【⚠新坑③】shot 脚本 mock 桥端口写 20755（smtc.ts 硬编码 20754）→ 播放态截图永远空态；探针类调试走 Playwright frames()（host iframe 有 sandbox=allow-scripts，contentDocument 拿不到）
+- 【验证】verify-v182.mjs 29/29 全绿：.cshz 导入→dock 按钮出现+角落磁贴消失/空态弹出 92+dataset.panel/Esc+外点+收起键三路关闭/active 选框/播放态 248 直开(mode-fl)/默认唱片→真封面/toggle+seek 上行/与内建面板互斥双向/⌘K 命令/gutter+删磁贴回归/pageerror=0；shot-v182 双主题 8 截图视觉验收（空态/播放态/特写）；扩展 zip 验包（manifest 1.8.2+closePanel/panelMode/cl-dockwidget 特征）
+- 【发布】main b0b3e5b；gh-pages 665aba8（sw BUILD 20260905171705-b0b3e5b，线上 css .cl-dockwidget/js onToggleDockWidget/sandbox closePanel 全命中）；扩展 build-extension.py v1.8.2（11.7MB）；Release v1.8.2（id 383316183）三资产（Delivery.zip/Preset.cshz/NewTab-v1.8.2.zip）直链 SHA-256 ALL OK；文叔叔合并包 https://c.wss.ink/f/ksykldwv8lp
+- 【文档】README v1.8.2 段、PRESET_DEV §12 重写（surface/icon/chushi.close + 双 widget 示例）+ 钩子表 + 作用面总览、PresetDocs.tsx 同步（应用内 §12+demo）、使用说明-SMTC音乐.md v1.8.2 全文改 dock 交互、说明.txt v1.2.0
+
+Stage Summary:
+- 结论：预设系统获得第二个 widget 表面（dock 按钮+弹出面板，「做不到就加API」落到 surface 字段+chushi.close API）；音乐面板即 v1.7.x dock 栏样式以弹出形态回归；bat 编码问题以「纯 ASCII+CRLF」终局（两轮两种根因都已写进断言与文档）
+- 新律：①被 cmd 解释的脚本，换行符与编码同级危险——LF-only+多字节=行偏移错位，发布断言必须同时锁内容与行尾；②改源码后必须重跑对应 MODE 的导出再验证（out/ 双模式：EXPORT=Pages/EXTENSION=扩展），「测试绿」先问「测的是哪个 bundle」；③inline <svg width=0> 会撑行盒——zero-size 资产一律 absolute；④沙箱 host iframe（sandbox attr）contentDocument 不可达，嵌套 iframe 调试走 Playwright frames()
+- 待办：用户真机复测（桥 bat 不再假命令→导入新 .cshz→dock 音乐按钮→弹出面板控制网易云）；旧 .cshz 预设需删除重导（surface 字段在新 manifest）；任务A（磁贴删除抖动）/史7遗留/Edge 商店材料未动
