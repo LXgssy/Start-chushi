@@ -368,3 +368,23 @@ Stage Summary:
 - 结论：页端点直连被 CloudMusic CEF 拒（握手后 close）是「初始连不上」的真因层；flatten 会话是网易云 CDP 生态验证过的正路；若 flatten 也被拒，close 帧状态码会给出下一步证据
 - 新律：①CDP 对客制化 CEF（CloudMusic）不要假设页端点可用——browser flatten 优先、页端点回退 ②close 帧负载（状态码+原因）是最便宜的深诊断，第一次实现 WS 客户端就该解析它 ③多文件交付物（zip）任何成员变更后都要视为「新包」重新走完整发布链
 - 待办：用户实测 r4 → attach=flatten+ok 则收尾「初始侧连接」；残余问题看 attachDetail（ws-close 码/timeout/probe-miss）
+
+---
+Task ID: 70
+Agent: main (Super Z)
+Task: r5 热修——用户回传 2.0.3 实测 /api/debug（attach=ok、cdp/bridge=true、lastEvalAgoMs=609，但 diag.store/events/media 全 false），按 Task 69 待办收尾「连接层已通，残余看 diag」
+
+Work Log:
+- 【环境自检】workspace 又被清理：.pkgtmp/gh-token、llvm-mingw 工具链、worklog Task 56-69 段全部丢失；gh-token 从 .git/config 内嵌凭据恢复（python 解析不回显）；工具链重新下载 llvm-mingw-20260826（mstorsjo release，84MB）；git reset --hard origin/main 对齐 4911028
+- 【决定性判读】lastEvalAgoMs=609（<800ms 轮询周期）说明 g_cb.snap 正被 ok:true 回执持续刷新——三源至少一路活、/api/status 数据链路已通；attach=flatten+ok 证实 r4 flatten 会话是真解。diag 全 false 是**读出层缺陷**：cdp 线程只把内层 "snap":{...} 存进 g_cb.snap，/api/debug 却向它索要 "diag":{ 段——永远扑空；ok:false 时 error 也整段丢弃
+- 【r5 修复】①chushibridge.c 新增 record_snap_receipt()：括号配对提取外层回执的 diag 段 + ok 布尔 + error 字符串，附加/轮询两处调用 → cb_diag_set 落库；②cb_server.h 状态体扩 diag_json/snap_ok_flag/snap_err；③handle_debug 重写：真实 diag 段 ASCII 安全化内嵌（"diag":%s），新增 snapOk/snapErr 字段，无数据时兜底全 false 段，body 1536→2048；④预检响应补 Access-Control-Allow-Private-Network: true（PNA 收紧护栏，网页版直连用）；⑤页内桥 2.0.4：diag 增加 href（location.href 截 80 字符，确认注入目标页面）
+- 【构建】llvm-mingw 重建后编译零警告；exe 124KB / msimg32.dll 52KB，导出表 5/5
+- 【验证】verify-installer-r5.py（cp r4 改造 + [7b] diag/PNA 10 项 + [4b] 说明段）90/90 全绿；⚠又一转义坑：链式比较行多写一个右括号 SyntaxError，逐行数括号修复
+- 【发布】main 647a3a8 推送；rel-installer-r5.py 同名替换 ChuShiBridge-2.0.0-Setup.zip（79893B，资产 id 545466215）+ notes 追加 r5 段（保留 r4 段历史）；直链 SHA-256 c9f82de1… 复核一致（r4 律执行）
+- 【交付】pw-lab 依赖重装（base58/pycryptodomex，PEP 668 需 --break-system-packages）后 wss-send.py 上传成功
+
+Stage Summary:
+- 结论：用户的 2.0.3 已把连接层修通（flatten 会话 ok、快照新鲜流转），diag 全 false 纯属诊断接口自身的读出 bug——**桥很可能一直在正常给「初始」喂数据**；2.0.4 后 /api/debug 终于说真话，下一步排障看 diag 三源与 snapOk/snapErr 即可
+- 新律：①「诊断接口必须与诊断数据同源」——从共享状态读什么、写什么要成对设计，中间层（快照提取）丢字段是静默故障温床 ②快照回执外层（ok/diag/error）与内层（snap）应分开落库，禁止从内层反查外层信息 ③gh-token 丢了不必找历史——git remote 内嵌凭据就是活副本
+- 交付：Release 资产直链 https://github.com/LXgssy/Start-chushi/releases/download/v1.7.6/ChuShiBridge-2.0.0-Setup.zip ；文叔叔 https://c.wss.ink/f/kstzjjy27ir （1 天过期）
+- 待办：用户实测 2.0.4 → 若「初始」仍无数据，看 /api/debug 的 diag 三源（store/events/media）与 snapOk/snapErr：snapOk=true 而面板无歌 = 前端问题；diag 全 false + snapErr=no-source = 页内三源皆未命中（需适配新网易云内核）；Edge 商店提交材料仍未做
