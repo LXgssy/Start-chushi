@@ -8,7 +8,6 @@ import {
   CheckSquare,
   CloudSun,
   Command,
-  Music2,
   NotebookPen,
   Settings2,
   Timer,
@@ -23,7 +22,6 @@ import PomodoroPanel, {
   type PomoRuntime,
 } from "./PomodoroPanel";
 import SettingsPanel from "./SettingsPanel";
-import MusicPanel from "./MusicPanel";
 import { readLS } from "@/hooks/use-start";
 import { dockIcon, type PresetAction, type PresetDockItem } from "@/lib/startpage/preset";
 import type {
@@ -110,7 +108,6 @@ const PANEL_TITLES: Record<Exclude<PanelId, null>, string> = {
   note: "便签",
   pomodoro: "番茄钟",
   settings: "设置",
-  music: "音乐",
 };
 
 /* ---------- 面板舞台：卡片 + 高度形变 + 新旧内容溶解，整体 memo。
@@ -252,7 +249,6 @@ const PanelStage = memo(function PanelStage({
                   onPresetSettingChange={onPresetSettingChange}
                 />
               )}
-              {panel === "music" && <MusicPanel />}
             </PresenceClass>
           </AnimatePresence>
           </motion.div>
@@ -316,9 +312,19 @@ export default function Dock({
   /* 选框出场只在「无面板 → 打开面板」时播 Q 弹（null→panel）；面板间切换时
      新按钮的选框不重播 initial（否则 Q 弹会重新出现——正是用户点名要退回去的
      「切换动画」），layoutId 从旧按钮位置纯滑移，即基线（v1.1.x）手感。
-     渲染期同步 prevPanel（React 官方「渲染期间调整 state」模式，不用 effect） */
+     渲染期同步 prevPanel（React 官方「渲染期间调整 state」模式，不用 effect）。
+     v1.8.0 补充：面板刚关闭（退场动画中，≤450ms 窗口）快速点开另一个功能，
+     视觉上旧选框还在退场——此刻应延续「切换」语言（layoutId 从旧位置纯滑移），
+     不重新播 Q 弹出场（用户点名：此时的动画不是打开动画，是切换动画） */
   const prevPanelRef = useRef<PanelId>(null);
-  const pillPop = panel != null && prevPanelRef.current == null;
+  /** 最近一次面板关闭时刻（switchTo(null) / closePanel 统一记录） */
+  const lastCloseRef = useRef(0);
+  /** 关闭退场的「切换窗口」：选框退场 0.16s + 面板沉没 0.22s，取 450ms 覆盖双击节奏 */
+  const PILL_SWITCH_WINDOW_MS = 450;
+  const pillPop =
+    panel != null &&
+    prevPanelRef.current == null &&
+    Date.now() - lastCloseRef.current > PILL_SWITCH_WINDOW_MS;
   if (prevPanelRef.current !== panel) prevPanelRef.current = panel;
 
   /* dock 番茄钟：运行中或暂停中在按钮旁显示剩余分钟 + 呼吸灯 */
@@ -330,11 +336,15 @@ export default function Dock({
      transform 重置为 none（x/y/scale 全灭、面板失去居中），已用二分法实证——
      任何面板相关状态都不可在挂载后再补一帧回写 */
   function switchTo(p: PanelId) {
+    if (p == null) lastCloseRef.current = Date.now();
     setPanel(p);
   }
 
   /* 面板关闭统一入口：稳定引用传给 PanelStage（memo 前提），见 PanelStage 注释 */
-  const closePanel = useCallback(() => setPanel(null), [setPanel]);
+  const closePanel = useCallback(() => {
+    lastCloseRef.current = Date.now();
+    setPanel(null);
+  }, [setPanel]);
 
   return (
     <>
@@ -456,24 +466,6 @@ export default function Dock({
               </motion.span>
             )}
           </AnimatePresence>
-        </DockButton>
-
-        <Divider />
-
-        {/* 音乐（网易云音乐接入，见 MusicPanel / lib/startpage/music.ts） */}
-        <DockButton
-          motionProfile={motionProfile}
-          pillPop={pillPop}
-          active={panel === "music"}
-          label="音乐"
-          onClick={() => switchTo(panel === "music" ? null : "music")}
-          presetIcon={presetIcons.music}
-        >
-          {presetIcons.music ? (
-            <PresetGlyph spec={presetIcons.music} />
-          ) : (
-            <Music2 className="h-[17px] w-[17px]" strokeWidth={1.5} />
-          )}
         </DockButton>
 
         <Divider />

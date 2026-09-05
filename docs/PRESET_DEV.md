@@ -96,7 +96,7 @@
 | `open` | `url` | 打开网址，必须 https:// |
 | `copy` | `text` | 复制文本到剪贴板，≤200 字符 |
 | `search` | `engine` + `q` | 用指定搜索引擎搜索；engine ∈ `google / bing / baidu / ddg`，q ≤100 字符 |
-| `panel` | `id` | 打开内置面板；id ∈ `weather / todo / note / pomodoro / settings` |
+| `panel` | `id` | 打开内置面板；id ∈ `weather / todo / note / pomodoro / settings`（music 已于 v1.8.0 随插件路线退役） |
 | `theme` | `mode` | 切换主题，mode = light 或 dark |
 | `script` | `id` | 触发本预设 scripts 里定义的脚本（引用完整性在导入期校验） |
 | `page` | `id` | 全屏打开本预设 pages 里定义的沙箱页面 |
@@ -144,7 +144,7 @@
 
 | 字段 | 结构 | 说明 |
 | --- | --- | --- |
-| `icons` | `[{ target, icon }]` | **图标替换**：target ∈ `weather / todo / note / pomodoro / settings / command / music`（tab 栏七个内建按钮，music 为 v1.7.5 音乐面板）；icon 填内置图标名（与 §05 同一白名单）或 base64 `data:image/` URL（png/jpeg/webp/gif/svg+xml，≤8KB，`<img>` 静态渲染不执行脚本）。每按钮仅接受一条覆写 |
+| `icons` | `[{ target, icon }]` | **图标替换**：target ∈ `weather / todo / note / pomodoro / settings / command`（tab 栏六个内建按钮）；icon 填内置图标名（与 §05 同一白名单）或 base64 `data:image/` URL（png/jpeg/webp/gif/svg+xml，≤8KB，`<img>` 静态渲染不执行脚本）。每按钮仅接受一条覆写 |
 | `tokens` | `{ "--ui-accent": … }` | **主题令牌覆写**：键白名单 `--ui-accent`（强调色）/ `--pill-seg`（选框底色）/ `--pill-seg-ring`（选框描边）/ `--pill-line`（分隔线）；值 ≤120 字符，净空 `;{}<>` 字符 |
 | `motion` | `{ profile?, speed? }` | **动效语言**：profile ∈ `standard`（标准）/ `playful`（Q 弹）/ `calm`（从容）/ `instant`（直给），作用于面板高度弹簧与 tab 选框滑移（**playful 档连选框切换也换 Q 弹滑移**，其余档位保持基线手感）；speed（0.5–2）为 CSS 入场/聚拢动画时长倍率——退场保持恒定以保证卸载计时一致 |
 | `clock` | `{ hour12?, showSeconds?, showDate?, greeting? }` | **时钟格式**：hour12 / showSeconds 为**安装时一次性合入用户设置**（与 settings 字段同律：写入后随时可在设置面板调整，删除预设不回滚——v1.7.1 语义修正，原声明式覆写会让设置面板永远调不回）；showDate（「日期 · 农历 · 问候」行显隐）与 greeting（问候语模板，`{greet}` = 时段问候、`{name}` = 用户名，≤40 字符，空串 = 隐藏问候）为声明式覆写，删除预设即还原 |
@@ -299,6 +299,14 @@ CSS 直接注入起始页本体，可以写动画、调玻璃观感。注入前�
 | `chushi.storage.get(key)` | 读本部件持久化 KV（Promise），数据只存本机 localStorage |
 | `chushi.storage.set(key, value)` | 写 KV（Promise），值 JSON 序列化后 ≤4000 字符 |
 | `chushi.notify / open` | 与 pages 相同 |
+| `chushi.smtc.get()` | **媒体作用面（v1.8.0）**：读当前系统媒体会话快照（Promise），返回 `{connected, version, track, cover}`；track 为 `{app,title,artist,album,playing,position,duration,rate,coverRev,fetchedAt}`，cover 为封面 data URL 或 null |
+| `chushi.smtc.control(cmd, position?)` | 媒体控制（Promise<boolean>）：cmd ∈ `play / pause / toggle / next / prev / seek`（seek 附 position 秒）；控制权由播放器决定 |
+| `chushi.smtc.subscribe(cb)` | 订阅快照变化：签名变化才回调（position 不推，按 fetchedAt 插值）；订阅即回推当前值，返回退订函数 |
+
+> SMTC 数据来自 Windows 系统媒体会话（经本机「初始SMTC桥」127.0.0.1:20754），
+> 网易云音乐 / QQ 音乐 / Spotify / 浏览器视频等任何注册 SMTC 的播放器都会出现。
+> 官方示例「初始 · SMTC 音乐」预设（`examples/初始SMTC音乐预设.json`）：
+> 双形态磁贴 + ⌘K 命令，两通道 API 的完整用例。
 
 官方示例「倒数日」预设（仓库 `examples/倒数日预设.json`）：点击卡片改事件与日期，配置经 storage 保存在本机——照抄它的结构最快上手。
 
@@ -341,7 +349,7 @@ manifest 里的 `pages[].html` / `animations[].css` / `widgets[].html` 可以写
 | --- | --- | --- |
 | 内容 | `commands / links / dock / pages / widgets / scripts` | ⌘K 命令、主页磁贴、tab 栏按钮、沙箱自定义页、角落小部件、数据源脚本 |
 | 排版 | `layout` | 区块显隐、时钟缩放、磁贴列数、垂直对齐 |
-| 图标 | `icons` | tab 栏内建按钮的图标替换（七个，含 music） |
+| 图标 | `icons` | tab 栏内建按钮的图标替换（六个，music 已退役） |
 | 主题令牌 | `tokens` | 强调色与 tab 栏选框/分隔线四令牌覆写 |
 | 动效语言 | `motion` | 弹簧档位（standard/playful/calm/instant）与入场动画倍率；playful 档含选框 Q 弹滑移切换 |
 | 时钟格式 | `clock` | 小时制、秒数（一次性合入，面板可调）、日期行、问候语模板 |

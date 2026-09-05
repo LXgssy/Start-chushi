@@ -55,6 +55,7 @@ export type SandboxEvent =
  *  的语义薄糖（固定挂载 id "material"），无新增消息类型。 */
 import { fxHost } from "./fx";
 import { validateSettingSchema, type PresetSettingsSchema } from "./preset-settings";
+import { smtc, SMTC_COMMANDS } from "./smtc";
 
 const FX_OPS = new Set(["fxMount", "fxUnmount", "fxSubscribe", "fxUnsubscribe"]);
 
@@ -81,19 +82,19 @@ const caps = {
  *  ?v= 供部署后冲掉 SW cache-first 旧缓存 */
 function sandboxSrc(): string {
   const base = (process.env.NEXT_PUBLIC_BASE_PATH as string | undefined) ?? "";
-  return `${base}/sandbox.html?v=115`;
+  return `${base}/sandbox.html?v=116`;
 }
 
 /** 沙箱页面模式地址（自定义页 overlay 用）：mode=page 下运行时仅充当页面宿主 */
 export function sandboxPageSrc(): string {
   const base = (process.env.NEXT_PUBLIC_BASE_PATH as string | undefined) ?? "";
-  return `${base}/sandbox.html?mode=page&v=115`;
+  return `${base}/sandbox.html?mode=page&v=116`;
 }
 
 /** 沙箱小部件模式地址（角落小部件用）：mode=widget 下运行时仅充当部件宿主 */
 export function sandboxWidgetSrc(): string {
   const base = (process.env.NEXT_PUBLIC_BASE_PATH as string | undefined) ?? "";
-  return `${base}/sandbox.html?mode=widget&v=115`;
+  return `${base}/sandbox.html?mode=widget&v=116`;
 }
 
 type Msg = { type?: unknown } & Record<string, unknown>;
@@ -126,6 +127,23 @@ class SandboxBridge {
   settingsProvider:
     | ((scriptKey: string, schema: PresetSettingsSchema | null) => Record<string, number | boolean | string>)
     | null = null;
+
+  /** SMTC 媒体作用面（v1.8.0）：订阅了媒体快照推送的脚本集合。
+   *  广播出口随单例构造即挂（smtc.subscribe），推送时逐脚本定向 smtcPush。 */
+  private smtcSubs = new Set<string>();
+
+  constructor() {
+    smtc.subscribe(this.broadcastSmtc);
+  }
+
+  /** SMTC 快照广播：只推订阅脚本（签名变化才触发，position 不推——消费方插值） */
+  private broadcastSmtc = () => {
+    if (this.smtcSubs.size === 0) return;
+    const state = smtc.getSnapshot();
+    for (const key of this.smtcSubs) {
+      this.post({ type: "smtcPush", scriptKey: key, state });
+    }
+  };
 
   /** 同步脚本列表（签名不变则幂等空转；变化则整体重建沙箱） */
   sync(scripts: SandboxScript[]) {
@@ -196,6 +214,7 @@ class SandboxBridge {
     }
     fxHost.stop();
     this.settingsSchemas.clear();
+    this.smtcSubs.clear();
     if (this.watchdog != null) {
       clearTimeout(this.watchdog);
       this.watchdog = null;
@@ -220,6 +239,7 @@ class SandboxBridge {
       if (!scripts.some((x) => x.key === k)) {
         fxHost.cleanup(k);
         this.settingsSchemas.delete(k);
+        this.smtcSubs.delete(k);
       }
     }
     if (typeof window === "undefined" || scripts.length === 0) return;
@@ -325,6 +345,7 @@ class SandboxBridge {
     this.emit({ kind: "frozen", key: script.key, name: script.name });
     fxHost.cleanup(script.key);
     this.settingsSchemas.delete(script.key);
+    this.smtcSubs.delete(script.key);
     const rest = this.scripts.filter((x) => x.key !== script.key);
     this.signature = JSON.stringify(rest.map((x) => [x.key, x.code]));
     this.reboot(rest);
@@ -401,6 +422,47 @@ class SandboxBridge {
           ? this.settingsProvider(gk, schema)
           : {};
         this.post({ type: "settingsValues", scriptKey: gk, values });
+        break;
+      }
+      case "smtcSubscribe": {
+        /* SMTC 媒体作用面（v1.8.0）：登记定向推送 + 立即回推当前快照 */
+        const sk = s(m.scriptKey, 80);
+        if (!sk || !this.scripts.some((x) => x.key === sk)) return;
+        smtc.start();
+        this.smtcSubs.add(sk);
+        this.post({ type: "smtcPush", scriptKey: sk, state: smtc.getSnapshot() });
+        break;
+      }
+      case "smtcGet": {
+        smtc.start();
+        const gsk = s(m.scriptKey, 80);
+        if (!gsk) return;
+        this.post({
+          type: "smtcGetResult",
+          scriptKey: gsk,
+          reqId: typeof m.reqId === "number" ? Math.min(1e9, Math.max(0, m.reqId | 0)) : 0,
+          state: smtc.getSnapshot(),
+        });
+        break;
+      }
+      case "smtcControl": {
+        /* 控制命令白名单复核后转桥（seek 附 position 秒） */
+        const csk = s(m.scriptKey, 80);
+        if (!csk || !this.scripts.some((x) => x.key === csk)) return;
+        const reqId = typeof m.reqId === "number" ? Math.min(1e9, Math.max(0, m.reqId | 0)) : 0;
+        const cmd = s(m.cmd, 8);
+        if (!SMTC_COMMANDS.has(cmd)) {
+          this.post({ type: "smtcControlResult", scriptKey: csk, reqId, ok: false });
+          return;
+        }
+        const pos =
+          typeof m.position === "number" && Number.isFinite(m.position)
+            ? Math.max(0, Math.min(86400, m.position))
+            : undefined;
+        smtc.start();
+        void smtc.control(cmd, pos).then((ok) => {
+          this.post({ type: "smtcControlResult", scriptKey: csk, reqId, ok });
+        });
         break;
       }
       default: {

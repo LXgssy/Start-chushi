@@ -54,6 +54,7 @@ import {
 import { fetchForecast, readWeatherSnapshot, writeWeatherSnapshot } from "@/lib/startpage/weather";
 import { getEngine } from "@/lib/startpage/engines";
 import { sampleCoverLuminance } from "@/lib/startpage/luminance";
+import { smtc } from "@/lib/startpage/smtc";
 import { useToast } from "@/hooks/use-toast";
 
 const KEYS = {
@@ -180,6 +181,15 @@ export default function Home() {
     if (!mounted) return;
     document.documentElement.style.setProperty("--ui-accent", settings.accent);
   }, [mounted, settings.accent]);
+
+  /* ---------- SMTC 媒体作用面（v1.8.0）----------
+     页面挂载即启动本地 SMTC 桥轮询（幂等单例；消费方为沙箱脚本与角落
+     小部件的 chushi.smtc API，见 lib/startpage/smtc.ts 头注）。
+     网易云插件路线（BetterNCM / CDP 桥）已于本版整体退役。 */
+  useEffect(() => {
+    if (!mounted) return;
+    smtc.start();
+  }, [mounted]);
 
   /* ---------- 预设自定义 CSS（animations 字段，导入时已净化）----------
      单一 <style> 承载全部已装预设的样式，安装顺序即优先级；
