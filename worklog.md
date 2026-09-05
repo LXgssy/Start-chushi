@@ -388,3 +388,21 @@ Stage Summary:
 - 新律：①「诊断接口必须与诊断数据同源」——从共享状态读什么、写什么要成对设计，中间层（快照提取）丢字段是静默故障温床 ②快照回执外层（ok/diag/error）与内层（snap）应分开落库，禁止从内层反查外层信息 ③gh-token 丢了不必找历史——git remote 内嵌凭据就是活副本
 - 交付：Release 资产直链 https://github.com/LXgssy/Start-chushi/releases/download/v1.7.6/ChuShiBridge-2.0.0-Setup.zip ；文叔叔 https://c.wss.ink/f/kstzjjy27ir （1 天过期）
 - 待办：用户实测 2.0.4 → 若「初始」仍无数据，看 /api/debug 的 diag 三源（store/events/media）与 snapOk/snapErr：snapOk=true 而面板无歌 = 前端问题；diag 全 false + snapErr=no-source = 页内三源皆未命中（需适配新网易云内核）；Edge 商店提交材料仍未做
+
+---
+Task ID: 71
+Agent: main (Super Z)
+Task: 用户决定放弃自研独立版路线、回归 BetterNCM 插件——「把插件写好后把 betterncm 的安装包也发我」
+
+Work Log:
+- 【路线尊重】用户实测独立版三连修（r3/r4/r5）后选择放弃；独立版 2.0.4 保留在 Release 不撤，作为兜底路线（接口同契约，「初始」侧零改动）
+- 【插件升级 1.1.0】①index.js：移植 r3 的 webpack4/5 双兼容（webpackJsonp 假模块捕获 + webpackChunk* 全局扫描，工厂双参 r0/r1 捕获 runtime require）；新增 diag.json 诊断落盘（storeReady/eventsHooked/getPlayingSong/media/href，变更即写 + 10s 心跳），writeStateAtomic 泛化为 writeTextAtomic 复用 ②bridge.c/bridge.dll：新增 GET /api/debug（diag.json 括号快检透传 + state.json 存在性/mtime 年龄 stateAgeMs，缺省兜底全 false 段）；预检补 Access-Control-Allow-Private-Network（PNA）；BRIDGE_VERSION 1.1.0 ③manifest 1.1.0 + 安装说明补升级段/排障 FAQ/已知边界（BetterNCM 1.3.4 停更于 2024-10，新内核可能不兼容——独立版是兜底）
+- 【构建】llvm-mingw 编译 bridge.dll 61952B 零警告；x86-64 + BetterNCMPluginMain 导出在位；⚠新律：llvm clang 把 strcmp(x,"字面量")==0 折叠为立即数比较，路由串不再入 .rdata——二进制断言改验响应格式串与宽字符（UTF-16LE）互斥体名
+- 【验证】verify-plugin.py（manifest/JS 特征/C 源/DLL 二进制/zip 布局/安装器/合并包）54/54 全绿；node --check JS 语法过
+- 【交付物】初始音乐桥-插件-1.1.0.zip（顶层目录 初始音乐桥/，四件套齐）+ betterncm_installer.exe（官方 BetterNCM-Installer 1.2.0，673280B，SHA-256 f4aabe8f… 与 Release 资产一致）+ 安装指南.md（两步安装 + /api/debug 自检 + 已知边界）→ 合并 ChuShi-音乐桥-BetterNCM-交付包.zip（407KB）
+- 【发布】main a2ab433 推送；文叔叔 https://c.wss.ink/f/ksubawihzxh
+
+Stage Summary:
+- 结论：插件路线交付完毕——BetterNCM 官方安装器 + 升级到 1.1.0 的插件（webpack5 兼容 + /api/debug 诊断）。插件与独立版同端口同 API，数据契约 v1.7.5 起未变，「初始」侧无需任何改动
+- 新律：①strcmp 常量折叠——编译期优化会把字符串比较烙进指令流，二进制特征断言要挑「响应格式串/宽字符」这类不会被折叠的目标 ②文件契约（state.json/diag.json/cmd/*.json）是 JS↔DLL 的进程边界，diag 也走同一条原子写管道，排障数据与业务数据同通道最省心
+- 待办：用户实测插件路线——装 BetterNCM（若网易云起不来即框架/内核不兼容，回独立版）→ 装插件 → F12 看 [ChuShiMusicBridge] 日志 → /api/debug 反馈；Edge 商店提交材料仍未做
