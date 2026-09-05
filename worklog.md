@@ -426,3 +426,24 @@ Stage Summary:
 - 结论：「安装不成功」根因 = 交付物格式与 BetterNCM 生态机制错位（.zip ≠ .plugin；.plugin.path.meta 是 BetterNCM 解压时自动生成的来源指针，用户无需也不能手动创建）；1.2.0 起交付与插件商店同构的 .plugin 包，放 C:\betterncm\plugins\ 重启网易云即装
 - 新律：①给插件生态做交付必须先读它的加载器源码——「看起来合理的 zip/manifest」与「装载器实际认领的格式」之间隔着整条 extractPackedPlugins ②多装载通道（C++ startup_script vs JS injects）并存时只能择一声明，否则双重执行 ③官方内置插件包（resource/*.plugin）是最便宜的格式参照物，解包对拍胜过任何文档 ④plugins_runtime 类「每次启动重建」的缓存目录绝不能当安装目标
 - 待办：用户按新指南实测 1.2.0（装完看 plugins_runtime\cc.chushi.musicbridge\ 是否自动出现 → F12 Console [ChuShiMusicBridge] → /api/debug）；若框架层就失败（网易云起不来/管理界面空白）= 内核不兼容，回独立版 2.0.4；Edge 商店提交材料仍未做
+
+---
+Task ID: 73
+Agent: main (Super Z)
+Task: 用户反馈「是不是应该把'初始'里的音乐界面改一下，而且现在还是无法正常在网页上控制网易云音乐」+ 附 /api/debug（1.2.0 全绿 diag、stateAgeMs=356400 ≈ installedAt）—— 插件 1.3.0 控制链路根因修复 + 音乐面板 v1.7.7 翻新
+
+Work Log:
+- 【决定性判读】diag 全绿（storeReady/eventsHooked/getPlayingSong/media=true、href=orpheus 页）= 插件 JS 活着且数据源全通；state.json 与 diag.json 走同一条 writeTextAtomic 管道而 diag.ts 新鲜（10s 心跳在写）→ JS 写盘能力没问题，state 陈旧是 pushState 签名去重（暂停时快照不变零写盘，设计使然但 stateAgeMs 因此失去活性语义）；「无法控制」与之独立——控制链路（页面→DLL→cmd 文件→JS→dispatch）另有断点
+- 【根因】bridge.c build_paths() 里 g_cmd_dir = L"%s\\%s"（<datapath>\chushi-music），少拼 L"\cmd" 子目录——DLL 把 cmd-*.json 落到 chushi-music\ 根目录，而 index.js 只轮询 chushi-music\cmd\；/api/control 照样返回 ok:true（文件确实写成功了），两端路径错位静默失败。v1.7.5 首版即如此（mock 桥只对拍 HTTP 协议层，文件契约层从未真机验证过——「协议对拍不覆盖文件落点」的测试盲区）
+- 【插件 1.3.0 修复】①bridge.c：g_cmd_dir 补 \cmd（一行根因）+ 版本串；②index.js：pollCmds 双扫描（主路 cmd/ + 根目录兼容——旧 DLL 不升级也能控）+ 启动 sweepRootLeftovers 清扫 1.2.x 误写积压 + state.json 5s 强制心跳（stateAgeMs 恒<5s 成为桥活性信号）+ writeTextAtomic 补 rename 响应校验（ok===false/status 非 2xx 即抛，堵「rename 静默失败→直写兜底永不触发」的洞）+ handleCommand 重构为意图式（intent/seekMs）+ verifyThenFallback（dispatch 后 420ms 校验 storePlaying(playingState===2 即播放)/媒体元素实际状态，不符则 el.play/pause/currentTime 直接驱动）+ 音量双通道（dispatch+el.volume 即时同步）+ 启动即推首帧快照（无需等 store 发现）
+- 【⚠新坑】index.js 注释里写 cmd-*/tmp-*.json——注释中 */ 提前终结块注释 SyntaxError（node --check 抓获）；中文「兜底/兑底」错字导致 verify 断言假阴（码点核对 0x515C vs 0x5151）
+- 【面板翻新 v1.7.7】MusicPanel：大封面(96px)+播放态 accent 光晕+专辑信息行+诊断卡（诊断开关→/api/debug 拉取：桥版本/端口/状态文件年龄/三源 ✓✕ 芯片/注入页 href + 陈旧警示（stateAgeMs>15s 提示 1.2.x 暂停不写盘现象与升级指引）+ 复制诊断（剪贴板 JSON））；music.ts 增 MusicBridgeDebug 类型 + debug() 方法；接入指引改回 BetterNCM 插件路线主推（Release latest 直链 .plugin）+ 独立版兜底 + BetterNCM 安装器链接
+- 【验证】verify-plugin.py 87/87（新增：g_cmd_dir 带 \cmd/旧路径消失/cmd 目录补建顺序/rename 校验/5s 心跳/双扫描/清扫/verifyThenFallback/mediaElStrict/storePlaying/音量双通道/启动首帧 + DLL 无 1.2.0 残留 + 说明含升级指引；[7][8] 改为交付物就位后强制）；verify-v177 33/33（v175 全量迁移 + 专辑行 + A4 插件路线文案 + I0-I8 诊断卡九项：版本/芯片/href/年龄/陈旧警示/升级指引/复制反馈/剪贴板 JSON 完整性——⚠诊断 fetch 渲染竞态需 waitForFunction 等 textContent 含 bridge.dll）；verify-ext-v177 9/9（扩展页 CORS 回显 + 诊断卡冒烟；profile 先清律执行）
+- 【发布】main e8b3d8b；gh-pages 对齐 origin（本地分支落后被拒→reset --hard origin/gh-pages 再部署）BUILD 20260905094248-e8b3d8b；线上 chunk c3e21f9 特征实测 ✓（BetterNCM 插件路线/桥接诊断/复制诊断/1.3.0 直链全命中）；Release v1.7.7（id 383203415）五资产直链 SHA-256 全对拍一致
+- 【⚠新坑】GitHub Release 资产名不支持中文——「初始音乐桥-插件-1.3.0.zip」被剥离成 '-.-1.3.0.zip'（ASCII 名律从 zip 内条目扩展到资产名本身）；同名资产删后立即重传 422（需 3s+ 传播窗口）；脚本 rel-v177.py 幂等（建/更 Release + 清烂名残留 + 删旧传新 + 直链复核）
+- 【交付】文叔叔 ChuShi-音乐桥-BetterNCM-交付包.zip（459KB：.plugin + dev zip + 官方安装器 + 1.3.0 安装指南）→ https://c.wss.ink/f/ksvdij7fm37
+
+Stage Summary:
+- 结论：「无法控制」根因 = DLL 命令文件落盘路径与 JS 轮询路径错位（一行代码，两层静默）；1.3.0 双端修复 + 兜底三层（双扫描/媒体元素校验/音量直驱）。用户升级：删旧 .plugin → 放 1.3.0 → 重启网易云
+- 新律：①「协议对拍必须覆盖文件落点」——JS↔DLL 文件契约的路径拼接两端各自独立推导，mock 层测不出路径错位，真机契约验证要用目录清单对拍 ②GitHub Release 资产名 ASCII 硬约束（中文被静默剥离成乱码名，不报错）③Release 资产删除→重传需传播窗口（422）④JS 注释里写 glob 模式（*/）会终结块注释 ⑤verify 断言中文字符串要与源码逐码点核对（兜/兑形近字假阴）⑥诊断卡 fetch 是异步渲染，端到端断言用 waitForFunction 等内容而非固定 sleep
+- 待办：用户实测 1.3.0（升级后 /api/debug version 应为 1.3.0，stateAgeMs 恒<5s，控制应全部生效）；任务B（音乐面板体验）继续按反馈迭代；任务A（磁贴抖动 v1.7.4 已修待确认）；史7遗留（开发工具显示 bug、预设覆盖可调回、⌘K 面板外点关闭、ContextMenu/PresetDocs blur、预设导入拖拽）；Edge 商店提交材料仍未做
