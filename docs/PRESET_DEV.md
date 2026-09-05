@@ -17,7 +17,7 @@
 10. [animations 自定义样式与元素钩子](#09-animations-自定义样式与元素钩子)
 11. [scripts 沙箱脚本与 chushi API](#10-scripts-沙箱脚本与-chushi-api)
 12. [pages 沙箱整页](#11-pages-沙箱整页)
-13. [widgets 角落小部件](#12-widgets-角落小部件)
+13. [widgets 小部件（角落磁贴 / dock 面板）](#12-widgets-小部件角落磁贴--dock-面板)
 14. [.cshz 预设包（zip 格式）](#13-cshz-预设包zip-格式)
 15. [调试与分发建议](#14-调试与分发建议)
 16. [作用面总览（整页焕新）](#15-作用面总览整页焕新)
@@ -68,7 +68,7 @@
 | `scripts` | 数组 ≤3 | 沙箱脚本，单段 code ≤16000 字符（见 §10） |
 | `animations` | 数组 ≤4 | CSS 注入，单段 ≤6000、合计 ≤12000 字符（见 §09） |
 | `pages` | 数组 ≤3 | 沙箱整页，单页 html ≤24000 字符（见 §11） |
-| `widgets` | 数组 ≤3 | 角落小部件，单块 html ≤12000 字符（见 §12） |
+| `widgets` | 数组 ≤3 | 小部件：角落磁贴 / dock 按钮+弹出面板（surface，见 §12），单块 html ≤12000 字符 |
 | `layout` | 对象 | 声明式布局覆写（见 §07） |
 | `icons` | 数组 ≤7 | tab 栏内建按钮图标替换（含音乐按钮，v1.7.5+），单条 icon ≤8192 字符（见 §07b） |
 | `tokens` | 对象 | 主题令牌覆写（键白名单，值 ≤120 字符，见 §07b） |
@@ -223,6 +223,7 @@ CSS 直接注入起始页本体，可以写动画、调玻璃观感。注入前�
 | `.cl-dock` | 底部栏 |
 | `.cl-panel` | 弹出面板卡片，可配合 `[data-panel="weather"]` 等按面板区分 |
 | `.cl-widgets` / `.cl-widget` | 角落小部件层 / 单块小部件 |
+| `.cl-dockwidget` | dock 弹出面板卡片（v1.8.2，动画语言与内建面板同源） |
 | `[data-fx="fxN"]` | 玻璃容器稳定标记（fx 预设的触达点，见 §08） |
 
 ⚠ **磨砂玻璃存活原则**：不要给玻璃元素的**祖先**加 `opacity < 1` 或 `filter`——那会让祖先成为 backdrop root，后代所有磨砂玻璃瞬间失效，动画结束才瞬跳恢复；也不要用 transform 包裹 fixed 定位的面板（会成为包含块导致跳位）。动画请落在玻璃元素自身或无玻璃后代的区块上。
@@ -273,29 +274,42 @@ CSS 直接注入起始页本体，可以写动画、调玻璃观感。注入前�
 | `chushi.close()` | 关闭页面，回到起始页 |
 | `chushi.open(url)` | 打开 https:// 网址 |
 
-## 12 widgets 角落小部件
+## 12 widgets 小部件（角落磁贴 / dock 面板）
 
-小部件是**常驻**页面角落的沙箱卡片（倒数日、快捷信息等），最多 3 块。文档片段自动获得宿主主题（`html[data-theme]`）与强调色（`var(--w-accent)`），深浅色跟随起始页；禅模式随内容一同雾化隐去。
+小部件有两种表面（`surface`，v1.8.2）：**corner**（缺省）常驻页面角落的沙箱卡片（倒数日、快捷信息等）；**dock** 不出角落，而是在底部 tab 栏注册一个按钮（`icon` + `name`），点击在 dock 上方弹出同源沙箱面板——高度弹簧与内建面板同一动效语言，再点按钮 / 点击外部 / 部件内 `chushi.close()` 均可关闭。最多 3 块。文档片段自动获得宿主主题（`html[data-theme]`）与强调色（`var(--w-accent)`），深浅色跟随起始页；dock 面板形态下沙箱会置 `html[data-panel="1"]`（部件可据此切换布局，如音乐预设直开展开卡）；禅模式随内容一同雾化隐去。
 
 ```json
 "widgets": [
   {
     "id": "countdown",
     "name": "倒数日",
+    "surface": "corner",
     "corner": "top-left",
     "width": 216,
     "height": 88,
     "html": "<div id='app'></div><script>/* chushi.storage.get('target') 读取配置… */</script>"
+  },
+  {
+    "id": "player",
+    "name": "音乐",
+    "surface": "dock",
+    "icon": "music",
+    "width": 340,
+    "height": 92,
+    "html": "<div id='p'></div><script>/* chushi.smtc.subscribe(render); chushi.close() 关面板 */</script>"
   }
 ]
 ```
 
 | 字段 / API | 说明 |
 | --- | --- |
-| `corner` | 停靠角：`top-left / top-right / bottom-left / bottom-right` |
-| `width` | 卡片宽度 120–420 px（缺省 216） |
-| `height` | 初始高度 40–320 px（缺省 88） |
+| `surface` | 表面：`corner`（缺省，角落磁贴）/ `dock`（tab 栏按钮 + 弹出面板，v1.8.2） |
+| `icon` | 仅 dock 表面：按钮图标，内置图标名（bookmark / music / star … 白名单）或 data:image base64 URL（≤8KB） |
+| `corner` | 仅 corner 表面：停靠角 `top-left / top-right / bottom-left / bottom-right` |
+| `width` | 卡片/面板宽度 120–420 px（缺省 216） |
+| `height` | 初始高度 40–320 px（缺省 88；dock 表面即弹出面板初始高度，后续随 `chushi.resize` 弹簧跟随） |
 | `chushi.resize(w, h)` | 小部件内调用，调整自身高度（宿主夹紧） |
+| `chushi.close()` | 关闭本部件的 dock 弹出面板（仅 dock 表面有意义，v1.8.2） |
 | `chushi.storage.get(key)` | 读本部件持久化 KV（Promise），数据只存本机 localStorage |
 | `chushi.storage.set(key, value)` | 写 KV（Promise），值 JSON 序列化后 ≤4000 字符 |
 | `chushi.notify / open` | 与 pages 相同 |
@@ -306,7 +320,7 @@ CSS 直接注入起始页本体，可以写动画、调玻璃观感。注入前�
 > SMTC 数据来自 Windows 系统媒体会话（经本机「初始SMTC桥」127.0.0.1:20754），
 > 网易云音乐 / QQ 音乐 / Spotify / 浏览器视频等任何注册 SMTC 的播放器都会出现。
 > 官方示例「初始 · SMTC 音乐」预设（`examples/初始SMTC音乐预设.cshz`，包形态含 assets/cover.svg 默认唱片，经 `parsePack` 导入）：
-> 双形态磁贴 + ⌘K 命令，两通道 API 的完整用例。
+> **dock 表面**音乐按钮 + 弹出面板（dock 表面用例）+ ⌘K 命令，两通道 API 的完整用例。
 
 官方示例「倒数日」预设（仓库 `examples/倒数日预设.json`）：点击卡片改事件与日期，配置经 storage 保存在本机——照抄它的结构最快上手。
 
@@ -347,7 +361,7 @@ manifest 里的 `pages[].html` / `animations[].css` / `widgets[].html` 可以写
 
 | 维度 | 载体 | 能力 |
 | --- | --- | --- |
-| 内容 | `commands / links / dock / pages / widgets / scripts` | ⌘K 命令、主页磁贴、tab 栏按钮、沙箱自定义页、角落小部件、数据源脚本 |
+| 内容 | `commands / links / dock / pages / widgets / scripts` | ⌘K 命令、主页磁贴、tab 栏按钮、沙箱自定义页、角落磁贴 / dock 面板、数据源脚本 |
 | 排版 | `layout` | 区块显隐、时钟缩放、磁贴列数、垂直对齐 |
 | 图标 | `icons` | tab 栏内建按钮的图标替换（六个，music 已退役） |
 | 主题令牌 | `tokens` | 强调色与 tab 栏选框/分隔线四令牌覆写 |

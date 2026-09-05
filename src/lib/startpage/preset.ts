@@ -91,15 +91,27 @@ export interface PresetPage {
   html: string;
 }
 
-/** 角落小部件（高阶模式，v1.0.7）：常驻页面角落的沙箱卡片（倒数日、快捷信息等），
- *  结构与 pages 同源隔离（唯一源宿主 → 嵌套 srcdoc），提供 notify/open/storage/resize
- *  受控 API；storage 由宿主持久化到 localStorage（数据不离开设备） */
+/** 小部件（高阶模式，v1.0.7 角落磁贴 / v1.8.2 dock 面板双表面）：沙箱卡片，
+ *  结构与 pages 同源隔离（唯一源宿主 → 嵌套 srcdoc），提供 notify/open/storage/
+ *  resize/close 受控 API；storage 由宿主持久化到 localStorage（数据不离开设备）。
+ *
+ *  surface 两种表面：
+ *  - "corner"（缺省）：常驻页面角落的磁贴（倒数日、快捷信息等）；
+ *  - "dock"：不出现在角落，而是在底部 tab 栏注册一个按钮（icon + name），
+ *    点击在 dock 上方弹出同源沙箱面板（高度弹簧 + panel-rise/sink 同语言），
+ *    再点按钮 / 点击外部 / 沙箱内 chushi.close() 均可关闭。
+ *    width/height 在 dock 表面下语义为弹出面板的宽度与初始高度。 */
 export interface PresetWidget {
   id: string;
   name?: string;
-  /** 停靠角（缺省 top-left） */
+  /** 表面（v1.8.2）：corner = 角落磁贴（缺省），dock = tab 栏按钮 + 弹出面板 */
+  surface?: "corner" | "dock";
+  /** dock 表面的按钮图标：DOCK_ICONS 白名单 lucide 名或 data:image base64 URL
+   *  （≤8KB，与 icons 覆写同规则）；corner 表面忽略此字段 */
+  icon?: string;
+  /** 停靠角（仅 corner 表面，缺省 top-left） */
   corner?: "top-left" | "top-right" | "bottom-left" | "bottom-right";
-  /** 卡片宽度 px（120–420，缺省 216） */
+  /** 卡片/面板宽度 px（120–420，缺省 216） */
   width?: number;
   /** 卡片初始高度 px（40–320，缺省 88；可用 chushi.resize 在沙箱内调整） */
   height?: number;
@@ -495,8 +507,9 @@ export function parsePreset(raw: unknown): ParseResult {
     pages.push({ id: pid, name: cleanStr(po.name, PRESET_LIMITS.scriptNameLen) || pid, html });
   });
 
-  /* 角落小部件（高阶模式，v1.0.7）：与 pages 同源隔离，见 PresetWidgets 组件 */
+  /* 小部件（高阶模式，v1.0.7 角落 / v1.8.2 dock 表面）：与 pages 同源隔离，见 PresetWidgets 组件 */
   const WIDGET_CORNERS = new Set(["top-left", "top-right", "bottom-left", "bottom-right"]);
+  const WIDGET_SURFACES = new Set(["corner", "dock"]);
   const widgets: PresetWidget[] = [];
   const widgetArr = parseArray(o.widgets).slice(0, PRESET_LIMITS.widgets);
   if (parseArray(o.widgets).length > PRESET_LIMITS.widgets) {
@@ -532,6 +545,35 @@ export function parsePreset(raw: unknown): ParseResult {
       errors.push(`${where}：corner 必须是 top-left / top-right / bottom-left / bottom-right 之一`);
       return;
     }
+    /* surface（v1.8.2）：corner（缺省）/ dock；dock 表面注册 tab 栏按钮 + 弹出面板 */
+    const surface = cleanStr(wo.surface, 8) || "corner";
+    if (!WIDGET_SURFACES.has(surface)) {
+      errors.push(`${where}：surface 必须是 corner / dock 之一`);
+      return;
+    }
+    /* icon（仅 dock 表面消费）：lucide 白名单名或 data:image base64 URL（≤8KB） */
+    let icon: string | undefined;
+    const iconRaw = asString(wo.icon) ?? "";
+    if (iconRaw) {
+      if (iconRaw.startsWith("data:image/")) {
+        if (iconRaw.length > PRESET_LIMITS.iconLen) {
+          errors.push(`${where}：icon data URL 超过 ${PRESET_LIMITS.iconLen} 字符上限`);
+          return;
+        }
+        if (!/^data:image\/(?:png|jpeg|webp|gif|svg\+xml);base64,[A-Za-z0-9+/=]+$/.test(iconRaw)) {
+          errors.push(`${where}：icon data URL 必须是 base64 编码的 png/jpeg/webp/gif/svg+xml`);
+          return;
+        }
+        icon = iconRaw;
+      } else if (iconRaw in DOCK_ICONS) {
+        icon = iconRaw;
+      } else {
+        errors.push(
+          `${where}：icon 必须是内置图标名（${Object.keys(DOCK_ICONS).join(" / ")}）或 data:image/ base64 URL`
+        );
+        return;
+      }
+    }
     const width =
       typeof wo.width === "number" && Number.isFinite(wo.width)
         ? Math.round(Math.min(420, Math.max(120, wo.width)))
@@ -544,6 +586,8 @@ export function parsePreset(raw: unknown): ParseResult {
     widgets.push({
       id: wid,
       name: cleanStr(wo.name, PRESET_LIMITS.scriptNameLen) || wid,
+      surface: surface as PresetWidget["surface"],
+      icon,
       corner: (corner as PresetWidget["corner"]) || "top-left",
       width,
       height,

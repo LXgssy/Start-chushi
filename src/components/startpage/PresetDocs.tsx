@@ -124,12 +124,23 @@ const WIDGET_DEMO = `"widgets": [
   {
     "id": "countdown",
     "name": "倒数日",
+    "surface": "corner",
     "corner": "top-left",
     "width": 200, "height": 96,
     "html": "<style>body{margin:0;font-family:system-ui}</style>\\
       <div style='padding:12px'>距离 2027 元旦还有 \\
       <b id='d'>-</b> 天</div>\\
       <script>chushi.storage.get('target').then(v => { /* ... */ });</script>"
+  },
+  {
+    "id": "player",
+    "name": "音乐",
+    "surface": "dock",
+    "icon": "music",
+    "width": 340, "height": 92,
+    "html": "<div id='p'>…</div>\\
+      <script>chushi.smtc.subscribe(render);\\
+        chushi.close(); /* 关闭弹出面板 */</script>"
   }
 ]`;
 
@@ -528,6 +539,7 @@ chushi.settings.onChange((values) => { /* 整组热更新 */ });`}</Code>
                       </>,
                     ],
                     [<><K>.cl-widgets</K> / <K>.cl-widget</K></>, "角落小部件层 / 单块小部件"],
+                    [<K>.cl-dockwidget</K>, "dock 弹出面板卡片（v1.8.2，动画语言与内建面板同源）"],
                     [<K>[data-fx=&quot;fxN&quot;]</K>, "玻璃容器稳定标记（fx 预设的触达点，见 §08）"],
                   ]}
                 />
@@ -597,20 +609,27 @@ chushi.settings.onChange((values) => { /* 整组热更新 */ });`}</Code>
                 />
               </Sec>
 
-              <Sec n="12" title="widgets 角落小部件">
+              <Sec n="12" title="widgets 小部件（角落磁贴 / dock 面板）">
                 <P>
-                  小部件是<b>常驻</b>页面角落的沙箱卡片（倒数日、快捷信息等），最多 3 块。文档片段自动获得
+                  小部件有两种表面（<K>surface</K>，v1.8.2）：<b>corner</b>（缺省）常驻页面角落的沙箱卡片
+                  （倒数日、快捷信息等）；<b>dock</b> 不出角落，而是在底部 tab 栏注册一个按钮，点击在 dock
+                  上方弹出同源沙箱面板（高度弹簧与内建面板同一动效语言），再点按钮 / 点击外部 /
+                  部件内 <K>chushi.close()</K> 均可关闭。最多 3 块。文档片段自动获得
                   宿主主题（<K>html[data-theme]</K>）与强调色（<K>var(--w-accent)</K>），深浅色跟随起始页；
+                  dock 面板形态下沙箱会置 <K>html[data-panel="1"]</K>（部件可据此切换布局）；
                   禅模式随内容一同雾化隐去。
                 </P>
                 <Code>{WIDGET_DEMO}</Code>
                 <T
                   head={["字段 / API", "说明"]}
                   rows={[
-                    [<K>corner</K>, <>停靠角：<K>top-left / top-right / bottom-left / bottom-right</K></>],
-                    [<K>width</K>, "卡片宽度 120–420 px（缺省 216）"],
-                    [<K>height</K>, "初始高度 40–320 px（缺省 88）"],
-                    [<K>chushi.resize(w, h)</K>, "小部件内调用，调整自身高度（宿主夹紧）"],
+                    [<K>surface</K>, <>表面：<K>corner</K>（缺省，角落磁贴）/ <K>dock</K>（tab 栏按钮 + 弹出面板）</>],
+                    [<K>icon</K>, <>仅 dock 表面：按钮图标，内置图标名或 data:image base64 URL（≤8KB）</>],
+                    [<K>corner</K>, <>仅 corner 表面：停靠角 <K>top-left / top-right / bottom-left / bottom-right</K></>],
+                    [<K>width</K>, "卡片/面板宽度 120–420 px（缺省 216）"],
+                    [<K>height</K>, "初始高度 40–320 px（缺省 88；dock 表面即面板初始高度）"],
+                    [<K>chushi.resize(w, h)</K>, "小部件内调用，调整自身高度（宿主夹紧；dock 面板高度弹簧跟随）"],
+                    [<K>chushi.close()</K>, "关闭本部件的 dock 弹出面板（仅 dock 表面有意义，v1.8.2）"],
                     [
                       <K>chushi.storage.get(key)</K>,
                       "读本部件持久化 KV（Promise），数据只存本机 localStorage",

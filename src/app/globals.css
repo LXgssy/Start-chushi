@@ -975,6 +975,14 @@ html.zen .cl-widgets {
 html.zen .cl-widgets .cl-widget {
   pointer-events: none;
 }
+/* ---------- 预设 dock 弹出面板（v1.8.2 .cl-dockwidget 钩子）----------
+ * 进退场动画由 framer 高度弹簧 + panel-rise/panel-sink 承载（与内建面板同语言）；
+ * 这里只提供样式钩子：禅模式随 dock 一并隐藏（状态层由 page.tsx 进禅 effect 兜底关闭）。
+ * ⚠ 不在此元素上加 transform/filter：它会成为 fixed 子内容（iframe）的包含块/裁剪上下文，
+ *   雾化会令弹层跳位 —— 隐藏走 display 即可（进禅本就同步关闭状态） */
+html.zen .cl-dockwidget {
+  display: none;
+}
 .zen-dock {
   transition:
     opacity 0.65s cubic-bezier(0.22, 1, 0.36, 1),
