@@ -485,3 +485,24 @@ Stage Summary:
 - 结论：桥(8008)与面板(10754)端口错位；v1.7.8 面板自动扫描 10754/8008 命中即接入并记住，用户改任意候选端口零操作跟随，非候选端口可在地址栏手填
 - 用户动作：网页版重开标签页两次/Ctrl+F5（SW 换新）；扩展版重装 v1.7.8 zip；之后面板应自动连上 8008 并恢复全部控制
 - 待办：用户实测反馈；任务A/史7遗留/Edge 商店材料未动
+
+---
+Task ID: 76
+Agent: main (Super Z)
+Task: 用户指令「推翻推翻，全部推翻，把所有插件删掉，网易云本体支持 smtc，'初始'直接适配 smtc 就行了，然后把音乐面板删掉，'初始'提供 smtc 相关 API 即可，做成预设包，我要这个预设包必须有精美的ui和符合直觉交互以及高雅的动画」+ 双 bug（tab 选框动画/快捷服务删行抖动）—— v1.8.0 SMTC 系统媒体换线
+
+Work Log:
+- 【路线推翻】BetterNCM 插件 / CDP 独立桥整线退役：git rm bridge/（native/standalone/plugin 全部）、MusicPanel.tsx、music.ts、build-plugin/chushibridge/bncm-delivery 脚本与音乐 mock/verify 探针；Dock 删音乐按钮+面板分支、CommandPalette 删音乐入口、types.PanelId/preset.ts panel 白名单+PresetIconTarget 删 music（README 标注 v1.7.5–1.7.8 段「已退役」）
+- 【SMTC 作用面】smtc.ts（宿主单例客户端）：轮询 127.0.0.1:20754（1s，连败 2 次降频 2.6s 恢复扫描）+ 本地时钟插值（smtcPositionNow）+ 关键签名广播（position 不推）+ 封面 /api/cover→dataURL 缓存；两通道同款 API：①脚本通道 sandbox.ts onApi smtcSubscribe/Get/Control（白名单+回收）+ sandbox.js makeChushi().smtc；②widget 通道 PresetWidgets 中继 + sandbox.js widgetShim/widgetMode 扩展（cmd/position 字段 + widgetSmtc/widgetSmtcResult 下行）；page.tsx 挂载即 smtc.start()
+- 【初始SMTC桥】bridge/smtc/ChuShi-SMTC桥.ps1（PS 5.1 + WinRT 零依赖）：GlobalSystemMediaTransportControlsSessionManager 枚举会话，「AppFilter 正则(网易云系)优先→Playing→第一个」三段选会话；HttpListener 127.0.0.1:20754 暴露 /api/state /api/cover /api/control(含 TryChangePlaybackPositionAsync seek) /api/ping；CORS+PNA 头全配；请求驱动轮询（350ms 节流，空闲零工作）；封面按 (title|artist|album) 哈希缓存二进制；启动器/自启/卸载 bat 三件套（⚠ps1 必须 UTF-8 BOM，PS 5.1 无 BOM 当 ANSI 读）
+- 【预设包】preset-src/smtc/ 源码 + build-smtc-preset.py（minify：CSS 全压/JS 保守/HTML 分段，19011→11996 字符贴 12000 上限，三轮瘦身：短类名+--ez/--r9 变量+Material 短 path+:has() 显隐+砍装饰）；双形态磁贴（紧凑条 64px⇄大卡 300px，点条展开/⌃收起/呼吸光晕/切歌上浮 swap/暂停降饱和/rAF 进度插值/可拖 seek）；scripts 注册 ⌘K 四命令；animations 给 .cl-widget 高度弹簧过渡（与面板同曲线）
+- 【bug1 tab 选框】Dock lastCloseRef 时间戳：switchTo(null)/closePanel 统一记录，pillPop 追加「距关闭>450ms」条件——关闭退场期快速点开另一功能改播 layoutId 切换滑移，不再重播 Q 弹
+- 【bug2 删行抖动】Playwright 复现实证：高度弹簧+pb 换挡全程平滑（原生 el.click() 零跳变；90px 跳变系 Playwright scrollIntoViewIfNeeded 伪影）；真因=Windows 经典滚动条出现/消失改变布局宽度（±15px 整页水平瞬跳，headless overlay 滚动条测不到）——globals.css html{scrollbar-gutter:stable} 根治
+- 【验证】verify-v180.mjs 23 项全绿（mock SMTC 桥同契约：D 退役回归/W1-W7 预设导入→挂载→空态→播放态→封面→暂停推送→toggle→展开/seek/收起/K1-K2 ⌘K 命令→S1-S2 gutter+删磁贴/E1 pageerror=0）；⚠三坑：①导入按钮选择器 first() 会命中「导入预设」tab 按钮（须 exact「导入」）②widget iframe 点击后焦点困 iframe，⌘K 快捷键丢——点 dock ⌘K 按钮归还焦点③addInitScript 进 sandboxed iframe 读 localStorage 抛 SecurityError（try/catch 吞）；verify-ext-v180.mjs 8 项全绿（真浏览器扩展：渲染/无音乐按钮/导入/磁贴显示/control 上行/DOM click→桥/pageerror=0）——⚠Playwright 鼠标事件在嵌套 srcdoc frame 有丢失先例，嵌套 iframe 控制断言一律 DOM click
+- 【发布】main b0886a5+a7ff334 推送；gh-pages 1bcd069（BUILD 20260905145849-b0886a5，线上 sw.js/sandbox.js smtcSubscribe 特征实测命中）；扩展 build:extension→build-extension.py v1.8.0（11.7MB）；⚠build-extension.py 输出路径硬编码旧版本号，发版必查；Release v1.8.0（id 383281524）三资产（扩展 zip/ChuShi-SMTC-Delivery.zip/ChuShi-SMTC-Preset.json）直链 SHA-256 ALL OK（⚠脚本 API 基址含 /releases，PATCH/DELETE 路径不可再拼 /releases——404 三连教训）
+- 【交付】download/v1.8.0/（使用说明-SMTC音乐.md + 初始SMTC桥/ + 预设 JSON + 扩展 zip + 合并包 12.2MB）；文叔叔 https://c.wss.ink/f/ksxoe5v9171（1 天过期）
+
+Stage Summary:
+- 架构律：宿主媒体能力=「SMTC 作用面」——数据/控制/订阅三 API 两通道（脚本+widget）同契约；系统媒体会话是正确的集成层（不侵入任何播放器、随 Windows 天然稳定），侵入式桥（CDP/BetterNCM）路线教训完结
+- 新律：①Playwright 鼠标事件在「唯一源宿主→srcdoc」嵌套 frame 里可能整体丢失——跨层交互断言用 DOM click；②addInitScript 会进 sandboxed iframe，碰 localStorage 必须 try/catch；③PS 5.1 脚本 UTF-8 BOM 是交付纪律；④Release 资产 ASCII 名律之外，release 脚本基址拼接也要逐段核对（/releases 双拼 404 三连）
+- 待办：用户实测 SMTC 桥+预设包（真机 Windows 是 SMTC 链路唯一未验证环节：网易云 SMTC 会话行为/TrySeek 可用性/封面流读取）；任务A/史7遗留/Edge 商店材料未动
