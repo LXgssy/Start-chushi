@@ -1,5 +1,10 @@
 /* 「初始」音乐面板 — 接入网易云音乐（经初始音乐桥）
  *
+ * v1.7.8（端口自动发现）：
+ *   - 保存地址连不上时自动扫常见端口（10754 / 8008），命中即换址并记住 ——
+ *     插件设置页改「服务端口」后面板不再敲死旧端口
+ *   - 错误态提示可自动扫描范围与自定义端口填法
+ *
  * v1.7.7 翻新（配插件 1.3.0）：
  *   - 大封面 + 播放态 accent 光晕；歌名 / 歌手 / 专辑信息层级
  *   - 诊断卡（/api/debug）：桥版本、三源状态、状态文件年龄，一键复制回传排障
@@ -49,7 +54,7 @@ const RANGE_CLS =
 function reasonText(r: MusicFailReason | undefined): string {
   switch (r) {
     case "refused":
-      return "连不上桥接服务（网易云没开，或初始音乐桥未装/未运行）";
+      return "连不上桥接服务（网易云没开、桥未装/未运行，或在插件设置里改过服务端口）";
     case "blocked":
       return "请求被浏览器拦截了（混合内容或本地网络权限）";
     case "bad":
@@ -94,6 +99,11 @@ export default function MusicPanel() {
       onStatus: (st, reason) => {
         setStatus(st);
         setFailReason(reason);
+      },
+      onAdopted: (u) => {
+        /* 自动发现命中非请求地址 → 记住并回填输入框，下次直连 */
+        setSavedUrl(u);
+        setUrlDraft(u);
       },
     });
     clientRef.current = c;
@@ -176,6 +186,11 @@ export default function MusicPanel() {
         {status === "error" && (
           <p className="rounded-lg bg-zinc-900/[0.03] px-3 py-2 text-xs font-light leading-relaxed text-zinc-500 dark:bg-white/5 dark:text-zinc-400">
             {reasonText(failReason)}
+            <span className="mt-1 block text-[11px] text-zinc-400 dark:text-zinc-500">
+              面板会自动尝试常见端口（10754 / 8008）；改过其他端口的话，在下方地址栏填
+              <code className="mx-0.5 font-mono">http://127.0.0.1:端口</code>
+              再点「重试」即可。
+            </span>
           </p>
         )}
 
