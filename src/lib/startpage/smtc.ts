@@ -39,6 +39,16 @@
  *      再也冻不住面板/掀不翻播放态（配合插件 v1.4.0 真值熔断双保险）。
  *   ② needsUpdate 阈值升至桥 1.7.1 / 插件 1.4.0。
  *
+ * v2.3.2（真机第 9 轮反馈：插件是新版芯片却常喊旧版、播放态仍反向、进度
+ * 0.5x 爬行/倒退）：
+ *   ① 升级归因拆分 —— needsPlugin（插件缺失/过旧：更新 .plugin 即可自修）
+ *      与 needsBridge（插件新版在场但桥旧：自动升级可能被策略拦截，旧桥
+ *      进程占端口杀不掉）分开暴露；部件据此分叉文案，仅桥旧时给「手动
+ *      启动备用桥」诚实指引，绝不再喊无效的「更新 .plugin」。
+ *   ② needsPlugin 阈值升至插件 1.5.0（插件侧：playing 最后事件语义 +
+ *      元素身份锁定 + 倒退熔断 + 杀旧桥通道）；needsBridge 阈值保持
+ *      桥 1.7.1（本轮桥零改动——不能给「必须升级桥」再造理由）。
+ *
  * SMTC 是 Windows 系统级媒体会话（System Media Transport Controls）——
  * 网易云/QQ 音乐/Spotify/浏览器视频等任何注册 SMTC 的播放器都会出现；
  * 桥按「网易云优先 → 正在播放的会话 → 第一个会话」选择当前曲。
@@ -96,6 +106,13 @@ export interface SmtcState {
   seekNote: string;
   /** v2.3.1 组件过旧：桥 <1.7.1 或插件 <1.4.0 或插件不在场（面板显示升级芯片） */
   needsUpdate: boolean;
+  /** v2.3.2 升级归因拆分：插件缺失/过旧（更新 .plugin 即可全自动修复） */
+  needsPlugin: boolean;
+  /** v2.3.2 升级归因拆分：插件在场但桥旧（自动升级可能被策略拦截，
+   *  面板须给「手动启动备用桥」的诚实指引而非无效的「更新 .plugin」——
+   *  真机第 9 轮：插件 1.4.0 在场页脚可见，芯片却永远喊「更新 .plugin」，
+   *  用户照做无效（旧桥进程占端口杀不掉），怒气直接来源） */
+  needsBridge: boolean;
 }
 
 /** 歌词载荷（桥 /api/lyric 白名单产物；文本字段已截断） */
@@ -276,6 +293,8 @@ class SmtcClient {
     pluginVer: "",
     seekNote: "",
     needsUpdate: false,
+    needsPlugin: false,
+    needsBridge: false,
   };
   private subs = new Set<() => void>();
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -626,15 +645,21 @@ class SmtcClient {
      * 版本漂移从症状可见。 */
     const pluginVerNow = ne ? ne.v : "";
     const seekNoteNow = this.seekNote;
-    const needsUpdateNow =
-      (next.connected && (!pluginVerNow || verLt(pluginVerNow, "1.4.0") || verLt(next.version, "1.7.1")));
+    /* v2.3.2 升级归因拆分：needsPlugin = 更新 .plugin 能自修；
+     * needsBridge = 插件新版在场但桥旧（自动升级可能被策略拦，
+     * 提示必须给手动兜底指引，绝不再喊「更新 .plugin」）。 */
+    const needsPluginNow =
+      next.connected && (!pluginVerNow || verLt(pluginVerNow, "1.5.0"));
+    const needsBridgeNow =
+      next.connected && verLt(next.version, "1.7.1");
+    const needsUpdateNow = needsPluginNow || needsBridgeNow;
     const sig =
       stateSig({
         connected: next.connected,
         version: next.version,
         track: next.track,
         lyricRev: lyricRevNow,
-      }) + `|${pluginVerNow}|${seekNoteNow}|${needsUpdateNow ? 1 : 0}`;
+      }) + `|${pluginVerNow}|${seekNoteNow}|${needsPluginNow ? 1 : 0}|${needsBridgeNow ? 1 : 0}`;
     this.state = {
       ...next,
       cover: prevCover,
@@ -644,6 +669,8 @@ class SmtcClient {
       pluginVer: pluginVerNow,
       seekNote: seekNoteNow,
       needsUpdate: needsUpdateNow,
+      needsPlugin: needsPluginNow,
+      needsBridge: needsBridgeNow,
     };
     // 封面失效场景：曲变（coverRev 换了）/ 会话消失 / 会话无封面
     if (!coverRevNow) {

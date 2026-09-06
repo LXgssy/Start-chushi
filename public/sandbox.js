@@ -220,8 +220,13 @@
         /* v2.2.0：诊断透出——插件版本（页脚可见插件在场）与 seek 结果提示 */
         pluginVer: state && typeof state.pluginVer === "string" ? state.pluginVer.slice(0, 16) : "",
         seekNote: state && typeof state.seekNote === "string" ? state.seekNote.slice(0, 40) : "",
-        /* v2.3.0：组件过旧（桥/插件版本不齐）→ 面板升级芯片 */
+        /* v2.3.0：组件过旧（桥/插件版本不齐）→ 面板升级芯片
+           v2.3.2：归因拆分——needsPlugin（更新 .plugin 可自修）与
+           needsBridge（插件已新但桥旧：自动升级可能被策略拦截，
+           部件据此给「手动启动备用桥」诚实指引而非无效的更新提示） */
         needsUpdate: !!(state && state.needsUpdate === true),
+        needsPlugin: !!(state && state.needsPlugin === true),
+        needsBridge: !!(state && state.needsBridge === true),
       };
       st.snap = snap;
       for (var i = st.cbs.length - 1; i >= 0; i--) { try { st.cbs[i](snap); } catch (e) { } }

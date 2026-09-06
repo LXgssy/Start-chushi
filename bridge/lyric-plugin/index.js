@@ -35,7 +35,7 @@
   const log = (...a) => console.log(TAG, ...a);
   const warn = (...a) => console.warn(TAG, ...a);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const PLUGIN_VERSION = "1.4.0";
+  const PLUGIN_VERSION = "1.5.0";
 
   /* ---------- 一体化服务（v1.3.0）：内嵌 SMTC 桥，抛弃独立桥文件 ----------
    * 桥 ps1/vbs 以 base64 内嵌（纯 ASCII，构建时注入），本插件负责：
@@ -238,6 +238,10 @@
   let bridgeSpawnFails = 0;
   let bridgeRunningVer = "";
   let lastSpawnAt = 0;
+  /* v1.5.0 升级链路状态（旧桥占端口场景专用，与冷启动退避分开计数） */
+  let bridgeUpgradeFails = 0;
+  let lastUpgradeAt = 0;
+  let bridgeBlocked = false; /* 自动升级被策略拦截（≥2 次杀旧+拉起均未生效） */
   const PS1_NAME = "chushi-bridge.ps1";
   const VBS_NAME = "chushi-bridge-launch.vbs";
   function versionLt(a, b) {
@@ -320,15 +324,69 @@
     /* 20s → 40s → 80s → 封顶 120s：拉起被策略拦截时不再每 20s 弹一次窗 */
     return Math.min(120000, 20000 * Math.pow(2, Math.min(3, bridgeSpawnFails)));
   }
+  function upgradeBackoffMs() {
+    /* v1.5.0 升级独立退避（30s→60s→120s 封顶）：旧桥占端口时的杀旧+拉起
+       尝试与冷启动拉起分开计数，互不拖累 */
+    return Math.min(120000, 30000 * Math.pow(2, Math.min(2, bridgeUpgradeFails)));
+  }
+  /* v1.5.0 杀旧桥进程：v1.4.0 只会「部署+拉起新桥」——新桥的版本仲裁虽能
+   * 杀旧绑新，但拉起本身被系统策略拦截时（真机 0x80070312 对 powershell/
+   * wscript 双拦），旧桥进程永生占端口，「组件过旧」芯片永远亮，用户更新
+   * .plugin 也无效（第 9 轮真机「插件是新的却提示旧版」的直接根因）。
+   * 这里由插件主动杀掉端口上的旧监听进程，再拉起新桥。
+   * 双路径：cmd(netstat+taskkill，cmd 常不在拦截名单) → powershell 兜底。 */
+  async function killStaleBridge() {
+    const port = String(bridgePort);
+    try {
+      const c1 = 'cmd.exe /c for /f "tokens=5" %a in (\'netstat.exe -aon ^| findstr :' + port + ' ^| findstr LISTENING\') do @taskkill /F /T /PID %a';
+      await window.betterncm.app.exec(c1);
+      await sleep(600);
+      const ver = await pingBridge();
+      if (!ver) return true; /* 端口已空 = 杀成功 */
+    } catch (e) { /* 走兜底 */ }
+    try {
+      const c2 = 'powershell.exe -NoProfile -Command "Get-NetTCPConnection -LocalPort ' + port + ' -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }"';
+      await window.betterncm.app.exec(c2);
+      await sleep(600);
+      const ver = await pingBridge();
+      if (!ver) return true;
+    } catch (e) { /* 双路径都失败 */ }
+    return false;
+  }
   async function superviseBridge() {
     try {
       const ver = await pingBridge();
       bridgeRunningVer = ver;
-      if (ver && !versionLt(ver, EMBEDDED_BRIDGE_VERSION)) { bridgeSpawnFails = 0; lastSpawnAt = 0; return; }
-      /* 不可达或版本旧 → 重新部署最新内嵌版并拉起（新实例自带版本仲裁：
-         若端口被同版本或更新版本占用则静默退出，被旧版占用则杀旧绑新）。
-         v1.4.0：失败退避节流（上一次拉起尝试后未满退避窗则本轮跳过），
-         真机策略拦截场景不再以 20s 周期反复触发进程创建/弹窗 */
+      if (ver && !versionLt(ver, EMBEDDED_BRIDGE_VERSION)) {
+        bridgeSpawnFails = 0; lastSpawnAt = 0; bridgeUpgradeFails = 0;
+        return;
+      }
+      if (ver && versionLt(ver, EMBEDDED_BRIDGE_VERSION)) {
+        /* 旧桥在场（无论本插件是否已部署过）：这是「升级」不是「冷启动」
+           ——先部署最新版，再杀旧进程，端口腾空后立即拉起新桥（新桥不再
+           需要自己仲裁杀旧，拉起即绑定）。杀不死/拉不起（策略拦截）：
+           bridgeUpgradeFails 驱动独立退避，bridgeBlocked 置位 → 宿主据此
+           展示「手动启动备用桥」的诚实指引而非无效的「更新 .plugin」。 */
+        if (lastUpgradeAt && Date.now() - lastUpgradeAt < upgradeBackoffMs()) return;
+        lastUpgradeAt = Date.now();
+        const ok = await deployBridge();
+        if (!ok) { bridgeUpgradeFails++; return; }
+        const killed = await killStaleBridge();
+        if (killed) await spawnBridge();
+        else bridgeUpgradeFails++;
+        setTimeout(async () => {
+          bridgeRunningVer = await pingBridge();
+          if (!bridgeRunningVer || versionLt(bridgeRunningVer, EMBEDDED_BRIDGE_VERSION)) {
+            bridgeUpgradeFails++;
+            if (bridgeUpgradeFails >= 2 && !bridgeBlocked) {
+              bridgeBlocked = true;
+              warn("桥自动升级被系统策略拦截（连杀旧/拉起均未生效）：请在「初始歌词源」交付包的「手动启动桥（备用）」文件夹手动运行 启动桥.bat");
+            }
+          } else { bridgeUpgradeFails = 0; if (bridgeBlocked) bridgeBlocked = false; }
+        }, 2500);
+        return;
+      }
+      /* 不可达（冷启动路径，v1.4.0 原样）：退避节流拉起 */
       if (lastSpawnAt && Date.now() - lastSpawnAt < spawnBackoffMs()) return;
       const ok = await deployBridge();
       if (!ok) { bridgeSpawnFails++; return; }
@@ -367,6 +425,14 @@
   let lastProgressAt = 0;
   let lastSeekAt = 0;
   let lastSongId = 0;
+  /* v1.5.0 真值仲裁新增：元素身份锁定 + 上拍上报记忆 + store 播放态矛盾计时 */
+  let elLock = null;            /* 身份锁定的媒体元素（同歌内不换人） */
+  let elLockStreak = 0;         /* 连续对齐拍数（≥2 才锁定） */
+  let elLockMiss = 0;           /* 锁定后连续脱钩拍数（≥3 解锁） */
+  let lastReportedPosMs = -1;   /* 上拍实际上报的位置（倒退熔断基准） */
+  let lastReportedAt = 0;
+  let lastReportedPlaying = false;
+  let storeDisagreeSince = 0;   /* store.paused 与 lastPlaying 矛盾起点（0=无矛盾） */
   let disposed = false;
   const installedAt = Date.now();
   log("加载中 v" + PLUGIN_VERSION, "→ 桥", BRIDGE);
@@ -394,11 +460,31 @@
     const drift = lastPlaying && lastPlayingAt ? Math.min(2000, Math.max(0, nowMs - Math.max(lastProgressAt, lastPlayingAt))) : 0;
     return lastProgressMs + drift;
   }
+  /* v1.5.0 元素身份锁定：v1.4.0 的「每拍重新评分」在 DOM 波动（切歌/换源/
+   * 预加载进场）时会换人——换到错误元素的那一刻，playing=el.paused 与
+   * positionMs=el.currentTime 同时被污染（真机第 9 轮：状态反向 + 进度
+   * 0.5x 爬行 + 倒退，就是「评分偶尔选走流浪元素」的锯齿形态）。
+   * 锁定规则：某元素与原生期望连续对齐 ≥2 拍 → 同歌内锁死；仅当
+   * detached / 连续脱钩 ≥3 拍才解锁重新评分。锁定期间其余元素无视。 */
   function pickMediaEl(nowMs) {
     try {
+      const expectMs = nativeExpectMs(nowMs);
+      if (elLock) {
+        const alive = elLock.isConnected !== false;
+        let aligned = false;
+        if (alive && expectMs >= 0 && isFinite(elLock.currentTime)) {
+          aligned = Math.abs(elLock.currentTime * 1000 - expectMs) < 1500;
+        }
+        if (!alive) { elLock = null; elLockStreak = 0; elLockMiss = 0; }
+        else if (aligned) { elLockMiss = 0; return elLock; }
+        else {
+          elLockMiss++;
+          if (elLockMiss >= 3) { elLock = null; elLockStreak = 0; elLockMiss = 0; }
+          else return elLock; /* 锁定期内短脱钩仍信锁定元素（缓冲过场不换人） */
+        }
+      }
       const els = Array.from(document.querySelectorAll("video,audio"));
       if (!els.length) return null;
-      const expectMs = nativeExpectMs(nowMs);
       let best = null, bestS = -1e9;
       for (const e of els) {
         if (!e) continue;
@@ -413,6 +499,14 @@
         }
         if (s > bestS) { bestS = s; best = e; } /* 平分时 DOM 靠前者胜出 */
       }
+      /* 候选与原生对齐 → 连击 +1；连击满 2 上锁 */
+      if (best && expectMs >= 0 && isFinite(best.currentTime) &&
+          Math.abs(best.currentTime * 1000 - expectMs) < 1500) {
+        elLockStreak++;
+        if (elLockStreak >= 2) { elLock = best; elLockMiss = 0; }
+      } else if (best !== elLock) {
+        elLockStreak = 0;
+      }
       return best;
     } catch (e) { return null; }
   }
@@ -424,34 +518,43 @@
     }
     return s;
   }
-  /* 状态快照（v1.4.0 真值熔断）：
-   *   playing = 原生 PlayState 主源（新鲜 ≤5s）；无原生时才信元素 paused；
-   *   positionMs = 原生期望位置为主，元素对齐（≤1.5s）时用元素值补亚秒精度；
-   *   深位置突现 ≈0 且 5s 内无本端 seek → 判为垃圾样本丢弃（沿用原生进度）；
-   *   durationMs = store curTrack（歌锚定）优先，对齐元素时长只作兑底——
-   *   错误元素的 duration 是下一首的，绝不能当当前歌时长上报。 */
+  /* 状态快照（v1.5.0 单一真值仲裁）：
+   *   playing = 原生 PlayState「最后事件」语义——状态事件不是遥测流，最后
+   *     一次说的就是现状，不存在「过期」；仅从未收到过事件（lastPlayingAt
+   *     =0）才降级元素/store。v1.4.0 的 5s 过期降级 el.paused 是真机状态
+   *     反向的直接根因：暂停 5s 后必降级，此时评分选错元素 → 报反状态。
+   *     新增 store.paused 交叉自愈：矛盾持续 >3s 以 store 纠正（事件丢失
+   *     兜底，dva playing store 的 paused 是网易云自家 UI 同源）。
+   *   positionMs = 原生期望位置为主；元素值仅身份锁定对齐时补亚秒；
+   *     原生进度死（expectMs<0）时元素须过「时长身份验证」才可信；
+   *   倒退熔断：同歌 + 无本端 seek + playing 未变，pos 较上拍倒退 >2.5s
+   *     → 丢弃，沿用上拍上报值（真机 0:09→0:08 倒退直接根因）。
+   *   durationMs = store curTrack（歌锚定）优先，锁定元素时长只作兑底。 */
   function buildSnapshot() {
     const nowMs = Date.now();
     const el = pickMediaEl(nowMs);
     const expectMs = nativeExpectMs(nowMs);
     let playing;
-    if (lastPlayingAt && nowMs - lastPlayingAt < 5000) playing = lastPlaying;
-    else if (el) playing = el.paused === false;
+    if (lastPlayingAt) {
+      playing = lastPlaying;
+      /* store 交叉自愈：dva playing.paused 与原生事件矛盾持续 >3s → 纠正
+         （PlayState 事件丢失/漏发的兜底；一致或 store 不可用时不干预） */
+      try {
+        if (store) {
+          const pp = store.getState().playing || {};
+          if (typeof pp.paused === "boolean") {
+            const storePlaying = !pp.paused;
+            if (storePlaying !== playing) {
+              if (!storeDisagreeSince) storeDisagreeSince = nowMs;
+              if (nowMs - storeDisagreeSince > 3000) { playing = storePlaying; lastPlaying = storePlaying; lastPlayingAt = nowMs; }
+            } else storeDisagreeSince = 0;
+          }
+        }
+      } catch (e) { /* store 降级不影响主源 */ }
+    } else if (el) playing = el.paused === false;
     else playing = lastPlaying;
-    let posMs = 0, posAligned = false;
-    if (el && isFinite(el.currentTime)) {
-      if (expectMs >= 0) {
-        if (Math.abs(el.currentTime * 1000 - expectMs) < 1500) { posMs = Math.floor(el.currentTime * 1000); posAligned = true; }
-        else posMs = expectMs; /* 元素与原生期望脱钩（错误元素/换源过场）：不信元素 */
-      } else { posMs = Math.floor(el.currentTime * 1000); posAligned = true; }
-    } else if (expectMs >= 0) posMs = expectMs;
-    /* 垃圾零值熔断：对齐样本突报 ≈0（错误元素/缓冲过场）而原生进度深在
-       前方、5s 内无本端 seek → 丢弃该读数，沿用原生进度（真机「播放时间
-       显示 0 + 进度/歌词冻死」的直接根因就在这条路径上） */
-    if (posMs < 800 && lastProgressMs > 3000 && nowMs - lastSeekAt > 5000) {
-      posMs = Math.max(expectMs, lastProgressMs);
-      posAligned = false;
-    }
+    /* ---------- 歌身份与时长（须在位置计算前就绪：元素身份验证/换歌重置/
+       倒退熔断都要用） ---------- */
     let song = null;
     let durMs = 0;
     try {
@@ -483,11 +586,52 @@
         }
       }
     } catch (e) { /* 状态降级 */ }
+    /* 换歌检测：重置元素锁定与上拍上报记忆（新歌开头 0 起步绝不能被上首
+       歌的倒退熔断误杀，也不能沿用旧元素的锁定身份） */
+    const songIdNow = song && song.id ? Number(song.id) || 0 : 0;
+    if (songIdNow && songIdNow !== lastSongId) {
+      elLock = null; elLockStreak = 0; elLockMiss = 0;
+      lastReportedPosMs = -1; lastReportedAt = 0; storeDisagreeSince = 0;
+      lastSongId = songIdNow;
+    }
+    let posMs = 0, posAligned = false;
+    if (el && isFinite(el.currentTime)) {
+      if (expectMs >= 0) {
+        if (Math.abs(el.currentTime * 1000 - expectMs) < 1500 && el === elLock) { posMs = Math.floor(el.currentTime * 1000); posAligned = true; }
+        else posMs = expectMs; /* 未锁定对齐（评分新脸/脱钩）：一律用原生期望 */
+      } else {
+        /* 原生进度死（从未收到 PlayProgress）：元素须过身份验证（时长与
+           store 时长一致且播放态与快照 playing 一致）才可信，否则宁报 0 */
+        const elOkDur = durMs > 0 && el.duration > 0 && isFinite(el.duration) && Math.abs(el.duration * 1000 - durMs) < 1500;
+        const elOkPlay = (el.paused === false) === playing;
+        if (elOkDur && elOkPlay) { posMs = Math.floor(el.currentTime * 1000); posAligned = true; }
+        else posMs = lastProgressMs;
+      }
+    } else if (expectMs >= 0) posMs = expectMs;
+    /* 垃圾零值熔断：对齐样本突报 ≈0（错误元素/缓冲过场）而原生进度深在
+       前方、5s 内无本端 seek → 丢弃该读数，沿用原生进度（真机「播放时间
+       显示 0 + 进度/歌词冻死」的直接根因就在这条路径上） */
+    if (posMs < 800 && lastProgressMs > 3000 && nowMs - lastSeekAt > 5000) {
+      posMs = Math.max(expectMs, lastProgressMs);
+      posAligned = false;
+    }
+    /* v1.5.0 倒退熔断：同歌 + playing 未变 + 无本端 seek，较上拍上报值
+       倒退 >2.5s → 丢弃（流浪元素陈旧 currentTime 的锯齿形态），沿用
+       上拍上报值按播放态外推（真机 0:09→0:08 倒退直接根因）。
+       song 身份不明（songIdNow=0）时不熔断——宁可放过一次倒退显示，
+       也不能把真实的新歌开头钉死在上一首的位置（误杀比跳帧更糟）。 */
+    if (
+      lastReportedPosMs >= 0 && posMs < lastReportedPosMs - 2500 &&
+      nowMs - lastSeekAt > 5000 && playing === lastReportedPlaying &&
+      songIdNow && songIdNow === lastSongId
+    ) {
+      posMs = lastReportedPosMs + (playing ? Math.min(4000, nowMs - lastReportedAt) : 0);
+      posAligned = false;
+    }
     if (durMs <= 0 && posAligned && el && el.duration > 0 && isFinite(el.duration)) {
       /* 仅对齐元素（=确认是当前歌的元素）的时长才可作兑底 */
       durMs = Math.floor(el.duration * 1000);
     }
-    if (song && song.id) lastSongId = Number(song.id) || lastSongId;
     return {
       song,
       playing,
@@ -538,6 +682,10 @@
     const sig = JSON.stringify([snap.song && snap.song.id, snap.playing, snap.positionMs, snap.durationMs]);
     if (!force && sig === lastStateSig) return;
     lastStateSig = sig;
+    /* v1.5.0 上拍上报记忆（倒退熔断基准）：只记「真的发出去」的值 */
+    lastReportedPosMs = snap.positionMs;
+    lastReportedAt = Date.now();
+    lastReportedPlaying = snap.playing;
     /* v1.2.0：心跳捎带插件版本（宿主/面板可诊断插件在场与版本）与最近一次
        seek 执行结果（seekAck）——桥透传给宿主做 seek 快速确认 */
     const body = Object.assign({}, snap, { v: PLUGIN_VERSION, seekAck: lastSeekAck });
@@ -672,6 +820,23 @@
         }
       });
       log("原生事件已注册（PlayState/PlayProgress/Seek）");
+      /* v1.5.0 PlayProgress 存活自检：注册后 10s 一条进度事件都没有 →
+         事件流可能未生效（客户端版本差异/注册时机），重注册一次；
+         仍死则原生进度路径废（快照自动落到元素身份验证/store 兑底，
+         不再产生「信错元素」的静默污染——因为 expectMs=-1 路径已有
+         身份验证闸）。只 warn 不弹任何窗。 */
+      setTimeout(function () {
+        if (disposed || lastProgressAt) return;
+        warn("PlayProgress 事件 10s 未触发，尝试重注册");
+        try {
+          cmder.appendRegisterCall("PlayProgress", "audioplayer", function (playId, sec) {
+            if (typeof sec === "number" && sec >= 0) { lastProgressMs = Math.floor(sec * 1000); lastProgressAt = Date.now(); }
+          });
+        } catch (e) { warn("重注册失败", e); }
+        setTimeout(function () {
+          if (!disposed && !lastProgressAt) warn("PlayProgress 仍无事件：原生进度不可用，已用真值仲裁兑底");
+        }, 8000);
+      }, 10000);
     }
   } catch (e) { warn("注册原生事件失败", e); }
 
@@ -736,6 +901,18 @@
         if (dva && dva.a && dva.a.inited && dva.a.app && dva.a.app._store) {
           store = dva.a.app._store;
           log("dva Redux store 已获取");
+          /* v1.5.0 初始态对齐：插件加载前网易云可能已在播放——PlayState 只在
+             下一次状态变化时才触发，初始化前不主动对齐的话，这段时间
+             playing 会落在元素降级分支（评分选错元素即反向）。以 store
+             为准（paused 是网易云自家 UI 同源）预热主源。 */
+          try {
+            const p0 = (store.getState().playing || {});
+            if (typeof p0.paused === "boolean") {
+              lastPlaying = !p0.paused;
+              lastPlayingAt = Date.now();
+              log("初始播放态对齐 ->", lastPlaying ? "playing" : "paused");
+            }
+          } catch (e) { /* 初始对齐失败不影响后续 */ }
           /* 切歌即触发歌词流程 */
           try {
             let lastTrackId = null;
