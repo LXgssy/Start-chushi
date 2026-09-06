@@ -260,6 +260,7 @@ function render(){
   if(key!==lastKey){
     lastKey=key;
     lyHold=hasLyric(); /* v2.3.1：换曲才重算高度迟滞（同曲丢词不塌高度） */
+    if(mode!=="em")setMode(mode); /* 重算迟滞后必须重报高度（lyHold 变了 hFor 才生效） */
     var els=[E.t1,E.t2,E.t3];
     for(var i=0;i<els.length;i++){els[i].classList.remove("sw");void els[i].offsetWidth;els[i].classList.add("sw")}
   }
