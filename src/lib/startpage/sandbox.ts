@@ -134,14 +134,33 @@ class SandboxBridge {
 
   constructor() {
     smtc.subscribe(this.broadcastSmtc);
+    smtc.onTick(this.broadcastSmtcTick);
   }
 
-  /** SMTC 快照广播：只推订阅脚本（签名变化才触发，position 不推——消费方插值） */
+  /** SMTC 快照广播：只推订阅脚本（签名变化才触发，歌词大载荷随包） */
   private broadcastSmtc = () => {
     if (this.smtcSubs.size === 0) return;
     const state = smtc.getSnapshot();
     for (const key of this.smtcSubs) {
       this.post({ type: "smtcPush", scriptKey: key, state });
+    }
+  };
+
+  /** 每拍轻量锚点（v1.9.0）：position/fetchedAt 每拍必达——seek 后的新位置、
+   *  插值漂移校正靠它（完整快照签名不含 position，seek 后永不再广播） */
+  private broadcastSmtcTick = () => {
+    if (this.smtcSubs.size === 0) return;
+    const t = smtc.getSnapshot().track;
+    if (!t) return;
+    const tick = {
+      position: t.position,
+      duration: t.duration,
+      playing: t.playing,
+      rate: t.rate,
+      fetchedAt: t.fetchedAt,
+    };
+    for (const key of this.smtcSubs) {
+      this.post({ type: "smtcTick", scriptKey: key, tick });
     }
   };
 

@@ -1195,6 +1195,7 @@ export default function Home() {
         onOpenUrl={openUrlFromPage}
         dockPanelKey={dockWidget}
         onCloseDockPanel={closeDockWidget}
+        motionProfile={presetExtras.motion.profile ?? "standard"}
       />
 
       {/* 链接编辑对话框 */}

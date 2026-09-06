@@ -113,7 +113,7 @@ export interface PresetWidget {
   corner?: "top-left" | "top-right" | "bottom-left" | "bottom-right";
   /** 卡片/面板宽度 px（120–420，缺省 216） */
   width?: number;
-  /** 卡片初始高度 px（40–320，缺省 88；可用 chushi.resize 在沙箱内调整） */
+  /** 卡片初始高度 px（40–460，缺省 88；可用 chushi.resize 在沙箱内调整；v1.9.0 上限放宽） */
   height?: number;
   /** 文档片段（与 pages 同规则，可用 window.chushi 受控 API） */
   html: string;
@@ -230,7 +230,8 @@ export const PRESET_LIMITS = {
   pages: 3,
   htmlLen: 24000,
   widgets: 3,
-  widgetHtmlLen: 12000,
+  /* v1.9.0：12000 → 18000 —— SMTC 音乐部件加入逐字歌词渲染（解析器+DOM 构建+逐帧扫色） */
+  widgetHtmlLen: 18000,
   icons: 7,
   iconLen: 8192,
   tokenValLen: 120,
@@ -580,7 +581,7 @@ export function parsePreset(raw: unknown): ParseResult {
         : undefined;
     const height =
       typeof wo.height === "number" && Number.isFinite(wo.height)
-        ? Math.round(Math.min(320, Math.max(40, wo.height)))
+        ? Math.round(Math.min(460, Math.max(40, wo.height)))
         : undefined;
     scriptIds.add(wid); // 共享 id 命名空间（脚本/动画/页面/小部件互不重名）
     widgets.push({

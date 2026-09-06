@@ -8,8 +8,18 @@
  *   POST /api/control            → {cmd: play|pause|toggle|next|prev|seek,
  *                                   position?} → {ok}
  * 本模块 = 宿主内唯一消费方：1s 轮询 + 本地时钟插值出平滑进度；关键签名
- * （连接态/桥版本/标题/歌手/专辑/播放态/来源/时长/封面版本）变化才广播，
- * position 不广播（消费方自行插值，见 smtcPositionNow）。
+ * （连接态/桥版本/标题/歌手/专辑/播放态/来源/时长/封面版本/歌词版本）变化才广播
+ * 完整快照；position 不进签名（避免带歌词大载荷的整包每秒重发）——但每拍另发
+ * 轻量锚点（onTick：position/duration/playing/rate/fetchedAt），消费方据此校正
+ * 插值基准：否则 seek 后新位置永远不会到达部件（签名未变），进度条拖完弹回——
+ * v1.8.x 真机「进度条完全是坏的」的根因，v1.9.0 以 tick 锚点修复。
+ *
+ * 网易云增强（v1.9.0）：桥 /api/state 附带 ne 字段（「初始歌词源」BetterNCM 插件
+ * 经桥中转的精确状态）；歌词源可达且曲目匹配时：
+ *   - duration/position 为 0 或缺失时用插件值兑底（SMTC 时间轴缺失场景）；
+ *   - cover 无 SMTC 封面时用插件 picUrl 兑底（coverUrl）；
+ *   - lyricRev 变化时拉 /api/lyric（yrc 逐字/lrc/tlyric），随快照广播。
+ * SMTC 仍是会话与控制权威；插件只增强数据，不改变控制链路。
  *
  * SMTC 是 Windows 系统级媒体会话（System Media Transport Controls）——
  * 网易云/QQ 音乐/Spotify/浏览器视频等任何注册 SMTC 的播放器都会出现；
@@ -56,6 +66,29 @@ export interface SmtcState {
   track: SmtcTrack | null;
   /** 封面 data URL（按 coverRev 缓存；null = 无/未就绪/拉取失败） */
   cover: string | null;
+  /** 封面备用 https URL（网易云插件提供，cover 为空时消费方使用） */
+  coverUrl: string | null;
+  /** 当前曲目歌词（v1.9.0；null = 无歌词源/未就绪） */
+  lyric: SmtcLyric | null;
+  /** 歌词版本（桥生成，变化即重拉） */
+  lyricRev: string;
+}
+
+/** 歌词载荷（桥 /api/lyric 白名单产物；文本字段已截断） */
+export interface SmtcLyric {
+  songId: number;
+  title: string;
+  artist: string;
+  /** 逐字歌词（yrc 原文；空 = 无逐字） */
+  yrc: string;
+  /** 逐字歌词翻译（ytlrc；空 = 无） */
+  ytlrc: string;
+  /** 行级歌词（lrc 原文） */
+  lrc: string;
+  /** 行级翻译（tlyric；空 = 无） */
+  tlyric: string;
+  /** 来源标记（eapi-yrc / eapi-klyric / eapi-lrc / channel-lrc / plain-lrc） */
+  source: string;
 }
 
 /** 控制命令白名单（sandbox/widget 两通道共用同一校验） */
@@ -102,25 +135,83 @@ function normalizeTrack(raw: unknown): SmtcTrack | null {
   };
 }
 
+/** 桥 JSON ne 字段 → 白名单对象（歌词源插件经桥中转的网易云精确状态） */
+interface NeState {
+  songId: number;
+  title: string;
+  artist: string;
+  album: string;
+  pic: string;
+  positionMs: number;
+  durationMs: number;
+  playing: boolean;
+  /** 桥侧歌词版本（非空 = 桥有当前曲歌词可拉） */
+  lyricRev: string;
+}
+function normalizeNe(raw: unknown): NeState | null {
+  if (typeof raw !== "object" || raw == null) return null;
+  const o = raw as Record<string, unknown>;
+  const num = (v: unknown): number =>
+    typeof v === "number" && Number.isFinite(v) ? Math.max(0, v) : 0;
+  const title = typeof o.title === "string" ? o.title.slice(0, 200) : "";
+  if (!title) return null;
+  return {
+    songId: num(o.songId),
+    title,
+    artist: typeof o.artist === "string" ? o.artist.slice(0, 200) : "",
+    album: typeof o.album === "string" ? o.album.slice(0, 200) : "",
+    pic: typeof o.pic === "string" && /^https:\/\//.test(o.pic) ? o.pic.slice(0, 500) : "",
+    positionMs: num(o.positionMs),
+    durationMs: num(o.durationMs),
+    playing: o.playing === true,
+    lyricRev: typeof o.lyricRev === "string" ? o.lyricRev.slice(0, 64) : "",
+  };
+}
+
+/** 曲目与网易云插件状态是否指同一首歌（标题双向包含即认；SMTC 标题常带修饰） */
+function trackMatchesNe(t: SmtcTrack, ne: NeState): boolean {
+  const a = t.title.trim().toLowerCase();
+  const b = ne.title.trim().toLowerCase();
+  if (!a || !b) return false;
+  return a === b || a.includes(b) || b.includes(a);
+}
+
 /** 关键签名：变化才广播（position/fetchedAt 不参与——插值属消费方职责） */
-function stateSig(s: { connected: boolean; version: string; track: SmtcTrack | null }): string {
+function stateSig(s: {
+  connected: boolean;
+  version: string;
+  track: SmtcTrack | null;
+  lyricRev: string;
+}): string {
   const t = s.track;
   const tpart = t
     ? [t.app, t.title, t.artist, t.album, t.playing ? 1 : 0, t.duration, t.coverRev].join("|")
     : "none";
-  return `${s.connected ? 1 : 0}|${s.version}|${tpart}`;
+  return `${s.connected ? 1 : 0}|${s.version}|${tpart}|${s.lyricRev}`;
 }
 
 class SmtcClient {
-  private state: SmtcState = { connected: false, version: "", track: null, cover: null };
+  private state: SmtcState = {
+    connected: false,
+    version: "",
+    track: null,
+    cover: null,
+    coverUrl: null,
+    lyric: null,
+    lyricRev: "",
+  };
   private subs = new Set<() => void>();
   private timer: ReturnType<typeof setTimeout> | null = null;
   private started = false;
   private failStreak = 0;
-  private lastSig = "0||none";
+  private lastSig = "0||none|";
   /** 已成功取到封面的 coverRev（同版不重拉） */
   private coverRevDone = "";
   private coverTries = 0;
+  /** 已拉取的歌词 rev（同版不重拉）；拉取中标记防并发 */
+  private lyricRevDone = "";
+  private lyricInflight = false;
+  private lyricTries = 0;
 
   getSnapshot(): SmtcState {
     return this.state;
@@ -144,6 +235,27 @@ class SmtcClient {
     return () => {
       this.subs.delete(cb);
     };
+  }
+
+  /**
+   * 每拍锚点订阅（v1.9.0）：轮询成功后必发（无论签名是否变化）。
+   * 消费方转发轻量 tick {position,duration,playing,rate,fetchedAt} 给部件——
+   * seek 后的新位置、插值漂移校正都靠它到达（完整快照只在签名变化时发）。 */
+  onTick(cb: () => void): () => void {
+    this.tickSubs.add(cb);
+    return () => {
+      this.tickSubs.delete(cb);
+    };
+  }
+  private tickSubs = new Set<() => void>();
+  private notifyTick(): void {
+    for (const cb of this.tickSubs) {
+      try {
+        cb();
+      } catch {
+        /* 单消费方异常不影响其余 */
+      }
+    }
   }
 
   /** 媒体控制（cmd 须已在 SMTC_COMMANDS 白名单内；seek 附 position 秒） */
@@ -180,27 +292,55 @@ class SmtcClient {
         throw new Error("not-chushi-smtc-bridge");
       }
       this.failStreak = 0;
-      this.apply({
-        connected: true,
-        version: typeof j.version === "string" ? j.version.slice(0, 16) : "",
-        track: normalizeTrack(j.track),
-      });
+      const track = normalizeTrack(j.track);
+      const ne = normalizeNe(j.ne);
+      this.apply({ connected: true, version: typeof j.version === "string" ? j.version.slice(0, 16) : "", track }, ne);
+      this.notifyTick(); // 每拍轻量锚点（seek/漂移校正，与签名无关）
     } catch {
       this.failStreak++;
       // 连续 2 次失败才判定桥离线（避免单次网络抖动把 UI 打成离线态）
       if (this.failStreak >= 2 && (this.state.connected || this.state.track)) {
-        this.apply({ connected: false, version: "", track: null });
+        this.apply({ connected: false, version: "", track: null }, null);
       }
       next = RETRY_MS;
     }
     this.schedule(next);
   };
 
-  private apply(next: { connected: boolean; version: string; track: SmtcTrack | null }): void {
-    const sig = stateSig(next);
+  /**
+   * 应用新快照 + 网易云增强合并（v1.9.0）。
+   * 合并策略：歌词源可达且曲目匹配时——duration/position 缺失（0）用插件值兑底；
+   * SMTC 封面缺失时把插件 picUrl 写入 coverUrl；二者均有则保持 SMTC（会话权威）。
+   */
+  private apply(
+    next: { connected: boolean; version: string; track: SmtcTrack | null },
+    ne: NeState | null,
+  ): void {
+    const t = next.track;
+    let neUsable = false;
+    if (t && ne && trackMatchesNe(t, ne)) {
+      neUsable = true;
+      // 插值钟兑底：SMTC 时间轴缺失（0）时用插件帧级进度（曲目已匹配才动）
+      if (t.duration <= 0 && ne.durationMs > 0) t.duration = ne.durationMs / 1000;
+      if (t.position <= 0 && ne.positionMs > 0) t.position = ne.positionMs / 1000;
+    }
+    const lyricRevNow = neUsable && ne!.lyricRev ? ne!.lyricRev : "";
     const prevCover = this.state.cover;
+    const prevLyric = this.state.lyric;
     const coverRevNow = next.track?.coverRev ?? "";
-    this.state = { ...next, cover: prevCover };
+    const sig = stateSig({
+      connected: next.connected,
+      version: next.version,
+      track: next.track,
+      lyricRev: lyricRevNow,
+    });
+    this.state = {
+      ...next,
+      cover: prevCover,
+      coverUrl: neUsable && ne!.pic ? ne!.pic : null,
+      lyric: prevLyric,
+      lyricRev: lyricRevNow,
+    };
     // 封面失效场景：曲变（coverRev 换了）/ 会话消失 / 会话无封面
     if (!coverRevNow) {
       if (prevCover) {
@@ -212,6 +352,16 @@ class SmtcClient {
       this.state = { ...this.state, cover: null };
       this.coverTries = 0;
       void this.fetchCover(coverRevNow);
+    }
+    // 歌词生命周期：rev 变化即重拉；无源（插件离线/曲目不匹配）则清空
+    if (lyricRevNow !== this.lyricRevDone) {
+      this.lyricRevDone = lyricRevNow;
+      this.lyricTries = 0;
+      if (lyricRevNow) {
+        void this.fetchLyric(lyricRevNow);
+      } else if (prevLyric) {
+        this.state = { ...this.state, lyric: null };
+      }
     }
     if (sig !== this.lastSig) {
       this.lastSig = sig;
@@ -254,6 +404,45 @@ class SmtcClient {
           }, 1200 * this.coverTries);
         }
       }
+    }
+  }
+
+  /** 拉取歌词（rev 变化时调用；失败限次重试，曲目已变则丢弃） */
+  private async fetchLyric(rev: string): Promise<void> {
+    if (this.lyricInflight) return;
+    this.lyricInflight = true;
+    try {
+      const j = await this.fetchJson(`${BASE}/api/lyric?v=${encodeURIComponent(rev)}`);
+      if (!j || j.ok !== true) throw new Error("no-lyric");
+      if (this.state.lyricRev !== rev) return; // 曲目已变，丢弃
+      const l = j.lyric as Record<string, unknown> | null;
+      if (!l) throw new Error("bad-lyric");
+      const str = (v: unknown, max: number): string => (typeof v === "string" ? v.slice(0, max) : "");
+      const num = (v: unknown): number =>
+        typeof v === "number" && Number.isFinite(v) ? Math.max(0, v) : 0;
+      const lyric: SmtcLyric = {
+        songId: num(l.songId),
+        title: str(l.title, 200),
+        artist: str(l.artist, 200),
+        yrc: str(l.yrc, 200000),
+        ytlrc: str(l.ytlrc, 200000),
+        lrc: str(l.lrc, 200000),
+        tlyric: str(l.tlyric, 200000),
+        source: str(l.source, 24),
+      };
+      if (!lyric.yrc && !lyric.lrc) throw new Error("empty-lyric");
+      this.lyricTries = 0;
+      this.state = { ...this.state, lyric };
+      this.notify();
+    } catch {
+      this.lyricTries++;
+      if (this.lyricTries <= 3) {
+        setTimeout(() => {
+          if (this.state.lyricRev === rev && this.state.lyric == null) void this.fetchLyric(rev);
+        }, 1500 * this.lyricTries);
+      }
+    } finally {
+      this.lyricInflight = false;
     }
   }
 

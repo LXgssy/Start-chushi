@@ -65,6 +65,8 @@
    *  + 定向推送回调集（scriptKey → cbs） */
   var pendingSmtc = {};
   var smtcTargets = new Map();
+  /** 每脚本最近一份 SMTC 快照（smtcTick 锚点校正的落点，v1.9.0） */
+  var smtcLast = new Map();
   var smtcSeq = 0;
 
   /** 为指定脚本构造受控 API（每个脚本一份，命令/入口互不可见对方内部状态） */
@@ -379,7 +381,7 @@ function widgetShim(theme, accent, panelMode) {
     "document.documentElement.dataset.theme='" + (theme === "dark" ? "dark" : "light") + "';" +
     (panelMode ? "document.documentElement.dataset.panel='1';" : "") +
     accentSet +
-    "var smtcCbs=[];" +
+    "var smtcCbs=[];var lastSmtc=null;" +
     "window.chushi={notify:function(o){o=o||{};post({type:'widgetApi',op:'notify'," +
     "title:String(o.title||'').slice(0,24),description:String(o.description||'').slice(0,60)})}," +
     "open:function(u){post({type:'widgetApi',op:'open',url:String(u||'').slice(0,500)})}," +
@@ -404,7 +406,17 @@ function widgetShim(theme, accent, panelMode) {
     "if(p.op==='storageGet'){var v=null;if(typeof d.value==='string'&&d.value.length){try{v=JSON.parse(d.value)}catch(e){v=d.value}}p.f(v)}else{p.f(d.ok===true)}};" +
     "if(d.type==='widgetSmtcResult'){var pc=pending[d.reqId];if(!pc)return;delete pending[d.reqId];pc.f(d.ok===true)};" +
     "if(d.type==='widgetSmtc'){var s=d.state&&typeof d.state==='object'?d.state:null;" +
+    "lastSmtc=s;" +
     "for(var i=smtcCbs.length-1;i>=0;i--){try{smtcCbs[i](s)}catch(e){}}};" +
+    "if(d.type==='widgetSmtcTick'){var tk=d.tick&&typeof d.tick==='object'?d.tick:null;" +
+    /* 每拍轻量锚点（v1.9.0）：只改锚点字段，不覆盖 cover/lyric；seek 后新位置靠它到达 */
+    "if(tk&&lastSmtc&&lastSmtc.track){" +
+    "if(typeof tk.position==='number')lastSmtc.track.position=tk.position;" +
+    "if(typeof tk.duration==='number')lastSmtc.track.duration=tk.duration;" +
+    "if(typeof tk.playing==='boolean')lastSmtc.track.playing=tk.playing;" +
+    "if(typeof tk.rate==='number')lastSmtc.track.rate=tk.rate;" +
+    "if(typeof tk.fetchedAt==='number')lastSmtc.track.fetchedAt=tk.fetchedAt;" +
+    "for(var i=smtcCbs.length-1;i>=0;i--){try{smtcCbs[i](lastSmtc)}catch(e){}}}};" +
     "if(d.type==='widgetTheme'){document.documentElement.dataset.theme=d.theme==='dark'?'dark':'light';" +
     "if(d.accent)document.documentElement.style.setProperty('--w-accent',d.accent)}});" +
     "})();</script>"
@@ -472,8 +484,8 @@ function widgetMode() {
         /* noop */
       }
     }
-    if ((m.type === "widgetSmtc" || m.type === "widgetSmtcResult") && inner && inner.contentWindow) {
-      /* SMTC 通道下行：快照推送与控制回执原样透传进部件 */
+    if ((m.type === "widgetSmtc" || m.type === "widgetSmtcResult" || m.type === "widgetSmtcTick") && inner && inner.contentWindow) {
+      /* SMTC 通道下行：快照推送/每拍锚点/控制回执原样透传进部件 */
       try {
         inner.contentWindow.postMessage(m, "*");
       } catch (e) {
@@ -584,9 +596,34 @@ window.addEventListener("message", function (e) {
       var st = smtcTargets.get(m.scriptKey);
       if (!st || st.length === 0) return;
       var sst = m.state && typeof m.state === "object" ? m.state : null;
+      smtcLast.set(m.scriptKey, sst);
       for (var si = 0; si < st.length; si++) {
         try {
           st[si](sst);
+        } catch (err) {
+          post({ type: "runtimeError", message: errMsg(err) });
+        }
+      }
+      return;
+    }
+
+    if (m.type === "smtcTick" && typeof m.scriptKey === "string") {
+      /* 每拍轻量锚点（v1.9.0）：seek 后的新位置/插值漂移校正。
+         只改锚点字段（position/duration/playing/rate/fetchedAt），
+         不覆盖 cover/lyric 等重载荷；未拿到过快照则丢弃（下一拍再试）。 */
+      var tk = m.tick && typeof m.tick === "object" ? m.tick : null;
+      var last = smtcLast.get(m.scriptKey);
+      if (!tk || !last || !last.track) return;
+      if (typeof tk.position === "number") last.track.position = tk.position;
+      if (typeof tk.duration === "number") last.track.duration = tk.duration;
+      if (typeof tk.playing === "boolean") last.track.playing = tk.playing;
+      if (typeof tk.rate === "number") last.track.rate = tk.rate;
+      if (typeof tk.fetchedAt === "number") last.track.fetchedAt = tk.fetchedAt;
+      var stt = smtcTargets.get(m.scriptKey);
+      if (!stt || stt.length === 0) return;
+      for (var sj = 0; sj < stt.length; sj++) {
+        try {
+          stt[sj](last);
         } catch (err) {
           post({ type: "runtimeError", message: errMsg(err) });
         }
