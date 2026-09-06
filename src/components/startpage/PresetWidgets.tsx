@@ -15,10 +15,10 @@
  */
 
 import { memo, useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { sandboxWidgetSrc } from "@/lib/startpage/sandbox";
 import { smtc, SMTC_COMMANDS, type SmtcState } from "@/lib/startpage/smtc";
-import { PresenceClass } from "./PresenceClass";
+import { MOTION_PROFILES, type MotionProfile } from "./Dock";
 
 export interface ActiveWidget {
   /** 运行时复合键 `${presetId}:${widgetId}` */
@@ -44,13 +44,14 @@ const CORNER_CSS: Record<ActiveWidget["corner"], string> = {
 
 const KV_KEY = "start:widget-kv";
 const H_MIN = 40;
-const H_MAX = 320;
+/* v1.9.0：320 → 460 —— dock 面板展开卡含逐字歌词区（部件自 resize，宿主弹簧跟随） */
+const H_MAX = 460;
 const VALUE_MAX = 4000;
 
-/* dock 弹出面板高度弹簧（与内建面板 PanelStage 的 standard 档同参，语言同源） */
-const DW_SPRING = { type: "spring", stiffness: 420, damping: 34 } as const;
-/* 退场加速曲线（与 Dock 的 EXIT_EASE / globals.css .panel-sink 同参） */
+/* dock 弹出面板高度弹簧：与内建面板 PanelStage 同源（用户动效档位，v1.9.0 起不再硬编码） */
 const EXIT_EASE = [0.4, 0, 1, 1] as const;
+/** 收起退场时长（与 globals.css .panel-sink 同参，+余量后转入 closed） */
+const SINK_MS = 240;
 
 type WidgetApiMsg = {
   type?: unknown;
@@ -114,6 +115,8 @@ function PresetWidgets(props: {
   dockPanelKey: string | null;
   /** 关闭 dock 弹出面板（遮罩/再点 dock 按钮/沙箱 chushi.close() 共用同一入口） */
   onCloseDockPanel: () => void;
+  /** 动效语言档位（v1.9.0）：弹出面板与内建面板同一套弹簧参数 */
+  motionProfile: MotionProfile;
 }) {
   /* 盒高：预设初始值 → 沙箱 chushi.resize 跟随（删除的部件自动清理） */
   const [heights, setHeights] = useState<Record<string, number>>({});
@@ -141,11 +144,32 @@ function PresetWidgets(props: {
     kvRef.current = readKv();
   }, []);
 
-  /* SMTC 快照广播（v1.8.0）：smtc 单例签名变化才触发；
-     只推已订阅部件帧（widgetSmtc 下行经沙箱宿主转发进部件） */
+  /* SMTC 快照广播（v1.8.0）+ 每拍轻量锚点（v1.9.0）：
+     完整快照（含歌词大载荷）签名变化才发；tick {position,fetchedAt,…} 每拍必发——
+     seek 后的新位置/插值漂移校正靠它到达部件（否则进度条拖完弹回） */
   useEffect(() => {
     smtc.start();
-    return smtc.subscribe(() => {
+    const unTick = smtc.onTick(() => {
+      const t = smtc.getSnapshot().track;
+      if (!t) return;
+      const tick = {
+        position: t.position,
+        duration: t.duration,
+        playing: t.playing,
+        rate: t.rate,
+        fetchedAt: t.fetchedAt,
+      };
+      for (const wkey of smtcSubsRef.current) {
+        const host = framesRef.current.get(wkey)?.contentWindow;
+        if (!host) continue;
+        try {
+          host.postMessage({ type: "widgetSmtcTick", widgetKey: wkey, tick }, "*");
+        } catch {
+          /* noop */
+        }
+      }
+    });
+    const unSub = smtc.subscribe(() => {
       const state = smtc.getSnapshot();
       for (const wkey of smtcSubsRef.current) {
         const host = framesRef.current.get(wkey)?.contentWindow;
@@ -157,6 +181,10 @@ function PresetWidgets(props: {
         }
       }
     });
+    return () => {
+      unTick();
+      unSub();
+    };
   }, []);
 
   function onMessage(e: MessageEvent) {
@@ -284,11 +312,58 @@ function PresetWidgets(props: {
   const dw = props.dockPanelKey
     ? props.widgets.find((x) => x.key === props.dockPanelKey && x.surface === "dock")
     : null;
-  /* 面板高度：沙箱 chushi.resize 跟随（如音乐部件 92 空态 ⇄ 248 展开卡），
-     弹簧动画由下方 motion.div 承载 */
-  const dwH = dw ? heights[dw.key] ?? dw.height : 0;
+  void dw;
   const cornerWidgets = props.widgets.filter((w) => w.surface !== "dock");
+  const dockWidgets = props.widgets.filter((w) => w.surface === "dock");
   const reduceMotion = useReducedMotion();
+  const motionSpring = MOTION_PROFILES[props.motionProfile] ?? MOTION_PROFILES.standard;
+
+  /* ---------- 弹出面板相位机（v1.9.0 常驻预热） ----------
+   * v1.8.2 的 AnimatePresence 挂载/卸载方案：每次打开新挂 iframe → sandbox.html 冷加载
+   * → 嵌套 srcdoc 注入 → 订阅回推，首帧白屏（iframe 默认白底）且动画被加载卡顿拖累。
+   * v1.9.0 改为：只要 dock 表面部件存在，弹出容器与 iframe 随页面常驻（预热），
+   * SMTC 订阅/封面/歌词在后台持续更新；打开/关闭只动高度与相位类：
+   *   closed → open：height 0⇒h 弹簧 + .panel-rise；
+   *   open → closing：height ⇒0 (EXIT_EASE 0.22s) + .panel-sink；
+   *   closing → (SINK_MS 后) closed：清类，下次打开重播 .panel-rise。
+   * iframe 节点永不卸载 = 零重载、零白屏，开面板与内建 PanelStage 同语言同手感。 */
+  const [phases, setPhases] = useState<Record<string, "closed" | "open" | "closing">>({});
+  useEffect(() => {
+    setPhases((prev) => {
+      const nextMap: Record<string, "closed" | "open" | "closing"> = {};
+      let changed = false;
+      const keys = new Set<string>();
+      for (const w of props.widgets) {
+        if (w.surface !== "dock") continue;
+        keys.add(w.key);
+        const want =
+          props.dockPanelKey === w.key
+            ? "open"
+            : prev[w.key] === "open" || prev[w.key] === "closing"
+              ? "closing"
+              : "closed";
+        if (prev[w.key] !== want) changed = true;
+        nextMap[w.key] = want;
+      }
+      if (Object.keys(prev).length !== keys.size) changed = true;
+      return changed ? nextMap : prev;
+    });
+  }, [props.dockPanelKey, props.widgets]);
+  /* closing → closed：sink 动画播完再清类，下次打开重播 rise */
+  useEffect(() => {
+    const closing = Object.entries(phases)
+      .filter(([, p]) => p === "closing")
+      .map(([k]) => k);
+    if (closing.length === 0) return;
+    const t = setTimeout(() => {
+      setPhases((prev) => {
+        const n = { ...prev };
+        for (const k of closing) if (n[k] === "closing") n[k] = "closed";
+        return n;
+      });
+    }, SINK_MS);
+    return () => clearTimeout(t);
+  }, [phases]);
 
   if (props.widgets.length === 0) return null;
 
@@ -342,50 +417,65 @@ function PresetWidgets(props: {
         </div>
       )}
 
-      {/* ---------- dock 弹出面板（v1.8.2 dock 表面小部件）----------
+      {/* ---------- dock 弹出面板（v1.9.0 常驻预热）----------
        * 语言与内建 PanelStage 同源：静态 wrapper 定位（fixed + CSS 居中，不进 framer）→
-       * PresenceClass 卡片（入场 .panel-rise / 退场 .panel-sink，CSS 关键帧承载，
-       * 避开 framer v12 opacity WAAPI 入场空窗/退场回跳）→ motion.div 高度弹簧。
-       * iframe 高度 = chushi.resize 跟随值；宽度 = 预设 width（120–420 夹紧）。
-       * 卡片本体不加 glass-card/背景：部件 HTML 自带卡片视觉（边框/圆角/投影），
-       * 宿主只负责定位、弹簧与裁剪（overflow-hidden 圆角同步收缩）。 */}
-      <div className="pointer-events-none fixed bottom-[calc(max(1.25rem,env(safe-area-inset-bottom))+60px)] left-1/2 z-40 -translate-x-1/2">
-        <AnimatePresence>
-          {dw && (
-            <PresenceClass
-              key="dock-widget-panel"
-              role="dialog"
-              aria-label={dw.name}
-              data-widget={dw.key}
+       * 卡片（开 .panel-rise / 收 .panel-sink，CSS 关键帧承载）→ motion.div 高度弹簧
+       * （用户动效档位，与内建面板同参）。iframe 随部件常驻预热（见相位机注释）——
+       * 打开瞬间内容已就绪，无白屏、无重载、SMTC 订阅不中断。
+       * 卡片本体不加背景：部件 HTML 自带卡片视觉；宿主只负责定位、弹簧与裁剪。 */}
+      {dockWidgets.map((w) => {
+        const ph = phases[w.key] ?? "closed";
+        const open = ph === "open";
+        const h = heights[w.key] ?? w.height;
+        return (
+          <div
+            key={w.key}
+            className="pointer-events-none fixed bottom-[calc(max(1.25rem,env(safe-area-inset-bottom))+60px)] left-1/2 z-40 -translate-x-1/2"
+          >
+            <div
+              data-widget={w.key}
+              aria-hidden={!open}
+              role={open ? "dialog" : undefined}
+              aria-label={w.name}
+              className={`cl-dockwidget ${open ? "pointer-events-auto" : "pointer-events-none"} ${
+                open && !reduceMotion
+                  ? "panel-rise"
+                  : ph === "closing" && !reduceMotion
+                    ? "panel-sink"
+                    : ""
+              }`}
               style={{
                 transformOrigin: "bottom center",
                 willChange: "transform",
-                width: `min(92vw, ${dw.width}px)`,
+                width: `min(92vw, ${w.width}px)`,
               }}
-              exitClass="panel-sink"
-              className="panel-rise cl-dockwidget pointer-events-auto"
             >
               <motion.div
                 className="overflow-hidden rounded-[18px]"
                 style={{ contain: "layout" }}
-                initial={reduceMotion ? false : { height: 0 }}
-                animate={{ height: dwH }}
-                exit={{ height: 0, transition: { duration: 0.22, ease: EXIT_EASE } }}
-                transition={DW_SPRING}
+                initial={false}
+                animate={{ height: open ? h : 0 }}
+                transition={
+                  reduceMotion
+                    ? { duration: 0 }
+                    : open
+                      ? motionSpring
+                      : { duration: 0.22, ease: EXIT_EASE }
+                }
               >
                 <iframe
                   ref={(el) => {
-                    if (el) framesRef.current.set(dw.key, el);
-                    else framesRef.current.delete(dw.key);
+                    if (el) framesRef.current.set(w.key, el);
+                    else framesRef.current.delete(w.key);
                   }}
                   src={sandboxWidgetSrc()}
                   onLoad={() => {
                     try {
-                      framesRef.current.get(dw.key)?.contentWindow?.postMessage(
+                      framesRef.current.get(w.key)?.contentWindow?.postMessage(
                         {
                           type: "renderWidget",
-                          key: dw.key,
-                          html: dw.html,
+                          key: w.key,
+                          html: w.html,
                           theme: themeRef.current.isDark ? "dark" : "light",
                           accent: themeRef.current.accent,
                           /* dock 表面部件以面板形态渲染：沙箱置 dataset.panel，
@@ -398,16 +488,16 @@ function PresetWidgets(props: {
                       /* noop */
                     }
                   }}
-                  title={`初始 dock 面板：${dw.name}`}
+                  title={`初始 dock 面板：${w.name}`}
                   className="block border-0 bg-transparent"
-                  style={{ width: "100%", height: dwH }}
+                  style={{ width: "100%", height: h }}
                   sandbox="allow-scripts"
                 />
               </motion.div>
-            </PresenceClass>
-          )}
-        </AnimatePresence>
-      </div>
+            </div>
+          </div>
+        );
+      })}
     </>
   );
 }

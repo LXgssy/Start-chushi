@@ -11,7 +11,9 @@
     --acc20:color-mix(in oklab,var(--acc) 20%,transparent);
     --acc32:color-mix(in oklab,var(--acc) 32%,transparent);
     --acc66:color-mix(in oklab,var(--acc) 66%,transparent);
-    --ez:var(--ez);--r9:999px;
+    /* v1.9.0：此前写作 --ez:var(--ez)（自引用=无效声明，跨 iframe 又拿不到宿主变量，
+       全部过渡静默退化）——这里给出与「初始」内建同款的真实缓动 */
+    --ez:cubic-bezier(.22,1,.36,1);--r9:999px;
   }
   [data-theme=dark] body{
     --ink:#f4f4f5;--ink2:#a1a1aa;--ink3:#71717a;--line:rgba(255,255,255,.09);
@@ -82,7 +84,7 @@
   .sk{margin-top:13px;height:14px;display:flex;align-items:center;cursor:pointer;touch-action:none}
   .rl{position:relative;width:100%;height:4px;border-radius:4px;background:var(--pr)}
   .rl i{position:absolute;left:0;top:0;height:100%;width:0%;border-radius:4px;background:var(--acc)}
-  .rl u{position:absolute;top:50%;width:10px;height:10px;border-radius:var(--r9);background:#fff;
+  .rl u{position:absolute;left:0;top:50%;width:10px;height:10px;border-radius:var(--r9);background:#fff;
     border:2px solid var(--acc);transform:translate(-50%,-50%);pointer-events:none}
   .tm{display:flex;justify-content:space-between;margin-top:2px;font-size:10.5px;
     color:var(--ink3);font-variant-numeric:tabular-nums}
@@ -93,7 +95,23 @@
     box-shadow:0 4px 14px var(--acc32),0 1px 0 rgba(255,255,255,.22) inset}
   .ct .bt.mi svg{width:20px;height:20px}
   .ct .bt.mi:active{transform:scale(.94)}
-  .ft{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--ink3)}
+  /* ---------- 逐字歌词（v1.9.0） ---------- */
+  .ly{position:relative;height:124px;margin-top:8px;overflow:hidden;flex:none;
+    -webkit-mask-image:linear-gradient(180deg,transparent,#000 16%,#000 84%,transparent)}
+  .lyin{position:absolute;left:0;right:0;top:0;transition:transform .55s var(--ez);will-change:transform}
+  .lyline{padding:4px 2px;text-align:center;font-size:14.5px;font-weight:560;line-height:1.45;
+    color:var(--ink3);transition:color .3s ease}
+  .lyline.on{color:var(--ink)}
+  .lyline.gap{font-size:11px;letter-spacing:7px;color:var(--ink3)}
+  .lyw{color:var(--ink3);transition:color .22s ease}
+  .lyw.done{color:var(--ink)}
+  .lyw.act{color:transparent;
+    background:linear-gradient(90deg,var(--ink) var(--p,0%),var(--ink3) var(--p,0%));
+    -webkit-background-clip:text}
+  .lysub{font-size:11px;font-weight:400;color:var(--ink2);margin-top:2px;display:none;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .lyline.on .lysub{display:block}
+  .ft{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--ink3);margin-top:auto}
   .dt{width:6px;height:6px;border-radius:var(--r9);background:var(--ok);flex:none;transition:background .3s}
   .dt.pz{background:#fbbf24}
   /* ---------- 空态 ---------- */
@@ -149,6 +167,7 @@
       </button>
       <button class="bt" id="nx" aria-label="下一首"><svg viewBox="0 0 24 24"><use href="#i-nx"/></svg></button>
     </div>
+    <div class="ly hd" id="ly"></div>
     <div class="ft"><span class="dt" id="dt"></span><span id="ap">已连接</span></div>
   </div>
 
@@ -171,7 +190,9 @@ var E={aS:$("aS"),t1s:$("t1s"),t2s:$("t2s"),yS:$("yS"),nS:$("nS"),
   aF:$("aF"),t1f:$("t1f"),t2f:$("t2f"),t3f:$("t3f"),yF:$("yF"),nF:$("nF"),
   barF:$("barF"),th:$("th"),tC:$("tC"),tD:$("tD"),ap:$("ap"),dt:$("dt"),
   e1:$("e1"),e2:$("e2")};
-var H={cp:64,fl:248,em:92},mode="em",st=null,lastKey="",drag=false,dragRatio=0;
+/* 高度表：em 空态 92 / fl 展开卡 248；有逐字歌词时展开卡 +124（歌词区），宿主弹簧跟随 */
+var H={cp:64,fl:248,em:92},LY_H=124;
+var mode="em",st=null,lastKey="",drag=false,dragRatio=0;
 var ctl=function(c,p){try{return chushi.smtc.control(c,p)}catch(e){return Promise.resolve(false)}};
 function fmt(s){s=Math.max(0,Math.floor(s));return Math.floor(s/60)+":"+(s%60<10?"0":"")+s%60}
 function posNow(){
@@ -180,10 +201,16 @@ function posNow(){
   var p=t.position+(t.playing?(Date.now()-t.fetchedAt)/1000*r:0);
   return t.duration>0?Math.min(t.duration,Math.max(0,p)):Math.max(0,p);
 }
+/* 有可渲染歌词时展开卡增高（面板与角落磁贴同律；宿主 H_MAX 上限 460） */
+var lyricOn=false;
+function hFor(m){
+  if(m==="fl"&&lyricOn)return H.fl+LY_H;
+  return H[m];
+}
 function setMode(m){
   mode=m;card.className="card mode-"+m;
   $("em").classList.toggle("hd",m!=="em");
-  try{chushi.resize(340,H[m])}catch(e){}
+  try{chushi.resize(340,hFor(m))}catch(e){}
 }
 function playIcons(on){
   E.yS.classList.toggle("hd",on);E.nS.classList.toggle("hd",!on);
@@ -191,10 +218,10 @@ function playIcons(on){
   E.dt.classList.toggle("pz",!on);card.classList.toggle("pl",on);
   E.aS.classList.toggle("pz",!on);E.aF.classList.toggle("pz",!on);
 }
-/* 封面：有则显示，无则落到包内默认唱片（asset:cover.svg，.cshz 导入时内联） */
+/* 封面三级回退（v1.9.0）：SMTC 封面(dataURL) → 网易云插件 picUrl → 包内默认唱片 */
 var DEF="asset:cover.svg";
-function cover(img,u){
-  var s=u||DEF;
+function cover(img){
+  var s=(st&&st.cover)||(st&&st.coverUrl)||DEF;
   if(img.__s!==s){img.src=s;img.__s=s}
   img.classList.add("on");
 }
@@ -209,6 +236,9 @@ function render(){
     if(mode!=="em")setMode("em");
     return;
   }
+  /* 歌词换曲检测：rev 变化即重建歌词 DOM（rev 空 = 无歌词源，清空收起歌词区） */
+  var lk=s.lyric?String(s.lyricRev||""):"";
+  if(lk!==lyKey){lyKey=lk;setupLyric(lk?s.lyric:null)}
   var key=[t.title,t.artist,t.album,t.app].join("|");
   if(key!==lastKey){
     lastKey=key;
@@ -223,8 +253,117 @@ function render(){
   txt(E.ap,"已连接 · "+(t.app||"系统媒体"));
   if(mode==="em")setMode(PANEL?"fl":"cp");/* 先切模式：setMode 整写 className，须在 pl 类之前；
                                               面板形态直开展开卡（紧凑条只属角落磁贴） */
-  cover(E.aS,st.cover);cover(E.aF,st.cover);
+  cover(E.aS);cover(E.aF);
   playIcons(t.playing);
+}
+
+/* ================= 逐字歌词（v1.9.0） =================
+ * 数据：st.lyric {yrc(逐字原文), ytlrc(逐字翻译), lrc(行级), tlyric(行级翻译)}
+ * 渲染：yrc 有则逐字卡拉 OK（完成=实色 / 当前=按词内进度扫色 / 未到=暗色），
+ *       否则 lrc 行级高亮；当前行下显示翻译；行滚动以 0.55s 缓动居中。
+ * 时钟：与进度条同源（posNow 插值），拖动 seek 时即时跟随。 */
+var lyBox=$("ly"),lyInr=null,lyLines=null,lyEls=null,lyActive=-1,lyMode=0,lyKey="__none__";
+function parseYrc(text){
+  var out=[],lines=String(text).split(/\r?\n/);
+  for(var i=0;i<lines.length;i++){
+    var m=lines[i].match(/^\[(\d+),(\d+)\](.*)$/);
+    if(!m)continue;
+    var start=+m[1],dur=Math.max(1,+m[2]),rest=m[3]||"";
+    var words=[],re=/\((\d+),(\d+),\d+\)([^(]*)/g,wm;
+    while((wm=re.exec(rest))){if(wm[3]!=="")words.push({s:+wm[1],d:Math.max(1,+wm[2]),w:wm[3]})}
+    out.push({start:start,end:start+dur,words:words,tr:""});
+  }
+  out.sort(function(a,b){return a.start-b.start});
+  return out;
+}
+function parseLrc(text){
+  var out=[],lines=String(text).split(/\r?\n/);
+  for(var i=0;i<lines.length;i++){
+    var ts=lines[i].match(/\[(\d+):(\d+)(?:[.:](\d+))?\]/g);
+    if(!ts)continue;
+    var t=lines[i].replace(/\[[^\]]*\]/g,"").trim();
+    for(var j=0;j<ts.length;j++){
+      var m=ts[j].match(/\[(\d+):(\d+)(?:[.:](\d+))?\]/);
+      var sec=(+m[1])*60+(+m[2])+(m[3]?+("0."+m[3]):0);
+      out.push({start:Math.round(sec*1000),text:t,tr:""});
+    }
+  }
+  out.sort(function(a,b){return a.start-b.start});
+  for(var k=out.length-1;k>0;k--)if(out[k].start===out[k-1].start&&out[k].text===out[k-1].text)out.splice(k,1);
+  return out;
+}
+function attachTr(lines,trLines,winMs){
+  if(!trLines||!trLines.length)return;
+  for(var i=0;i<lines.length;i++){
+    var best=null,bd=winMs;
+    for(var j=0;j<trLines.length;j++){var d=Math.abs(trLines[j].start-lines[i].start);if(d<=bd){bd=d;best=trLines[j]}}
+    if(best)lines[i].tr=best.text||best.tr||"";
+  }
+}
+function trTextOf(line){
+  var s="";
+  for(var i=0;i<line.words.length;i++)s+=line.words[i].w;
+  return s.trim();
+}
+function setupLyric(data){
+  lyLines=null;lyEls=null;lyActive=-1;lyMode=0;lyInr=null;
+  if(data&&(data.yrc||data.lrc)){
+    if(data.yrc){
+      lyLines=parseYrc(data.yrc);
+      if(lyLines.length){lyMode=1;attachTr(lyLines,data.ytlrc?parseYrc(data.ytlrc):[],800);
+        for(var i=0;i<lyLines.length;i++)if(lyLines[i].words.length)lyLines[i].tr=trTextOf(lyLines[i])||lyLines[i].tr}
+    }
+    if(lyMode===0&&data.lrc){
+      lyLines=parseLrc(data.lrc);
+      if(lyLines.length){lyMode=2;attachTr(lyLines,data.tlyric?parseLrc(data.tlyric):[],600)}
+    }
+  }
+  lyricOn=!!(lyMode&&lyLines&&lyLines.length);
+  buildLyricDOM();
+  if(mode!=="em")setMode(mode); /* 歌词到位/失效 → 重报高度，宿主弹簧跟随 */
+}
+function buildLyricDOM(){
+  lyBox.innerHTML="";lyEls=[];lyActive=-1;
+  if(!lyricOn){lyBox.classList.add("hd");return}
+  lyBox.classList.remove("hd");
+  lyInr=document.createElement("div");lyInr.className="lyin";lyBox.appendChild(lyInr);
+  for(var i=0;i<lyLines.length;i++){
+    var L=lyLines[i],ln=document.createElement("div");
+    ln.className="lyline"+(L.words.length?"":" gap");
+    var ws=[];
+    if(lyMode===1){
+      if(L.words.length){
+        for(var j=0;j<L.words.length;j++){
+          var sp=document.createElement("span");sp.className="lyw";sp.textContent=L.words[j].w;
+          ln.appendChild(sp);ws.push(sp);
+        }
+      }else{var d=document.createElement("span");d.textContent="· · ·";ln.appendChild(d)}
+    }else{ln.textContent=L.text||"· · ·"}
+    if(L.tr){var sub=document.createElement("div");sub.className="lysub";sub.textContent=L.tr;ln.appendChild(sub)}
+    lyInr.appendChild(ln);
+    lyEls.push({el:ln,L:L,ws:ws});
+  }
+}
+function lyricTick(ms){
+  if(!lyEls||!lyEls.length)return;
+  var idx=0;
+  for(var i=lyEls.length-1;i>=0;i--){if(ms>=lyEls[i].L.start){idx=i;break}}
+  if(idx!==lyActive){
+    lyActive=idx;
+    for(var k=0;k<lyEls.length;k++)lyEls[k].el.classList.toggle("on",k===idx);
+    var el=lyEls[idx].el;
+    var target=(lyBox.clientHeight-el.offsetHeight)/2-el.offsetTop;
+    if(lyInr)lyInr.style.transform="translateY("+target.toFixed(1)+"px)";
+  }
+  if(lyMode===1){
+    var line=lyEls[idx].L,wsEls=lyEls[idx].ws;
+    for(var w=0;line.words.length>0&&w<line.words.length&&w<wsEls.length;w++){
+      var p=(ms-line.words[w].s)/line.words[w].d,elw=wsEls[w];
+      if(p>=1){elw.classList.add("done");elw.classList.remove("act");elw.style.removeProperty("--p")}
+      else if(p>0){elw.classList.add("act");elw.classList.remove("done");elw.style.setProperty("--p",(p*100).toFixed(1)+"%")}
+      else{elw.classList.remove("act","done");elw.style.removeProperty("--p")}
+    }
+  }
 }
 /* 进度插值：rAF 逐帧（拖动时以预览为准） */
 function tick(){
@@ -234,6 +373,7 @@ function tick(){
     var w=(r*100).toFixed(2)+"%";
     E.barF.style.width=w;E.th.style.left=w;
     txt(E.tC,fmt(p));txt(E.tD,t.duration>0?fmt(t.duration):"--:--");
+    lyricTick(p*1000);
   }
   requestAnimationFrame(tick);
 }
@@ -262,7 +402,14 @@ sk.addEventListener("pointermove",function(e){if(drag)dragRatio=ratio(e)});
 sk.addEventListener("pointerup",function(){
   if(!drag)return;drag=false;sk.classList.remove("dr");
   var t=st&&st.track;
-  if(t&&t.duration>0)ctl("seek",dragRatio*t.duration);
+  if(t&&t.duration>0){
+    var pos=dragRatio*t.duration;
+    ctl("seek",pos).then(function(ok){
+      /* 乐观锚点：seek 提交成功即把本地插值基准移到目标位置——
+         否则要等下一拍 tick 才校正（≤1s 内进度条会弹回旧位再跳回） */
+      if(ok&&st&&st.track){st.track.position=pos;st.track.fetchedAt=Date.now();render()}
+    });
+  }
 });
 /* 订阅 SMTC 快照（订阅即回推）+ 兜底 get 一次 */
 try{chushi.smtc.subscribe(function(s){st=s;render()})}catch(e){}
