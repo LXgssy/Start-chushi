@@ -150,7 +150,7 @@
     <div class="sk" id="sk"><div class="rl"><i id="bar"></i><u id="th"></u></div>
       <div class="chip" id="noteChip"><svg viewBox="0 0 24 24"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg><span id="noteTxt"></span></div>
     </div>
-    <div class="chip warn" id="updChip" style="top:8px"><span>组件过旧 · 更新「初始歌词源」.plugin 后重启网易云即可全自动修复</span></div>
+    <div class="chip warn" id="updChip" style="top:8px"><span id="updTxt">组件过旧 · 更新「初始歌词源」.plugin 后重启网易云即可全自动修复</span></div>
     <div class="tm"><span id="tC">0:00</span><span id="tD">0:00</span></div>
     <div class="ct">
       <button class="bt" id="pv" aria-label="上一首"><svg viewBox="0 0 24 24"><use href="#i-pv"/></svg></button>
@@ -187,7 +187,7 @@ var $=function(id){return document.getElementById(id)};
 var card=$("card"),sk=$("sk");
 var E={aF:$("aF"),t1:$("t1"),t2:$("t2"),t3:$("t3"),bar:$("bar"),th:$("th"),
   tC:$("tC"),tD:$("tD"),ap:$("ap"),dt:$("dt"),yI:$("yI"),nI:$("nI"),
-  e1:$("e1"),e2:$("e2"),ly:$("ly"),noteChip:$("noteChip"),noteTxt:$("noteTxt"),updChip:$("updChip")};
+  e1:$("e1"),e2:$("e2"),ly:$("ly"),noteChip:$("noteChip"),noteTxt:$("noteTxt"),updChip:$("updChip"),updTxt:$("updTxt")};
 var H={fl:248,em:92},LY_H=124;
 var DEF="asset:cover.svg";
 var snap=null,mode="em",lastKey="",drag=false,dragRatio=0;
@@ -267,11 +267,19 @@ function render(){
   txt(E.t1,s.title||"未知曲目");
   txt(E.t2,s.artist||"未知艺术家");
   txt(E.t3,s.album||"");
-  /* v2.3.0 芯片：seekNote 醒目提示（3.8s 自动消失）；needsUpdate 常驻升级芯片 */
+  /* v2.3.0 芯片：seekNote 醒目提示（3.8s 自动消失）；needsUpdate 常驻升级芯片
+     v2.3.2 归因分叉：插件旧 → 更新 .plugin 即可自修；仅桥旧（插件已新版）
+     → 自动升级多半被系统策略拦截，喊「更新 .plugin」是无效指引（真机第 9 轮
+     用户照做了没用、怒气直接来源）——改给手动备用桥诚实指引 */
   var noteOn=!!s.seekNote;
   E.noteChip.classList.toggle("on",noteOn);
   if(noteOn)txt(E.noteTxt,s.seekNote);
   E.updChip.classList.toggle("on",!!s.needsUpdate);
+  if(s.needsUpdate){
+    txt(E.updTxt, s.needsPlugin
+      ? "组件过旧 · 更新「初始歌词源」.plugin 后重启网易云即可全自动修复"
+      : "桥组件待升级（自动升级被系统拦截）· 请在「初始歌词源」压缩包内打开「手动启动桥（备用）」文件夹，双击 启动桥.bat");
+  }
   /* v2.3.0 页脚诊断：插件版本可见 = 插件心跳在场 + 版本漂移一眼可辨 */
   txt(E.ap, s.seekNote ? s.seekNote : ("已连接 · "+(s.app||"系统媒体")+(s.pluginVer?" · 插件 v"+s.pluginVer:"")));
   cover(E.aF);
