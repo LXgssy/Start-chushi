@@ -548,3 +548,26 @@ Stage Summary:
 - 结论：预设系统获得第二个 widget 表面（dock 按钮+弹出面板，「做不到就加API」落到 surface 字段+chushi.close API）；音乐面板即 v1.7.x dock 栏样式以弹出形态回归；bat 编码问题以「纯 ASCII+CRLF」终局（两轮两种根因都已写进断言与文档）
 - 新律：①被 cmd 解释的脚本，换行符与编码同级危险——LF-only+多字节=行偏移错位，发布断言必须同时锁内容与行尾；②改源码后必须重跑对应 MODE 的导出再验证（out/ 双模式：EXPORT=Pages/EXTENSION=扩展），「测试绿」先问「测的是哪个 bundle」；③inline <svg width=0> 会撑行盒——zero-size 资产一律 absolute；④沙箱 host iframe（sandbox attr）contentDocument 不可达，嵌套 iframe 调试走 Playwright frames()
 - 待办：用户真机复测（桥 bat 不再假命令→导入新 .cshz→dock 音乐按钮→弹出面板控制网易云）；旧 .cshz 预设需删除重导（surface 字段在新 manifest）；任务A（磁贴删除抖动）/史7遗留/Edge 商店材料未动
+
+---
+Task ID: 79
+Agent: main (Super Z)
+Task: 用户四组反馈——①音乐面板打开瞬间白屏 ②面板切换动画与内建不衔接 ③封面不显示 ④进度条完全是坏的 + 新需求：BetterNCM API 插件读网易云逐字歌词、用 SMTC 时间戳对歌词
+
+Work Log:
+- 【进度条根因（本轮最大发现）】完整快照广播签名不含 position → seek 后新位置永远不会到达部件（签名未变不广播），部件继续从旧锚点插值 → **拖完进度条弹回**，即用户真机「进度条完全是坏的」的主根因；v1.8.2 的 verify 之所以全绿：mock 只改签名可见字段，从未单独改 position。修法 = 双通道：①smtc 单例新增 onTick（轮询成功每拍必发轻量锚点 position/duration/playing/rate/fetchedAt，与签名无关、不携歌词大载荷），PresetWidgets/sandbox.ts 双消费方转发 widgetSmtcTick/smtcTick；②sandbox.js 两通道按 scriptKey/widget 维度保存 lastSmtc，tick 只改锚点字段不覆盖 cover/lyric；③部件 seek 提交成功后本地乐观重锚（position=fetchedAt=now）。verify 新增 L9 行切换用例实证修复
+- 【白屏根因】v1.8.2 弹出面板 iframe 挂在 AnimatePresence 内——每次打开新挂 iframe → sandbox.html 冷加载 → srcdoc 注入 → 订阅回推，首帧白屏。修法 = **常驻预热**：dock 部件的弹出容器+iframe 随页面常驻（相位机 closed/open/closing 管高度弹簧与 panel-rise/panel-sink 类），iframe 节点永不卸载；SMTC 订阅/封面/歌词后台持续更新，打开零白屏零重载。新律：iframe 跨开关存活 → 打开瞬间内容已渲染（W1 用例：开后 320ms 内 #card 可见）
+- 【动画衔接】弹出面板弹簧由硬编码 420/34 改为 MOTION_PROFILES[motionProfile]（随设置动效档位）；常驻预热消除加载卡顿后，弹出/收起与内建面板完全同一套「高度弹簧+rise/sink」语言；aria-hidden 移到 .cl-dockwidget 卡片本身（原来在外层 wrapper，选择器/可及性都不对）
+- 【歌词架构（按用户指令「写一个 betterNCM 的 api 插件读歌词、用 smtc 时间戳对」）】三层链路：①**初始歌词源** BetterNCM 插件（bridge/lyric-plugin/，纯 API 无 UI）：dva store/legacyNativeCmder/媒体元素三源读状态（复用旧插件技术），歌词 eapi /api/song/lyric/v1（yv=1/-1 双试）→ klyric 转 yrc 同构 → channel.call("track.lyric.getinfo") → 直连 music.163.com 四层回退；自包含 eapi 加密（MD5+AES-128-ECB，S-box 运行时构造），**标准向量测试全绿**（RFC1321/中文 UTF-8/FIPS-197 C.1/SP800-38A）；1s 心跳 POST 推桥，桥不可达暂存补推。②**桥 v1.2.0**（PS1）：/api/plugin/state、/api/plugin/lyric（插件推送，内存缓存）、/api/lyric（宿主拉取），/api/state 附带 ne（≤5s 新鲜度+lyricRev）。③**宿主 smtc.ts 合并**：曲目匹配（标题双向包含）时 SMTC 时间轴缺失（0）用插件帧级进度兜底、封面缺失用插件 picUrl 兜底（coverUrl），lyricRev 变化拉歌词随快照广播
+- 【逐字歌词渲染】music-widget.html v2：yrc 解析（[start,dur](s,d,0)词）→ 行/词 DOM → rAF 逐帧：当前词 linear-gradient --p 扫色（-webkit-background-clip:text）、行 translateY 居中滚动（0.55s 缓动+上下渐隐 mask）、当前行下方翻译（ytlrc/tlyric 按时间就近对齐）；无 yrc 落 lrc 行级高亮；无歌词区隐藏+面板自动收窄（248⇄372，H_MAX 320→460）
+- 【加密调试实录（两坑）】①MD5 长度字段：JS 移位计数取模 32——bitLen 高 4 字节用 x>>>(8*i)（i≥4）等于不移位，把低位字节重复写进 msg[60]（md5('') 侥幸过、其余全错；Python 镜像逐轮对拍+逐长度扫描才定位）；②AES ShiftRows 只回写 1..3 行，**第 0 行从未经过 SubBytes**（FIPS 向量逐轮对拍实锤）。另：我背错 RFC 'abc' 向量尾部，四个独立实现（hashlib/node/md5sum/openssl）一致才确认记忆错误——「标准向量以本机多实现对拍为准，不以记忆为准」
+- 【扩展版离线真凶】build-extension.py manifest 的 host_permissions 缺 127.0.0.1:20754——扩展版所有桥请求被浏览器拦截，音乐面板在扩展里**完全离线**（web 版靠桥的 CORS * 存活）；补上后扩展冒烟 14/14。这很可能叠加在用户真机症状上（若用户装的是扩展）
+- 【旧坑复修】部件 --ez:var(--ez) 自引用=无效声明（跨 iframe 拿不到宿主变量，全部 transition 静默退化）→ 真实 cubic-bezier(.22,1,.36,1)；.rl u thumb 初始 left:0；seek 拖动后乐观重锚
+- 【环境考古】.pkgtmp/gh-token 又丢 → 从 git remote 内嵌凭据重建（0600+API 验证）；deploy-pages.sh 与 wss 依赖（base58/pycryptodomex）随环境清理丢失 → deploy 脚本自 /tmp 归档恢复并加固（--ignore-submodules=all，transfer 子模块环境侧脏态不再阻塞）；pip 装到系统 python 而 python3 是 venv——统一 python3 -m pip
+- 【验证】verify-v190 **50/50**：导入/预热断言（P4-P7）/零白屏（W1）/92⇄248⇄372 三态高度/进度条活性+带宽/SMTC 封面+插件 picUrl 兜底（route 拦截 mock 域验证 naturalWidth）/插件进度兜底 21.25%/歌词 2 行+行高亮+居中滚动+当前词 act+--p 扫色/L9 行切换（tick 通道实证）/互斥往返 iframe 不重载（dataset.mark）/⌘K/gutter/删磁贴/pageerror=0；扩展冒烟 14/14（manifest host_permissions+歌词态直开+控制上行）；shot-v190 双主题 6 截图视觉验收（逐字扫色/翻译行/mask 渐隐肉眼确认）
+- 【发布】main 2f2d3d4+96defde；gh-pages b5044b3（sw BUILD 20260906-042503-96defde，线上 chunk+sandbox.js 均实测含 widgetSmtcTick）；扩展 build-extension.py v1.9.0（11.7MB，host_permissions 修复）；Release v1.9.0（id 383463460）三资产直链 SHA-256 ALL OK；文叔叔合并包 https://c.wss.ink/f/kt3clnj8ivn；docs：README v1.9.0 段+PRESET_DEV §12（预热行为/高度 460/限额 18000）+PresetDocs 同步+使用说明全文重写（三步安装+FAQ）
+
+Stage Summary:
+- 结论：四项反馈全部根治且各有实证——白屏（预热+W1）、动画衔接（同弹簧+同语言）、封面（三重保障+N4/N5）、进度条（tick 锚点+乐观重锚+M3/N2/L9）；新增逐字歌词全链路（插件加密向量全绿+50 项端到端）
+- 新律：①「签名广播」与「连续量」必须分离——position 这类每拍都变的量走轻量 tick 通道，整包快照只随离散签名走，否则 seek/漂移校正永远到不了消费方；②沙箱 iframe 的「打开即挂载」一律改「常驻预热」——冷加载白屏是 iframe 固有属性，不是动画问题；③eapi 加密自实现必须过标准向量（FIPS-197/RFC1321），且向量化对拍要多实现互证（记忆不可靠）；④JS 移位计数取模 32 是密码学自实现的长尾坑（x>>>32===x>>>0）；⑤扩展 host_permissions 是扩展版本地服务的第一嫌疑犯（web 版正常+扩展版全挂=先查 manifest）
+- 待办：用户真机复测（新 .cshz+新桥 v1.2.0+歌词源插件三件套）；旧 .cshz 需删除重导；Edge 商店材料仍未动；Release v1.7.7 旧资产（含退役插件包）去留未决
