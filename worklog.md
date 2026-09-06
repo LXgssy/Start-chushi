@@ -657,3 +657,23 @@ Stage Summary:
 - 三项反馈全闭环：seek=客户端内部 API 阶梯 + 诚实弹回（绝不再假跳）；漂移=真值绝对锚定结构性归零；窗口=隐身自启 + 自愈升级 + 端口接管（Windows 无 NM args/无编译器约束下的最优「并入扩展」体验）
 - 新律：①多组件交付必须内建版本自检（页脚 pluginVer/桥版本对拍）+ 自愈升级（Run 键重写）+ 端口接管，三件套把「用户停在旧版」从原因变成症状可见；②「面板动了本体不动」类反馈优先怀疑验证缺失（假信任窗）而非单点失效——诚实回退比虚假成功更重要；③回传显示层会啃蚀特定字节序列——交付判定只信 od/程序化断言，grep/Read 目视不可作证据
 - 待办：用户真机复测（合并包四件套 + 页脚插件版本对拍 + 拖动看网易云本体）；wss scan 回下验包接口待修（本次以 complete+process 双确认替代）；任务A（快捷服务删除抖动）/Edge 商店材料未动；Release v1.7.7 旧资产去留未决
+
+---
+Task ID: 84
+Agent: Super Z (main)
+Task: v2.3.0 一体化插件——按用户指认思路抛弃独立 SMTC 桥文件全部集成进插件（seek 原生 RPC 正门 + 提示芯片 + 漂移加固）
+
+Work Log:
+- 外部调研三连：①BetterNCM js-framework 源码实锤 betterncm.app.exec(cmd, elevate, showWindow=false)（默认隐藏窗口）+ getDataPath/fs.writeFileText → 插件可自部署+自拉起服务；②GitHub 代码搜索+源码取证 refined-now-playing-netease 劫持 channel.call 发现网易云自家进度条拖动走 audioplayer.seek（参数 [songId, "songId|seek|rand", 秒]）= 用户说的 channel.seek 的真身；③ohMyCloudmusic 独立佐证 playing/setPlayingPosition
+- 桥 v1.7.0（chushi-bridge.ps1，纯 ASCII 英文，永久绝编码后患）：新增 GET /api/plugin/cmd 快命令通道（插件 300ms 轮询，seek 延迟 ≤300ms）；端口冲突版本仲裁（运行中桥 ≥自身版本→静默退出，旧版→按命令行杀旧绑新，兼容新旧两个文件名）；启动即自写 Run 键指向部署位置（开机自启零窗口）；携带 v1.5/v1.6 全部能力（真值锚定/seek 双发+id/歌词 rev 校验/半窗补偿）
+- 插件 v1.3.0（一体化）：内嵌桥 ps1+vbs base64（构建时注入，回环校验字节一致）；superviseBridge 每 20s 健康检查（不可达或版本旧→重部署+拉起，exec wscript 优先/powershell 兜底）；seek 三级阶梯 channel.call("audioplayer.seek") 正门 → setPlayingPosition dispatch → el.currentTime 兑底，逐级 420ms el.currentTime 实测，全败 seekAck ok:false；粘滞媒体元素选择（5s 内沿用上一活跃元素，修换源/缓冲过场命中预加载空元素报 0 的真实错位源）；buildSnapshot 更新 lastSongId 供 channel seek
+- 宿主 smtc.ts v2.3.0：needsUpdate（桥<1.7.0 ∨ 插件<1.3.0 ∨ 插件不在场）进 stateSig 广播；verLt 语义版本比较
+- 部件 v5：seekNote 改为进度条正上方醒目芯片（v2.2.0 页脚 10.5px 文案用户完全看不到的反馈属实）+ needsUpdate 常驻橙色升级芯片；空态文案改「安装 .plugin 后播放音乐即自动接入」
+- verify-v230 20/20（v220 全回归 + S2c 芯片点亮 + NU1 旧桥无插件→芯片亮 + NU2 新桥新插件→芯片熄；修 mock 插件版本 1.2.0→1.3.0 后 NU2 转绿）；交付物断言：桥纯 ASCII/括号平衡、.plugin 内嵌回环、扩展 2.3.0、交付包零独立桥文件
+- 发布：Release v2.3.0 四资产直链 SHA-256 ALL OK（新增 ChuShi-LyricSource-1.3.0.plugin 独立资产）；main bd6107c；gh-pages DEPLOY-OK 线上特征命中（chunk 拖动未生效/needsUpdate/v=123、sandbox.js 白名单、sw BUILD 20260906-144219-bd6107c）；文叔叔合并包 https://c.wss.ink/f/kt7qmlc5vv7（wss-send complete code=0；mjs 版登录接口 1003 复现=接口变更非链接问题）
+- 交付物形态质变：Windows 侧从「桥文件夹+3bat+vbs+plugin」四件套收敛为「一个 .plugin」，使用说明重写为两步升级
+
+Stage Summary:
+- 用户三点反馈闭环：①seek 正门改走网易云自家 audioplayer.seek 原生 RPC（与本体 UI 同源，理论成功率最高）+ 逐级实测 + 全败醒目芯片；②漂移=真值绝对锚定（v2.2.0 已具备，本轮再补粘滞元素）+ 一体化消灭版本漂移这一真凶；③独立桥文件废除，插件自部署/自拉起/监督/自启/仲裁全自动化
+- 新律：①「集成进插件」类诉求的可行解 = 插件内嵌资源 + betterncm.app.exec 自拉起 + 健康检查监督 + 版本仲裁自愈——多组件交付的一切版本漂移都可用「让组件自己带版本、自己升级自己」结构性消灭；②外部技术考证优先读一手源码（js-framework app.ts / 劫持 channel.call 的真实项目），搜索摘要只能当线索；③提示类反馈必须区分「功能缺失」与「可见性缺失」——v2.2.0 的 seekNote 在但看不见，本轮以芯片级可见性收口
+- 待办：用户真机复测（单 .plugin + Ctrl+F5/扩展 + 预设 v5；看 audioplayer.seek 是否真机生效与漂移是否归零）；任务A（快捷服务删除抖动）/Edge 商店材料未动；旧 bridge/smtc/*.{bat,ps1} 源保留作回滚基线；wss mjs 登录接口 1003 待修（py 版可用）
