@@ -212,6 +212,10 @@ class SmtcClient {
   private lyricRevDone = "";
   private lyricInflight = false;
   private lyricTries = 0;
+  /** v2.0.1 旧桥伪影守卫状态：上一拍 reported-expected 偏移（delta 一致性记忆） */
+  private lastDelta = 0;
+  /** v2.0.1 本端发起的 seek（成功后 4s 内信自己这条线，防旧桥旧基準拽回） */
+  private seekHold: { pos: number; at: number } | null = null;
 
   getSnapshot(): SmtcState {
     return this.state;
@@ -258,7 +262,10 @@ class SmtcClient {
     }
   }
 
-  /** 媒体控制（cmd 须已在 SMTC_COMMANDS 白名单内；seek 附 position 秒） */
+  /** 媒体控制（cmd 须已在 SMTC_COMMANDS 白名单内；seek 附 position 秒）。
+   *  v2.0.1：成功后 80ms 内补一拍（按钮图标/播放态最迟零点几秒内翻转，
+   *  不再等下一轮询——真机「暂停/播放按钮反应太慢」的主因）；seek 成功记
+   *  seekHold（4s 内信自己这条线，旧桥不重锚也不把乐观位置拽回） */
   async control(cmd: string, position?: number): Promise<boolean> {
     try {
       const ctrl = new AbortController();
@@ -271,7 +278,14 @@ class SmtcClient {
       });
       clearTimeout(t);
       const j = (await r.json().catch(() => null)) as { ok?: boolean } | null;
-      return j?.ok === true;
+      const ok = j?.ok === true;
+      if (ok) {
+        if (cmd === "seek" && typeof position === "number") {
+          this.seekHold = { pos: Math.max(0, position), at: Date.now() };
+        }
+        this.schedule(80); // 立即补一拍，状态快速确认
+      }
+      return ok;
     } catch {
       return false;
     }
@@ -294,6 +308,12 @@ class SmtcClient {
       this.failStreak = 0;
       const prev = this.state.track;
       const track = normalizeTrack(j.track);
+      /* v2.0.1 旧桥伪影守卫（桥 v1.4.0 已在源头修好，本段让旧桥也全对）：
+       * 暂停冻结/恢复续接/持续偏移保持/本端 seek 保持——见 harmonize 内注释 */
+      if (track && prev) this.harmonize(track, prev);
+      else {
+        this.lastDelta = 0;
+      }
       /* 锚点保持（v2.0.0）：SMTC 的 Position 只在播放器主动上报时刷新——网易云实测
        * 整首歌期间 raw position 钉死（桥 v1.3.0 已在源头做时钟补偿；对旧桥在宿主
        * 侧兜底）：若曲目/播放态/速率/位置全部未变，则保留上一拍锚点（position+
@@ -323,6 +343,70 @@ class SmtcClient {
     }
     this.schedule(next);
   };
+
+  /** v2.0.1 旧桥伪影守卫：同曲目前提下，抵御四类已知时序伪影，
+   *  让 v1.2.x–v1.3.x 旧桥（暂停归零/恢复从头/seek 不重锚）也能表现正确：
+   *  a) 本端 seek 保持：4s 内信 seek 目标这条线（旧桥不重锚时拖动不被拽回）；
+   *  b) 暂停冻结：playing 翻 false 时 reported 大幅回退 → 冻结在本端插值处
+   *     （合法暂停永远不会让进度倒退）；
+   *  c) 恢复续接：playing 翻 true 且 reported≈0 而本端进度 >5s → 旧桥从 0 重数，
+   *     续接冻结值；
+   *  d) 持续偏移保持：reported 与本端时钟持续同偏移（旧桥整段旧基準）→ 保本端。
+   *  真实时间线变化（外部 seek/切歌后首个拍）delta 突跳 → 放行接受。 */
+  private harmonize(track: SmtcTrack, prev: SmtcTrack): void {
+    const sameTrack = track.title === prev.title && track.app === prev.app;
+    if (!sameTrack) {
+      this.lastDelta = 0;
+      this.seekHold = null;
+      return;
+    }
+    const now = Date.now();
+    const expected = smtcPositionNow(prev, now); // 本端时钟的当前进度
+    const rdelta = track.position - expected; // reported 相对本端时钟的偏移
+    /* a) 本端 seek 保持 */
+    if (this.seekHold) {
+      if (now - this.seekHold.at >= 4000) {
+        this.seekHold = null;
+      } else {
+        const rate = track.rate > 0 ? track.rate : 1;
+        const exp2 = this.seekHold.pos + (track.playing ? ((now - this.seekHold.at) / 1000) * rate : 0);
+        if (Math.abs(track.position - exp2) > 2.5) {
+          track.position = exp2;
+          track.fetchedAt = now;
+          this.lastDelta = rdelta;
+          return;
+        }
+        this.seekHold = null; // reported 已跟上 seek 线，守卫退役
+      }
+    }
+    /* b) 暂停冻结 */
+    if (prev.playing && !track.playing) {
+      if (track.position < expected - 3) {
+        track.position = expected;
+        track.fetchedAt = now;
+      }
+      this.lastDelta = rdelta;
+      return;
+    }
+    /* c) 恢复续接 */
+    if (!prev.playing && track.playing) {
+      if (track.position < 2 && expected > 5) {
+        track.position = expected;
+        track.fetchedAt = now;
+        this.lastDelta = rdelta;
+        return;
+      }
+      this.lastDelta = 0;
+      return;
+    }
+    /* d) 持续偏移保持 */
+    if (Math.abs(rdelta) > 3 && Math.abs(rdelta - this.lastDelta) <= 1.5) {
+      track.position = expected;
+      track.fetchedAt = now;
+      return; // lastDelta 不动（持续同偏移才算伪影）
+    }
+    this.lastDelta = rdelta;
+  }
 
   /**
    * 应用新快照 + 网易云增强合并（v1.9.0）。

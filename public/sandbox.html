@@ -8,6 +8,14 @@
     <meta charset="utf-8" />
     <meta name="robots" content="noindex" />
     <title>初始 · 沙箱</title>
+    <style>
+      /* v2.0.1：文档底透明。默认白底会在 iframe 重光栅化的头几帧露出（dock 音乐
+         面板开面板闪白的白色矩形帧即此）；部件/脚本宿主一律自绘内容，透明即正确 */
+      html,
+      body {
+        background: transparent;
+      }
+    </style>
   </head>
   <body>
     <script src="sandbox.js"></script>

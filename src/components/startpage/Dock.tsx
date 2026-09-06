@@ -200,11 +200,17 @@ const PanelStage = memo(function PanelStage({
   const activeWidget =
     widgetActive ? (dockWidgets.find((w) => w.key === dockWidgetOpen) ?? null) : null;
   const [phase, setPhase] = useState<"closed" | "open" | "closing">("closed");
+  /* 开打瞬间是否部件视图（v2.0.1）：壳体入场类只在 closed→open 迁移时定格——
+     若按 activeWidget 实时取值，音乐→内建互切会让壳类从 "" 变 "panel-rise"，
+     CSS 动画因类变化重播 → 整壳 opacity 0 淡入，切换瞬间又闪一次（与本次杀的
+     开面板闪白同源）。定格后开/关/互切全程类稳定，只有真开/真关才换类 */
+  const [openAsWidget, setOpenAsWidget] = useState(false);
   /* 相位迁移用 React 官方「渲染期间调整 state」模式（同步 setState 在 effect
      里会级联渲染，lint 禁令；对比键入 prev state，仅在真变化时派生新相位） */
   const [prevAnyActive, setPrevAnyActive] = useState(anyActive);
   if (prevAnyActive !== anyActive) {
     setPrevAnyActive(anyActive);
+    setOpenAsWidget(widgetActive);
     setPhase(anyActive ? "open" : (p) => (p === "closed" ? "closed" : "closing"));
   }
   /* closing → closed：sink 播完清类（下次打开重播 rise）并复位内建测高 */
@@ -232,9 +238,9 @@ const PanelStage = memo(function PanelStage({
     return () => window.clearTimeout(t);
   }, [leavingWidget]);
 
-  /* 部件激活时重播 content-focus（模糊聚拢）：常驻元素不能靠重挂重播，
-     用「摘类 → reflow → 挂类」重启同一 CSS 动画；类此后保留——关闭时
-     壳体 .panel-sink 级联 .content-focus 模糊散场依赖它在 */
+  /* 部件激活时重播 content-focus-solid（无 opacity 的模糊聚拢，v2.0.1 杀闪白）：
+     常驻元素不能靠重挂重播，用「摘类 → reflow → 挂类」重启同一 CSS 动画；
+     类此后保留——关闭时壳体 .panel-sink 级联 .content-focus-solid 模糊散场依赖它在 */
   const widgetViewRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const themeRef = useRef({ isDark, accent });
   useEffect(() => {
@@ -244,10 +250,23 @@ const PanelStage = memo(function PanelStage({
     if (phase !== "open" || !widgetActive || !dockWidgetOpen) return;
     const el = widgetViewRefs.current.get(dockWidgetOpen);
     if (!el) return;
-    el.classList.remove("content-focus");
+    /* 摘类→reflow→挂类：重启模糊聚拢 + 白帧罩揭开动画（boot-reveal：驻留
+       280ms 盖住 iframe 重激活白帧窗口，再 180ms 揭开） */
+    el.classList.remove("content-focus-solid", "boot-fade");
     void el.offsetWidth;
-    el.classList.add("content-focus");
+    el.classList.add("content-focus-solid", "boot-fade");
   }, [phase, widgetActive, dockWidgetOpen]);
+  /* 关闭相位摘掉 boot-fade：罩子回基态 opacity 1（视图藏着不可见），
+     下一轮重激活时旧层树里的罩子才是开启态——白帧永远被盖（见 globals.css） */
+  useEffect(() => {
+    if (phase !== "closed") return;
+    for (const el of widgetViewRefs.current.values()) el.classList.remove("boot-fade");
+  }, [phase]);
+
+  /* 最近一次打开的部件键（渲染期同步）：closing 相位期间该视图保持原尺寸
+     （sink 动画里内容仍可见），转入 closed 后才缩为亚像素点保活 */
+  const lastOpenWidgetRef = useRef<string | null>(null);
+  if (dockWidgetOpen != null) lastOpenWidgetRef.current = dockWidgetOpen;
 
   /* 高度/宽度目标：内建=测高（首开 auto 直就位），部件=自报高度（chushi.resize） */
   const widgetH = activeWidget
@@ -255,10 +274,16 @@ const PanelStage = memo(function PanelStage({
     : 0;
   const openH = activeWidget ? widgetH : contentH == null ? ("auto" as const) : contentH;
   const shellWidth = activeWidget ? activeWidget.width : 360;
+  /* 壳体入场：内建照旧 panel-rise（淡入）；部件视图不淡入（v2.0.1 杀闪白：
+   * 暗色音乐卡 opacity 0→1 会在明亮壁纸上透出灰白一闪，真机录屏 30fps 实锤）——
+   * 高度盒弹簧本身就是「拉伸」语言，内容进场的模糊聚拢交给 content-focus-solid。
+   * ⚠ 用 openAsWidget（开打瞬间定格）而非 activeWidget：互切中途类不得变化（见上） */
   const shellAnim = reduceMotion
     ? ""
     : phase === "open"
-      ? "panel-rise"
+      ? openAsWidget
+        ? ""
+        : "panel-rise"
       : phase === "closing"
         ? "panel-sink"
         : "";
@@ -389,15 +414,24 @@ const PanelStage = memo(function PanelStage({
                 if (el) widgetViewRefs.current.set(w.key, el);
                 else widgetViewRefs.current.delete(w.key);
               }}
-              className={`cl-dockwidget content-focus ${isLeaving ? "view-exit" : ""}`}
+              className={`cl-dockwidget content-focus-solid ${isLeaving ? "view-exit" : ""}`}
               style={{
                 position: "absolute",
                 left: 0,
                 right: 0,
                 top: 0,
                 height: h,
-                visibility: isActive || isLeaving ? "visible" : "hidden",
+                /* v2.0.1：visibility 语义回旧（active/退场/刚关的视图可见，其余硬藏）；
+                   重激活白帧由 boot-fade 同色罩盖住（见 globals.css），
+                   aria-hidden + pointer-events 承担可及性与交互语义 */
+                visibility:
+                  isActive ||
+                  isLeaving ||
+                  (phase === "closing" && lastOpenWidgetRef.current === w.key)
+                    ? "visible"
+                    : "hidden",
                 pointerEvents: isActive ? "auto" : "none",
+                ["--boot-bg" as string]: isDark ? "rgba(24,24,28,1)" : "rgba(255,255,255,1)",
               }}
             >
               <iframe
@@ -504,17 +538,23 @@ export default function Dock({
      渲染期同步 prevPanel（React 官方「渲染期间调整 state」模式，不用 effect）。
      v1.8.0 补充：面板刚关闭（退场动画中，≤450ms 窗口）快速点开另一个功能，
      视觉上旧选框还在退场——此刻应延续「切换」语言（layoutId 从旧位置纯滑移），
-     不重新播 Q 弹出场（用户点名：此时的动画不是打开动画，是切换动画） */
+     不重新播 Q 弹出场（用户点名：此时的动画不是打开动画，是切换动画）
+     v2.0.1 补充：dock 部件（音乐面板）开着时切到内建面板也算「切换」——
+     否则选框在音乐按钮上播关闭、在目标按钮上重新 Q 弹，而不是滑移
+     （真机：选框走了两段式开/关动画的根因之一，与互斥两帧化同批修复） */
   const prevPanelRef = useRef<PanelId>(null);
-  /** 最近一次面板关闭时刻（switchTo(null) / closePanel 统一记录） */
+  const prevWidgetOpenRef = useRef<string | null>(dockWidgetOpen);
+  /** 最近一次面板关闭时刻（switchTo(null) / closePanel / 部件关闭 统一记录） */
   const lastCloseRef = useRef(0);
   /** 关闭退场的「切换窗口」：选框退场 0.16s + 面板沉没 0.22s，取 450ms 覆盖双击节奏 */
   const PILL_SWITCH_WINDOW_MS = 450;
   const pillPop =
     panel != null &&
     prevPanelRef.current == null &&
+    prevWidgetOpenRef.current == null &&
     Date.now() - lastCloseRef.current > PILL_SWITCH_WINDOW_MS;
   if (prevPanelRef.current !== panel) prevPanelRef.current = panel;
+  if (prevWidgetOpenRef.current !== dockWidgetOpen) prevWidgetOpenRef.current = dockWidgetOpen;
 
   /* dock 番茄钟：运行中或暂停中在按钮旁显示剩余分钟 + 呼吸灯 */
   const pomoText = useSyncExternalStore(subscribePomo, getPomoSnapshot, () => null);
@@ -523,10 +563,15 @@ export default function Dock({
   /* 面板互切只有淡切一条路径，无需方向状态。
      ⚠ 挂载后一帧内的二次渲染会让 framer-motion v12 layout 投影重测量并把卡片
      transform 重置为 none（x/y/scale 全灭、面板失去居中），已用二分法实证——
-     任何面板相关状态都不可在挂载后再补一帧回写 */
+     任何面板相关状态都不可在挂载后再补一帧回写
+     v2.0.1：打开内建面板时同批清掉 dock 部件（音乐面板）——原先靠 page.tsx 的
+     effect 二段渲染才收掉部件，两帧间隙里旧选框未退/新选框已挂（同 layoutId
+     双活→滑移失效变 Q 弹）、舞台同帧双视图；现在单帧批量切换，与内建互切
+     完全同一条「拉伸+模糊」路径 */
   function switchTo(p: PanelId) {
     if (p == null) lastCloseRef.current = Date.now();
     setPanel(p);
+    if (p != null) onCloseDockWidget();
   }
 
   /* 面板关闭统一入口：稳定引用传给 PanelStage（memo 前提），见 PanelStage 注释 */
@@ -724,7 +769,11 @@ export default function Dock({
             pillPop={false}
             active={dockWidgetOpen === w.key}
             label={w.name}
-            onClick={() => onToggleDockWidget(w.key)}
+            onClick={() => {
+              /* 部件关闭也记录 lastClose（450ms 切换窗口内快开内建面板不重播 Q 弹） */
+              if (dockWidgetOpen === w.key) lastCloseRef.current = Date.now();
+              onToggleDockWidget(w.key);
+            }}
           >
             {w.icon ? (
               <PresetGlyph spec={w.icon} />
