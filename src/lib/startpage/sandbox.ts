@@ -82,7 +82,7 @@ const caps = {
  *  ?v= 供部署后冲掉 SW cache-first 旧缓存 */
 function sandboxSrc(): string {
   const base = (process.env.NEXT_PUBLIC_BASE_PATH as string | undefined) ?? "";
-  return `${base}/sandbox.html?v=122`;
+  return `${base}/sandbox.html?v=123`;
 }
 
 /** 沙箱页面模式地址（自定义页 overlay 用）：mode=page 下运行时仅充当页面宿主 */
