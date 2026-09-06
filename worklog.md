@@ -571,3 +571,22 @@ Stage Summary:
 - 结论：四项反馈全部根治且各有实证——白屏（预热+W1）、动画衔接（同弹簧+同语言）、封面（三重保障+N4/N5）、进度条（tick 锚点+乐观重锚+M3/N2/L9）；新增逐字歌词全链路（插件加密向量全绿+50 项端到端）
 - 新律：①「签名广播」与「连续量」必须分离——position 这类每拍都变的量走轻量 tick 通道，整包快照只随离散签名走，否则 seek/漂移校正永远到不了消费方；②沙箱 iframe 的「打开即挂载」一律改「常驻预热」——冷加载白屏是 iframe 固有属性，不是动画问题；③eapi 加密自实现必须过标准向量（FIPS-197/RFC1321），且向量化对拍要多实现互证（记忆不可靠）；④JS 移位计数取模 32 是密码学自实现的长尾坑（x>>>32===x>>>0）；⑤扩展 host_permissions 是扩展版本地服务的第一嫌疑犯（web 版正常+扩展版全挂=先查 manifest）
 - 待办：用户真机复测（新 .cshz+新桥 v1.2.0+歌词源插件三件套）；旧 .cshz 需删除重导；Edge 商店材料仍未动；Release v1.7.7 旧资产（含退役插件包）去留未决
+
+---
+Task ID: 80
+Agent: main (Super Z)
+Task: 用户五组反馈——①预设包还是没接入切换动画（接口不够接着加）②开面板仍闪白 ③没歌词 ④进度条还是坏的（不能拖/不显示整首时长）⑤开关动画没模糊 + 架构指令「预设包只写音乐面板样式，检测 SMTC 等直接写在初始里面，提供封面/歌名/歌词/进度条等预计算 API，用户零计算」——v2.0.0 统一面板舞台 + 核心内建音乐引擎
+
+Work Log:
+- 【视频取证】upload 录屏（15.6s，v1.9.0 上线 12 分钟后录制）：vision API 两次 1210 拒收 mp4 → ffmpeg 抽帧 16 帧 @1fps + 全帧/面板区域 YAVG 亮度尖峰分析（471 帧 @30fps，无全帧白闪 → 闪白在录制前的冷打开）+ 过渡窗 30fps 逐帧：实证进度钉死 0:00（t=2s 与 t=6s 原生分辨率裁剪对比，播放中）、内建→音乐切换 = 淡出→空档→独立弹出两段式、快速开关循环
+- 【冻结进度真机根因（本轮最大发现）】网易云的 SMTC TimelineProperties.Position 整首歌不上报（录屏实锤），桥 v1.2.0 裸报 $tl.Position 且宿主 smtc.ts 每拍 fetchedAt=Date.now() 重置锚点 → 插值永远≈0；v1.9.0 的 M3 采样窗口（780ms）恰好落在轮询间隙没抓到回跳。双端根治：①桥 v1.3.0 源头时钟补偿（raw Position/LastUpdatedTime/Playing/曲目键 任一变化重置墙钟锚，其间 position=Base+墙钟差×速率，clamp 时长）②宿主 smtc.ts 锚点保持兜底（曲目/app/playing/rate/位置全未变 → 保留上拍 position+fetchedAt，旧桥也能走）；verify-v200 F1/F2 跨轮询采样（3.2s>2 周期）断言单调无回跳——旧实现必挂，新版 Δ=1.13% 单调
+- 【统一面板舞台】Dock.PanelStage 重构为常驻相位机（closed/open/closing，渲染期调整 state 模式，同步 setState-in-effect lint 禁令）：dock 部件视图（.cl-dockwidget 移居舞台内 absolute top-0 overlay，iframe 永不卸载=预热）与内建视图同一壳体——开=panel-rise+content-focus 模糊聚拢、关=panel-sink 级联模糊散场、互切=旧视图 view-exit+新视图 content-focus+高度/宽度 px 弹簧（360⇄340 同一动效档位）；壳体透明（内建才套 glass-card，音乐面板自带暗卡视觉交叉溶解自然过渡）；部件激活用「摘类→reflow→挂类」重播 content-focus；PresetWidgets 瘦身为角落磁贴+消息路由（帧句柄经 widget-frames.ts 共享注册表，chushi.resize 高度上提 page→Dock）
+- 【核心内建音乐引擎 chushi.music】sandbox.js __chushiMusicCore（单源函数，脚本通道直用+部件通道 Function.toString 内嵌，public/ 不经打包器零改写风险）：yrc/lrc 解析+双语翻译就近对齐（yrc 行文本 t=词串连接）+本地时钟插值+二分逐字对齐；now() 同步返回 {position,duration,progress,playing,lineIndex,wordIndex,wordProgress,lineProgress,lineText,lineTr,wordText}；subscribe 只推离散快照；seek 成功自动乐观重锚；脚本通道经 smtcPush/smtcTick 同源喂数（零新增消息类型），旧 chushi.smtc 保持兼容；music-widget.html v3 瘦身 12875 字符纯样式零计算（修歌词键 bug：rev+存在性双标志，首个快照歌词未到不再吞掉到位重建）
+- 【动画/白屏实证】verify-v200 61/61：W1 内容瞬时可见、W2/W3 rise+content-focus 类在位、A1/A6 跨切换壳体同一 DOM 节点（dataset.mark）、A5 旧内建视图 view-exit、X1 iframe 不重载；shot-v200 双主题 6 截图（逐字扫色/翻译行/mask 渐隐肉眼确认）；dark 面板歌词两行+翻译+0:47/4:29 进度全对
+- 【发布】main c284692 推送；gh-pages BUILD 20260906-053841-c284692（线上 sandbox.js 含 __chushiMusicCore 实测命中）；扩展 EXTENSION_MODE 重打 v2.0.0（⚠再次踩 out/ 双模式坑：先 EXPORT 打的 zip 页面白屏超时，EXTENSION 重导后过）；Release v2.0.0（id 383478195）三资产直链 SHA-256 ALL OK（⚠rel 脚本两处 404 复发：①API 基址含 /releases 时 PATCH/DELETE/GET 相对路径不可再拼 /releases ②资产上传必须 uploads.github.com 专用域）；文叔叔合并包 https://c.wss.ink/f/kt3vlwtwoer（1 天过期）
+- 【文档】README v2.0.0 段（升级三件套：桥换 v1.3.0+删旧导新 .cshz+Ctrl+F5）；PRESET_DEV §12 chushi.music API 表+统一舞台行为说明；PresetDocs.tsx 同步；download/v2.0.0/使用说明-SMTC音乐.md 全文重写
+
+Stage Summary:
+- 结论：五项反馈全部闭环——切换动画衔接（统一舞台实证）、闪白（常驻预热+壳体首帧有类）、歌词（chushi.music 全链路+61 项回归）、进度条（双端时钟补偿+跨轮询回归）、模糊（同一套 content-focus 词汇）；架构按用户指令落地：预设只写样式，宿主内建引擎提供预计算 API
+- 新律：①「采样窗口必须横跨轮询周期」——进度类活性断言 780ms 窗口会漏掉 1s 锚点重置（v1.9.0 假绿教训）；②真机录屏是最低成本根因取证：ffmpeg YAVG 尖峰+过渡窗逐帧可实证「冻结/两段式/无白闪」，vision API 拒收也不挡路；③Function.toString 单源内嵌是双通道 shim 防漂移的正解（public/ 资产无打包器改写风险）；④rel 脚本两处 404 是 v1.8.0 教训复发——PATCH 相对路径与 uploads 域，教训必须写成脚本注释而非只进 worklog
+- 待办：用户真机复测（新桥 v1.3.0+新 .cshz+Ctrl+F5 三件套）；任务A/史7遗留/Edge 商店材料未动；Release v1.7.7 旧资产去留未决

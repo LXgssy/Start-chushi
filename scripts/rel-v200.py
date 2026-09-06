@@ -60,7 +60,8 @@ except Exception:
     rel = None
 if rel and rel.get("id"):
     print(f"release exists id={rel['id']} — 更新正文")
-    api(f"/releases/{rel['id']}", "PATCH", {"body": NOTES, "name": f"v2.0.0 · 统一面板舞台 + 音乐引擎 + 进度条冻结根治"})
+    # ⚠ API 基址已含 /releases——PATCH/DELETE 相对路径不可再拼 /releases（404 教训）
+    api(f"/{rel['id']}", "PATCH", {"body": NOTES, "name": "v2.0.0 · 统一面板舞台 + 音乐引擎 + 进度条冻结根治"})
     rel_id = rel["id"]
 else:
     rel = api("", "POST", {"tag_name": TAG, "name": "v2.0.0 · 统一面板舞台 + 音乐引擎 + 进度条冻结根治", "body": NOTES, "draft": False, "prerelease": False})
@@ -68,15 +69,17 @@ else:
     print(f"release created id={rel_id}")
 
 want = {name: (src, sha256(src)) for src, name in ASSETS}
-have = {a["name"]: a["id"] for a in api(f"/releases/{rel_id}/assets")}
+have = {a["name"]: a["id"] for a in api(f"/{rel_id}/assets")}
 for name, (src, digest) in want.items():
     if name in have:
-        api(f"/releases/assets/{have[name]}", "DELETE")
+        api(f"/assets/{have[name]}", "DELETE")
         print(f"del old asset {name}")
         time.sleep(1)
     q = urllib.parse.quote(name)
     data = src.read_bytes()
-    req = urllib.request.Request(f"{API}/releases/{rel_id}/assets?name={q}", method="POST", data=data)
+    # ⚠ 资产上传必须用 uploads.github.com 专用域（api.github.com 上传 404，v1.8.0 教训沿用）
+    up = f"https://uploads.github.com/repos/{REPO}/releases/{rel_id}/assets?name={urllib.parse.quote(name)}"
+    req = urllib.request.Request(up, method="POST", data=data)
     req.add_header("Authorization", f"Bearer {TOKEN}")
     req.add_header("Content-Type", "application/octet-stream")
     req.add_header("User-Agent", "rel-v200")
