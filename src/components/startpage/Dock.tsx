@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useRef, useSyncExternalStore } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { PresenceClass } from "./PresenceClass";
 import { useMorphHeight } from "./use-morph-height";
@@ -24,6 +24,8 @@ import PomodoroPanel, {
 import SettingsPanel from "./SettingsPanel";
 import { readLS } from "@/hooks/use-start";
 import { dockIcon, type PresetAction, type PresetDockItem } from "@/lib/startpage/preset";
+import { sandboxWidgetSrc } from "@/lib/startpage/sandbox";
+import { postToWidget, widgetFrameSet } from "@/lib/startpage/widget-frames";
 import type {
   Place,
   PanelId,
@@ -90,6 +92,9 @@ const POPPING = { type: "spring" as const, stiffness: 520, damping: 20, mass: 0.
 
 /* 退场加速曲线（与 globals.css 的 .panel-sink/.veil-out 同参） */
 const EXIT_EASE = [0.4, 0, 1, 1] as const;
+/** 收起退场时长（与 .panel-sink 同参，+余量后转入 closed） */
+const SINK_MS = 240;
+const WIDGET_H_MIN = 40;
 
 /** 面板打开 / 切换 / 关闭 = 同一套高度形变语言（用户认可的「拉伸」）：
  *  打开：高度盒从 0 弹簧展开到内容高度（initial height 0）+ 卡片 .panel-rise 淡入；
@@ -101,7 +106,16 @@ const EXIT_EASE = [0.4, 0, 1, 1] as const;
  *    framer v12 对 opacity 走 WAAPI 加速，入场空窗期真机整板闪黑，退场中途被取消
  *    回跳 1 等于没有关闭动画。卡片本体不再持有 framer 入场动画（y/scale 并入高度展开语言）
  *  ⚠ 卡片不再带 backdrop-filter：磨砂玻璃 + opacity 动画是 Chromium 闪烁的经典组合，
- *    且逐帧重采样 backdrop 是掉帧主力；glass-card 底色 92% 不透明，磨砂本就不可见（v1.0.8 实证修复） */
+ *    且逐帧重采样 backdrop 是掉帧主力；glass-card 底色 92% 不透明，磨砂本就不可见（v1.0.8 实证修复）
+ *
+ *  ---------- v2.0.0 统一面板舞台（用户指令「预设包接入切换动画」）----------
+ *  dock 表面预设面板（音乐面板）并入本舞台：不再有 PresetWidgets 里的第二套
+ *  弹出相位机（旧形态 = 内建淡出 → 空档 → 部件独立弹出，动画互不衔接）。
+ *  舞台常驻（相位机 closed/open/closing），内建视图照旧 AnimatePresence 挂卸；
+ *  部件视图 = 常驻 overlay（absolute top-0，iframe 永不卸载 = 预热零白屏），
+ *  开/关/互切与内建完全同一套语言：panel-rise/sink + content-focus/view-exit
+ *  模糊聚拢散场 + 高度/宽度 px 弹簧。部件玻璃视觉自带（内建视图才套 glass-card），
+ *  舞台壳体透明，两种视图交叉溶解时背景自然过渡。 */
 
 const PANEL_TITLES: Record<Exclude<PanelId, null>, string> = {
   weather: "天气",
@@ -111,12 +125,16 @@ const PANEL_TITLES: Record<Exclude<PanelId, null>, string> = {
   settings: "设置",
 };
 
-/* ---------- 面板舞台：卡片 + 高度形变 + 新旧内容溶解，整体 memo。
+/* ---------- 面板舞台：卡片 + 高度形变 + 新旧内容溶解 + 部件视图（v2.0.0 统一舞台），整体 memo。
    收益：Dock 因番茄钟每秒滴答（useSyncExternalStore）重渲时，面板卡片区域
    （含 exit 溶解中的旧面板与五个重面板子树）不再连带重渲染；反之面板内容
    测高（ResizeObserver→contentH）也不再重渲 dock 栏与活动指示 pill。
-   ⚠ 动画结构（key/variants/弹簧参数/className）与原实现逐字节等价，仅迁移容器；
-     onClose 必须传稳定引用，否则 memo 在每次滴答中失效。 */
+   ⚠ onClose 必须传稳定引用，否则 memo 在每次滴答中失效。
+   v2.0.0：dock 表面预设面板（音乐面板）并入本舞台——旧形态（PresetWidgets 里
+   第二套相位机）= 内建淡出→空档→部件独立弹出，动画互不衔接；现在开/关/互切
+   与内建完全同一套语言（panel-rise/sink + content-focus/view-exit + px 弹簧）。
+   舞台壳体常驻且透明：内建视图才套 glass-card，部件视觉自带（交叉溶解时
+   背景自然过渡）；部件 iframe 永不卸载 = 预热零白屏。 */
 const PanelStage = memo(function PanelStage({
   panel,
   onClose,
@@ -135,6 +153,12 @@ const PanelStage = memo(function PanelStage({
   presetSettingSections,
   onPresetSettingChange,
   motionSpring,
+  dockWidgets,
+  dockWidgetOpen,
+  onCloseDockWidget,
+  widgetHeights,
+  isDark,
+  accent,
 }: {
   panel: PanelId;
   onClose: () => void;
@@ -153,7 +177,14 @@ const PanelStage = memo(function PanelStage({
   presetSettingSections: PresetSettingSection[];
   onPresetSettingChange: (scriptKey: string, values: PresetSettingValues) => void;
   motionSpring: (typeof MOTION_PROFILES)[MotionProfile];
+  dockWidgets: ActiveWidget[];
+  dockWidgetOpen: string | null;
+  onCloseDockWidget: () => void;
+  widgetHeights: Record<string, number>;
+  isDark: boolean;
+  accent: string;
 }) {
+  void onCloseDockWidget; // 部件内 chushi.close() 走 PresetWidgets 路由；此处仅保留语义入口
   /* 面板内容真实高度：卡片高度动画的驱动源（测高/RO 兜底/零高毒化防护见 hook 注释）。
      为什么不用 framer layout：layout 用 transform scale 缩放卡片盒子，内部内容无反向补偿，
      切换瞬间整卡内容被纵向压扁/拉伸，读起来像「旧卡压扁关闭 + 新卡撑开打开」两次动画；
@@ -162,100 +193,239 @@ const PanelStage = memo(function PanelStage({
   const { contentH, measureRef, reset: resetContentH } = useMorphHeight();
   const reduceMotion = useReducedMotion();
 
+  /* ---------- 活动视图与相位机（v2.0.0 统一舞台）---------- */
+  const widgetActive =
+    dockWidgetOpen != null && dockWidgets.some((w) => w.key === dockWidgetOpen);
+  const anyActive = panel != null || widgetActive;
+  const activeWidget =
+    widgetActive ? (dockWidgets.find((w) => w.key === dockWidgetOpen) ?? null) : null;
+  const [phase, setPhase] = useState<"closed" | "open" | "closing">("closed");
+  /* 相位迁移用 React 官方「渲染期间调整 state」模式（同步 setState 在 effect
+     里会级联渲染，lint 禁令；对比键入 prev state，仅在真变化时派生新相位） */
+  const [prevAnyActive, setPrevAnyActive] = useState(anyActive);
+  if (prevAnyActive !== anyActive) {
+    setPrevAnyActive(anyActive);
+    setPhase(anyActive ? "open" : (p) => (p === "closed" ? "closed" : "closing"));
+  }
+  /* closing → closed：sink 播完清类（下次打开重播 rise）并复位内建测高 */
+  useEffect(() => {
+    if (phase !== "closing") return;
+    const t = window.setTimeout(() => setPhase("closed"), SINK_MS);
+    return () => window.clearTimeout(t);
+  }, [phase]);
+  useEffect(() => {
+    if (phase === "closed") resetContentH();
+  }, [phase, resetContentH]);
+
+  /* 部件切走（→ 内建或另一部件）：旧部件视图播 view-exit 模糊散场（元素常驻不卸载）；
+     同样用渲染期调整模式记录键变化，退场清理交定时器 effect */
+  const [leavingWidget, setLeavingWidget] = useState<string | null>(null);
+  const [prevWidgetKey, setPrevWidgetKey] = useState(dockWidgetOpen);
+  if (prevWidgetKey !== dockWidgetOpen) {
+    setPrevWidgetKey(dockWidgetOpen);
+    const prev = prevWidgetKey;
+    if (prev) setLeavingWidget(prev);
+  }
+  useEffect(() => {
+    if (!leavingWidget) return;
+    const t = window.setTimeout(() => setLeavingWidget((k) => (k === leavingWidget ? null : k)), 240);
+    return () => window.clearTimeout(t);
+  }, [leavingWidget]);
+
+  /* 部件激活时重播 content-focus（模糊聚拢）：常驻元素不能靠重挂重播，
+     用「摘类 → reflow → 挂类」重启同一 CSS 动画；类此后保留——关闭时
+     壳体 .panel-sink 级联 .content-focus 模糊散场依赖它在 */
+  const widgetViewRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const themeRef = useRef({ isDark, accent });
+  useEffect(() => {
+    themeRef.current = { isDark, accent };
+  });
+  useLayoutEffect(() => {
+    if (phase !== "open" || !widgetActive || !dockWidgetOpen) return;
+    const el = widgetViewRefs.current.get(dockWidgetOpen);
+    if (!el) return;
+    el.classList.remove("content-focus");
+    void el.offsetWidth;
+    el.classList.add("content-focus");
+  }, [phase, widgetActive, dockWidgetOpen]);
+
+  /* 高度/宽度目标：内建=测高（首开 auto 直就位），部件=自报高度（chushi.resize） */
+  const widgetH = activeWidget
+    ? Math.max(WIDGET_H_MIN, Math.round(widgetHeights[activeWidget.key] ?? activeWidget.height))
+    : 0;
+  const openH = activeWidget ? widgetH : contentH == null ? ("auto" as const) : contentH;
+  const shellWidth = activeWidget ? activeWidget.width : 360;
+  const shellAnim = reduceMotion
+    ? ""
+    : phase === "open"
+      ? "panel-rise"
+      : phase === "closing"
+        ? "panel-sink"
+        : "";
+
   return (
     /* 面板浮层：外层静态 wrapper 负责定位（fixed + CSS -translate-x-1/2 居中），
-        内层卡片由 framer 只做像素级变换（y/scale，入场淡入走 .panel-rise CSS）——百分比 x 由 framer 接管时
-        会与 v12 投影测量循环冲突，故居中变换永久留在 CSS，不进 framer。
-        wrapper 自带 transform，成为卡片 absolute 子元素的包含块。
+        内层舞台壳由 framer 做宽度 px 弹簧（透明壳体，玻璃/部件视觉在视图层）——
+        百分比 x 由 framer 接管时会与 v12 投影测量循环冲突，故居中变换永久留在 CSS。
+        wrapper 自带 transform，成为壳内 absolute 子元素的包含块。
         高度形变不用 framer layout（transform scale 会压扁内容、读作两次动画），
         改由内容盒 measureRef 测高 + 高度盒 px 弹簧，见 contentH 注释 */
     <div
       className="pointer-events-none fixed bottom-[calc(max(1.25rem,env(safe-area-inset-bottom))+60px)] left-1/2 z-40 -translate-x-1/2"
     >
-      <AnimatePresence onExitComplete={resetContentH}>
-        {panel && (
-          <PresenceClass
-            key="dock-panel"
-            role="dialog"
-            aria-label={`${PANEL_TITLES[panel]}面板`}
-            style={{ transformOrigin: "bottom center", willChange: "transform" }}
-            data-panel={panel}
-            exitClass="panel-sink"
-            className="glass-card panel-rise cl-panel pointer-events-auto relative w-[min(92vw,360px)] overflow-hidden rounded-2xl p-4 shadow-2xl"
-          >
-          {/* 关闭按钮固定右上，不随内容重绘 */}
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="关闭面板"
-            className="absolute right-3.5 top-3.5 z-10 rounded-full p-1.5 text-zinc-400 opacity-70 transition-all duration-200 hover:bg-zinc-900/5 hover:opacity-100 dark:text-zinc-500 dark:hover:bg-white/10"
-          >
-            <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden>
-              <path
-                d="M2 2l8 8M10 2l-8 8"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                strokeLinecap="round"
-              />
-            </svg>
-          </button>
-
-          {/* 高度盒：打开从 0 弹簧展开（initial height 0）+ 切换 px 弹簧 + 关闭折回 0
-              （exit 交给 framer 逐帧写样式，height 非 WAAPI 加速属性，无取消回跳风险），
-              内容溢出由卡片 overflow-hidden 裁剪；contain:layout 把弹簧逐帧 reflow
-              的失效范围圈在本盒内部（帧预算从整页降到面板盒） */}
-          <motion.div
-            className="relative"
-            style={{ contain: "layout" }}
-            initial={reduceMotion ? false : { height: 0 }}
-            animate={{ height: contentH == null ? "auto" : contentH }}
-            exit={{ height: 0, transition: { duration: 0.22, ease: EXIT_EASE } }}
-            transition={motionSpring}
-          >
-          {/* 视图互切：新视图 .content-focus 模糊聚拢、旧视图 .view-exit 钉位模糊散场。
+      <motion.div
+        role={phase === "open" ? "dialog" : undefined}
+        aria-hidden={phase === "closed"}
+        aria-label={activeWidget ? activeWidget.name : panel ? `${PANEL_TITLES[panel]}面板` : undefined}
+        data-widget={activeWidget?.key}
+        initial={false}
+        animate={{ width: shellWidth }}
+        transition={reduceMotion ? { duration: 0 } : motionSpring}
+        className={`cl-stage pointer-events-auto relative overflow-hidden rounded-[18px] ${shellAnim}`}
+        style={{
+          transformOrigin: "bottom center",
+          willChange: "transform",
+          maxWidth: "92vw",
+        }}
+      >
+        {/* 高度盒：打开从 0 弹簧展开 + 切换 px 弹簧 + 关闭折回 0（关闭走逐帧 height
+            写入，height 非 WAAPI 加速属性，无取消回跳风险），内容溢出由壳体
+            overflow-hidden 裁剪；contain:layout 把弹簧逐帧 reflow 的失效范围
+            圈在本盒内部（帧预算从整页降到面板盒） */}
+        <motion.div
+          className="relative"
+          style={{ contain: "layout" }}
+          initial={false}
+          animate={{ height: phase === "open" ? openH : 0 }}
+          transition={
+            reduceMotion
+              ? { duration: 0 }
+              : phase === "open"
+                ? motionSpring
+                : { duration: 0.22, ease: EXIT_EASE }
+          }
+        >
+          {/* 内建视图互切：新视图 .content-focus 模糊聚拢、旧视图 .view-exit 钉位模糊散场。
               不加 initial={false}——首次挂载（面板打开）也要让内容模糊聚拢进来，
               与「开=容器拉伸 + 内容模糊聚拢」的语言一致（CSS 动画，无挂载帧 setState） */}
           <AnimatePresence>
-            <PresenceClass
-              key={panel}
-              ref={measureRef}
-              /* 退场视觉走 CSS .view-exit（absolute 钉位 + 模糊散场）；卸载由 PresenceClass 定时器接管。
-                 关闭路径不走本类：卡片 .panel-sink 级联令 .content-focus 模糊散场（globals.css） */
-              exitClass="view-exit"
-              duration={0.2}
-              className="flow-root content-focus"
-            >
-              <header className="mb-3 flex items-center justify-between px-1 pr-7">
-                <h2 className="text-xs font-normal tracking-[0.22em] text-zinc-500 dark:text-zinc-400">
-                  {PANEL_TITLES[panel]}
-                </h2>
-              </header>
+            {panel != null && phase !== "closed" && (
+              <PresenceClass
+                key={panel}
+                ref={measureRef}
+                /* 退场视觉走 CSS .view-exit（absolute 钉位 + 模糊散场）；卸载由 PresenceClass 定时器接管。
+                   关闭路径不走本类：壳体 .panel-sink 级联令 .content-focus 模糊散场（globals.css） */
+                exitClass="view-exit"
+                duration={0.2}
+                className="flow-root content-focus"
+              >
+                <div className="glass-card cl-panel relative rounded-2xl p-4 shadow-2xl" data-panel={panel}>
+                  {/* 关闭按钮固定右上，不随内容重绘 */}
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    aria-label="关闭面板"
+                    className="absolute right-3.5 top-3.5 z-10 rounded-full p-1.5 text-zinc-400 opacity-70 transition-all duration-200 hover:bg-zinc-900/5 hover:opacity-100 dark:text-zinc-500 dark:hover:bg-white/10"
+                  >
+                    <svg width="11" height="11" viewBox="0 0 12 12" fill="none" aria-hidden>
+                      <path
+                        d="M2 2l8 8M10 2l-8 8"
+                        stroke="currentColor"
+                        strokeWidth="1.4"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                  </button>
 
-              {panel === "weather" && (
-                <WeatherPanel weather={weather} place={place} onPlaceChange={onPlaceChange} />
-              )}
-              {panel === "todo" && <TodoPanel todos={todos} setTodos={setTodos} />}
-              {panel === "note" && <NotePanel note={note} onCommit={commitNote} />}
-              {panel === "pomodoro" && (
-                <PomodoroPanel settings={settings} onPatch={patchSettings} />
-              )}
-              {panel === "settings" && (
-                <SettingsPanel
-                  settings={settings}
-                  onPatch={patchSettings}
-                  onExport={exportData}
-                  onImportFile={importData}
-                  onReset={resetAll}
-                  presetSections={presetSettingSections}
-                  onPresetSettingChange={onPresetSettingChange}
-                />
-              )}
-            </PresenceClass>
+                  <header className="mb-3 flex items-center justify-between px-1 pr-7">
+                    <h2 className="text-xs font-normal tracking-[0.22em] text-zinc-500 dark:text-zinc-400">
+                      {PANEL_TITLES[panel]}
+                    </h2>
+                  </header>
+
+                  {panel === "weather" && (
+                    <WeatherPanel weather={weather} place={place} onPlaceChange={onPlaceChange} />
+                  )}
+                  {panel === "todo" && <TodoPanel todos={todos} setTodos={setTodos} />}
+                  {panel === "note" && <NotePanel note={note} onCommit={commitNote} />}
+                  {panel === "pomodoro" && (
+                    <PomodoroPanel settings={settings} onPatch={patchSettings} />
+                  )}
+                  {panel === "settings" && (
+                    <SettingsPanel
+                      settings={settings}
+                      onPatch={patchSettings}
+                      onExport={exportData}
+                      onImportFile={importData}
+                      onReset={resetAll}
+                      presetSections={presetSettingSections}
+                      onPresetSettingChange={onPresetSettingChange}
+                    />
+                  )}
+                </div>
+              </PresenceClass>
+            )}
           </AnimatePresence>
-          </motion.div>
-          </PresenceClass>
-        )}
-      </AnimatePresence>
+        </motion.div>
+
+        {/* ---------- dock 部件视图（v2.0.0 常驻预热 overlay）----------
+         * 与高度盒同壳（壳体 overflow-hidden 裁剪），absolute top-0 高度自报，
+         * 高度盒目标高度 = 部件自报高度，同高同弹簧；iframe 节点随页面常驻
+         * （沙箱 srcdoc 只注入一次），SMTC 订阅/封面/歌词后台持续更新——
+         * 打开零白屏、零重载。激活重播 .content-focus（模糊聚拢）、切走挂
+         * .view-exit（模糊散场）、关闭由壳体 .panel-sink 级联——与内建同语言。 */}
+        {dockWidgets.map((w) => {
+          const isActive = phase !== "closed" && dockWidgetOpen === w.key;
+          const isLeaving = leavingWidget === w.key;
+          const h = Math.max(WIDGET_H_MIN, Math.round(widgetHeights[w.key] ?? w.height));
+          return (
+            <div
+              key={w.key}
+              data-widget={w.key}
+              aria-hidden={!isActive}
+              role={isActive ? "dialog" : undefined}
+              aria-label={w.name}
+              ref={(el) => {
+                if (el) widgetViewRefs.current.set(w.key, el);
+                else widgetViewRefs.current.delete(w.key);
+              }}
+              className={`cl-dockwidget content-focus ${isLeaving ? "view-exit" : ""}`}
+              style={{
+                position: "absolute",
+                left: 0,
+                right: 0,
+                top: 0,
+                height: h,
+                visibility: isActive || isLeaving ? "visible" : "hidden",
+                pointerEvents: isActive ? "auto" : "none",
+              }}
+            >
+              <iframe
+                ref={(el) => {
+                  widgetFrameSet(w.key, el);
+                }}
+                src={sandboxWidgetSrc()}
+                onLoad={() => {
+                  postToWidget(w.key, {
+                    type: "renderWidget",
+                    key: w.key,
+                    html: w.html,
+                    theme: themeRef.current.isDark ? "dark" : "light",
+                    accent: themeRef.current.accent,
+                    /* dock 表面部件以面板形态渲染：沙箱置 dataset.panel，
+                       部件据此直开展开卡并把收起键映射为 chushi.close() */
+                    panelMode: true,
+                  });
+                }}
+                title={`初始 dock 面板：${w.name}`}
+                className="block border-0 bg-transparent"
+                style={{ width: "100%", height: "100%" }}
+                sandbox="allow-scripts"
+              />
+            </div>
+          );
+        })}
+      </motion.div>
     </div>
   );
 });
@@ -286,6 +456,9 @@ export default function Dock({
   onPresetSettingChange,
   presetIcons,
   motionProfile,
+  isDark,
+  accent,
+  widgetHeights,
 }: {
   panel: PanelId;
   setPanel: (p: PanelId) => void;
@@ -316,6 +489,11 @@ export default function Dock({
   presetIcons: Partial<Record<PresetIconTarget, string>>;
   /** 预设动效语言（v1.7.0 动效作用面）：面板/选框弹簧参数档位 */
   motionProfile: MotionProfile;
+  /** 主题/强调色（v2.0.0 统一舞台）：dock 部件帧首染 renderWidget 需要 */
+  isDark: boolean;
+  accent: string;
+  /** 部件自报高度（chushi.resize，v2.0.0 由页面持有）：舞台高度盒目标 */
+  widgetHeights: Record<string, number>;
 }) {
   const motionSpring = MOTION_PROFILES[motionProfile] ?? MOTION_PROFILES.standard;
   const undone = todos.filter((t) => !t.done).length;
@@ -578,6 +756,12 @@ export default function Dock({
         presetSettingSections={presetSettingSections}
         onPresetSettingChange={onPresetSettingChange}
         motionSpring={motionSpring}
+        dockWidgets={presetDockWidgets}
+        dockWidgetOpen={dockWidgetOpen}
+        onCloseDockWidget={onCloseDockWidget}
+        widgetHeights={widgetHeights}
+        isDark={isDark}
+        accent={accent}
       />
     </>
   );

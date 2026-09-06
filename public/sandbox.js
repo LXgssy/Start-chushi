@@ -68,6 +68,241 @@
   /** 每脚本最近一份 SMTC 快照（smtcTick 锚点校正的落点，v1.9.0） */
   var smtcLast = new Map();
   var smtcSeq = 0;
+  /** 音乐引擎核心实例（v2.0.0）：scriptKey → api（smtcPush/smtcTick 同源喂数） */
+  var musicTargets = new Map();
+
+  /** SMTC 控制请求（脚本通道共用）：smtc.control 与 music hooks 同一实现 */
+  function smtcControlReq(scriptKey, cmd, position) {
+    return new Promise(function (resolve) {
+      var id = ++smtcSeq;
+      var t = setTimeout(function () {
+        delete pendingSmtc[id];
+        resolve(false);
+      }, 8000);
+      pendingSmtc[id] = {
+        f: function (v) {
+          clearTimeout(t);
+          resolve(v === true);
+        },
+      };
+      post({
+        type: "api",
+        op: "smtcControl",
+        scriptKey: scriptKey,
+        cmd: str(cmd, 8),
+        position: typeof position === "number" && isFinite(position) ? position : null,
+        reqId: id,
+      });
+    });
+  }
+
+  /* ============================================================
+   * 音乐引擎核心（v2.0.0）——「初始」内建的媒体数据面
+   *
+   * 用户指令：SMTC 检测/歌词解析/时间戳对齐/进度插值全部写在「初始」里面，
+   * 预设（面板 UI）只消费预计算结果，零计算。本函数即那个"里面"：
+   *   - 解析逐字歌词（yrc）/行级歌词（lrc）+ 双语翻译对齐（一次性）；
+   *   - 以宿主广播的锚点（position/fetchedAt/playing/rate）做本地时钟插值；
+   *   - now() 同步返回 {position, progress, lineIndex, wordIndex, wordProgress,
+   *     lineText, lineTr, wordText…}——预设的 rAF 直接取用即可渲染卡拉 OK；
+   *   - seek 成功后乐观重锚（拖完立即生效，不等下一拍）；
+   *   - 快照只在离散变化（曲目/封面/歌词/连接态）时推送（feed 由通道桥接）。
+   * 通道桥接：
+   *   - 脚本通道（makeChushi）：smtcPush/smtcTick → feed/tick（宿主 sandbox.ts
+   *     已有的推送，不新增消息类型）；
+   *   - 部件通道（widgetShim 字符串）：经 Function.toString() 原文内嵌 srcdoc，
+   *     widgetSmtc/widgetSmtcTick → feed/tick。两通道零漂移（同一份源码）。
+   * 契约（chushi.music）：snapshot()/now()/lyrics()/subscribe(cb)/seek(sec)/
+   *   play/pause/toggle/next/prev。旧 chushi.smtc 保持原样兼容。
+   * ============================================================ */
+  function __chushiMusicCore(hooks) {
+    var st = { cbs: [], snap: null, anchor: null, lines: null, lmode: 0, lrev: "\u0000none", parsed: false };
+
+    function clamp01(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+
+    /* yrc：[start,dur](s,d,0)词(s,d,0)词… （毫秒）→ 词级行（行文本 t = 词串连接，
+       供 lineText / gap 行回退展示） */
+    function parseYrc(text) {
+      var out = [], lines = String(text).split(/\r?\n/);
+      for (var i = 0; i < lines.length; i++) {
+        var m = lines[i].match(/^\[(\d+),(\d+)\](.*)$/);
+        if (!m) continue;
+        var s0 = +m[1], dur = Math.max(1, +m[2]), rest = m[3] || "";
+        var words = [], re = /\((\d+),(\d+),\d+\)([^(]*)/g, wm, all = "";
+        while ((wm = re.exec(rest))) { if (wm[3] !== "") { words.push({ s: +wm[1], d: Math.max(1, +wm[2]), t: wm[3] }); all += wm[3]; } }
+        out.push({ s: s0, e: s0 + dur, t: all, tr: "", w: words });
+      }
+      out.sort(function (a, b) { return a.s - b.s; });
+      return out;
+    }
+    /* lrc：[mm:ss.xx]文本 → 行级（行尾 = 下一行起点） */
+    function parseLrc(text) {
+      var out = [], lines = String(text).split(/\r?\n/);
+      for (var i = 0; i < lines.length; i++) {
+        var ts = lines[i].match(/\[(\d+):(\d+)(?:[.:](\d+))?\]/g);
+        if (!ts) continue;
+        var t = lines[i].replace(/\[[^\]]*\]/g, "").trim();
+        for (var j = 0; j < ts.length; j++) {
+          var m = ts[j].match(/\[(\d+):(\d+)(?:[.:](\d+))?\]/);
+          var sec = (+m[1]) * 60 + (+m[2]) + (m[3] ? +("0." + m[3]) : 0);
+          out.push({ s: Math.round(sec * 1000), e: 0, t: t, tr: "" });
+        }
+      }
+      out.sort(function (a, b) { return a.s - b.s; });
+      for (var k = out.length - 1; k > 0; k--) if (out[k].s === out[k - 1].s && out[k].t === out[k - 1].t) out.splice(k, 1);
+      for (var q = 0; q < out.length; q++) out[q].e = q + 1 < out.length ? out[q + 1].s : out[q].s + 8000;
+      return out;
+    }
+    /* 翻译按行首时间就近贴（winMs 容差） */
+    function attachTr(lines, trLines, winMs) {
+      if (!trLines || !trLines.length || !lines) return;
+      for (var i = 0; i < lines.length; i++) {
+        var best = null, bd = winMs;
+        for (var j = 0; j < trLines.length; j++) { var d = Math.abs(trLines[j].s - lines[i].s); if (d <= bd) { bd = d; best = trLines[j]; } }
+        if (best) {
+          var tt = best.t || "";
+          if (best.w && best.w.length) { tt = ""; for (var x = 0; x < best.w.length; x++) tt += best.w[x].t; }
+          lines[i].tr = String(tt).trim();
+        }
+      }
+    }
+    function parseAll(ly) {
+      if (ly.yrc) {
+        var p = parseYrc(ly.yrc);
+        if (p.length) {
+          attachTr(p, ly.ytlrc ? parseYrc(ly.ytlrc) : null, 800);
+          return { mode: 1, lines: p };
+        }
+      }
+      if (ly.lrc) {
+        var q = parseLrc(ly.lrc);
+        if (q.length) {
+          attachTr(q, ly.tlyric ? parseLrc(ly.tlyric) : null, 600);
+          return { mode: 2, lines: q };
+        }
+      }
+      return null;
+    }
+
+    /* 快照到达（离散变化才到）：重锚 + 按需解析歌词 + 推送公开快照 */
+    function feed(state) {
+      var t = state && state.track ? state.track : null;
+      st.anchor = t
+        ? { position: +t.position || 0, duration: +t.duration || 0, playing: !!t.playing, rate: +t.rate > 0 ? +t.rate : 1, fetchedAt: +t.fetchedAt || Date.now() }
+        : null;
+      var rev = state ? String(state.lyricRev || "") : "";
+      if (rev !== st.lrev) { st.lrev = rev; st.lines = null; st.lmode = 0; st.parsed = false; }
+      var ly = state && state.lyric;
+      if (ly && !st.parsed) {
+        var p = (ly.yrc || ly.lrc) ? parseAll(ly) : null;
+        st.lmode = p ? p.mode : 0;
+        st.lines = p ? p.lines : null;
+        st.parsed = true;
+      }
+      if (!ly && st.lines) { st.lines = null; st.lmode = 0; }
+      var snap = {
+        connected: !!(state && state.connected),
+        app: t ? String(t.app || "") : "",
+        title: t ? String(t.title || "") : "",
+        artist: t ? String(t.artist || "") : "",
+        album: t ? String(t.album || "") : "",
+        cover: (state && state.cover) || null,
+        coverUrl: (state && state.coverUrl) || null,
+        playing: t ? !!t.playing : false,
+        duration: t ? +t.duration || 0 : 0,
+        lyricRev: rev,
+        lyric: st.lines ? { mode: st.lmode, lines: st.lines } : null,
+      };
+      st.snap = snap;
+      for (var i = st.cbs.length - 1; i >= 0; i--) { try { st.cbs[i](snap); } catch (e) { } }
+    }
+
+    /* 每拍锚点（每秒必达）：只动锚点字段，不触发订阅回调（离散快照已含可见变化） */
+    function tick(tk) {
+      var a = st.anchor;
+      if (!tk || !a) return;
+      if (typeof tk.position === "number") a.position = tk.position;
+      if (typeof tk.duration === "number") a.duration = tk.duration;
+      if (typeof tk.playing === "boolean") a.playing = tk.playing;
+      if (typeof tk.rate === "number" && tk.rate > 0) a.rate = tk.rate;
+      if (typeof tk.fetchedAt === "number") a.fetchedAt = tk.fetchedAt;
+    }
+
+    function posNow() {
+      var a = st.anchor;
+      if (!a) return 0;
+      var p = a.position + (a.playing ? (Date.now() - a.fetchedAt) / 1000 * a.rate : 0);
+      return a.duration > 0 ? Math.min(a.duration, Math.max(0, p)) : Math.max(0, p);
+    }
+
+    /* 时间戳对齐：二分定位当前行/词，词内进度线性（0-1）——预设零计算 */
+    function align(ms) {
+      var L = st.lines;
+      if (!L || !L.length) return null;
+      var lo = 0, hi = L.length - 1;
+      while (lo <= hi) { var mid = (lo + hi) >> 1; if (L[mid].s <= ms) lo = mid + 1; else hi = mid - 1; }
+      var li = hi;
+      if (li < 0) return { lineIndex: -1, wordIndex: -1, wordProgress: 0, lineProgress: 0 };
+      var ln = L[li];
+      var lp = clamp01((ms - ln.s) / Math.max(1, ln.e - ln.s));
+      if (!ln.w || !ln.w.length) return { lineIndex: li, wordIndex: -1, wordProgress: 0, lineProgress: lp };
+      lo = 0; hi = ln.w.length - 1;
+      while (lo <= hi) { var m2 = (lo + hi) >> 1; if (ln.w[m2].s <= ms) lo = m2 + 1; else hi = m2 - 1; }
+      var wi = hi, wp = 0;
+      if (wi >= 0) wp = clamp01((ms - ln.w[wi].s) / Math.max(1, ln.w[wi].d));
+      return { lineIndex: li, wordIndex: wi, wordProgress: wp, lineProgress: lp };
+    }
+
+    /* 实时态（rAF 每帧调用）：插值 + 对齐一次算好，卡拉 OK 扫色直接用 wordProgress */
+    function now() {
+      var p = posNow(), a = st.anchor;
+      var d = a ? a.duration : 0;
+      var al = align(p * 1000);
+      var ln = al && al.lineIndex >= 0 ? st.lines[al.lineIndex] : null;
+      var w = ln && al.wordIndex >= 0 && ln.w && ln.w.length ? ln.w[al.wordIndex] : null;
+      return {
+        position: p,
+        duration: d,
+        progress: d > 0 ? clamp01(p / d) : 0,
+        playing: a ? a.playing : false,
+        lineIndex: al ? al.lineIndex : -1,
+        wordIndex: al ? al.wordIndex : -1,
+        wordProgress: al ? al.wordProgress : 0,
+        lineProgress: al ? al.lineProgress : 0,
+        lineText: ln ? String(ln.t || "") : "",
+        lineTr: ln ? String(ln.tr || "") : "",
+        wordText: w ? String(w.t || "") : "",
+      };
+    }
+
+    function snapshot() { return st.snap; }
+    function lyrics() { return st.lines ? { mode: st.lmode, lines: st.lines } : null; }
+
+    function subscribe(cb) {
+      if (typeof cb !== "function") return function () { };
+      st.cbs.push(cb);
+      hooks.requestSubscribe();
+      if (st.snap) { try { cb(st.snap); } catch (e) { } }
+      return function () { var i = st.cbs.indexOf(cb); if (i >= 0) st.cbs.splice(i, 1); };
+    }
+
+    /* seek：提交成功即乐观重锚（拖完立即生效，不等下一拍 tick） */
+    function seek(sec) {
+      var s = typeof sec === "number" && isFinite(sec) ? Math.max(0, sec) : 0;
+      return Promise.resolve(hooks.control("seek", s)).then(function (ok) {
+        if (ok && st.anchor) { st.anchor.position = s; st.anchor.fetchedAt = Date.now(); }
+        return ok === true;
+      });
+    }
+    function simple(cmd) { return function () { return Promise.resolve(hooks.control(cmd, null)).then(function (ok) { return ok === true; }); }; }
+
+    return {
+      feed: feed, tick: tick, now: now, snapshot: snapshot, lyrics: lyrics,
+      subscribe: subscribe, seek: seek,
+      play: simple("play"), pause: simple("pause"), toggle: simple("toggle"),
+      next: simple("next"), prev: simple("prev"),
+    };
+  }
 
   /** 为指定脚本构造受控 API（每个脚本一份，命令/入口互不可见对方内部状态） */
   function makeChushi(scriptKey) {
@@ -82,6 +317,14 @@
     settingsTargets.set(scriptKey, settingsCbs);
     var smtcCbs = [];
     smtcTargets.set(scriptKey, smtcCbs);
+    /* 音乐引擎核心实例（v2.0.0）：喂数由全局 smtcPush/smtcTick 处理器桥接 */
+    var musicApi = __chushiMusicCore({
+      control: function (cmd, position) { return smtcControlReq(scriptKey, cmd, position); },
+      requestSubscribe: function () {
+        post({ type: "api", op: "smtcSubscribe", scriptKey: scriptKey });
+      },
+    });
+    musicTargets.set(scriptKey, musicApi);
 
     function fxApi(op, id, html) {
       post({ type: "api", op: op, scriptKey: scriptKey, fxId: id, html: html });
@@ -262,27 +505,7 @@
           });
         },
         control: function (cmd, position) {
-          return new Promise(function (resolve) {
-            var id = ++smtcSeq;
-            var t = setTimeout(function () {
-              delete pendingSmtc[id];
-              resolve(false);
-            }, 8000);
-            pendingSmtc[id] = {
-              f: function (v) {
-                clearTimeout(t);
-                resolve(v === true);
-              },
-            };
-            post({
-              type: "api",
-              op: "smtcControl",
-              scriptKey: scriptKey,
-              cmd: str(cmd, 8),
-              position: typeof position === "number" && isFinite(position) ? position : null,
-              reqId: id,
-            });
-          });
+          return smtcControlReq(scriptKey, cmd, position);
         },
         subscribe: function (cb) {
           if (typeof cb !== "function") return function () {};
@@ -293,6 +516,23 @@
             if (i >= 0) smtcCbs.splice(i, 1);
           };
         },
+      },
+      /* ---------- 音乐引擎作用面（v2.0.0）----------
+       * 「初始」内建的数据面：解析/插值/时间戳对齐都在宿主侧完成，
+       * 预设零计算。now() 同步返回实时态（rAF 每帧调用即可）；
+       * snapshot()/subscribe() 返回离散快照（含解析好的歌词结构）；
+       * seek(sec) 成功即本地乐观重锚。旧 chushi.smtc 保持兼容。 */
+      music: {
+        snapshot: function () { return musicApi.snapshot(); },
+        now: function () { return musicApi.now(); },
+        lyrics: function () { return musicApi.lyrics(); },
+        subscribe: musicApi.subscribe,
+        seek: musicApi.seek,
+        play: musicApi.play,
+        pause: musicApi.pause,
+        toggle: musicApi.toggle,
+        next: musicApi.next,
+        prev: musicApi.prev,
       },
     };
   }
@@ -376,12 +616,21 @@ function widgetShim(theme, accent, panelMode) {
   var accentSet = /^#[0-9a-fA-F]{3,8}$/.test(accent || "")
     ? "document.documentElement.style.setProperty('--w-accent','" + accent + "');"
     : "";
+  /* 音乐引擎核心（v2.0.0）：与脚本通道同一份源码（Function.toString 原文内嵌，
+   * public/ 资产不经打包器，无压缩改写风险）——解析/插值/对齐全在宿主侧完成 */
+  var musicSrc =
+    "var __music=(" + __chushiMusicCore.toString() + ")({" +
+    "control:function(c,p){return new Promise(function(res){var id=++seq;pending[id]={f:res,op:'smtcControl'};" +
+    "post({type:'widgetApi',op:'smtcControl',cmd:String(c||'').slice(0,8)," +
+    "position:(typeof p==='number'&&isFinite(p))?p:null,reqId:id})})}," +
+    "requestSubscribe:function(){post({type:'widgetApi',op:'smtcSubscribe'})}});";
   return (
     "<script>(function(){var seq=0,pending={};function post(m){try{parent.postMessage(m,'*')}catch(e){}}" +
     "document.documentElement.dataset.theme='" + (theme === "dark" ? "dark" : "light") + "';" +
     (panelMode ? "document.documentElement.dataset.panel='1';" : "") +
     accentSet +
     "var smtcCbs=[];var lastSmtc=null;" +
+    musicSrc +
     "window.chushi={notify:function(o){o=o||{};post({type:'widgetApi',op:'notify'," +
     "title:String(o.title||'').slice(0,24),description:String(o.description||'').slice(0,60)})}," +
     "open:function(u){post({type:'widgetApi',op:'open',url:String(u||'').slice(0,500)})}," +
@@ -400,13 +649,17 @@ function widgetShim(theme, accent, panelMode) {
     "position:(typeof p==='number'&&isFinite(p))?p:null,reqId:id})})}," +
     "subscribe:function(cb){if(typeof cb!=='function')return function(){};smtcCbs.push(cb);" +
     "post({type:'widgetApi',op:'smtcSubscribe'});return function(){var i=smtcCbs.indexOf(cb);" +
-    "if(i>=0)smtcCbs.splice(i,1)}}}};" +
+    "if(i>=0)smtcCbs.splice(i,1)}}}," +
+    /* 音乐引擎作用面（v2.0.0）：snapshot/now/lyrics/subscribe/seek/播放控制 */
+    "music:{snapshot:function(){return __music.snapshot()},now:function(){return __music.now()}," +
+    "lyrics:function(){return __music.lyrics()},subscribe:__music.subscribe,seek:__music.seek," +
+    "play:__music.play,pause:__music.pause,toggle:__music.toggle,next:__music.next,prev:__music.prev}};" +
     "window.addEventListener('message',function(ev){var d=ev.data;if(!d||typeof d!=='object')return;" +
     "if(d.type==='widgetStorage'){var p=pending[d.reqId];if(!p)return;delete pending[d.reqId];" +
     "if(p.op==='storageGet'){var v=null;if(typeof d.value==='string'&&d.value.length){try{v=JSON.parse(d.value)}catch(e){v=d.value}}p.f(v)}else{p.f(d.ok===true)}};" +
     "if(d.type==='widgetSmtcResult'){var pc=pending[d.reqId];if(!pc)return;delete pending[d.reqId];pc.f(d.ok===true)};" +
     "if(d.type==='widgetSmtc'){var s=d.state&&typeof d.state==='object'?d.state:null;" +
-    "lastSmtc=s;" +
+    "lastSmtc=s;__music.feed(s);" +
     "for(var i=smtcCbs.length-1;i>=0;i--){try{smtcCbs[i](s)}catch(e){}}};" +
     "if(d.type==='widgetSmtcTick'){var tk=d.tick&&typeof d.tick==='object'?d.tick:null;" +
     /* 每拍轻量锚点（v1.9.0）：只改锚点字段，不覆盖 cover/lyric；seek 后新位置靠它到达 */
@@ -416,6 +669,7 @@ function widgetShim(theme, accent, panelMode) {
     "if(typeof tk.playing==='boolean')lastSmtc.track.playing=tk.playing;" +
     "if(typeof tk.rate==='number')lastSmtc.track.rate=tk.rate;" +
     "if(typeof tk.fetchedAt==='number')lastSmtc.track.fetchedAt=tk.fetchedAt;" +
+    "__music.tick(tk);" +
     "for(var i=smtcCbs.length-1;i>=0;i--){try{smtcCbs[i](lastSmtc)}catch(e){}}}};" +
     "if(d.type==='widgetTheme'){document.documentElement.dataset.theme=d.theme==='dark'?'dark':'light';" +
     "if(d.accent)document.documentElement.style.setProperty('--w-accent',d.accent)}});" +
@@ -594,12 +848,14 @@ window.addEventListener("message", function (e) {
     if (m.type === "smtcPush" && typeof m.scriptKey === "string") {
       /* SMTC 快照定向推送（签名变化才到）：state 整包透传（宿主已白名单构造） */
       var st = smtcTargets.get(m.scriptKey);
+      var mst = m.state && typeof m.state === "object" ? m.state : null;
+      smtcLast.set(m.scriptKey, mst);
+      var mua = musicTargets.get(m.scriptKey);
+      if (mua && mst) mua.feed(mst); /* 音乐引擎同源喂数（v2.0.0） */
       if (!st || st.length === 0) return;
-      var sst = m.state && typeof m.state === "object" ? m.state : null;
-      smtcLast.set(m.scriptKey, sst);
       for (var si = 0; si < st.length; si++) {
         try {
-          st[si](sst);
+          st[si](mst);
         } catch (err) {
           post({ type: "runtimeError", message: errMsg(err) });
         }
@@ -619,6 +875,8 @@ window.addEventListener("message", function (e) {
       if (typeof tk.playing === "boolean") last.track.playing = tk.playing;
       if (typeof tk.rate === "number") last.track.rate = tk.rate;
       if (typeof tk.fetchedAt === "number") last.track.fetchedAt = tk.fetchedAt;
+      var mua2 = musicTargets.get(m.scriptKey);
+      if (mua2) mua2.tick(tk); /* 音乐引擎锚点同步（v2.0.0） */
       var stt = smtcTargets.get(m.scriptKey);
       if (!stt || stt.length === 0) return;
       for (var sj = 0; sj < stt.length; sj++) {

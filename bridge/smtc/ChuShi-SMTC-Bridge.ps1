@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  「初始」SMTC 桥 v1.1.0 —— 把 Windows 系统媒体会话（SMTC）暴露给本机 HTTP
+  「初始」SMTC 桥 v1.3.0 —— 把 Windows 系统媒体会话（SMTC）暴露给本机 HTTP
 
 .DESCRIPTION
   零依赖：Windows 10/11 自带 PowerShell 5.1 + WinRT，无需安装任何运行库。
@@ -27,9 +27,17 @@
   用途：SMTC 时间轴缺失/停滞时用插件精确进度兑底；SMTC 封面读不到时用插件 picUrl
   兑底；歌词逐字卡拉 OK 需要 songId 与 yrc——这些只有网易云客户端内部拿得到。
 
+  v1.3.0 根治：播放位置时钟补偿。SMTC 的 TimelineProperties.Position 只在播放器
+  主动上报时刷新（网易云实测：整首歌期间 Position 钉死不前进），按 SMTC 设计
+  消费端应以 LastUpdatedTime 为基准自行插值。桥在采样时直接补齐：raw Position /
+  LastUpdatedTime / Playing 任一变化即重置墙钟锚点（seek/切歌/暂停都会变），
+  其间 /api/state 的 position 按墙钟 × 速率推进 —— 网页端无需任何补偿即可拿到
+  平滑前进的进度（v1.9.x 真机「进度条冻在 0:00 / 拖完弹回」的根因）。
+
 .NOTES
   v1.1.0：启动器 bat 改为 ANSI(GBK) 编码发布（UTF-8+chcp 会触发 cmd 重读错位乱码）；
-  v1.2.0：新增插件推送通道（见上）。
+  v1.2.0：新增插件推送通道（见上）；
+  v1.3.0：播放位置时钟补偿（LastUpdatedTime 插值，见上）。
   本文件必须以 UTF-8 with BOM 保存（PS 5.1 对无 BOM 文件按 ANSI 解析，中文全乱码）。
   双击同目录「启动SMTC桥.bat」即可运行；关闭窗口即停止。
   Ctrl+C 亦可退出。绑定 127.0.0.1 回环地址，不监听外网。
@@ -43,7 +51,7 @@ param(
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-$BRIDGE_VERSION = '1.2.0'
+$BRIDGE_VERSION = '1.3.0'
 
 # ---------- WinRT 投影（PowerShell 5.1 专用；请勿在 PowerShell 7 下运行） ----------
 if ($PSVersionTable.PSVersion.Major -ge 6) {
@@ -88,6 +96,13 @@ $script:NeLyric = $null
 $script:NeLyricRev = ''
 $script:NeStateAt = [DateTime]::MinValue
 $script:NeLyricAt = [DateTime]::MinValue
+
+# 播放位置墙钟锚点（v1.3.0）：raw Position / LastUpdatedTime / Playing 任一变化
+# 即重置（seek/切歌/暂停都会反映在其中之一）；其间 position = Base + 墙钟差 × 速率
+$script:PosAnchor = @{
+  Key = ''; Base = 0.0; At = [DateTime]::UtcNow
+  Raw = -1.0; Lu = [DateTime]::MinValue; Playing = $false
+}
 
 function Read-BodyJson($Req) {
   try {
@@ -244,9 +259,31 @@ function Update-MediaState {
     $script:State.Artist = $artist
     $script:State.Album = [string]$props.AlbumName
     $script:State.Playing = ($pb.PlaybackStatus -eq [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionPlaybackStatus]::Playing)
-    $script:State.Position = [math]::Max(0.0, $tl.Position.TotalSeconds)
     $script:State.Duration = [math]::Max(0.0, $tl.EndTime.TotalSeconds)
     if ($tl.PlaybackRate -gt 0) { $script:State.Rate = [double]$tl.PlaybackRate } else { $script:State.Rate = 1.0 }
+
+    # ---------- 播放位置时钟补偿（v1.3.0）----------
+    # SMTC Position 只在播放器主动上报时刷新；锚点三元组（raw/LastUpdatedTime/
+    # Playing/曲目键）任一变化即重置墙钟锚，其间按墙钟 × 速率推进。
+    $rawPos = [math]::Max(0.0, $tl.Position.TotalSeconds)
+    $lu = $tl.LastUpdatedTime.UtcDateTime
+    $aKey = [string]$sess.SourceAppUserModelId + '|' + $title
+    if ($aKey -ne $script:PosAnchor.Key -or $rawPos -ne $script:PosAnchor.Raw -or `
+        $lu -ne $script:PosAnchor.Lu -or $script:State.Playing -ne $script:PosAnchor.Playing) {
+      $script:PosAnchor.Key = $aKey
+      $script:PosAnchor.Base = $rawPos
+      $script:PosAnchor.Raw = $rawPos
+      $script:PosAnchor.Lu = $lu
+      $script:PosAnchor.Playing = $script:State.Playing
+      $script:PosAnchor.At = [DateTime]::UtcNow
+    }
+    $posSec = $rawPos
+    if ($script:State.Playing) {
+      $el = ([DateTime]::UtcNow - $script:PosAnchor.At).TotalSeconds
+      if ($el -gt 0 -and $el -lt 21600) { $posSec = $rawPos + $el * $script:State.Rate }
+    }
+    if ($script:State.Duration -gt 0 -and $posSec -gt $script:State.Duration) { $posSec = $script:State.Duration }
+    $script:State.Position = $posSec
     $script:State.CoverRev = $rev
     $script:State.UpdatedAt = [DateTime]::UtcNow
 

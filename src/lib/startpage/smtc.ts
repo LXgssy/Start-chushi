@@ -292,7 +292,24 @@ class SmtcClient {
         throw new Error("not-chushi-smtc-bridge");
       }
       this.failStreak = 0;
+      const prev = this.state.track;
       const track = normalizeTrack(j.track);
+      /* 锚点保持（v2.0.0）：SMTC 的 Position 只在播放器主动上报时刷新——网易云实测
+       * 整首歌期间 raw position 钉死（桥 v1.3.0 已在源头做时钟补偿；对旧桥在宿主
+       * 侧兜底）：若曲目/播放态/速率/位置全部未变，则保留上一拍锚点（position+
+       * fetchedAt），本地插值得以持续前进；任一变化（seek/切歌/暂停）才重锚。 */
+      if (
+        track &&
+        prev &&
+        track.title === prev.title &&
+        track.app === prev.app &&
+        track.playing === prev.playing &&
+        track.rate === prev.rate &&
+        Math.abs(track.position - prev.position) < 0.001
+      ) {
+        track.position = prev.position;
+        track.fetchedAt = prev.fetchedAt;
+      }
       const ne = normalizeNe(j.ne);
       this.apply({ connected: true, version: typeof j.version === "string" ? j.version.slice(0, 16) : "", track }, ne);
       this.notifyTick(); // 每拍轻量锚点（seek/漂移校正，与签名无关）
