@@ -74,9 +74,15 @@
     stroke-linecap:round;stroke-linejoin:round}
   .bt svg.pc{fill:currentColor;stroke:none}
   .bt:hover{background:var(--card2);color:var(--ink);transform:scale(1.06)}
-  .bt.mi{width:46px;height:46px;color:#fff;background:var(--acc);
+  .bt.mi{width:46px;height:46px;color:#fff;background:var(--acc);position:relative;
     box-shadow:0 4px 14px var(--acc32),0 1px 0 rgba(255,255,255,.22) inset}
-  .bt.mi svg{width:20px;height:20px}
+  /* v2.1.0 双图标绝对堆叠 + 交叉淡切：原双 svg 流内排布 + display 硬切换，
+     细线框▶→实心⏸ 的视觉质量跳变被真机读作「按钮轻微位移」；
+     现在两图标同圆心叠放（布局零位移），切换 = opacity+scale 交叉过渡 */
+  .bt.mi svg{position:absolute;left:50%;top:50%;width:20px;height:20px;
+    margin:-10px 0 0 -10px;opacity:1;
+    transition:opacity .16s ease,transform .16s var(--ez)}
+  .bt.mi svg.off{opacity:0;transform:scale(.55)}
   .bt.mi:active{transform:scale(.94)}
   .ct{flex:1;display:flex;align-items:center;justify-content:center;gap:20px}
   /* ---------- 逐字歌词（渲染层：行/词 DOM 与高亮均由宿主 API 预计算驱动） ---------- */
@@ -109,7 +115,7 @@
 </style>
 
 <svg width="0" height="0" style="position:absolute" aria-hidden><defs>
-  <polygon id="i-pl" points="7 4 19 12 7 20 7 4"/>
+  <polygon id="i-pl" points="8 4 20 12 8 20 8 4"/>
   <g id="i-pa"><rect x="6.6" y="4.6" width="3.6" height="14.8" rx="1.3"/><rect x="13.8" y="4.6" width="3.6" height="14.8" rx="1.3"/></g>
   <g id="i-pv"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></g>
   <g id="i-nx"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></g>
@@ -135,8 +141,8 @@
     <div class="ct">
       <button class="bt" id="pv" aria-label="上一首"><svg viewBox="0 0 24 24"><use href="#i-pv"/></svg></button>
       <button class="bt mi" id="pB" aria-label="播放或暂停">
-        <svg id="yI" viewBox="0 0 24 24"><use href="#i-pl"/></svg>
-        <svg id="nI" viewBox="0 0 24 24" class="hd pc"><use href="#i-pa"/></svg>
+        <svg id="yI" viewBox="0 0 24 24" class="pc"><use href="#i-pl"/></svg>
+        <svg id="nI" viewBox="0 0 24 24" class="off pc"><use href="#i-pa"/></svg>
       </button>
       <button class="bt" id="nx" aria-label="下一首"><svg viewBox="0 0 24 24"><use href="#i-nx"/></svg></button>
     </div>
@@ -171,7 +177,7 @@ var E={aF:$("aF"),t1:$("t1"),t2:$("t2"),t3:$("t3"),bar:$("bar"),th:$("th"),
 var H={fl:248,em:92},LY_H=124;
 var DEF="asset:cover.svg";
 var snap=null,mode="em",lastKey="",drag=false,dragRatio=0;
-var lyBox=E.ly,lyInr=null,lyEls=null,lyActive=-1,lyWords=null,lyMode=0,lyKey="__none__";
+var lyBox=E.ly,lyInr=null,lyEls=null,lyActive=-1,lyWords=null,lyMode=0,lyKey="__none__",lyRef=null;
 var mus=window.chushi&&window.chushi.music?window.chushi.music:null;
 function txt(el,v){if(el.textContent!==v)el.textContent=v}
 function fmt(s){s=Math.max(0,Math.floor(s));return Math.floor(s/60)+":"+(s%60<10?"0":"")+s%60}
@@ -226,10 +232,13 @@ function render(){
     if(mode!=="em")setMode("em");
     return;
   }
-  /* 歌词键 = rev + 存在性：首个快照可能歌词未到（rev 已设、lyric 空）——
-     只按 rev 判重会让歌词到位后不再重建；加存在性标志保证到位/失效都重建 */
+  /* 歌词键 = rev + 存在性 + 行数组引用（v2.1.0 加引用维）：
+     切歌快照常携旧词载荷（宿主新词未到）——rev+存在性两维在「同 rev 下
+     旧词→新词」时键不变，真词到位不再重建（真机「切歌后歌词概率加载
+     不出来」的部件层孪生根因）；行数组引用只在宿主重解析后变化，作第三维。 */
   var lk=(s.lyricRev||"")+(s.lyric?"#1":"#0");
-  if(lk!==lyKey){lyKey=lk;buildLyric();if(mode!=="em")setMode(mode)} /* 歌词到位/失效 → 重报高度 */
+  var lr=s.lyric?s.lyric.lines:null;
+  if(lk!==lyKey||lr!==lyRef){lyKey=lk;lyRef=lr;buildLyric();if(mode!=="em")setMode(mode)} /* 歌词到位/失效/换内容 → 重报高度 */
   var key=[s.title,s.artist,s.album,s.app].join("|");
   if(key!==lastKey){
     lastKey=key;
@@ -295,7 +304,9 @@ requestAnimationFrame(tick);
    不再等下一轮询才变图标（真机「按钮反应太慢」） */
 var optP=false,optAt=0;
 function playVisual(on){
-  E.yI.classList.toggle("hd",on);E.nI.classList.toggle("hd",!on);
+  /* v2.1.0：.off 交叉淡切（不再用 .hd 硬 display 切换——过渡中两图标同在，
+     质量连续无跳变） */
+  E.yI.classList.toggle("off",on);E.nI.classList.toggle("off",!on);
   E.dt.classList.toggle("pz",!on);card.classList.toggle("pl",on);
   E.aF.classList.toggle("pz",!on);
 }

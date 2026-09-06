@@ -1,7 +1,7 @@
-# build-smtc-delivery.py — v2.0.1 SMTC 交付包（六联修复版：桥 v1.4.0 + 歌词源插件）
+# build-smtc-delivery.py — v2.1.0 SMTC 交付包（四联修复版：桥 v1.5.0 + 歌词源插件 v1.1.0）
 # 产线：
 #   1. download/v1.9.0/初始SMTC桥/ —— ps1(UTF-8 BOM) + 3 个 bat(纯 ASCII + CRLF) + 桥内说明
-#   2. download/v1.9.0/初始歌词源-1.0.0.plugin —— BetterNCM 歌词源插件（zip 根部平铺）
+#   2. download/v1.9.0/初始歌词源-1.1.0.plugin —— BetterNCM 歌词源插件（zip 根部平铺）
 #   3. download/v1.9.0/ChuShi-SMTC音乐-交付包.zip —— 桥目录 + 插件 + 预设 .cshz + 使用说明
 # 编码纪律（三轮实战定案）：
 #   ⚠ bat = 纯 ASCII + CRLF + 无 BOM（v1.8.2 终极方案）；
@@ -10,11 +10,11 @@
 import shutil, pathlib, zipfile, json
 
 ROOT = pathlib.Path("/home/z/my-project")
-VER = "v2.0.1"
+VER = "v2.1.0"
 OUT = ROOT / "download" / VER
 BRIDGE_SRC = ROOT / "bridge" / "smtc"
 BRIDGE_DST = OUT / "初始SMTC桥"
-PLUGIN_SRC = ROOT / "bridge" / "lyric-plugin" / "初始歌词源-1.0.0.plugin"
+PLUGIN_SRC = ROOT / "bridge" / "lyric-plugin" / "初始歌词源-1.1.0.plugin"
 ZIP = OUT / "ChuShi-SMTC音乐-交付包.zip"
 PRESET = ROOT / "examples" / "初始SMTC音乐预设.cshz"
 GUIDE = OUT / "使用说明-SMTC音乐.md"
@@ -31,7 +31,7 @@ BRIDGE_DST.mkdir(parents=True)
 ps1_src = BRIDGE_SRC / "ChuShi-SMTC-Bridge.ps1"
 ps1_bytes = ps1_src.read_bytes()
 assert ps1_bytes[:3] == b"\xef\xbb\xbf", "源 ps1 缺 UTF-8 BOM"
-assert b"$BRIDGE_VERSION = '1.4.0'" in ps1_bytes, "ps1 版本应为 1.4.0"
+assert b"$BRIDGE_VERSION = '1.5.0'" in ps1_bytes, "ps1 版本应为 1.5.0"
 assert b"/api/plugin/lyric" in ps1_bytes and b"/api/lyric" in ps1_bytes, "ps1 缺歌词通道"
 shutil.copy2(ps1_src, BRIDGE_DST / "ChuShi-SMTC-Bridge.ps1")
 
@@ -64,7 +64,7 @@ with zipfile.ZipFile(OUT / PLUGIN_SRC.name) as z:
     pn = set(z.namelist())
     assert pn == {"manifest.json", "index.js"}, f".plugin 结构异常: {pn}"
     pm = json.loads(z.read("manifest.json"))
-    assert pm["slug"] == "cc.chushi.lyricsource" and pm["version"] == "1.0.0"
+    assert pm["slug"] == "cc.chushi.lyricsource" and pm["version"] == "1.1.0"
 
 # 5) zip：.cshz 预设包 + 使用说明 + 插件 + 桥目录
 if ZIP.exists():

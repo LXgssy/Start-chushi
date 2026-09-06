@@ -312,6 +312,22 @@
       return r && r.ok;
     } catch (e) { return false; }
   }
+  /* v1.1.0：带应答体的 POST（心跳命令通道用；其余路径行为同 post） */
+  async function postJson(path, body) {
+    try {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 2500);
+      const r = await fetch(BRIDGE + path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: ctl.signal,
+      });
+      clearTimeout(t);
+      if (!r || !r.ok) return null;
+      return await r.json().catch(() => null);
+    } catch (e) { return null; }
+  }
   let lastStateSig = "";
   async function pushState(force) {
     if (disposed) return;
@@ -321,8 +337,35 @@
     const sig = JSON.stringify([snap.song && snap.song.id, snap.playing, snap.positionMs, snap.durationMs]);
     if (!force && sig === lastStateSig) return;
     lastStateSig = sig;
-    const ok = await post("/api/plugin/state", snap);
+    const resp = await postJson("/api/plugin/state", snap);
+    const ok = !!resp;
+    if (ok && resp && resp.cmd) applyBridgeCmd(resp, snap);
     if (ok && !bridgeAlive) { bridgeAlive = true; log("桥已连通"); }
+  }
+  /* ---------- 桥下发命令（v1.1.0）：SMTC IsSeekAvailable 谎报/拒绝时的 seek 直通 ——
+     桥在 /api/control seek 时把命令挂在心跳应答上，插件直写 el.currentTime，
+     下一拍 PlayProgress/Seek 事件回报真值自动验证 */
+  function normTitle(s) {
+    return String(s || "").toLowerCase().replace(/[\s\-_·・()（）\[\]【】「」『』,，。、!！?？~～'\"＂]/g, "");
+  }
+  function applyBridgeCmd(resp, snap) {
+    try {
+      if (resp.cmd !== "seek") return;
+      const pos = Number(resp.position);
+      if (!isFinite(pos) || pos < 0) return;
+      if (resp.title) {
+        const cur = (snap && snap.song && snap.song.name) || "";
+        const a = normTitle(cur), b = normTitle(resp.title);
+        if (a && b && !(a.includes(b) || b.includes(a))) return; // 已切歌，丢弃旧命令
+      }
+      const el = mediaElStrict();
+      if (!el) return;
+      if (el.duration && isFinite(el.duration) && pos > el.duration) return;
+      el.currentTime = pos;
+      lastProgressMs = Math.floor(pos * 1000);
+      pushState(true).catch(() => {});
+      log("桥命令 seek -> " + pos.toFixed(1) + "s");
+    } catch (e) {}
   }
   /* 心跳：播放 1s / 暂停 3.5s（桥侧 5s 新鲜度窗口，暂停也必须保活） */
   setInterval(() => { pushState(true).catch(() => {}); }, 1000);
