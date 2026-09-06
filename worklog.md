@@ -612,3 +612,26 @@ Stage Summary:
 - 结论：十项反馈全闭环且各有帧级实证；架构继续兑现「预设只写样式、宿主全包计算」——本轮宿主侧新增 harmonize 旧桥伪影守卫，用户只 Ctrl+F5 网页也能立刻全对，桥升级后源头更干净
 - 新律：①「连续量锚点重置必须用连续位置，raw 只属于新曲目」；②合成器对子帧未就绪的 iframe 一律白填充且发生在旧层树上——DOM 层叠拦不住，罩子必须在「关闭期间」就处于开启态（基态常开+激活时揭）才能盖住旧层树帧；③CSS 动画类在常驻元素上变化即重播——相位机里跨切换不得让动画类易值，开打瞬间定格；④子文档 color-scheme 决定合成器预绘制帧的底色；⑤rAF 渲染循环与交互态（drag）要互斥，否则预览被逐帧冲掉；⑥录屏取证要打时间戳放大关键横条，帧级实锤胜过一切推测
 - 待办：用户真机复测（桥 v1.4.0+新 .cshz+Ctrl+F5）；任务A/史7遗留/Edge 商店材料未动；Release v1.7.7 旧资产去留未决
+
+---
+Task ID: 82
+Agent: main (Super Z)
+Task: 用户第 6 轮反馈（附新演示视频 https://c.wss.ink/f/kt5ozvh62s3）——①播放/暂停按钮轻微位移 ②暂停后再继续播放歌词对不上 ③自动下一首歌歌词概率加载不出来 ④进度条还是没办法拖动——v2.1.0 四联修复 + 桥 v1.5.0 + 插件 v1.1.0
+
+Work Log:
+- 【视频取证（65.6MB 60fps，Edge 2026-09-06 17:53 录制）】文叔叔匿名下载链路新写 wss-fetch/wss-probe/wss-grab（scan 端点 404 → Playwright 点「下载」按钮截 download 事件拿直链）；1fps 全片 + 3fps 面板裁剪 + 10fps 进度条横条：①t=19-21.5 用户 6 次拖动全部「预览 2:04/2:18/2:36/1:55/1:04 正确显示、松手 0.1-0.3s 内弹回 0:08-0:11」→ seek 命令根本没生效（v2.0.1 的拖动预览修复生效实证）②t≈7-10 切歌序列：旧词+紫图标+--:-- 过渡态 1.2s → Self Love 带词 → 角贴 → Move Up 重开 ③t≈27-28 暂停/恢复：暂停冻结 0:15/恢复续接正常（v2.0.1 生效实证），但 0:16→0:15 一次 1s 回跳校正=插值漂移存在实锤
+- 【按钮位移取证】60fps 按钮区裁剪 + PIL 质心测量：紫圆质心全程 (101.5,80.5) 不动、▶/⏸ 字形质心差仅 0.2-0.4px、30fps 帧差只有按钮+专辑图滤镜+光标 → 「位移」观感 = 细线框▶→实心⏸ 的视觉质量跳变 + display 硬切换；修法 = 双 SVG 同圆心绝对堆叠 + opacity/scale .16s 交叉淡切（布局零位移，verify BT4 实测 dx=dy=dw=0）+ 播放三角实心化（.pc）+ 三角光学居中（points 8,4 20,12 8,20）
+- 【歌词错位根因】桥 v1.4.0 连续位置锚点在暂停检测晚一拍（≤1 采样窗）时多算，多次暂停逐次累积成永久偏移（音频/歌词错位）；修法（桥 v1.5.0）= 插件真值锚定：网易云插件在客户端内直读 el.currentTime（帧级真值）每秒心跳重锚，暂停/恢复漂移归零；无插件场景半窗补偿（暂停时连续位置回退 0.5×采样窗，期望残差归零）
+- 【歌词加载不出根因（三层孪生竞态，逐层取证）】①宿主 fetchLyric：inflight 守卫静默丢弃新 rev（切歌瞬间旧拉取未完成→新 rev 永不拉取）→ lyricWanted latest-wins 链式补拉 + 重试去掉 state.lyric==null 抑制（切歌快照保留旧词时重试被永久压制）②沙箱 __chushiMusicCore.feed：parsed 布尔被切歌快照捎带的旧词载荷消费→宿主真词载荷永久跳过 → 改按载荷对象引用判重（parsedRef）③部件 render：lyKey=rev+存在性 在「同 rev 旧词→新词」时键不变不再重建 → 加行数组引用维（lyRef）。dbg-lyr210 探针实锤：snapshot 已是 3 行新词而 DOM 停留旧词 → 锁定第三层
+- 【seek 拖不动根因】桥 'seek' 以 IsSeekAvailable 一票否决（网易云实测报 false）→ {ok:false} → 宿主不 seekHold 不重锚 → 下一拍弹回；修法 = ①照发 TryChangePlaybackPositionAsync 取真实返回值 ②seek 命令经插件心跳应答通道直通（桥挂 NeCmd→插件心跳响应捎带→el.currentTime 直写→插件 PlayProgress/Seek 事件回报真值自动验证）→ SMTC 拒绝也跳得动
+- 【⚠环境级发现：写管道啃蚀 [m 序列】工作区文件 `[math]`→`ath]`（5 处，v1.4.0 桥上轮交付即损坏→用户机器从未启动成功 v1.4.0、实际跑 v1.3.0+宿主守卫）；且 Read 工具会渲染出未损坏假象、bash 读到的是字节真值、写入传播有秒级延迟——对策：统一改写为大写 [Math]::（PS 大小写不敏感+实测不被啃）+ fix-bridge-final.py 收敛写入（fsync+2s 后复核）+ 交付物字节级断言（BOM/版本/裸 ath=0/[Math]×10）
+- 【桥 v1.5.0 全改】seek 重写（真实返回值+插件直通）/ Test-TitleMatch（双向包含+归一化包含，与宿主同律）/ 插件真值锚定 / 暂停半窗补偿（prevSampleAt 不确定窗）/ /api/lyric 尊重 ?v=（rev-mismatch 拒旧词）/ 心跳应答捎带命令（消费即清 5s 过期）；audit-bridge-v150.py 静态审计（括号平衡/标记/编码/无硬门）
+- 【插件 v1.1.0】postJson + pushState 应答解析 + applyBridgeCmd（seek 直写 el.currentTime，带时长夹紧+切歌丢弃守卫）
+- 【宿主 smtc.ts】fetchLyric 三修（latest-wins 链/重试去 null/j.rev 校验 stale-lyric）+ trackMatchesNe v2（归一化包含+时长±2s 且歌手首段重合兜底——SMTC 标题被本地化时的概率性不匹配）
+- 【验证】verify-v210 68/68 ×2 轮稳定（新增 BT1-BT4 按钮堆叠/过渡/零位移、LR1-LR2 竞态切歌 B 词 1.4s inflight 窗口内到位、ST1-ST2 桥回旧词拒收+新词重试到位；O 段适配 .off 类）；⚠三层 bug 是串行发现的：verify 全绿后 LR/ST 才红——每层修复必须重跑全套；扩展冒烟 14/14；shot-v210 双主题 8 图（实心暂停条/扫色/翻译/向下箭头肉眼确认）；线上核验 chunk lyricWanted+stale-lyric ✓ sandbox.js parsedRef ✓ sw BUILD 20260906-105842（⚠线上核验路径是 _next/static/chunks/ 不是 static/chunks/）
+- 【发布】main dedfa36+worklog；gh-pages DEPLOY-OK；扩展 v2.1.0（11.7MB）；Release v2.1.0 三资产直链 SHA-256 ALL OK；文叔叔合并包 https://c.wss.ink/f/kt66cten2xf（⚠第一次合并包 zip 预设路径错打残且已误传 kt666r1ijvp 作废——重打校验后重传）；交付物字节级复核（ps1 BOM/v1.5.0/[Math]×10/裸ath=0、cshz 含 .off+lyRef、plugin 1.1.0 含 applyBridgeCmd）
+
+Stage Summary:
+- 结论：四项反馈全闭环且各有帧级/构建内实证；歌词「概率加载不出」实为三层同构竞态（宿主 inflight 丢弃/沙箱 parsed 消费/部件 lyKey 不变），「歌词对不上」为暂停检测滞后的累积漂移，「拖不动」为 IsSeekAvailable 谎报+无备用通道——全部根治且旧桥场景宿主守卫继续兜底
+- 新律：①「切歌快照必捎带旧词载荷」是数据流的固有属性——所有按「存在性/首见」判重的缓存都要加内容引用维；②写管道会啃 [m 序列且 Read 工具渲染不可信——关键文件一律字节级验证+大写 [Math]+收敛写入复核；③文叔叔上传前必须先本地 zip 完整性校验（残包上传不可撤回）；④「预览正确+松手弹回」=命令被拒而非 UI 问题——seek 类反馈先查桥的 ok 语义；⑤环境的多层文件视图会短暂不一致——交付前在同一指令内做最终字节断言
+- 待办：用户真机复测（桥 v1.5.0+插件 v1.1.0+新 .cshz+Ctrl+F5 四件套）；任务A（快捷服务删除抖动）/史7遗留/Edge 商店材料未动；Release v1.7.7 旧资产去留未决
