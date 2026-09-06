@@ -651,6 +651,22 @@ chushi.settings.onChange((values) => { /* 整组热更新 */ });`}</Code>
                       <K>chushi.smtc.subscribe(cb)</K>,
                       "订阅快照：签名变化才回调（position 不推，按 fetchedAt 插值）；订阅即回推当前值，返回退订函数",
                     ],
+                    [
+                      <K>chushi.music.snapshot()</K>,
+                      "音乐引擎（v2.0.0，推荐）：预计算快照 {connected, app, title, artist, album, cover, coverUrl, playing, duration, lyricRev, lyric}；lyric={mode:1逐字/2行级, lines}（{s,e,t,tr,w?}，毫秒）——解析与翻译对齐宿主已完成",
+                    ],
+                    [
+                      <K>chushi.music.now()</K>,
+                      "实时态（同步，rAF 每帧调用）：{position, duration, progress, playing, lineIndex, wordIndex, wordProgress, lineProgress, lineText, lineTr, wordText}——插值与逐字对齐全部宿主预计算，直接渲染",
+                    ],
+                    [
+                      <K>chushi.music.subscribe(cb)</K>,
+                      "订阅离散快照（曲目/封面/歌词/连接态变化才回调，订阅即回推），返回退订函数",
+                    ],
+                    [
+                      <K>chushi.music.seek(sec) / play / pause / toggle / next / prev</K>,
+                      "控制（Promise<boolean>）；seek 成功宿主自动乐观重锚——进度条立即到位",
+                    ],
                   ]}
                 />
                 <P>

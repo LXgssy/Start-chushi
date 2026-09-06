@@ -278,7 +278,7 @@ CSS 直接注入起始页本体，可以写动画、调玻璃观感。注入前�
 
 小部件有两种表面（`surface`，v1.8.2）：**corner**（缺省）常驻页面角落的沙箱卡片（倒数日、快捷信息等）；**dock** 不出角落，而是在底部 tab 栏注册一个按钮（`icon` + `name`），点击在 dock 上方弹出同源沙箱面板——高度弹簧与内建面板同一动效语言（v1.9.0 起跟随设置里的动效档位），再点按钮 / 点击外部 / 部件内 `chushi.close()` 均可关闭。最多 3 块。文档片段自动获得宿主主题（`html[data-theme]`）与强调色（`var(--w-accent)`），深浅色跟随起始页；dock 面板形态下沙箱会置 `html[data-panel="1"]`（部件可据此切换布局，如音乐预设直开展开卡）；禅模式随内容一同雾化隐去。
 
-**v1.9.0 起两处行为更新**：① dock 弹出面板 iframe **随页面常驻预热**——部件在未打开时就已加载并持续收到 `chushi.smtc` 推送（含每拍位置锚点），打开时零白屏零重载；部件不应假设「打开才初始化」，也不要依赖首次可见时机。② dock 面板高度上限 320 → **460**（`chushi.resize` 夹紧范围 40–460），高度 40–320 的旧预设不受影响。
+**v2.0.0 起行为更新**：dock 部件视图已并入宿主统一面板舞台（`.cl-dockwidget` 移居舞台内）——开/关/与内建面板互切共用同一套切换动画（panel-rise/sink + content-focus/view-exit 模糊语言 + 高度/宽度弹簧），iframe 依旧**随页面常驻预热**（零白屏零重载）；激活时宿主自动重播模糊聚拢，切走自动模糊散场，部件无需自理。高度上限不变 460（`chushi.resize` 夹紧 40–460）。**v1.9.0 起两处行为更新**：① dock 弹出面板 iframe **随页面常驻预热**——部件在未打开时就已加载并持续收到 `chushi.smtc` 推送（含每拍位置锚点），打开时零白屏零重载；部件不应假设「打开才初始化」，也不要依赖首次可见时机。② dock 面板高度上限 320 → **460**（`chushi.resize` 夹紧范围 40–460），高度 40–320 的旧预设不受影响。
 
 ```json
 "widgets": [
@@ -318,6 +318,17 @@ CSS 直接注入起始页本体，可以写动画、调玻璃观感。注入前�
 | `chushi.smtc.get()` | **媒体作用面（v1.8.0）**：读当前系统媒体会话快照（Promise），返回 `{connected, version, track, cover}`；track 为 `{app,title,artist,album,playing,position,duration,rate,coverRev,fetchedAt}`，cover 为封面 data URL 或 null |
 | `chushi.smtc.control(cmd, position?)` | 媒体控制（Promise<boolean>）：cmd ∈ `play / pause / toggle / next / prev / seek`（seek 附 position 秒）；控制权由播放器决定 |
 | `chushi.smtc.subscribe(cb)` | 订阅快照变化：签名变化才回调（position 不推，按 fetchedAt 插值）；订阅即回推当前值，返回退订函数 |
+| `chushi.music.snapshot()` | **音乐引擎（v2.0.0，推荐）**：读预计算快照——`{connected, app, title, artist, album, cover, coverUrl, playing, duration, lyricRev, lyric}`；`lyric = {mode: 1逐字/2行级, lines}`，行为 `{s,e,t,tr,w?}`（毫秒；`w` 仅逐字模式：`[{s,d,t}]`）——**解析与翻译对齐宿主已完成，零计算** |
+| `chushi.music.now()` | 实时态（同步，rAF 每帧调用）：`{position, duration, progress, playing, lineIndex, wordIndex, wordProgress, lineProgress, lineText, lineTr, wordText}`——插值与逐字时间戳对齐全部宿主预计算，直接渲染即可 |
+| `chushi.music.lyrics()` | 当前解析好的歌词结构（同 snapshot.lyric；无歌词返回 null） |
+| `chushi.music.subscribe(cb)` | 订阅离散快照（曲目/封面/歌词/连接态变化才回调，订阅即回推；歌词大载荷随包），返回退订函数 |
+| `chushi.music.seek(sec)` | seek（Promise<boolean>）；**成功即宿主自动乐观重锚**——进度条立即到位，无需自己改锚点 |
+| `chushi.music.play/pause/toggle/next/prev()` | 播放控制（Promise<boolean>） |
+
+> **两通道差异**：widgets/pages 内 `chushi.music.now()` 是**同步**函数（引擎住在同一沙箱 realm），
+> rAF 每帧取用即可；脚本（scripts）内同样同步（引擎按 scriptKey 隔离喂数）。
+> `chushi.smtc` 保留为低层兼容面（快照含 yrc/lrc 原文，解析自行负责）；新预设一律用 `chushi.music`。
+> 官方示例「初始 · SMTC 音乐」v3 预设即纯 `chushi.music` 消费者（源码 `preset-src/smtc/music-widget.html`）。
 
 > SMTC 数据来自 Windows 系统媒体会话（经本机「初始SMTC桥」127.0.0.1:20754），
 > 网易云音乐 / QQ 音乐 / Spotify / 浏览器视频等任何注册 SMTC 的播放器都会出现。
