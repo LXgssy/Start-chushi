@@ -677,3 +677,27 @@ Stage Summary:
 - 用户三点反馈闭环：①seek 正门改走网易云自家 audioplayer.seek 原生 RPC（与本体 UI 同源，理论成功率最高）+ 逐级实测 + 全败醒目芯片；②漂移=真值绝对锚定（v2.2.0 已具备，本轮再补粘滞元素）+ 一体化消灭版本漂移这一真凶；③独立桥文件废除，插件自部署/自拉起/监督/自启/仲裁全自动化
 - 新律：①「集成进插件」类诉求的可行解 = 插件内嵌资源 + betterncm.app.exec 自拉起 + 健康检查监督 + 版本仲裁自愈——多组件交付的一切版本漂移都可用「让组件自己带版本、自己升级自己」结构性消灭；②外部技术考证优先读一手源码（js-framework app.ts / 劫持 channel.call 的真实项目），搜索摘要只能当线索；③提示类反馈必须区分「功能缺失」与「可见性缺失」——v2.2.0 的 seekNote 在但看不见，本轮以芯片级可见性收口
 - 待办：用户真机复测（单 .plugin + Ctrl+F5/扩展 + 预设 v5；看 audioplayer.seek 是否真机生效与漂移是否归零）；任务A（快捷服务删除抖动）/Edge 商店材料未动；旧 bridge/smtc/*.{bat,ps1} 源保留作回滚基线；wss mjs 登录接口 1003 待修（py 版可用）
+
+---
+Task ID: 85
+Agent: Super Z (main)
+Task: 用户真机第 8 轮反馈（附 WSH 弹窗截图）——「弹这个 + 进度条不动/逐字歌词不动/播放时间显示0 + 播放暂停按钮又位移 + 概率出现初始播放网易云暂停反着来」——v2.3.1 四联修复 + 插件 v1.4.0 + 桥 v1.7.1
+
+Work Log:
+- 【截图取证】WSH 模态框：chushi-bridge-launch.vbs 第 17 行字符 3 错误 0x80070312 源 (null)——web 检索证实 = 「访问被管理员按策略规则限制」＝用户机器策略/杀软拦截 wscript→powershell 的进程创建；「第 17 行」vs 仓库/内嵌/Release 三处 VBS 均只有 10-14 行 ⇒ 磁盘部署文件曾被写坏（writeFileText 疑似追加语义 + 监督每 20s 重写叠加）；插件监督无退避每 20s 硬重试 = 弹窗反复出现
+- 【冻 0/反转根因链】宿主 apply 580 行旧守卫 `if (ne.positionMs > 0 || !ne.playing)` + `t.playing = ne.playing` 无条件采纳 ⇒ 插件 v1.3.0 mediaElStrict()（粘滞+首中即选）选中错误媒体元素（NCM 页面预加载/流浪 video）报 paused+0 → 面板钉死 0:00（进度/歌词/时间全冻）；错误元素 paused=false 时反报播放中 → 状态概率反转；em↔fl 形态互切 + 歌词出现/消失 124px 高度塌缩 → 按钮大幅位移——四症状同根
+- 【插件 v1.4.0 真值熔断重构】①原生事件（PlayState/PlayProgress/Seek，网易云自家引擎直出不可能被流浪元素污染）为 playing/进度主源（lastPlayingAt/lastProgressAt 时间戳 + 2s 漂移插值）②媒体元素降级对齐校验：与原生期望差 ≤1.5s 才采信 currentTime（补亚秒精度），脱钩一律不信 ③评分制选元素 pickMediaEl（对齐分 12 主导，平分 DOM 靠前者胜——主播放器 DOM 首位是 v2.2.0 真机实证基线），废除粘滞选择器 ④垃圾零值熔断：posMs<800 && lastProgressMs>3000 && 5s 内无本端 seek → 弃样本沿用原生进度 ⑤时长 store curTrack（歌锚定）优先，仅对齐元素时长可兑底 ⑥seek 验证基准改 buildSnapshot() 熔断后真值 + 时长闸用快照时长（旧 el.duration 会被下一首时长误杀）⑦channel seek 健康闸：seek 后 2s 内播放态翻停 → 本会话禁用 channel 路线并 localStorage 持久化 ⑧needLyric 自愈：心跳应答 needLyric=<songId>（桥重启丢词）→ 缓存补推/触发拉取
+- 【弹窗根除四层】①VBS 顶层 On Error Resume Next（物理不可能弹 WSH 框）②spawnBridge 直启 powershell 优先（不经 wscript 无 WSH 错误面），wscript 仅兑底 ③deployBridge 读回校验：readFileText 比对、一致跳过重写（防追加污染）、两次重写仍不一致绝不拉起（宁可不在线也不运行损坏脚本）+ 无 readFileText 的旧 BetterNCM 盲写退化 ④拉起失败退避 spawnBackoffMs 20/40/80/120s 封顶 + 拉起后 2.5s ping 仍不健康计失败驱动退避（exec 返回值不代表桥真起来了）
+- 【宿主 smtc.ts v2.3.1 零值两击守卫】neZeroStreak/neLastPosSec/neSongKey：深位置后突报 <0.8s 的样本首拍不采纳（延迟一拍）、连续两拍或本端 seekHold≤3s 才信；播放态不在可疑零拍上翻转；⚠修复过程实锤「posSec>0 短路放走非零垃圾样本」（0.4s 样本被采纳 Z1a 红）→ 收紧为 trustZero || posSec>=0.8；needsUpdate 阈值升桥 1.7.1/插件 1.4.0
+- 【部件 v6 歌词高度迟滞】lyHold：buildLyric 歌词在场置 true，同曲丢词保持高度不塌 124px，换曲 key 块重算 + ⚠重算后必须补 setMode 重报高度（LYH3 实锤：lyHold 变了但 resize 没人调，高度停 372）
+- 【桥 v1.7.1】版本串 + /api/plugin/state 心跳应答捎带 needLyric=<songId>（songId 在场且 NeLyricRev 空）
+- 【⚠本 round 环境级大坑：bun run build 不写 out/】standalone 构建只产 .next——out/ 只由 build:export（gh-pages）与 build:extension（扩展）写入；两轮「修复无效」假象（Z1a 恒红、产物 chunk 指纹 (n>0||o) 旧守卫）实为 verify/扩展/gh-pages 全在用修复前的旧导出——**判构建 freshness 必须在产物 chunk 里 grep 数字指纹**（新守卫 (s||n>=.8)）；且 gh-pages push 的本地 remote-tracking ref 会陈旧，验远端要 fetch
+- 【验证】verify-v231 30/30 ×2 轮稳定：ST1-10 静态断言（直启优先/读回校验/退避/熔断标记/粘滞废除/needLyric/VBS On Error/桥版本/宿主守卫/部件迟滞）+ Z1a/b 单拍零样本不钉0不翻转（39.63% 真值区）+ Z2a/b playing+0 反转守卫 + Z3a/b 连续零样本采纳（真实重启场景）+ Z4 恢复跟随 + V/D/S/FT/NU/LG 全回归 + LYH1-3 高度迟滞（372→372→248）+ X1 pageerror=0；mock 桩两坑：宿主要求歌词载荷嵌 j.lyric 下 + j.rev 必须回显（stale-lyric 拒收）
+- 【交付形态】SMTC 交付包恢复「手动启动桥（备用）」文件夹（bat ASCII+CRLF + ps1 v1.7.1 + vbs On Error 版）——策略拦截机器（插件直启也被拦）的最后兜底；使用说明重写为「四症状根因 + 三件套升级 + 手动兜底指引」
+- 【发布】main 7648c1b 推送；gh-pages DEPLOY-OK 线上实测新守卫指纹 n>=.8 命中 + sw BUILD 20260906-153901-ef7d85e；扩展 v2.3.1（11.7MB）；交付物字节级断言 11/11（ext 2.3.1+新守卫指纹/内嵌回环+On Error+CRLF/熔断标记/粘滞废除/兜底 bat ASCII+CRLF/cshz lyHold 指纹/合并包字节一致）；Release v2.3.1 id=383635313 五资产直链 SHA-256 ALL OK；文叔叔合并包 https://c.wss.ink/f/kt85whlgdnp（complete code=0 success 99%）
+- 【README】补 v2.3.0–v2.3.1 合并段（Task 84 未写 README，本轮一并补上）
+
+Stage Summary:
+- 四症状全闭环且各有构建内/回归实证：弹窗=物理静默+退避（不可能再弹）；冻 0=插件真值熔断+宿主两击（单拍垃圾样本零影响实测）；反转=同源修复+播放态不在可疑零拍翻转；按钮位移=高度迟滞（372→372 实证）
+- 新律：①「挑元素读进度」类集成在别人页面里的代码，永远不要信单一启发——用宿主自己的事件流当主源、启发式只做校验；②守卫的边界样本（非零垃圾如 0.4s）必须进回归（posSec>0 短路这类「看起来对」的条件是漏网之鱼）；③「修复没生效」先验产物指纹再怀疑人生——构建产线多模式（standalone/export/extension）时 out/ 归属必须清醒；④弹窗类反馈的根治层级：物理不可能弹（On Error）→ 不制造弹窗条件（直启）→ 不运行可疑文件（读回校验）→ 不高频重试（退避），四层缺一不可
+- 待办：用户真机复测（.plugin 1.4.0 + Ctrl+F5/扩展 2.3.1 + 新 .cshz；看弹窗消失/进度前进/状态不反/按钮不跳）；若策略连直启也拦 → 面板未连接时用交付包手动兜底；任务A（快捷服务删除抖动）/Edge 商店材料未动；旧 Release v1.7.7 资产去留未决
