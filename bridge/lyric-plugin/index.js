@@ -33,7 +33,7 @@
   const log = (...a) => console.log(TAG, ...a);
   const warn = (...a) => console.warn(TAG, ...a);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const PLUGIN_VERSION = "1.0.0";
+  const PLUGIN_VERSION = "1.2.0";
 
   /*__EAPI_CRYPTO_START__*/
   // —— eapi 加密（与 NetEaseCloudMusicApi 同构：nobody{url}use{text}md5forencrypt
@@ -269,8 +269,9 @@
             cover: httpsUp(p.resourceCoverUrl || (p.curTrack && p.curTrack.album && p.curTrack.album.picUrl) || ""),
           };
           if (durMs <= 0 && p.curTrack && p.curTrack.duration > 0) durMs = p.curTrack.duration;
-          if (p.playingState === 2) playing = true;
-          else if (p.playingState === 1) playing = false;
+          /* v1.2.0：不再用 store.playingState 覆写 el.paused——媒体元素才是音频真值，
+             缓冲/切歌过渡期两者可能短暂不一致，以元素为准才能保证宿主侧
+             「插件真值绝对锚定」零漂移（旧逻辑在过渡期会把冻结位置当播放中插值） */
         }
       }
       if (!song && getPlayingSong) {
@@ -337,22 +338,57 @@
     const sig = JSON.stringify([snap.song && snap.song.id, snap.playing, snap.positionMs, snap.durationMs]);
     if (!force && sig === lastStateSig) return;
     lastStateSig = sig;
-    const resp = await postJson("/api/plugin/state", snap);
+    /* v1.2.0：心跳捎带插件版本（宿主/面板可诊断插件在场与版本）与最近一次
+       seek 执行结果（seekAck）——桥透传给宿主做 seek 快速确认 */
+    const body = Object.assign({}, snap, { v: PLUGIN_VERSION, seekAck: lastSeekAck });
+    const resp = await postJson("/api/plugin/state", body);
     const ok = !!resp;
     if (ok && resp && resp.cmd) applyBridgeCmd(resp, snap);
     if (ok && !bridgeAlive) { bridgeAlive = true; log("桥已连通"); }
   }
-  /* ---------- 桥下发命令（v1.1.0）：SMTC IsSeekAvailable 谎报/拒绝时的 seek 直通 ——
-     桥在 /api/control seek 时把命令挂在心跳应答上，插件直写 el.currentTime，
-     下一拍 PlayProgress/Seek 事件回报真值自动验证 */
+  /* ---------- 桥下发命令（v1.1.0 心跳应答通道 / v1.2.0 API 阶梯重写）----------
+     用户指认方案「用 API 控制」（网易云 SMTC 服务残疾，TryChangePlaybackPosition
+     被客户端静默忽略）：走客户端内部 dva API ——
+       A 级：store.dispatch({type:"playing/setPlayingPosition", payload:{duration:秒}})
+            （v1.7.x 控制插件同源 action，客户端正门；payload 单位是秒）
+       B 级：el.currentTime 直写（dispatch 未生效时的元素级兑底）
+     每级 420ms 后用 el.currentTime 实测校验；两级均未生效则 seekAck ok:false
+     如实回报（宿主会诚实弹回进度条并提示，绝不假装已跳转） */
+  let lastSeekAck = null; // {id, ok, pos, at} —— 随心跳上报，宿主据此快速确认
   function normTitle(s) {
     return String(s || "").toLowerCase().replace(/[\s\-_·・()（）\[\]【】「」『』,，。、!！?？~～'\"＂]/g, "");
+  }
+  function seekVerify(seekId, pos, el, stage, round) {
+    setTimeout(function () {
+      if (disposed) return;
+      let cur = 0;
+      try { cur = (mediaElStrict() || el).currentTime || 0; } catch (e) { cur = 0; }
+      if (Math.abs(cur - pos) <= 1.2) {
+        lastSeekAck = { id: seekId, ok: true, pos: pos, at: Date.now() };
+        lastProgressMs = Math.floor(pos * 1000);
+        pushState(true).catch(function () {});
+        log("seek 生效（" + (stage === 0 ? "dispatch" : "element") + "）-> " + pos.toFixed(1) + "s");
+        return;
+      }
+      if (stage === 0) {
+        /* A 级 dispatch 未生效 → B 级元素直写兑底（再验） */
+        try { el.currentTime = pos; } catch (e) {}
+        lastProgressMs = Math.floor(pos * 1000);
+        seekVerify(seekId, pos, el, 1, 0);
+        return;
+      }
+      if (round < 2) { seekVerify(seekId, pos, el, stage, round + 1); return; } // 客户端 seek 异步，再等一拍
+      lastSeekAck = { id: seekId, ok: false, pos: pos, at: Date.now() };
+      pushState(true).catch(function () {});
+      warn("seek 两级均未生效 pos=" + pos.toFixed(1));
+    }, 420);
   }
   function applyBridgeCmd(resp, snap) {
     try {
       if (resp.cmd !== "seek") return;
       const pos = Number(resp.position);
       if (!isFinite(pos) || pos < 0) return;
+      const seekId = String(resp.id || "").slice(0, 40);
       if (resp.title) {
         const cur = (snap && snap.song && snap.song.name) || "";
         const a = normTitle(cur), b = normTitle(resp.title);
@@ -361,10 +397,17 @@
       const el = mediaElStrict();
       if (!el) return;
       if (el.duration && isFinite(el.duration) && pos > el.duration) return;
-      el.currentTime = pos;
+      let dispatched = false;
+      try {
+        if (store) {
+          store.dispatch({ type: "playing/setPlayingPosition", payload: { duration: pos } });
+          dispatched = true;
+        }
+      } catch (e) { warn("dispatch setPlayingPosition 失败", e); }
       lastProgressMs = Math.floor(pos * 1000);
-      pushState(true).catch(() => {});
-      log("桥命令 seek -> " + pos.toFixed(1) + "s");
+      pushState(true).catch(function () {});
+      seekVerify(seekId, pos, el, dispatched ? 0 : 1, 0);
+      log("桥命令 seek -> " + pos.toFixed(1) + "s（" + (dispatched ? "dispatch" : "element") + " 路线）");
     } catch (e) {}
   }
   /* 心跳：播放 1s / 暂停 3.5s（桥侧 5s 新鲜度窗口，暂停也必须保活） */
@@ -674,6 +717,7 @@
       hasStore: () => !!store,
       snapshot: buildSnapshot,
       currentLyricSongId: () => curLyricSongId,
+      lastSeekAck: () => lastSeekAck,
     };
   } catch (e) { /* 忽略 */ }
 })();

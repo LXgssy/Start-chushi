@@ -21,6 +21,18 @@
  *   - lyricRev 变化时拉 /api/lyric（yrc 逐字/lrc/tlyric），随快照广播。
  * SMTC 仍是会话与控制权威；插件只增强数据，不改变控制链路。
  *
+ * v2.2.0（真机第 7 轮反馈：暂停恢复仍累积漂移 / 面板能拖但网易云本体不动）：
+ *   ① 插件真值绝对锚定 —— 插件心跳新鲜（ts ≤3s）且曲目匹配时，进度/时长/播放态
+ *      一律以插件真值为锚（插件在客户端内直读 el.currentTime，帧级真值）：
+ *      暂停/恢复/微 seek 全部在 1s 内绝对重锚，误差不可能累积；
+ *      时序守卫链（harmonize）只在 SMTC-only（无插件/非网易云）时启用。
+ *   ② seek 诚实验证 —— 拖动提交后 2.5s 内对比插件真值：跟上→确认；未跟上→
+ *      进度条诚实弹回真值 + seekNote 提示「拖动未生效」（绝不假装已跳转，
+ *      真机「面板能拖但本体不动」的观感根因就是旧版 4s 假信任窗）；
+ *      插件 v1.2.0 的 seekAck（内部 dispatch API 执行结果）提供更快确认。
+ *   ③ 暴露 pluginVer（插件版本）+ seekNote —— 面板页脚可诊断插件在场与版本，
+ *      多组件版本漂移一眼可见。
+ *
  * SMTC 是 Windows 系统级媒体会话（System Media Transport Controls）——
  * 网易云/QQ 音乐/Spotify/浏览器视频等任何注册 SMTC 的播放器都会出现；
  * 桥按「网易云优先 → 正在播放的会话 → 第一个会话」选择当前曲。
@@ -72,6 +84,10 @@ export interface SmtcState {
   lyric: SmtcLyric | null;
   /** 歌词版本（桥生成，变化即重拉） */
   lyricRev: string;
+  /** 网易云歌词源插件版本（v2.2.0；空串 = 插件心跳不在场） */
+  pluginVer: string;
+  /** seek 结果提示（v2.2.0；空串 = 无；「拖动未生效…」≈3.8s 后自动消失） */
+  seekNote: string;
 }
 
 /** 歌词载荷（桥 /api/lyric 白名单产物；文本字段已截断） */
@@ -147,6 +163,15 @@ interface NeState {
   playing: boolean;
   /** 桥侧歌词版本（非空 = 桥有当前曲歌词可拉） */
   lyricRev: string;
+  /** 插件采样时刻（插件 Date.now()，同机时钟；v1.2.0 起携带，缺失 = 旧插件） */
+  ts: number;
+  /** 插件版本（v1.2.0 起携带；空 = 旧插件） */
+  v: string;
+  /** 最近一次 seek 执行结果（插件 v1.2.0 API 阶梯实测校验产物；桥 v1.6.0 透传） */
+  seekAckId: string;
+  seekAckOk: boolean;
+  seekAckPos: number;
+  seekAckAt: number;
 }
 function normalizeNe(raw: unknown): NeState | null {
   if (typeof raw !== "object" || raw == null) return null;
@@ -165,6 +190,12 @@ function normalizeNe(raw: unknown): NeState | null {
     durationMs: num(o.durationMs),
     playing: o.playing === true,
     lyricRev: typeof o.lyricRev === "string" ? o.lyricRev.slice(0, 64) : "",
+    ts: num(o.ts),
+    v: typeof o.v === "string" ? o.v.slice(0, 16) : "",
+    seekAckId: typeof o.seekAckId === "string" ? o.seekAckId.slice(0, 40) : "",
+    seekAckOk: o.seekAckOk === true,
+    seekAckPos: num(o.seekAckPos),
+    seekAckAt: num(o.seekAckAt),
   };
 }
 
@@ -222,6 +253,8 @@ class SmtcClient {
     coverUrl: null,
     lyric: null,
     lyricRev: "",
+    pluginVer: "",
+    seekNote: "",
   };
   private subs = new Set<() => void>();
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -241,8 +274,12 @@ class SmtcClient {
   private lyricWanted = "";
   /** v2.0.1 旧桥伪影守卫状态：上一拍 reported-expected 偏移（delta 一致性记忆） */
   private lastDelta = 0;
-  /** v2.0.1 本端发起的 seek（成功后 4s 内信自己这条线，防旧桥旧基準拽回） */
+  /** v2.0.1 本端发起的 seek（成功后信自己这条线直到验证落定——v2.2.0 起由
+   *  插件真值/seekAck 快速确认，2.5s 未跟上即诚实弹回，不再盲目信任 4s） */
   private seekHold: { pos: number; at: number } | null = null;
+  /** v2.2.0 seek 结果提示（3.8s 自动消失） */
+  private seekNote = "";
+  private seekNoteAt = 0;
 
   getSnapshot(): SmtcState {
     return this.state;
@@ -309,6 +346,9 @@ class SmtcClient {
       if (ok) {
         if (cmd === "seek" && typeof position === "number") {
           this.seekHold = { pos: Math.max(0, position), at: Date.now() };
+          /* 新 seek 发起：清上一条未生效提示（验证结果以本次为准） */
+          this.seekNote = "";
+          this.state = { ...this.state, seekNote: "" };
         }
         this.schedule(80); // 立即补一拍，状态快速确认
       }
@@ -335,17 +375,21 @@ class SmtcClient {
       this.failStreak = 0;
       const prev = this.state.track;
       const track = normalizeTrack(j.track);
-      /* v2.0.1 旧桥伪影守卫（桥 v1.4.0 已在源头修好，本段让旧桥也全对）：
-       * 暂停冻结/恢复续接/持续偏移保持/本端 seek 保持——见 harmonize 内注释 */
-      if (track && prev) this.harmonize(track, prev);
-      else {
+      /* v2.2.0：先判插件真值是否在场——真值每拍绝对重锚，时序伪影不可能累积，
+       * 守卫链（harmonize/锚点保持）只对 SMTC-only（无插件/非网易云）启用 */
+      const ne = normalizeNe(j.ne);
+      const neLive = !!(track && ne && trackMatchesNe(track, ne));
+      /* v2.0.1 旧桥伪影守卫（SMTC-only）：暂停冻结/恢复续接/持续偏移保持/本端 seek 保持 */
+      if (track && prev && !neLive) this.harmonize(track, prev);
+      else if (!track || !prev) {
         this.lastDelta = 0;
       }
-      /* 锚点保持（v2.0.0）：SMTC 的 Position 只在播放器主动上报时刷新——网易云实测
+      /* 锚点保持（v2.0.0，SMTC-only）：SMTC 的 Position 只在播放器主动上报时刷新——网易云实测
        * 整首歌期间 raw position 钉死（桥 v1.3.0 已在源头做时钟补偿；对旧桥在宿主
        * 侧兜底）：若曲目/播放态/速率/位置全部未变，则保留上一拍锚点（position+
        * fetchedAt），本地插值得以持续前进；任一变化（seek/切歌/暂停）才重锚。 */
       if (
+        !neLive &&
         track &&
         prev &&
         track.title === prev.title &&
@@ -357,8 +401,15 @@ class SmtcClient {
         track.position = prev.position;
         track.fetchedAt = prev.fetchedAt;
       }
-      const ne = normalizeNe(j.ne);
+      /* v2.2.0 seekNote 过期清理（3.8s） */
+      if (this.seekNote && Date.now() - this.seekNoteAt > 3800) {
+        this.seekNote = "";
+        this.state = { ...this.state, seekNote: "" };
+        this.notify();
+      }
       this.apply({ connected: true, version: typeof j.version === "string" ? j.version.slice(0, 16) : "", track }, ne);
+      /* v2.2.0 seek 诚实验证：真值/seekAck 跟上→确认；未跟上→弹回+提示 */
+      if (this.seekHold) this.verifySeek(neLive, ne);
       this.notifyTick(); // 每拍轻量锚点（seek/漂移校正，与签名无关）
     } catch {
       this.failStreak++;
@@ -435,10 +486,67 @@ class SmtcClient {
     this.lastDelta = rdelta;
   }
 
+  /** v2.2.0 seek 诚实验证（真机「面板能拖但本体不动」的根治点：
+   *  旧版盲目信任本端 seek 线 4s，插件直写未生效时进度条假跳再回跳，
+   *  且 harmonize (d) 可能无限期钉住假线）。真值路径：插件心跳新鲜时对比
+   *  el.currentTime 真值与 seek 线——跟上（≤2.5s）→确认；未跟上→弹回+提示；
+   *  seekAck 快路径：插件 v1.2.0 实测校验结果直答（比宿主更权威、更快）；
+   *  SMTC-only（无插件）：保留原 4s 信任窗（harmonize (a) 内消费）。 */
+  private verifySeek(neLive: boolean, ne: NeState | null): void {
+    const hold = this.seekHold;
+    if (!hold) return;
+    const now = Date.now();
+    if (!neLive || !ne) {
+      if (now - hold.at >= 4000) this.seekHold = null; // 旧桥/无插件：原信任窗
+      return;
+    }
+    const t = this.state.track;
+    const rate = t && t.rate > 0 ? t.rate : 1;
+    const playing = t ? t.playing : true;
+    const line = hold.pos + (playing ? ((now - hold.at) / 1000) * rate : 0);
+    /* seekAck 快路径（插件双级实测校验直答） */
+    if (
+      ne.seekAckId &&
+      ne.seekAckAt > 0 &&
+      now - ne.seekAckAt < 3200 &&
+      ne.seekAckAt >= hold.at - 600
+    ) {
+      if (ne.seekAckOk) {
+        this.seekHold = null;
+        return;
+      }
+      this.seekHold = null;
+      this.setSeekNote(now);
+      return;
+    }
+    /* 真值路径：插件心跳新鲜度补偿后的当前位置 */
+    const age = ne.ts > 0 ? Math.max(0, Math.min(3, (now - ne.ts) / 1000)) : 0;
+    const truth = ne.positionMs / 1000 + (ne.playing ? age * rate : 0);
+    if (Math.abs(truth - line) <= 2.5) {
+      this.seekHold = null; // 真值已跟上 seek 线
+      return;
+    }
+    if (now - hold.at >= 2500) {
+      /* 真值未跟上 → 下一拍 apply 已用真值锚定，进度条诚实弹回 */
+      this.seekHold = null;
+      this.setSeekNote(now);
+    }
+  }
+
+  private setSeekNote(now: number): void {
+    this.seekNote = "拖动未生效：播放器未响应";
+    this.seekNoteAt = now;
+    this.state = { ...this.state, seekNote: this.seekNote };
+    this.notify();
+  }
+
   /**
-   * 应用新快照 + 网易云增强合并（v1.9.0）。
-   * 合并策略：歌词源可达且曲目匹配时——duration/position 缺失（0）用插件值兑底；
-   * SMTC 封面缺失时把插件 picUrl 写入 coverUrl；二者均有则保持 SMTC（会话权威）。
+   * 应用新快照 + 网易云增强合并（v1.9.0 兑底合并 / v2.2.0 真值绝对锚定）。
+   * 合并策略：歌词源可达且曲目匹配时——
+   *   插件心跳新鲜（ts ≤3s，缺 ts 的旧插件视作新鲜）：进度/时长/播放态一律以
+   *   插件真值为锚（el.currentTime 帧级真值，暂停/恢复/微 seek 1s 内绝对重锚）；
+   *   心跳过期：退回 v1.9.0 兑底语义（SMTC 值缺失时才用插件值）；
+   * SMTC 封面缺失时把插件 picUrl 写入 coverUrl（不变）。
    */
   private apply(
     next: { connected: boolean; version: string; track: SmtcTrack | null },
@@ -448,26 +556,43 @@ class SmtcClient {
     let neUsable = false;
     if (t && ne && trackMatchesNe(t, ne)) {
       neUsable = true;
-      // 插值钟兑底：SMTC 时间轴缺失（0）时用插件帧级进度（曲目已匹配才动）
-      if (t.duration <= 0 && ne.durationMs > 0) t.duration = ne.durationMs / 1000;
-      if (t.position <= 0 && ne.positionMs > 0) t.position = ne.positionMs / 1000;
+      const neFresh = ne.ts > 0 ? Math.abs(Date.now() - ne.ts) <= 3000 : true;
+      if (neFresh) {
+        /* v2.2.0 插件真值绝对锚定：插件在客户端内直读 el.currentTime（帧级真值），
+         * 每秒心跳把锚点重锚到真值——暂停/恢复/微 seek 的插值漂移不可能累积；
+         * 播放态也以元素为准（缓冲/过渡期 store/SMTC 可能短暂不一致） */
+        if (ne.durationMs > 0) t.duration = ne.durationMs / 1000;
+        if (ne.positionMs > 0 || !ne.playing) t.position = ne.positionMs / 1000;
+        t.playing = ne.playing;
+      } else {
+        /* 心跳过期：退回 v1.9.0 兑底语义（SMTC 值缺失时才用插件值） */
+        if (t.duration <= 0 && ne.durationMs > 0) t.duration = ne.durationMs / 1000;
+        if (t.position <= 0 && ne.positionMs > 0) t.position = ne.positionMs / 1000;
+      }
     }
     const lyricRevNow = neUsable && ne!.lyricRev ? ne!.lyricRev : "";
     const prevCover = this.state.cover;
     const prevLyric = this.state.lyric;
     const coverRevNow = next.track?.coverRev ?? "";
-    const sig = stateSig({
-      connected: next.connected,
-      version: next.version,
-      track: next.track,
-      lyricRev: lyricRevNow,
-    });
+    /* v2.2.0：pluginVer 不要求曲目匹配（插件在场即报——标题失配时页脚仍可诊断）；
+     * seekNote 变化也进签名（提示出现/消失都要广播） */
+    const pluginVerNow = ne ? ne.v : "";
+    const seekNoteNow = this.seekNote;
+    const sig =
+      stateSig({
+        connected: next.connected,
+        version: next.version,
+        track: next.track,
+        lyricRev: lyricRevNow,
+      }) + `|${pluginVerNow}|${seekNoteNow}`;
     this.state = {
       ...next,
       cover: prevCover,
       coverUrl: neUsable && ne!.pic ? ne!.pic : null,
       lyric: prevLyric,
       lyricRev: lyricRevNow,
+      pluginVer: pluginVerNow,
+      seekNote: seekNoteNow,
     };
     // 封面失效场景：曲变（coverRev 换了）/ 会话消失 / 会话无封面
     if (!coverRevNow) {
