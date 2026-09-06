@@ -721,3 +721,4 @@ Stage Summary:
 - 三症状全闭环且各有构建内/回归实证：误报旧版=杀旧桥通道+归因拆分+诚实指引（该场景自修/手动兜底两条路都真实可行）；状态反向=最后事件语义（事件≠遥测的范畴修正）；进度锯齿=身份锁定+倒退熔断（song 身份不明不熔断防误杀）
 - 新律：①「最后事件」语义的值（状态/配置类）永不做时间窗过期——过期降级=换一个更不可信的源；②升级提示的文案必须与真实可行路径一一对应——「更新 A 可修」在根因是 B 时是谎言；③snap/DTO 白名单层是字段失踪的高发地带——新增状态字段必须端到端 grep 透传链；④测试驱动的事件回调 fire 助手必须按真实回调签名分发参数（参数错位的静默丢弃比崩溃更毒）
 - 待办：用户真机复测（.plugin 1.5.0 + 完全重启网易云 + Ctrl+F5 + 重导 .cshz；看芯片是否消失/状态不反/进度 1x 不倒退；若提示手动启动桥则跑备用 bat）；AI-HANDOFF 任务 A（seek 真机参数实抓）为下轮最高优先；任务B 暂停恢复逐字漂移终验；任务C/D/E 排后
+- 【交付落盘】main 5ed4a57 推送；gh-pages DEPLOY-OK 线上实测（sandbox.js needsPlugin ×2 + chunk e9acad6c31bbd078.js needsPlugin 指纹命中）；Release v2.3.2 id 五资产直链 SHA-256 ALL OK（Delivery/LyricSource-1.5.0.plugin/Preset.cshz/NewTab-v2.3.2.zip/AllInOne）；文叔叔合并包 https://c.wss.ink/f/kt8kvm8i9hv（complete code=0 success 99%）
