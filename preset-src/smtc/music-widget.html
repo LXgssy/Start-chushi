@@ -105,6 +105,17 @@
   .ft{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--ink3);margin-top:auto}
   .dt{width:6px;height:6px;border-radius:var(--r9);background:var(--ok);flex:none;transition:background .3s}
   .dt.pz{background:#fbbf24}
+  /* ---------- v2.3.0 提示芯片 ----------
+   * seekNote 旧版只在 10.5px 页脚文案里，真机用户看不到（「拖动失败没有提示」）——
+   * 现在改为进度条上方的醒目芯片；needsUpdate 常驻顶部（版本漂移从症状可见） */
+  .chip{position:absolute;left:50%;transform:translateX(-50%);z-index:4;display:none;
+    align-items:center;gap:5px;padding:4px 10px;border-radius:var(--r9);
+    font-size:11px;font-weight:550;white-space:nowrap;pointer-events:none;
+    background:var(--ink);color:var(--card);box-shadow:0 3px 12px rgba(0,0,0,.22);}
+  .chip.on{display:flex;animation:chipIn .3s var(--ez)}
+  @keyframes chipIn{from{opacity:0;transform:translateX(-50%) translateY(-5px)}to{opacity:1;transform:translateX(-50%)}}
+  .chip svg{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round}
+  .chip.warn{background:#b45309;color:#fff}
   /* ---------- 空态 ---------- */
   .em{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
     justify-content:center;gap:7px;text-align:center;padding:12px}
@@ -136,7 +147,10 @@
       </div>
     </div>
     <button class="cx" id="cxB" aria-label="关闭面板"><svg viewBox="0 0 24 24"><use href="#i-dn"/></svg></button>
-    <div class="sk" id="sk"><div class="rl"><i id="bar"></i><u id="th"></u></div></div>
+    <div class="sk" id="sk"><div class="rl"><i id="bar"></i><u id="th"></u></div>
+      <div class="chip" id="noteChip"><svg viewBox="0 0 24 24"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg><span id="noteTxt"></span></div>
+    </div>
+    <div class="chip warn" id="updChip" style="top:8px"><span>组件过旧 · 更新「初始歌词源」.plugin 后重启网易云即可全自动修复</span></div>
     <div class="tm"><span id="tC">0:00</span><span id="tD">0:00</span></div>
     <div class="ct">
       <button class="bt" id="pv" aria-label="上一首"><svg viewBox="0 0 24 24"><use href="#i-pv"/></svg></button>
@@ -173,7 +187,7 @@ var $=function(id){return document.getElementById(id)};
 var card=$("card"),sk=$("sk");
 var E={aF:$("aF"),t1:$("t1"),t2:$("t2"),t3:$("t3"),bar:$("bar"),th:$("th"),
   tC:$("tC"),tD:$("tD"),ap:$("ap"),dt:$("dt"),yI:$("yI"),nI:$("nI"),
-  e1:$("e1"),e2:$("e2"),ly:$("ly")};
+  e1:$("e1"),e2:$("e2"),ly:$("ly"),noteChip:$("noteChip"),noteTxt:$("noteTxt"),updChip:$("updChip")};
 var H={fl:248,em:92},LY_H=124;
 var DEF="asset:cover.svg";
 var snap=null,mode="em",lastKey="",drag=false,dragRatio=0;
@@ -222,7 +236,7 @@ function buildLyric(){
 function render(){
   var s=snap;
   if(!s||!s.connected){
-    txt(E.e1,"系统媒体待接入");txt(E.e2,"启动初始SMTC桥后接入");
+    txt(E.e1,"系统媒体待接入");txt(E.e2,"安装「初始歌词源」.plugin 后播放音乐即自动接入");
     txt(E.ap,"未连接");
     if(mode!=="em")setMode("em");
     return;
@@ -248,8 +262,12 @@ function render(){
   txt(E.t1,s.title||"未知曲目");
   txt(E.t2,s.artist||"未知艺术家");
   txt(E.t3,s.album||"");
-  /* v2.2.0 页脚诊断：seek 未生效提示优先；否则显示连接态+插件版本
-     （插件版本可见 = 插件心跳在场 + 版本漂移一眼可辨） */
+  /* v2.3.0 芯片：seekNote 醒目提示（3.8s 自动消失）；needsUpdate 常驻升级芯片 */
+  var noteOn=!!s.seekNote;
+  E.noteChip.classList.toggle("on",noteOn);
+  if(noteOn)txt(E.noteTxt,s.seekNote);
+  E.updChip.classList.toggle("on",!!s.needsUpdate);
+  /* v2.3.0 页脚诊断：插件版本可见 = 插件心跳在场 + 版本漂移一眼可辨 */
   txt(E.ap, s.seekNote ? s.seekNote : ("已连接 · "+(s.app||"系统媒体")+(s.pluginVer?" · 插件 v"+s.pluginVer:"")));
   cover(E.aF);
   /* 乐观窗口内且真实态未到（s.playing≠optP）沿用乐观值；确认或超时即回真值 */

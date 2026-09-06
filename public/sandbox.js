@@ -220,6 +220,8 @@
         /* v2.2.0：诊断透出——插件版本（页脚可见插件在场）与 seek 结果提示 */
         pluginVer: state && typeof state.pluginVer === "string" ? state.pluginVer.slice(0, 16) : "",
         seekNote: state && typeof state.seekNote === "string" ? state.seekNote.slice(0, 40) : "",
+        /* v2.3.0：组件过旧（桥/插件版本不齐）→ 面板升级芯片 */
+        needsUpdate: !!(state && state.needsUpdate === true),
       };
       st.snap = snap;
       for (var i = st.cbs.length - 1; i >= 0; i--) { try { st.cbs[i](snap); } catch (e) { } }

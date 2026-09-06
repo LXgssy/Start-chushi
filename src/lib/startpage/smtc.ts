@@ -88,6 +88,8 @@ export interface SmtcState {
   pluginVer: string;
   /** seek 结果提示（v2.2.0；空串 = 无；「拖动未生效…」≈3.8s 后自动消失） */
   seekNote: string;
+  /** v2.3.0 组件过旧：桥 <1.7.0 或插件 <1.3.0 或插件不在场（面板显示升级芯片） */
+  needsUpdate: boolean;
 }
 
 /** 歌词载荷（桥 /api/lyric 白名单产物；文本字段已截断） */
@@ -244,6 +246,18 @@ function stateSig(s: {
   return `${s.connected ? 1 : 0}|${s.version}|${tpart}|${s.lyricRev}`;
 }
 
+/** 语义版本比较（仅 major.minor.patch 数字段） */
+function verLt(a: string, b: string): boolean {
+  const pa = String(a || "").split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = String(b || "").split(".").map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) {
+    const x = pa[i] || 0;
+    const y = pb[i] || 0;
+    if (x !== y) return x < y;
+  }
+  return false;
+}
+
 class SmtcClient {
   private state: SmtcState = {
     connected: false,
@@ -255,6 +269,7 @@ class SmtcClient {
     lyricRev: "",
     pluginVer: "",
     seekNote: "",
+    needsUpdate: false,
   };
   private subs = new Set<() => void>();
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -574,17 +589,21 @@ class SmtcClient {
     const prevCover = this.state.cover;
     const prevLyric = this.state.lyric;
     const coverRevNow = next.track?.coverRev ?? "";
-    /* v2.2.0：pluginVer 不要求曲目匹配（插件在场即报——标题失配时页脚仍可诊断）；
-     * seekNote 变化也进签名（提示出现/消失都要广播） */
+    /* v2.3.0：pluginVer 不要求曲目匹配（插件在场即报——标题失配时页脚仍可诊断）；
+     * seekNote/needsUpdate 变化也进签名（提示出现/消失都要广播）。
+     * needsUpdate：桥 <1.7.0（一体化桥由插件部署）或插件 <1.3.0（三级 seek 阶梯/
+     * 内嵌桥部署）或插件不在场 —— 面板直接给「升级插件」芯片，版本漂移从症状可见。 */
     const pluginVerNow = ne ? ne.v : "";
     const seekNoteNow = this.seekNote;
+    const needsUpdateNow =
+      (next.connected && (!pluginVerNow || verLt(pluginVerNow, "1.3.0") || verLt(next.version, "1.7.0")));
     const sig =
       stateSig({
         connected: next.connected,
         version: next.version,
         track: next.track,
         lyricRev: lyricRevNow,
-      }) + `|${pluginVerNow}|${seekNoteNow}`;
+      }) + `|${pluginVerNow}|${seekNoteNow}|${needsUpdateNow ? 1 : 0}`;
     this.state = {
       ...next,
       cover: prevCover,
@@ -593,6 +612,7 @@ class SmtcClient {
       lyricRev: lyricRevNow,
       pluginVer: pluginVerNow,
       seekNote: seekNoteNow,
+      needsUpdate: needsUpdateNow,
     };
     // 封面失效场景：曲变（coverRev 换了）/ 会话消失 / 会话无封面
     if (!coverRevNow) {
