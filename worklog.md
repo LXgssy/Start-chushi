@@ -590,3 +590,25 @@ Stage Summary:
 - 结论：五项反馈全部闭环——切换动画衔接（统一舞台实证）、闪白（常驻预热+壳体首帧有类）、歌词（chushi.music 全链路+61 项回归）、进度条（双端时钟补偿+跨轮询回归）、模糊（同一套 content-focus 词汇）；架构按用户指令落地：预设只写样式，宿主内建引擎提供预计算 API
 - 新律：①「采样窗口必须横跨轮询周期」——进度类活性断言 780ms 窗口会漏掉 1s 锚点重置（v1.9.0 假绿教训）；②真机录屏是最低成本根因取证：ffmpeg YAVG 尖峰+过渡窗逐帧可实证「冻结/两段式/无白闪」，vision API 拒收也不挡路；③Function.toString 单源内嵌是双通道 shim 防漂移的正解（public/ 资产无打包器改写风险）；④rel 脚本两处 404 是 v1.8.0 教训复发——PATCH 相对路径与 uploads 域，教训必须写成脚本注释而非只进 worklog
 - 待办：用户真机复测（新桥 v1.3.0+新 .cshz+Ctrl+F5 三件套）；任务A/史7遗留/Edge 商店材料未动；Release v1.7.7 旧资产去留未决
+
+---
+Task ID: 81
+Agent: main (Super Z)
+Task: 用户第 5 轮反馈（附新演示视频 https://c.wss.ink/f/kt47itg94bp）——音频歌词不同步/歌词闪动/暂停重置进度条歌词/再播放重头/进度条拖不动/播放暂停反应慢/关闭箭头反向/切换仍是开关动画/dock 选框关闭动画/开面板闪白，且「逐字歌词不行就正常歌词即可」——v2.0.1 六联修复 + 桥 v1.4.0
+
+Work Log:
+- 【视频取证（upload/66MB 60fps，v2.0.0 上线 31 分钟后录制）】1fps 全片抽帧+进度条横条逐秒放大：0:15→1:04 单调前进（v2.0.0 冻结修复生效实证）→ **t=74.5 暂停瞬间 1:04→0:00 →0:00 冻 3 秒 → 再播放 0:01/0:02/0:03 重头计数 → t=81 又归零**（用户「暂停后重置+重头再来」的帧级实锤）；t=6.37 开面板 1-2 帧灰白壳（闪白）；30fps 歌词区逐帧 diff：扫色词整词隐形闪动；总时长 3:26 常显（确证用户已在 v2.0.0）
+- 【根因链】①桥 v1.3.0 锚点重置一律取 raw Position（网易云整首钉死 0）→ 暂停归零/恢复重数；②seek 后网易云不刷新 SMTC 时间轴 → 桥不重锚 + 下一拍把乐观锚点拽回；③rAF 逐帧覆写进度条 → 拖动预览 16ms 被冲掉；④按钮等下一轮询才翻图标（最坏 ~1.5-3.6s）；⑤壳 panel-rise（opacity 0→1）× content-focus（opacity 0+blur）双重半透明叠明亮壁纸=灰闪，且 CDP 帧序列进一步实锤：visibility/opacity/transform 隐藏过的 iframe 重激活首帧被合成器填纯白（来自旧层树，DOM 层叠拦不住）；⑥-webkit-background-clip:text 渐变在 transform 过场部分帧不绘制=整词隐形
+- 【桥 v1.4.0】锚点重置策略重写：曲目键变→raw；其余（暂停/恢复/Lu 刷新）→上一拍连续位置 CurPos（无缝冻结/续接）；seek 成功后立即 Base=sec+At=now
+- 【宿主 smtc.ts harmonize 守卫链】（旧桥不升级也全对）：a) 本端 seekHold 4s 内信 seek 线；b) 暂停冻结（playing 翻 false 且 reported 回退>3s → 冻在本端插值处）；c) 恢复续接（reported≈0 而本端>5s → 续接冻结值）；d) 持续偏移保持（rdelta 同偏移漂移≤1.5 → 保本端时钟；突跳=真实时间线变化→放行）；control() 成功后 schedule(80) 立即补拍
+- 【互斥单帧化】switchTo/gotoPanel/cmdk panel 动作同批 setDockWidget(null)（原 effect 二段渲染，两帧间隙双 pill 同 layoutId 共存→滑移失效变 Q 弹+舞台同帧双视图）；pillPop 条件补 prevWidgetOpenRef；部件关闭也记 lastCloseRef
+- 【壳体类稳定律】openAsWidget 于 closed→open 迁移定格——若按 activeWidget 实时取值，音乐→内建互切壳类 ""→"panel-rise" 类变化=CSS 动画重播=切换整壳淡入闪白
+- 【闪白终案（试错链全记录）】visibility 隐藏→白帧；opacity:0→白帧；scale(0.001) 保活+overflow 切换→白帧；纯裁剪→白帧（合成器对子帧未就绪一律白填充）；boot 同色罩 140ms→白帧在 190ms（227=0.87 白混合，罩子先淡完）；驻留 280ms→冷开灭/热开仍漏（旧层树罩=0）；**终案=罩子基态常开（closed 相位也 1，反正视图藏着）+ 激活播 boot-reveal（280ms 驻留+180ms 揭开,forwards）+ 关闭相位摘类回基态（下一轮重激活的旧层树里罩子=1）+ sandbox.js colorScheme 随主题（预绘制帧暗色化）**→ CDP 冷/热开白帧 NONE
+- 【歌词扫色重写】双层实体色：底层 .lyw 实色永可见，上层 .ov 同文本 clip-path:inset 按 --p 裁剪显色；JS 每帧只写 --p 一个变量（无 class 摘挂）
+- 【验证】verify-v201 60/60×2 轮稳定（W1-W5 无 opacity 聚拢+opacity=1 实测/F1-F4 暂停冻结+恢复续接跨轮询/S1-S4 拖动预览 50%+seek 命令+seekHold 钉 50%+不弹回/O1-O4 乐观翻转<250ms+真实态确认/AR1 箭头朝下/LY1-LY12 双层扫色结构断言/A1-A10 单帧互切壳类稳定/B1 内建 panel-rise 回归/K/G/E）；⚠坑：F4 mock 从计数线切静态 0 产生 -3s 突跳被守卫当真实变化放行（mock 要连续接管）；verify-ext-v201 14/14；CDP 帧序列冷/热开白帧 NONE；shot-v201 双主题 8 图（开场中帧无灰白+箭头朝下+双层扫色肉眼确认）
+- 【发布】main 提交推送；gh-pages DEPLOY-OK（线上 chunk content-focus-solid/seekHold、sandbox.js colorScheme、sandbox.html?v=121 透明全命中）；扩展 EXTENSION_MODE v2.0.1（⚠build-extension.py 输出路径硬编码旧版本号教训三犯——sed 后重打）；Release v2.0.1（id 383510090）三资产直链 SHA-256 ALL OK；文叔叔合并包 https://c.wss.ink/f/kt4xhcuo2ml（1 天过期）
+
+Stage Summary:
+- 结论：十项反馈全闭环且各有帧级实证；架构继续兑现「预设只写样式、宿主全包计算」——本轮宿主侧新增 harmonize 旧桥伪影守卫，用户只 Ctrl+F5 网页也能立刻全对，桥升级后源头更干净
+- 新律：①「连续量锚点重置必须用连续位置，raw 只属于新曲目」；②合成器对子帧未就绪的 iframe 一律白填充且发生在旧层树上——DOM 层叠拦不住，罩子必须在「关闭期间」就处于开启态（基态常开+激活时揭）才能盖住旧层树帧；③CSS 动画类在常驻元素上变化即重播——相位机里跨切换不得让动画类易值，开打瞬间定格；④子文档 color-scheme 决定合成器预绘制帧的底色；⑤rAF 渲染循环与交互态（drag）要互斥，否则预览被逐帧冲掉；⑥录屏取证要打时间戳放大关键横条，帧级实锤胜过一切推测
+- 待办：用户真机复测（桥 v1.4.0+新 .cshz+Ctrl+F5）；任务A/史7遗留/Edge 商店材料未动；Release v1.7.7 旧资产去留未决
