@@ -1,4 +1,4 @@
-# ChuShi SMTC Bridge v1.7.0 (embedded edition, ASCII-only)
+# ChuShi SMTC Bridge v1.7.1 (embedded edition, ASCII-only)
 # ============================================================
 # IMPORTANT: this file MUST stay pure ASCII (no CJK) so encoding can never
 # break it. It is embedded (base64) inside the ChuShi Lyric Source BetterNCM
@@ -13,6 +13,11 @@
 #   GET  /api/plugin/cmd     plugin fast command poll (seek latency <= 300ms)
 #   GET  /api/ping           liveness probe {ok,name,version}
 #
+# v1.7.1 changes:
+#   + /api/plugin/state heartbeat response now carries needLyric = <songId>
+#     when the current song has no lyric in this bridge's memory (bridge was
+#     restarted mid-song) - the plugin re-pushes its cached lyric on sight,
+#     so the panel never loses lyrics to a bridge restart.
 # v1.7.0 changes (one-file architecture):
 #   + /api/plugin/cmd fast command endpoint (plugin polls every 300ms)
 #   + version arbitration on port conflict: if the running bridge is same or
@@ -32,7 +37,7 @@ param(
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-$BRIDGE_VERSION = '1.7.0'
+$BRIDGE_VERSION = '1.7.1'
 
 # ---------- WinRT projection (Windows PowerShell 5.1 only) ----------
 if ($PSVersionTable.PSVersion.Major -ge 6) {
@@ -595,6 +600,13 @@ while ($true) {
         $cmdResp.title = [string]$c.title
         if ($c.id) { $cmdResp.id = [string]$c.id }
       }
+      # v1.7.1 lyric self-heal: if this bridge was restarted mid-song it lost
+      # the lyric payload; ask the plugin to re-push from its cache.
+      try {
+        if ($script:NeState -and $script:NeState.songId -gt 0 -and -not $script:NeLyricRev) {
+          $cmdResp.needLyric = [long]$script:NeState.songId
+        }
+      } catch { }
       Send-Json $res $cmdResp
       continue
     }
