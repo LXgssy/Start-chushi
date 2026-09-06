@@ -191,12 +191,15 @@ var E={aF:$("aF"),t1:$("t1"),t2:$("t2"),t3:$("t3"),bar:$("bar"),th:$("th"),
 var H={fl:248,em:92},LY_H=124;
 var DEF="asset:cover.svg";
 var snap=null,mode="em",lastKey="",drag=false,dragRatio=0;
+var lyHold=false; /* v2.3.1 歌词高度迟滞：同曲歌词暂时消失（桥重启丢词/重拉）
+   时面板高度不塌 124px —— 真机：歌词到位/消失反复横跳时面板 px 弹簧把
+   播放/暂停按钮大幅上下位移；只有换曲才重算 lyHold */
 var lyBox=E.ly,lyInr=null,lyEls=null,lyActive=-1,lyWords=null,lyMode=0,lyKey="__none__",lyRef=null;
 var mus=window.chushi&&window.chushi.music?window.chushi.music:null;
 function txt(el,v){if(el.textContent!==v)el.textContent=v}
 function fmt(s){s=Math.max(0,Math.floor(s));return Math.floor(s/60)+":"+(s%60<10?"0":"")+s%60}
 function hasLyric(){return !!(snap&&snap.lyric&&snap.lyric.lines&&snap.lyric.lines.length)}
-function hFor(){return mode==="fl"&&hasLyric()?H.fl+LY_H:H[mode]}
+function hFor(){return mode==="fl"&&(hasLyric()||lyHold)?H.fl+LY_H:H[mode]}
 function setMode(m){
   mode=m;card.className="card mode-"+m;
   $("em").classList.toggle("hd",m!=="em");
@@ -212,7 +215,7 @@ function buildLyric(){
   lyBox.innerHTML="";lyEls=[];lyWords=[];lyActive=-1;lyInr=null;
   if(!hasLyric()){lyBox.classList.add("hd");lyMode=0;return}
   var lines=snap.lyric.lines;lyMode=snap.lyric.mode;
-  lyBox.classList.remove("hd");
+  lyBox.classList.remove("hd");lyHold=true; /* 歌词在场 → 高度迟滞锚定 */
   lyInr=document.createElement("div");lyInr.className="lyin";lyBox.appendChild(lyInr);
   for(var i=0;i<lines.length;i++){
     var L=lines[i],ln=document.createElement("div");
@@ -256,6 +259,7 @@ function render(){
   var key=[s.title,s.artist,s.album,s.app].join("|");
   if(key!==lastKey){
     lastKey=key;
+    lyHold=hasLyric(); /* v2.3.1：换曲才重算高度迟滞（同曲丢词不塌高度） */
     var els=[E.t1,E.t2,E.t3];
     for(var i=0;i<els.length;i++){els[i].classList.remove("sw");void els[i].offsetWidth;els[i].classList.add("sw")}
   }

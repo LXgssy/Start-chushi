@@ -33,6 +33,12 @@
  *   ③ 暴露 pluginVer（插件版本）+ seekNote —— 面板页脚可诊断插件在场与版本，
  *      多组件版本漂移一眼可见。
  *
+ * v2.3.1（真机第 8 轮反馈：进度/歌词/时间冻死 0:00、播放态概率反转、WSH 弹窗）：
+ *   ① 零值两击守卫 —— 插件深位置后突报 ≈0 的样本延迟一拍再采纳（连续两拍或
+ *      本端刚 seek 到开头才信），播放态不在可疑零拍上翻转：单拍垃圾零样本
+ *      再也冻不住面板/掀不翻播放态（配合插件 v1.4.0 真值熔断双保险）。
+ *   ② needsUpdate 阈值升至桥 1.7.1 / 插件 1.4.0。
+ *
  * SMTC 是 Windows 系统级媒体会话（System Media Transport Controls）——
  * 网易云/QQ 音乐/Spotify/浏览器视频等任何注册 SMTC 的播放器都会出现；
  * 桥按「网易云优先 → 正在播放的会话 → 第一个会话」选择当前曲。
@@ -88,7 +94,7 @@ export interface SmtcState {
   pluginVer: string;
   /** seek 结果提示（v2.2.0；空串 = 无；「拖动未生效…」≈3.8s 后自动消失） */
   seekNote: string;
-  /** v2.3.0 组件过旧：桥 <1.7.0 或插件 <1.3.0 或插件不在场（面板显示升级芯片） */
+  /** v2.3.1 组件过旧：桥 <1.7.1 或插件 <1.4.0 或插件不在场（面板显示升级芯片） */
   needsUpdate: boolean;
 }
 
@@ -295,6 +301,12 @@ class SmtcClient {
   /** v2.2.0 seek 结果提示（3.8s 自动消失） */
   private seekNote = "";
   private seekNoteAt = 0;
+  /** v2.3.1 零值两击守卫：插件深位置后突报 ≈0 的样本须延迟一拍再采纳
+   *  （真机插件 v1.3.0 曾因错误媒体元素持续报 paused+0，配合绝对锚定把
+   *  面板钉死 0:00 / 播放态概率反转；插件侧已真值熔断，这里是宿主兑底） */
+  private neZeroStreak = 0;
+  private neLastPosSec = -1;
+  private neSongKey = "";
 
   getSnapshot(): SmtcState {
     return this.state;
@@ -573,12 +585,27 @@ class SmtcClient {
       neUsable = true;
       const neFresh = ne.ts > 0 ? Math.abs(Date.now() - ne.ts) <= 3000 : true;
       if (neFresh) {
-        /* v2.2.0 插件真值绝对锚定：插件在客户端内直读 el.currentTime（帧级真值），
-         * 每秒心跳把锚点重锚到真值——暂停/恢复/微 seek 的插值漂移不可能累积；
-         * 播放态也以元素为准（缓冲/过渡期 store/SMTC 可能短暂不一致） */
+        /* v2.2.0 插件真值绝对锚定：插件在客户端内直读播放器（帧级真值），
+         * 每秒心跳把锚点重锚到真值——暂停/恢复/微 seek 的插值漂移不可能累积。
+         * v2.3.1 零值两击守卫：深位置后突报 ≈0 的首拍不采纳（延迟一拍），
+         * 连续两拍或本端刚 seek 到开头才信——单拍垃圾零样本再也冻不住面板；
+         * 播放态同样不在可疑零拍上翻转（状态反转观感的宿主侧根因）。 */
         if (ne.durationMs > 0) t.duration = ne.durationMs / 1000;
-        if (ne.positionMs > 0 || !ne.playing) t.position = ne.positionMs / 1000;
-        t.playing = ne.playing;
+        const songKey = `${t.title}|${t.artist}`;
+        if (songKey !== this.neSongKey) {
+          this.neSongKey = songKey;
+          this.neZeroStreak = 0;
+          this.neLastPosSec = -1;
+        }
+        const posSec = ne.positionMs / 1000;
+        const zeroDrop = posSec < 0.8 && this.neLastPosSec > 3;
+        if (zeroDrop) this.neZeroStreak++; else this.neZeroStreak = 0;
+        const seekToStart =
+          !!this.seekHold && this.seekHold.pos <= 3 && Date.now() - this.seekHold.at < 4000;
+        const trustZero = !zeroDrop || this.neZeroStreak >= 2 || seekToStart;
+        if (posSec > 0 || trustZero) t.position = posSec;
+        if (!zeroDrop || trustZero) t.playing = ne.playing;
+        this.neLastPosSec = posSec;
       } else {
         /* 心跳过期：退回 v1.9.0 兑底语义（SMTC 值缺失时才用插件值） */
         if (t.duration <= 0 && ne.durationMs > 0) t.duration = ne.durationMs / 1000;
@@ -591,12 +618,13 @@ class SmtcClient {
     const coverRevNow = next.track?.coverRev ?? "";
     /* v2.3.0：pluginVer 不要求曲目匹配（插件在场即报——标题失配时页脚仍可诊断）；
      * seekNote/needsUpdate 变化也进签名（提示出现/消失都要广播）。
-     * needsUpdate：桥 <1.7.0（一体化桥由插件部署）或插件 <1.3.0（三级 seek 阶梯/
-     * 内嵌桥部署）或插件不在场 —— 面板直接给「升级插件」芯片，版本漂移从症状可见。 */
+     * needsUpdate：桥 <1.7.1（一体化桥由插件部署）或插件 <1.4.0（真值熔断/
+     * 部署读回校验/拉起退避）或插件不在场 —— 面板直接给「升级插件」芯片，
+     * 版本漂移从症状可见。 */
     const pluginVerNow = ne ? ne.v : "";
     const seekNoteNow = this.seekNote;
     const needsUpdateNow =
-      (next.connected && (!pluginVerNow || verLt(pluginVerNow, "1.3.0") || verLt(next.version, "1.7.0")));
+      (next.connected && (!pluginVerNow || verLt(pluginVerNow, "1.4.0") || verLt(next.version, "1.7.1")));
     const sig =
       stateSig({
         connected: next.connected,

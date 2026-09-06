@@ -16,10 +16,12 @@
  *   D. 直连 music.163.com/api/song/lyric → lrc/tlyric 行级
  * 歌词按 songId 缓存（内存 + localStorage，上限 8 首），切回最近曲目不重拉。
  *
- * 状态源（与旧「初始音乐桥」同技术，三源择优）：
- *   ① NCM 3.x dva Redux store（webpack4/5 双兼容捕获）
- *   ② legacyNativeCmder 原生事件（PlayState/PlayProgress/Seek）
- *   ③ 兜底：betterncm.ncm.getPlayingSong() + 媒体元素轮询（帧级进度主源）
+ * 状态源（v1.4.0 真值熔断：原生事件为主，媒体元素只作对齐校验）：
+ *   ① legacyNativeCmder 原生事件（PlayState/PlayProgress/Seek）——网易云自家
+ *      引擎直出，不会被流浪 video/预加载元素污染（主源）；
+ *   ② 媒体元素：仅当与原生期望位置对齐（≤1.5s）时采信其 currentTime（亚秒精度）；
+ *      原生事件缺失时才用评分制选元素兑底（v1.3.0 粘滞首中选元曾被预加载/
+ *      流浪元素污染，真机报出 paused+0 → 面板冻死 0:00 + 播放态反转）
  *
  * 本文件由 BetterNCMII(js-framework) 以 AsyncFunction("plugin", code) 调用执行，
  * 顶层即异步上下文。注入通道：manifest 的 injects.Main。
@@ -33,7 +35,7 @@
   const log = (...a) => console.log(TAG, ...a);
   const warn = (...a) => console.warn(TAG, ...a);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const PLUGIN_VERSION = "1.3.0";
+  const PLUGIN_VERSION = "1.4.0";
 
   /* ---------- 一体化服务（v1.3.0）：内嵌 SMTC 桥，抛弃独立桥文件 ----------
    * 桥 ps1/vbs 以 base64 内嵌（纯 ASCII，构建时注入），本插件负责：
@@ -43,7 +45,7 @@
    *        新实例自带版本仲裁：杀旧绑新/静默退出）→
    *   自启（桥启动时自写 Run 键指向部署位置，开机零窗口）。
    * 用户从此只装这一个 .plugin，版本漂移结构性消灭。 */
-  const EMBEDDED_BRIDGE_VERSION = "1.7.0";
+  const EMBEDDED_BRIDGE_VERSION = "1.7.1";
   const EMBEDDED_BRIDGE_PS1_B64 = "/*__BRIDGE_PS1_B64__*/";
   const EMBEDDED_BRIDGE_VBS_B64 = "/*__BRIDGE_VBS_B64__*/";
   const BRIDGE_DIR_REL = "chushi-bridge";
@@ -223,24 +225,62 @@
   } catch (e) { /* 默认端口 */ }
   const BRIDGE = `http://127.0.0.1:${bridgePort}`;
 
-  /* ---------- 内嵌桥：部署 / 拉起 / 监督（v1.3.0） ---------- */
+  /* ---------- 内嵌桥：部署 / 拉起 / 监督（v1.3.0 → v1.4.0 加固）----------
+   * v1.4.0 真机教训（用户机器策略拦截 + WSH 弹窗 0x80070312）：
+   *   a) 部分机器的策略/杀软会拦截 wscript→powershell 的进程创建——拉起改为
+   *      直启 powershell 优先（app.exec 默认隐藏窗口，不经 wscript 即无 WSH
+   *      错误弹窗）；VBS 也已加 On Error Resume Next 兜底静默。
+   *   b) 部署文件曾被写坏（真机 WSH 报第 17 行，仓库/内嵌均只有 14 行）——
+   *      部署后必须读回校验：内容一致才跳过重写（防追加语义污染），读回
+   *      不一致绝不拉起（宁可桥不在线，也不弹损坏脚本错误框）。
+   *   c) 拉起失败无退避会每 20s 弹窗/拉进程——失败按 20/40/80/120s 封顶退避。 */
   let bridgeDeployed = false;
   let bridgeSpawnFails = 0;
   let bridgeRunningVer = "";
+  let lastSpawnAt = 0;
+  const PS1_NAME = "chushi-bridge.ps1";
+  const VBS_NAME = "chushi-bridge-launch.vbs";
   function versionLt(a, b) {
     const pa = String(a || "").split(".").map((n) => parseInt(n, 10) || 0);
     const pb = String(b || "").split(".").map((n) => parseInt(n, 10) || 0);
     for (let i = 0; i < 3; i++) { const x = pa[i] || 0, y = pb[i] || 0; if (x !== y) return x < y; }
     return false;
   }
+  async function fsReadRel(rel) {
+    try {
+      if (window.betterncm && window.betterncm.fs && typeof window.betterncm.fs.readFileText === "function") {
+        return await window.betterncm.fs.readFileText(rel);
+      }
+    } catch (e) { /* 读不到按 null 处理 */ }
+    return null;
+  }
   async function deployBridge() {
     try {
       if (!window.betterncm || !window.betterncm.fs) return false;
       try { await window.betterncm.fs.mkdir(BRIDGE_DIR_REL); } catch (e) { /* 已存在 */ }
       const bin = atob(EMBEDDED_BRIDGE_PS1_B64);
-      await window.betterncm.fs.writeFileText(BRIDGE_DIR_REL + "/chushi-bridge.ps1", bin);
       const vb = atob(EMBEDDED_BRIDGE_VBS_B64);
-      await window.betterncm.fs.writeFileText(BRIDGE_DIR_REL + "/chushi-bridge-launch.vbs", vb);
+      const canVerify = typeof window.betterncm.fs.readFileText === "function";
+      for (const [name, content] of [[PS1_NAME, bin], [VBS_NAME, vb]]) {
+        const rel = BRIDGE_DIR_REL + "/" + name;
+        if (!canVerify) {
+          /* 旧版 BetterNCM 无 readFileText：退化为盲写一次（v1.3.0 行为） */
+          try { await window.betterncm.fs.writeFileText(rel, content); } catch (e) { warn("桥部署写入失败", name, e); return false; }
+          continue;
+        }
+        let cur = await fsReadRel(rel);
+        if (cur === content) continue; /* 已是正确内容：跳过重写（防追加语义污染） */
+        for (let attempt = 0; attempt < 2 && cur !== content; attempt++) {
+          try { await window.betterncm.fs.writeFileText(rel, content); } catch (e) { warn("桥部署写入失败", name, e); }
+          cur = await fsReadRel(rel);
+        }
+        if (cur !== content) {
+          /* 读回不一致 = 磁盘视图异常（追加/编码/占用）：绝不拉起——
+             宁可桥暂不在线（宿主 SMTC 兜底），也不让 wscript 弹损坏脚本的框 */
+          warn("桥部署读回校验失败，本轮不拉起", name);
+          return false;
+        }
+      }
       bridgeDeployed = true;
       return true;
     } catch (e) { warn("桥部署失败", e); return false; }
@@ -261,28 +301,44 @@
       if (!window.betterncm || !window.betterncm.app || !window.betterncm.app.exec) { bridgeSpawnFails++; return false; }
       const dp = await window.betterncm.app.getDataPath();
       const dir = String(dp || "").replace(/[\\/]+$/, "") + "\\" + BRIDGE_DIR_REL;
+      const ps1 = dir + "\\" + PS1_NAME;
+      const vbs = dir + "\\" + VBS_NAME;
+      lastSpawnAt = Date.now();
       let ok = false;
-      try { ok = await window.betterncm.app.exec('wscript.exe "' + dir + '\\chushi-bridge-launch.vbs"'); } catch (e) { ok = false; }
+      /* v1.4.0：直启 powershell 优先（app.exec 默认隐藏窗口；不经 wscript
+         即不会产生 WSH 错误弹窗），wscript 仅作兑底（VBS 已 On Error 静默化） */
+      try { ok = await window.betterncm.app.exec('powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + ps1 + '"'); } catch (e) { ok = false; }
       if (!ok) {
-        const ps1 = dir + "\\chushi-bridge.ps1";
-        try { ok = await window.betterncm.app.exec('powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + ps1 + '"'); } catch (e) { ok = false; }
+        try { ok = await window.betterncm.app.exec('wscript.exe "' + vbs + '"'); } catch (e) { ok = false; }
       }
       if (ok) bridgeSpawnFails = 0; else bridgeSpawnFails++;
       log("桥拉起 ->", ok);
       return !!ok;
     } catch (e) { warn("桥拉起异常", e); bridgeSpawnFails++; return false; }
   }
+  function spawnBackoffMs() {
+    /* 20s → 40s → 80s → 封顶 120s：拉起被策略拦截时不再每 20s 弹一次窗 */
+    return Math.min(120000, 20000 * Math.pow(2, Math.min(3, bridgeSpawnFails)));
+  }
   async function superviseBridge() {
     try {
       const ver = await pingBridge();
       bridgeRunningVer = ver;
-      if (ver && !versionLt(ver, EMBEDDED_BRIDGE_VERSION)) { bridgeSpawnFails = 0; return; }
+      if (ver && !versionLt(ver, EMBEDDED_BRIDGE_VERSION)) { bridgeSpawnFails = 0; lastSpawnAt = 0; return; }
       /* 不可达或版本旧 → 重新部署最新内嵌版并拉起（新实例自带版本仲裁：
-         若端口被同版本或更新版本占用则静默退出，被旧版占用则杀旧绑新） */
+         若端口被同版本或更新版本占用则静默退出，被旧版占用则杀旧绑新）。
+         v1.4.0：失败退避节流（上一次拉起尝试后未满退避窗则本轮跳过），
+         真机策略拦截场景不再以 20s 周期反复触发进程创建/弹窗 */
+      if (lastSpawnAt && Date.now() - lastSpawnAt < spawnBackoffMs()) return;
       const ok = await deployBridge();
-      if (!ok) return;
+      if (!ok) { bridgeSpawnFails++; return; }
       await spawnBridge();
-      setTimeout(async () => { bridgeRunningVer = await pingBridge(); log("桥健康检查 ->", bridgeRunningVer || "不可达"); }, 2500);
+      setTimeout(async () => {
+        bridgeRunningVer = await pingBridge();
+        log("桥健康检查 ->", bridgeRunningVer || "不可达");
+        /* 拉起后仍不可达/版本旧：计一次失败驱动退避（exec 返回值不代表桥真的起来了） */
+        if (!bridgeRunningVer || versionLt(bridgeRunningVer, EMBEDDED_BRIDGE_VERSION)) bridgeSpawnFails++;
+      }, 2500);
     } catch (e) { /* 忽略 */ }
   }
   setTimeout(superviseBridge, 2000);
@@ -306,7 +362,10 @@
   let store = null;
   let getPlayingSong = null;
   let lastPlaying = false;
+  let lastPlayingAt = 0;
   let lastProgressMs = 0;
+  let lastProgressAt = 0;
+  let lastSeekAt = 0;
   let lastSongId = 0;
   let disposed = false;
   const installedAt = Date.now();
@@ -320,23 +379,41 @@
     }
   } catch (e) { /* 兜底不可用则跳过 */ }
 
-  /* ---------- 媒体元素选择（v1.3.0 粘滞强化） ----------
-   * 旧版 els[0] 兑底在换源/缓冲过场会命中预加载空元素（currentTime=0），
-   * 真值心跳把 0 报给宿主 → 恢复播放后进度/歌词错位。现在：
-   * 活跃元素（有时长或在播）优先并记住；短暂缺失时 5s 内粘滞用旧元素。 */
-  let stickyEl = null;
-  let stickyAt = 0;
-  function mediaEl() { return document.querySelector("video,audio"); }
-  function mediaElStrict() {
+  /* ---------- 媒体真值（v1.4.0 熔断重构）----------
+   * 主源 = legacyNativeCmder 原生事件（网易云自家引擎直出，不可能被
+   * 流浪 video / 预加载元素污染）：PlayState→lastPlaying(At)、
+   * PlayProgress→lastProgressMs(At)。
+   * 媒体元素降级为「对齐校验」：与原生期望位置差 ≤1.5s 才采信其
+   * currentTime（补亚秒精度）；原生事件缺失（老客户端无 cmder）时才用
+   * 评分制选元素兑底（对齐分优先，平分 DOM 靠前者胜——主播放器在 DOM
+   * 首位是 v2.2.0 真机实证基线）。
+   * v1.3.0 的「粘滞 + 首中即选」会粘住预加载/流浪元素，真机报出
+   * paused+0 → 宿主绝对锚定把面板钉死 0:00 / 播放态概率反转，废除。 */
+  function nativeExpectMs(nowMs) {
+    if (!lastProgressAt) return -1;
+    const drift = lastPlaying && lastPlayingAt ? Math.min(2000, Math.max(0, nowMs - Math.max(lastProgressAt, lastPlayingAt))) : 0;
+    return lastProgressMs + drift;
+  }
+  function pickMediaEl(nowMs) {
     try {
       const els = Array.from(document.querySelectorAll("video,audio"));
-      const active = els.find((e) => e && (e.duration > 0 || e.paused === false)) || null;
-      if (active) {
-        if (active !== stickyEl) { stickyEl = active; stickyAt = Date.now(); }
-        return active;
+      if (!els.length) return null;
+      const expectMs = nativeExpectMs(nowMs);
+      let best = null, bestS = -1e9;
+      for (const e of els) {
+        if (!e) continue;
+        let s = 0;
+        if (e.duration > 0 && isFinite(e.duration)) s += 2;
+        if (e.paused === false) s += 4;
+        if ((e.currentTime || 0) > 0.2) s += 1;
+        if (expectMs >= 0 && isFinite(e.currentTime)) {
+          const diff = Math.abs(e.currentTime * 1000 - expectMs);
+          if (diff < 1500) s += 12 - Math.min(8, diff / 200);
+          else s -= Math.min(10, diff / 1000);
+        }
+        if (s > bestS) { bestS = s; best = e; } /* 平分时 DOM 靠前者胜出 */
       }
-      if (stickyEl && Date.now() - stickyAt < 5000) return stickyEl;
-      return els[0] || null;
+      return best;
     } catch (e) { return null; }
   }
   function httpsUp(u) {
@@ -347,18 +424,36 @@
     }
     return s;
   }
-  /* 状态快照：媒体元素进度为帧级主源（逐字歌词对时需要），事件与 store 补充元信息 */
+  /* 状态快照（v1.4.0 真值熔断）：
+   *   playing = 原生 PlayState 主源（新鲜 ≤5s）；无原生时才信元素 paused；
+   *   positionMs = 原生期望位置为主，元素对齐（≤1.5s）时用元素值补亚秒精度；
+   *   深位置突现 ≈0 且 5s 内无本端 seek → 判为垃圾样本丢弃（沿用原生进度）；
+   *   durationMs = store curTrack（歌锚定）优先，对齐元素时长只作兑底——
+   *   错误元素的 duration 是下一首的，绝不能当当前歌时长上报。 */
   function buildSnapshot() {
-    const el = mediaElStrict();
-    let playing = lastPlaying;
-    let posMs = lastProgressMs;
-    let durMs = 0;
-    if (el) {
-      playing = el.paused === false;
-      posMs = Math.floor((el.currentTime || 0) * 1000);
-      durMs = el.duration > 0 ? Math.floor(el.duration * 1000) : 0;
+    const nowMs = Date.now();
+    const el = pickMediaEl(nowMs);
+    const expectMs = nativeExpectMs(nowMs);
+    let playing;
+    if (lastPlayingAt && nowMs - lastPlayingAt < 5000) playing = lastPlaying;
+    else if (el) playing = el.paused === false;
+    else playing = lastPlaying;
+    let posMs = 0, posAligned = false;
+    if (el && isFinite(el.currentTime)) {
+      if (expectMs >= 0) {
+        if (Math.abs(el.currentTime * 1000 - expectMs) < 1500) { posMs = Math.floor(el.currentTime * 1000); posAligned = true; }
+        else posMs = expectMs; /* 元素与原生期望脱钩（错误元素/换源过场）：不信元素 */
+      } else { posMs = Math.floor(el.currentTime * 1000); posAligned = true; }
+    } else if (expectMs >= 0) posMs = expectMs;
+    /* 垃圾零值熔断：对齐样本突报 ≈0（错误元素/缓冲过场）而原生进度深在
+       前方、5s 内无本端 seek → 丢弃该读数，沿用原生进度（真机「播放时间
+       显示 0 + 进度/歌词冻死」的直接根因就在这条路径上） */
+    if (posMs < 800 && lastProgressMs > 3000 && nowMs - lastSeekAt > 5000) {
+      posMs = Math.max(expectMs, lastProgressMs);
+      posAligned = false;
     }
     let song = null;
+    let durMs = 0;
     try {
       if (store) {
         const p = store.getState().playing || {};
@@ -371,10 +466,7 @@
             album: (p.curTrack && p.curTrack.album && (p.curTrack.album.albumName || p.curTrack.album.name)) || "",
             cover: httpsUp(p.resourceCoverUrl || (p.curTrack && p.curTrack.album && p.curTrack.album.picUrl) || ""),
           };
-          if (durMs <= 0 && p.curTrack && p.curTrack.duration > 0) durMs = p.curTrack.duration;
-          /* v1.2.0：不再用 store.playingState 覆写 el.paused——媒体元素才是音频真值，
-             缓冲/切歌过渡期两者可能短暂不一致，以元素为准才能保证宿主侧
-             「插件真值绝对锚定」零漂移（旧逻辑在过渡期会把冻结位置当播放中插值） */
+          if (p.curTrack && p.curTrack.duration > 0) durMs = Math.floor(p.curTrack.duration);
         }
       }
       if (!song && getPlayingSong) {
@@ -387,17 +479,21 @@
             album: (d.album && (d.album.name || d.album.albumName)) || "",
             cover: httpsUp((d.album && d.album.picUrl) || ""),
           };
-          if (durMs <= 0 && d.duration > 0) durMs = d.duration;
+          if (d.duration > 0) durMs = Math.floor(d.duration);
         }
       }
     } catch (e) { /* 状态降级 */ }
+    if (durMs <= 0 && posAligned && el && el.duration > 0 && isFinite(el.duration)) {
+      /* 仅对齐元素（=确认是当前歌的元素）的时长才可作兑底 */
+      durMs = Math.floor(el.duration * 1000);
+    }
     if (song && song.id) lastSongId = Number(song.id) || lastSongId;
     return {
       song,
       playing,
-      positionMs: Math.max(0, posMs),
+      positionMs: Math.max(0, Math.floor(posMs)),
       durationMs: Math.max(0, durMs),
-      ts: Date.now(),
+      ts: nowMs,
     };
   }
 
@@ -448,6 +544,9 @@
     const resp = await postJson("/api/plugin/state", body);
     const ok = !!resp;
     if (ok && resp && resp.cmd) applyBridgeCmd(resp, snap);
+    /* v1.4.0 歌词自愈：桥重启后会丢掉内存里的歌词，心跳应答带
+       needLyric=<songId>；插件有缓存则补推，无缓存则触发拉取 */
+    if (ok && resp && resp.needLyric) rePushLyric(Number(resp.needLyric));
     if (ok && !bridgeAlive) { bridgeAlive = true; log("桥已连通"); }
   }
   /* ---------- 桥下发命令（v1.1.0 心跳应答 / v1.2.0 dispatch / v1.3.0 三级阶梯）----------
@@ -459,26 +558,38 @@
      每级 420ms 后用 el.currentTime 实测校验；全部未生效则 seekAck ok:false
      如实回报（宿主弹回进度条并提示，绝不假装已跳转）。 */
   let lastSeekAck = null; // {id, ok, pos, at} —— 随心跳上报，宿主据此快速确认
+  /* v1.4.0：channel 路线健康闸——真机若 audioplayer.seek 的参数形态在本版
+     客户端上会打断播放（seek 后 2s 内播放态翻停），本会话永久禁用 channel
+     路线并持久化，后续 seek 走 dispatch/元素路线，绝不反复伤害播放 */
+  let channelDisabled = false;
+  let channelSeekAt = 0;
+  let channelPlayingBefore = false;
+  try { channelDisabled = localStorage.getItem("chushi-channel-seek-disabled") === "1"; } catch (e) {}
   function normTitle(s) {
     return String(s || "").toLowerCase().replace(/[\s\-_·・()（）\[\]【】「」『』,，。、!！?？~～'\"＂]/g, "");
   }
   function channelSeek(songId, pos) {
     try {
       if (!songId || !window.channel || typeof window.channel.call !== "function") return false;
+      if (channelDisabled) return false; /* 健康闸：曾打断过播放则本会话不再走 */
+      channelSeekAt = Date.now();
+      channelPlayingBefore = lastPlaying;
       const tag = songId + "|seek|" + Math.random().toString(36).substring(6);
       window.channel.call("audioplayer.seek", function () {}, [songId, tag, pos]);
       return true;
     } catch (e) { return false; }
   }
   function seekVerify(seekId, pos, el, stage, round) {
-    /* stage: 0=channel 1=dispatch 2=element */
+    /* stage: 0=channel 1=dispatch 2=element
+       v1.4.0：验证基准改用 buildSnapshot() 的熔断后真值（与宿主看到的一致），
+       不再裸读可能选错元素的 el.currentTime */
     setTimeout(function () {
       if (disposed) return;
-      let cur = 0;
-      try { cur = (mediaElStrict() || el).currentTime || 0; } catch (e) { cur = 0; }
-      if (Math.abs(cur - pos) <= 1.2) {
+      const curMs = buildSnapshot().positionMs || 0;
+      if (Math.abs(curMs / 1000 - pos) <= 1.2) {
         lastSeekAck = { id: seekId, ok: true, pos: pos, at: Date.now() };
         lastProgressMs = Math.floor(pos * 1000);
+        lastProgressAt = Date.now();
         pushState(true).catch(function () {});
         log("seek 生效（" + (stage === 0 ? "channel" : stage === 1 ? "dispatch" : "element") + "）-> " + pos.toFixed(1) + "s");
         return;
@@ -489,8 +600,9 @@
         return;
       }
       if (stage === 1) {
-        try { el.currentTime = pos; } catch (e) {}
+        try { const el2 = pickMediaEl(Date.now()) || el; if (el2) el2.currentTime = pos; } catch (e) {}
         lastProgressMs = Math.floor(pos * 1000);
+        lastProgressAt = Date.now();
         seekVerify(seekId, pos, el, 2, 0);
         return;
       }
@@ -511,17 +623,19 @@
         const a = normTitle(cur), b = normTitle(resp.title);
         if (a && b && !(a.includes(b) || b.includes(a))) return; // 已切歌，丢弃旧命令
       }
-      const el = mediaElStrict();
-      if (!el) return;
-      if (el.duration && isFinite(el.duration) && pos > el.duration) return;
       const songId = (snap && snap.song && Number(snap.song.id)) || lastSongId || 0;
+      /* 时长闸用快照时长（歌锚定）——v1.3.0 用 el.duration 会被错误元素的
+         「下一首时长」误杀合法 seek */
+      if (snap && snap.durationMs > 0 && pos * 1000 > snap.durationMs + 500) return;
+      lastSeekAt = Date.now();
       const viaChannel = channelSeek(songId, pos);
       if (!viaChannel) {
         try { if (store) store.dispatch({ type: "playing/setPlayingPosition", payload: { duration: pos } }); } catch (e) { warn("dispatch 失败", e); }
       }
       lastProgressMs = Math.floor(pos * 1000);
+      lastProgressAt = Date.now();
       pushState(true).catch(function () {});
-      seekVerify(seekId, pos, el, viaChannel ? 0 : 1, 0);
+      seekVerify(seekId, pos, pickMediaEl(Date.now()), viaChannel ? 0 : 1, 0);
       log("桥命令 seek -> " + pos.toFixed(1) + "s（" + (viaChannel ? "channel" : "dispatch") + " 路线）");
     } catch (e) {}
   }
@@ -535,14 +649,25 @@
     if (cmder && cmder.appendRegisterCall) {
       cmder.appendRegisterCall("PlayState", "audioplayer", function (playId, idStr, state) {
         lastPlaying = state === 1;
+        lastPlayingAt = Date.now();
+        /* v1.4.0 channel 健康闸：seek 后 2s 内播放态意外翻停 = channel 路线
+           打断了播放 → 本会话禁用并持久化 */
+        if (!lastPlaying && channelSeekAt && Date.now() - channelSeekAt < 2000 && channelPlayingBefore) {
+          channelDisabled = true;
+          channelSeekAt = 0;
+          try { localStorage.setItem("chushi-channel-seek-disabled", "1"); } catch (e) {}
+          warn("channel seek 后播放中断：本会话禁用 channel 路线");
+        }
         pushState(true).catch(() => {});
       });
       cmder.appendRegisterCall("PlayProgress", "audioplayer", function (playId, sec) {
-        if (typeof sec === "number" && sec >= 0) lastProgressMs = Math.floor(sec * 1000);
+        if (typeof sec === "number" && sec >= 0) { lastProgressMs = Math.floor(sec * 1000); lastProgressAt = Date.now(); }
       });
       cmder.appendRegisterCall("Seek", "audioplayer", function (playId, seekId, code, pos) {
         if (typeof pos === "number" && pos >= 0) {
           lastProgressMs = Math.floor(pos * 1000);
+          lastProgressAt = Date.now();
+          lastSeekAt = Date.now();
           pushState(true).catch(() => {});
         }
       });
@@ -793,6 +918,20 @@
       if (ok) { lyricRetryPayload = null; }
     }
   }, 5000);
+  /* v1.4.0 歌词自愈：桥心跳应答 needLyric=<songId>（桥重启丢词）时补推。
+     有缓存直接补推；缓存也没有（极端：刚清库）则交给 ensureLyric 拉取。
+     curLyricSongId 相同的早退不拦这里——补推走的是独立通道。 */
+  function rePushLyric(songId) {
+    try {
+      if (!songId || disposed || lyricInflight) return;
+      const payload = lyricCache.get(songId) || null;
+      if (payload) {
+        post("/api/plugin/lyric", payload).then((ok) => { if (ok) log("桥缺词已补推", songId); }).catch(() => {});
+      } else {
+        ensureLyric().catch(() => {});
+      }
+    } catch (e) { /* 忽略 */ }
+  }
 
   /* ---------- 配置面（NCM 插件管理器） ---------- */
   try {
