@@ -35,7 +35,7 @@
   const log = (...a) => console.log(TAG, ...a);
   const warn = (...a) => console.warn(TAG, ...a);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const PLUGIN_VERSION = "1.5.0";
+  const PLUGIN_VERSION = "1.5.1";
 
   /* ---------- 一体化服务（v1.3.0）：内嵌 SMTC 桥，抛弃独立桥文件 ----------
    * 桥 ps1/vbs 以 base64 内嵌（纯 ASCII，构建时注入），本插件负责：
@@ -433,6 +433,9 @@
   let lastReportedAt = 0;
   let lastReportedPlaying = false;
   let storeDisagreeSince = 0;   /* store.paused 与 lastPlaying 矛盾起点（0=无矛盾） */
+  let lastEvAt = 0;            /* 最近一次原生进度事件时刻——seek 验证的独立证据 */
+  let seekPending = null;      /* v1.5.1 进行中的 seek {id,posMs,songId,at,displayUntil,preTruthMs,dispatchDone,writeDone,verdict} */
+  let seekHistory = [];        /* v1.5.1 最近 seek 裁决（诊断用，保留 8 条） */
   let disposed = false;
   const installedAt = Date.now();
   log("加载中 v" + PLUGIN_VERSION, "→ 桥", BRIDGE);
@@ -679,13 +682,24 @@
     const snap = buildSnapshot();
     lastPlaying = snap.playing;
     if (snap.durationMs > 0 && snap.positionMs > snap.durationMs) snap.positionMs = snap.durationMs;
+    /* v1.5.1 seek 显示语义：命令等待验证期间（≤2.5s，同曲目）对外发布乐观目标位置，
+       进度条即时到位不闪跳；lastReportedPosMs（倒退熔断基准）与 seekAck 只认真值——
+       乐观值绝不写进熔断基准，验证失败弹回真值时不会被倒退熔断误杀。 */
+    let optPublish = false;
+    const pend = seekPending;
+    if (pend && !pend.verdict && Date.now() < pend.displayUntil && snap.song && Number(snap.song.id) === pend.songId) {
+      snap.positionMs = pend.posMs;
+      optPublish = true;
+    }
     const sig = JSON.stringify([snap.song && snap.song.id, snap.playing, snap.positionMs, snap.durationMs]);
     if (!force && sig === lastStateSig) return;
     lastStateSig = sig;
-    /* v1.5.0 上拍上报记忆（倒退熔断基准）：只记「真的发出去」的值 */
-    lastReportedPosMs = snap.positionMs;
-    lastReportedAt = Date.now();
-    lastReportedPlaying = snap.playing;
+    if (!optPublish) {
+      /* 上拍上报记忆（倒退熔断基准）：只记「真的发出去」的真值 */
+      lastReportedPosMs = snap.positionMs;
+      lastReportedAt = Date.now();
+      lastReportedPlaying = snap.playing;
+    }
     /* v1.2.0：心跳捎带插件版本（宿主/面板可诊断插件在场与版本）与最近一次
        seek 执行结果（seekAck）——桥透传给宿主做 seek 快速确认 */
     const body = Object.assign({}, snap, { v: PLUGIN_VERSION, seekAck: lastSeekAck });
@@ -706,59 +720,117 @@
      每级 420ms 后用 el.currentTime 实测校验；全部未生效则 seekAck ok:false
      如实回报（宿主弹回进度条并提示，绝不假装已跳转）。 */
   let lastSeekAck = null; // {id, ok, pos, at} —— 随心跳上报，宿主据此快速确认
-  /* v1.4.0：channel 路线健康闸——真机若 audioplayer.seek 的参数形态在本版
-     客户端上会打断播放（seek 后 2s 内播放态翻停），本会话永久禁用 channel
-     路线并持久化，后续 seek 走 dispatch/元素路线，绝不反复伤害播放 */
+  /* v1.4.0：channel 路线健康闸——真机若 audioplayer.seek 参数形态在本版客户端上会
+     打断播放（seek 后 2s 内播放态翻停），本会话永久禁用 channel 路线并持久化 */
   let channelDisabled = false;
   let channelSeekAt = 0;
   let channelPlayingBefore = false;
   try { channelDisabled = localStorage.getItem("chushi-channel-seek-disabled") === "1"; } catch (e) {}
   function normTitle(s) {
-    return String(s || "").toLowerCase().replace(/[\s\-_·・()（）\[\]【】「」『』,，。、!！?？~～'\"＂]/g, "");
+    return String(s || "").toLowerCase().replace(/[\s\-_·・()（）\[\]【】「」『』,，。、!！?？~～'"＂]/g, "");
   }
+  /* v1.5.1 channel 回调捕获：NCM channel 异步应答经回调返回——旧版直接丢弃，
+     既无法得知原生拒绝原因，也无法在真机上核对参数契约。现在记日志并在
+     __seekDebug 暴露（对应 AI-HANDOFF 任务 A：实抓 audioplayer.seek 真实参数形态）。 */
   function channelSeek(songId, pos) {
     try {
       if (!songId || !window.channel || typeof window.channel.call !== "function") return false;
-      if (channelDisabled) return false; /* 健康闸：曾打断过播放则本会话不再走 */
+      if (channelDisabled) return false;
       channelSeekAt = Date.now();
       channelPlayingBefore = lastPlaying;
       const tag = songId + "|seek|" + Math.random().toString(36).substring(6);
-      window.channel.call("audioplayer.seek", function () {}, [songId, tag, pos]);
+      window.channel.call(
+        "audioplayer.seek",
+        function (err, res) {
+          if (err) warn("channel seek 应答 err:", err && (err.message || err));
+          else if (res && typeof res === "object" && res.ok === false) warn("channel seek 应答 rejected:", res);
+          else if (res !== undefined && res !== null) log("channel seek 应答 ok", res);
+        },
+        [songId, tag, pos]
+      );
       return true;
-    } catch (e) { return false; }
+    } catch (e) { warn("channel seek 调用异常", e); return false; }
   }
-  function seekVerify(seekId, pos, el, stage, round) {
-    /* stage: 0=channel 1=dispatch 2=element
-       v1.4.0：验证基准改用 buildSnapshot() 的熔断后真值（与宿主看到的一致），
-       不再裸读可能选错元素的 el.currentTime */
-    setTimeout(function () {
-      if (disposed) return;
-      const curMs = buildSnapshot().positionMs || 0;
-      if (Math.abs(curMs / 1000 - pos) <= 1.2) {
-        lastSeekAck = { id: seekId, ok: true, pos: pos, at: Date.now() };
-        lastProgressMs = Math.floor(pos * 1000);
-        lastProgressAt = Date.now();
-        pushState(true).catch(function () {});
-        log("seek 生效（" + (stage === 0 ? "channel" : stage === 1 ? "dispatch" : "element") + "）-> " + pos.toFixed(1) + "s");
+  function channelDispatch(posSec) {
+    /* v1.5.1：dispatch payload 改回数值秒（与动作注释一致）。旧版传 {duration: pos}
+       对象——若 NCM reducer 期望数值秒，store.playing.position 会被写坏，网易云自家
+       （store 驱动）进度条可能冻结/错乱，即「本体进度条不动」的宿敌路径之一。 */
+    try {
+      if (!store) return false;
+      store.dispatch({ type: "playing/setPlayingPosition", payload: Number(posSec) });
+      return true;
+    } catch (e) { warn("dispatch 失败", e); return false; }
+  }
+  /* v1.5.1 seek 真值监听（根治「拖动无效却假确认 → 时间/歌词错乱」）：
+   *   旧病根：发起 seek 后立即 lastProgressMs=目标 → nativeExpectMs 随之等于目标，
+   *   buildSnapshot 在元素未对齐时采信原生期望 → 验证永远「成功」（self-fulfilling）。
+   *   真实播放器没动时 seekAck ok:true 照样上报 → 宿主假确认 → 显示时间锚在假位置，
+   *   下一拍真事件回落后时间「跳变」、逐字歌词按假位置对齐、回弹真值还被倒退熔断
+   *   当垃圾丢弃。
+   *   新实现：lastProgressMs/At 只由原生事件（PlayProgress/Seek）或元素真值更新；
+   *   seek 的乐观展示位单独存在 seekPending（pushState 发布，≤2.5s）；验证只看
+   *   「发起 seek 之后到来的独立证据」：
+   *     a) 原生进度事件把真值带到目标附近（channel/dispatch 生效的直接证据）；
+   *     b) 元素 currentTime 到达目标（直写生效 / 播放器实际跟随）。
+   *   2s 内无任何证据 → ack ok:false + 以真值推拍（宿主诚实弹回 + 「拖动未生效」芯片）。 */
+  function startSeekWatch(seekId, posSec, targetMs) {
+    const began = Date.now();
+    function step() {
+      const pend = seekPending;
+      if (!pend || pend.id !== seekId || pend.verdict) return;
+      const nowMs = Date.now();
+      let ev = false;
+      if (lastEvAt >= pend.at && lastProgressMs >= 0) {
+        ev = Math.abs(lastProgressMs - targetMs) <= 1200;
+      }
+      let elHit = false;
+      try {
+        const elNow = elLock || pickMediaEl(nowMs);
+        if (elNow && elNow.isConnected !== false && isFinite(elNow.currentTime)) {
+          elHit = Math.abs(elNow.currentTime * 1000 - targetMs) <= 1200;
+        }
+      } catch (e) { elHit = false; }
+      if (ev || elHit) {
+        if (elHit && !ev && lastProgressMs !== targetMs) {
+          lastProgressMs = targetMs; lastProgressAt = nowMs; /* 元素真值 = 播放器实际位置 */
+        }
+        log("seek 生效（" + (ev ? "native 事件" : "元素真值") + "）-> " + posSec.toFixed(1) + "s");
+        ackSeek(seekId, true, targetMs);
         return;
       }
-      if (stage === 0) {
-        try { if (store) store.dispatch({ type: "playing/setPlayingPosition", payload: { duration: pos } }); } catch (e) { warn("dispatch 失败", e); }
-        seekVerify(seekId, pos, el, 1, 0);
-        return;
+      const elapsed = nowMs - began;
+      if (!pend.dispatchDone && elapsed >= 420) {
+        pend.dispatchDone = true;
+        if (channelDispatch(posSec)) log("seek 降级 dispatch -> " + posSec.toFixed(1) + "s");
       }
-      if (stage === 1) {
-        try { const el2 = pickMediaEl(Date.now()) || el; if (el2) el2.currentTime = pos; } catch (e) {}
-        lastProgressMs = Math.floor(pos * 1000);
-        lastProgressAt = Date.now();
-        seekVerify(seekId, pos, el, 2, 0);
-        return;
+      if (!pend.writeDone && elapsed >= 900) {
+        pend.writeDone = true;
+        try {
+          const w = elLock || pickMediaEl(Date.now());
+          if (w && w.isConnected !== false && isFinite(w.currentTime)) {
+            w.currentTime = posSec;
+            log("seek 降级元素直写 -> " + posSec.toFixed(1) + "s");
+          }
+        } catch (e) { warn("元素直写失败", e); }
       }
-      if (round < 2) { seekVerify(seekId, pos, el, stage, round + 1); return; } // 客户端 seek 异步，再等一拍
-      lastSeekAck = { id: seekId, ok: false, pos: pos, at: Date.now() };
-      pushState(true).catch(function () {});
-      warn("seek 三级均未生效 pos=" + pos.toFixed(1));
-    }, 420);
+      if (elapsed >= 2000) { ackSeek(seekId, false, targetMs); return; }
+      setTimeout(step, 200);
+    }
+    setTimeout(step, 200);
+  }
+  function ackSeek(seekId, ok, targetMs) {
+    const pend = seekPending;
+    if (!pend || pend.id !== seekId) return;
+    lastSeekAck = { id: seekId, ok: !!ok, pos: targetMs / 1000, at: Date.now() };
+    if (ok && Math.abs(lastProgressMs - targetMs) > 1200) {
+      lastProgressMs = targetMs; lastProgressAt = Date.now(); /* 证据已确认，兜底校准真值 */
+    }
+    seekHistory.push({ at: Date.now(), ok: !!ok, posMs: targetMs, songId: pend.songId });
+    if (seekHistory.length > 8) seekHistory.shift();
+    pend.verdict = true;
+    seekPending = null;
+    if (!ok) warn("seek 未生效 pos=" + (targetMs / 1000).toFixed(1) + "（已如实回报，宿主将弹回真实进度）");
+    pushState(true).catch(function () {});
   }
   function applyBridgeCmd(resp, snap) {
     try {
@@ -772,20 +844,27 @@
         if (a && b && !(a.includes(b) || b.includes(a))) return; // 已切歌，丢弃旧命令
       }
       const songId = (snap && snap.song && Number(snap.song.id)) || lastSongId || 0;
-      /* 时长闸用快照时长（歌锚定）——v1.3.0 用 el.duration 会被错误元素的
-         「下一首时长」误杀合法 seek */
+      /* 时长闸用快照时长（歌锚定）——错误元素/下一首时长不再误杀合法 seek */
       if (snap && snap.durationMs > 0 && pos * 1000 > snap.durationMs + 500) return;
-      lastSeekAt = Date.now();
-      const viaChannel = channelSeek(songId, pos);
-      if (!viaChannel) {
-        try { if (store) store.dispatch({ type: "playing/setPlayingPosition", payload: { duration: pos } }); } catch (e) { warn("dispatch 失败", e); }
+      const targetMs = Math.floor(pos * 1000);
+      /* 目标即当前位置（点到了当前位置）：直接确认，不折腾播放器 */
+      if (lastProgressMs >= 0 && Math.abs(lastProgressMs - targetMs) <= 1200) {
+        lastSeekAck = { id: seekId, ok: true, pos: pos, at: Date.now() };
+        pushState(true).catch(function () {});
+        return;
       }
-      lastProgressMs = Math.floor(pos * 1000);
-      lastProgressAt = Date.now();
+      lastSeekAt = Date.now();
+      seekPending = {
+        id: seekId, posMs: targetMs, songId: songId, at: Date.now(),
+        displayUntil: Date.now() + 2500, preTruthMs: lastProgressMs,
+        dispatchDone: false, writeDone: false, verdict: false,
+      };
+      const viaChannel = channelSeek(songId, pos);
+      if (!viaChannel) { channelDispatch(pos); seekPending.dispatchDone = true; }
       pushState(true).catch(function () {});
-      seekVerify(seekId, pos, pickMediaEl(Date.now()), viaChannel ? 0 : 1, 0);
-      log("桥命令 seek -> " + pos.toFixed(1) + "s（" + (viaChannel ? "channel" : "dispatch") + " 路线）");
-    } catch (e) {}
+      startSeekWatch(seekId, pos, targetMs);
+      log("桥命令 seek -> " + pos.toFixed(1) + "s（" + (viaChannel ? "channel" : "dispatch") + " 路线，真值验证中）");
+    } catch (e) { warn("applyBridgeCmd 异常", e); }
   }
   /* 心跳：播放 1s / 暂停 3.5s（桥侧 5s 新鲜度窗口，暂停也必须保活） */
   setInterval(() => { pushState(true).catch(() => {}); }, 1000);
@@ -809,9 +888,11 @@
         pushState(true).catch(() => {});
       });
       cmder.appendRegisterCall("PlayProgress", "audioplayer", function (playId, sec) {
+        lastEvAt = Date.now();
         if (typeof sec === "number" && sec >= 0) { lastProgressMs = Math.floor(sec * 1000); lastProgressAt = Date.now(); }
       });
       cmder.appendRegisterCall("Seek", "audioplayer", function (playId, seekId, code, pos) {
+        lastEvAt = Date.now();
         if (typeof pos === "number" && pos >= 0) {
           lastProgressMs = Math.floor(pos * 1000);
           lastProgressAt = Date.now();
@@ -830,6 +911,7 @@
         warn("PlayProgress 事件 10s 未触发，尝试重注册");
         try {
           cmder.appendRegisterCall("PlayProgress", "audioplayer", function (playId, sec) {
+            lastEvAt = Date.now();
             if (typeof sec === "number" && sec >= 0) { lastProgressMs = Math.floor(sec * 1000); lastProgressAt = Date.now(); }
           });
         } catch (e) { warn("重注册失败", e); }
@@ -1149,6 +1231,21 @@
       snapshot: buildSnapshot,
       currentLyricSongId: () => curLyricSongId,
       lastSeekAck: () => lastSeekAck,
+      __seekDebug: function () {
+        return {
+          pluginVersion: PLUGIN_VERSION,
+          channelDisabled: channelDisabled,
+          lastProgressMs: lastProgressMs,
+          lastProgressAgeMs: lastProgressAt ? Date.now() - lastProgressAt : -1,
+          lastNativeEvAgeMs: lastEvAt ? Date.now() - lastEvAt : -1,
+          lastSeekAtAgeMs: lastSeekAt ? Date.now() - lastSeekAt : -1,
+          seekPending: seekPending ? { posMs: seekPending.posMs, songId: seekPending.songId, verdict: seekPending.verdict, preTruthMs: seekPending.preTruthMs } : null,
+          seekHistory: seekHistory,
+          elLocked: elLock ? (elLock.tagName + " connected=" + (elLock.isConnected !== false)) : null,
+          lastReportedPosMs: lastReportedPosMs,
+          songId: lastSongId,
+        };
+      },
       bridge: () => ({ deployed: bridgeDeployed, running: bridgeRunningVer, spawnFails: bridgeSpawnFails }),
     };
   } catch (e) { /* 忽略 */ }

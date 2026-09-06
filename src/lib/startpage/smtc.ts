@@ -320,6 +320,8 @@ class SmtcClient {
   /** v2.2.0 seek 结果提示（3.8s 自动消失） */
   private seekNote = "";
   private seekNoteAt = 0;
+  /** v2.3.3 SMTC-only 诚实 seek：reported 连续未跟上 seek 线的拍数（≥2 → 放弃信任窗） */
+  private smtcSeekMiss = 0;
   /** v2.3.1 零值两击守卫：插件深位置后突报 ≈0 的样本须延迟一拍再采纳
    *  （真机插件 v1.3.0 曾因错误媒体元素持续报 paused+0，配合绝对锚定把
    *  面板钉死 0:00 / 播放态概率反转；插件侧已真值熔断，这里是宿主兑底） */
@@ -392,6 +394,7 @@ class SmtcClient {
       if (ok) {
         if (cmd === "seek" && typeof position === "number") {
           this.seekHold = { pos: Math.max(0, position), at: Date.now() };
+          this.smtcSeekMiss = 0;
           /* 新 seek 发起：清上一条未生效提示（验证结果以本次为准） */
           this.seekNote = "";
           this.state = { ...this.state, seekNote: "" };
@@ -482,25 +485,35 @@ class SmtcClient {
     if (!sameTrack) {
       this.lastDelta = 0;
       this.seekHold = null;
+      this.smtcSeekMiss = 0;
       return;
     }
     const now = Date.now();
     const expected = smtcPositionNow(prev, now); // 本端时钟的当前进度
     const rdelta = track.position - expected; // reported 相对本端时钟的偏移
-    /* a) 本端 seek 保持 */
+    /* a) 本端 seek 保持（v2.3.3：诚实判定——reported 连续 ≥2 拍未跟上 seek 线
+       即视为播放器未响应：停止覆盖 reported、退出信任窗、提示「拖动未生效」
+       （旧版 4s 内无条件钉住假线，SMTC 真没跳时进度条假跳 4s 才被放行回跳且无提示
+       =「面板能拖但实际没动」的 SMTC-only 侧根因） */
     if (this.seekHold) {
-      if (now - this.seekHold.at >= 4000) {
-        this.seekHold = null;
-      } else {
-        const rate = track.rate > 0 ? track.rate : 1;
-        const exp2 = this.seekHold.pos + (track.playing ? ((now - this.seekHold.at) / 1000) * rate : 0);
-        if (Math.abs(track.position - exp2) > 2.5) {
-          track.position = exp2;
+      const rate = track.rate > 0 ? track.rate : 1;
+      const exp2 = this.seekHold.pos + (track.playing ? ((now - this.seekHold.at) / 1000) * rate : 0);
+      if (now - this.seekHold.at >= 4000 || Math.abs(track.position - exp2) <= 2.5) {
+        this.seekHold = null; // 跟上 seek 线 / 信任窗到期：守卫退役
+        this.smtcSeekMiss = 0;
+      } else if (Math.abs(track.position - exp2) > 2.5) {
+        this.smtcSeekMiss++;
+        if (this.smtcSeekMiss >= 2) {
+          this.seekHold = null; // 播放器未响应：放行真实位置（apply 已按 reported 锚定）
+          this.smtcSeekMiss = 0;
+          this.lastDelta = 0; // 防 (d) 持续偏移守卫把假线重新钉回
+          this.setSeekNote(now); // 诚实提示「拖动未生效」
+        } else {
+          track.position = exp2; // 首拍仍钉乐观线（给播放器一拍反应时间）
           track.fetchedAt = now;
           this.lastDelta = rdelta;
           return;
         }
-        this.seekHold = null; // reported 已跟上 seek 线，守卫退役
       }
     }
     /* b) 暂停冻结 */
@@ -543,7 +556,9 @@ class SmtcClient {
     if (!hold) return;
     const now = Date.now();
     if (!neLive || !ne) {
-      if (now - hold.at >= 4000) this.seekHold = null; // 旧桥/无插件：原信任窗
+      /* SMTC-only：诚实判定由 harmonize(a) 接管（连续 2 拍未跟上 → 弹回+提示），
+         这里只兜底信任窗到期 */
+      if (now - hold.at >= 4000) { this.seekHold = null; this.smtcSeekMiss = 0; }
       return;
     }
     const t = this.state.track;
@@ -649,7 +664,7 @@ class SmtcClient {
      * needsBridge = 插件新版在场但桥旧（自动升级可能被策略拦，
      * 提示必须给手动兜底指引，绝不再喊「更新 .plugin」）。 */
     const needsPluginNow =
-      next.connected && (!pluginVerNow || verLt(pluginVerNow, "1.5.0"));
+      next.connected && (!pluginVerNow || verLt(pluginVerNow, "1.5.1"));
     const needsBridgeNow =
       next.connected && verLt(next.version, "1.7.1");
     const needsUpdateNow = needsPluginNow || needsBridgeNow;

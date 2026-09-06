@@ -32,7 +32,7 @@ assert "/*__EAPI_CRYPTO_START__*/" in index and "/*__EAPI_CRYPTO_END__*/" in ind
 for needle in (
     "track.lyric.getinfo", "/api/plugin/state", "/api/plugin/lyric", "e82ckenh8dichen8",
     "audioplayer.seek", "playing/setPlayingPosition", "/api/plugin/cmd",
-    "superviseBridge", "chushi-bridge.ps1", "1.5.0",
+    "superviseBridge", "chushi-bridge.ps1", "1.5.1",
     "nativeExpectMs", "pickMediaEl", "lastPlayingAt", "lastProgressAt", "lastSeekAt",
     "spawnBackoffMs", "readFileText", "needLyric", "rePushLyric", "chushi-channel-seek-disabled",
 ):
