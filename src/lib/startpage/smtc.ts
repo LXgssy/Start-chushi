@@ -603,7 +603,10 @@ class SmtcClient {
         const seekToStart =
           !!this.seekHold && this.seekHold.pos <= 3 && Date.now() - this.seekHold.at < 4000;
         const trustZero = !zeroDrop || this.neZeroStreak >= 2 || seekToStart;
-        if (posSec > 0 || trustZero) t.position = posSec;
+        /* v2.3.1：可疑零拍（含「小而非零」如 0.4s）一律不采纳——
+         * posSec>0 的短路会放走非零垃圾样本（verify Z1a 实锤），
+         * 必须 trustZero 或位置足够深（≥0.8s）才写锚 */
+        if (trustZero || posSec >= 0.8) t.position = posSec;
         if (!zeroDrop || trustZero) t.playing = ne.playing;
         this.neLastPosSec = posSec;
       } else {
