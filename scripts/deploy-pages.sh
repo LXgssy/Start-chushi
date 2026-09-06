@@ -28,7 +28,8 @@ api() {
 }
 
 cd "$BASE"
-[ -z "$(git status --porcelain)" ] || { echo "!!! 工作树不干净, 先提交"; exit 1; }
+# --ignore-submodules=all：子模块（transfer）的环境侧本地改动不阻塞部署
+[ -z "$(git status --porcelain --ignore-submodules=all)" ] || { echo "!!! 工作树不干净, 先提交"; exit 1; }
 LOCAL_SHA=$(git rev-parse --short HEAD)
 
 echo "==> 静态导出构建 (from $LOCAL_SHA) ..."
