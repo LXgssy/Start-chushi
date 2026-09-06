@@ -635,3 +635,25 @@ Stage Summary:
 - 结论：四项反馈全闭环且各有帧级/构建内实证；歌词「概率加载不出」实为三层同构竞态（宿主 inflight 丢弃/沙箱 parsed 消费/部件 lyKey 不变），「歌词对不上」为暂停检测滞后的累积漂移，「拖不动」为 IsSeekAvailable 谎报+无备用通道——全部根治且旧桥场景宿主守卫继续兜底
 - 新律：①「切歌快照必捎带旧词载荷」是数据流的固有属性——所有按「存在性/首见」判重的缓存都要加内容引用维；②写管道会啃 [m 序列且 Read 工具渲染不可信——关键文件一律字节级验证+大写 [Math]+收敛写入复核；③文叔叔上传前必须先本地 zip 完整性校验（残包上传不可撤回）；④「预览正确+松手弹回」=命令被拒而非 UI 问题——seek 类反馈先查桥的 ok 语义；⑤环境的多层文件视图会短暂不一致——交付前在同一指令内做最终字节断言
 - 待办：用户真机复测（桥 v1.5.0+插件 v1.1.0+新 .cshz+Ctrl+F5 四件套）；任务A（快捷服务删除抖动）/史7遗留/Edge 商店材料未动；Release v1.7.7 旧资产去留未决
+
+---
+Task ID: 83
+Agent: Super Z (main)
+Task: v2.2.0 三联升级——真机第 7 轮反馈（面板能拖但网易云本体不动→改用 API 控制；暂停后再播放仍累积漂移；SMTC 桥合并进扩展不再多开窗口）
+
+Work Log:
+- 审计定位三层根因：①宿主 harmonize(d)「持续偏移保持」无过期会在插件真值在场时无限期钉住本端 seek 线（面板假跳本体不动的观感根因）+ v2.1.0 真值锚定只在 SMTC position≤0 时兑底（SMTC 报非零陈旧值时真值被忽略→漂移温床）；②桥 Test-TitleMatch 单层容错失配时整段回退 v1.4.0 启发（已知累积漂移路径）；③开机自启 Run 键永远指向旧解压目录——四件套版本漂移是「修了但没生效」的高概率元凶
+- 外部调研：NM manifest 无 args 字段（PS1 无法直接作 NM host、无编译器产不出 shim exe）→ 桥合并方案定为隐身化；网易云内部 seek action = playing/setPlayingPosition（v1.7.x 控制插件源码 git 考古 + Lyricify 文档佐证 SMTC seek 客户端级残疾）
+- 插件 v1.2.0：seek 双级阶梯（dispatch setPlayingPosition → 420ms el.currentTime 实测校验 → 元素直写兑底 → 再校验）+ seekAck{id,ok,pos,at} 随心跳回传 + buildSnapshot 不再用 store.playingState 覆写 el.paused（元素为音频真值）+ 版本串 1.0.0→1.2.0 修正
+- 桥 v1.6.0：/api/control seek 生成 seekId 随 NeCmd 下发、心跳应答捎带 id、Update-NeState 捕获 seekAck/v（插件版本）透传 /api/state；自愈自启（Run 键存在时每次启动重写到当前目录）；端口接管（绑定失败时按命令行识别本桥旧实例并结束重试）；新增 bridge-hidden.vbs（纯 ASCII）+ 添加开机自启.bat 改经 wscript 静默拉起
+- 宿主 smtc.ts v2.2.0：插件真值绝对锚定（ne 心跳 ts≤3s 新鲜且曲目匹配时 position/duration/playing 一律以 el.currentTime 真值为锚——暂停/恢复/微 seek 1s 内绝对重锚，误差不可能累积；harmonize/锚点保持仅 SMTC-only 启用）+ verifySeek 诚实验证（seekAck 直答快路径 / 真值 2.5s 跟上确认 / 未跟上弹回+seekNote）+ pluginVer/seekNote 进 stateSig 广播
+- 沙箱/部件：sandbox.js feed 白名单加 pluginVer/seekNote、sandbox.html ?v=122、部件页脚渲染 seekNote 优先 + 「· 插件 v1.2.0」诊断尾缀
+- verify-v220.mjs 新套 17/17：V 真值锚定（SMTC 钉死 50 + 真值 100s 前进→面板跟真值 38.9%）、D 两轮暂停/恢复偏差 0.03%/0.06% 无累积、S1 seek 生效不弹回/S2 未生效诚实弹回+页脚提示、FT 页脚插件版本、LG SMTC-only 回归、X pageerror=0；verify-v210 74 行「损坏」实为回传显示层啃蚀假象（od 字节级证伪，文件本体完好）
+- 交付物字节断言 21/21（ps1 BOM+v1.6.0+[Math]×10+seekId/seekAck/自愈/接管；plugin v1.2.0+dispatch+eapi；ts 真值锚/verifySeek；sandbox 白名单；widget 页脚；vbs/bat ASCII+CRLF）；build-v220-assets.py 出三包（SMTC 交付包 34KB / 扩展 11.7MB / 合并包 12MB）全断言过
+- Release v2.2.0 id=383576441 三资产直链 SHA-256 ALL OK；main ae7994a 推送；gh-pages DEPLOY-OK 线上特征实测（sandbox.js pluginVer 白名单 ✓ chunk v=122/verifySeek×2/拖动未生效 ✓ sw BUILD 20260906-123255-ae7994a）；文叔叔合并包 https://c.wss.ink/f/kt6tg9pzhut（wss-send 上传 12/12 块 complete code=0 success 99%；回下验包因 wss scan 接口下线不可行——旧链 kt66cten2xf 同样 404 实证接口级变更而非链接问题）
+- 本轮环境新发现：bash heredoc 内嵌含 s[m 序列的修复脚本会被啃蚀导致断言错位——修法=布尔输出的 python 断言 + od 字节级取证；grep/Read 输出均可能被显示层啃蚀，关键判定只信 od/程序化计数
+
+Stage Summary:
+- 三项反馈全闭环：seek=客户端内部 API 阶梯 + 诚实弹回（绝不再假跳）；漂移=真值绝对锚定结构性归零；窗口=隐身自启 + 自愈升级 + 端口接管（Windows 无 NM args/无编译器约束下的最优「并入扩展」体验）
+- 新律：①多组件交付必须内建版本自检（页脚 pluginVer/桥版本对拍）+ 自愈升级（Run 键重写）+ 端口接管，三件套把「用户停在旧版」从原因变成症状可见；②「面板动了本体不动」类反馈优先怀疑验证缺失（假信任窗）而非单点失效——诚实回退比虚假成功更重要；③回传显示层会啃蚀特定字节序列——交付判定只信 od/程序化断言，grep/Read 目视不可作证据
+- 待办：用户真机复测（合并包四件套 + 页脚插件版本对拍 + 拖动看网易云本体）；wss scan 回下验包接口待修（本次以 complete+process 双确认替代）；任务A（快捷服务删除抖动）/Edge 商店材料未动；Release v1.7.7 旧资产去留未决
