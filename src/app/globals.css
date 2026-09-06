@@ -703,6 +703,49 @@ html.photo-mode .dock-btn[data-active="true"] {
   animation: content-focus calc(0.32s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
+/* 内容进（v2.0.1）：无 opacity 的模糊聚拢——dock 部件（音乐面板）专用。
+   原版 opacity 0→1 会让暗色卡在开场半透明，明亮壁纸上透出灰白一闪
+   （真机 30fps 录屏实锤 1–2 帧）；实体色只做 blur+微位移，「聚拢」感不变，
+   壁纸永不透出。配合舞台壳体对部件视图不再套 .panel-rise 淡入 */
+@keyframes content-focus-solid-kf {
+  from {
+    filter: blur(10px);
+    transform: translateY(3px) scale(0.99);
+  }
+  to {
+    filter: blur(0);
+    transform: none;
+  }
+}
+.content-focus-solid {
+  animation: content-focus-solid-kf calc(0.32s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+
+/* 部件 iframe 开盾白帧罩（v2.0.1 终案）：隐藏过的 iframe 重激活，Chromium 会
+   先用旧层树合成一帧纯白底（实测出现在点击后 ~150-250ms）；旧层树里 DOM 改动
+   不可见，所以罩子必须在「关闭期间就处于开启态」——基态 opacity:1（视图藏着，
+   罩子反正看不见），激活时播 280ms 驻留 + 180ms 揭开（forwards），关闭相位摘类
+   回基态（下一轮重激活的旧层树里罩子仍是 1，白帧永远被盖） */
+.cl-dockwidget::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: var(--boot-bg, transparent);
+  opacity: 1;
+}
+.cl-dockwidget.boot-fade::after {
+  animation: boot-reveal-kf 0.18s cubic-bezier(0.4, 0, 1, 1) 0.28s forwards;
+}
+@keyframes boot-reveal-kf {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
 /* 内容退：模糊散场 —— 关闭路径由卡片退场类级联触发（旧视图已在卡片内，
    不走自身退场类）：特异性 (0,2,0) > (0,1,0)，压过进行中的 content-focus。
    覆盖全部三种卡片退场：dock 面板 .panel-sink / 对话框 .dialog-sink /
@@ -719,7 +762,8 @@ html.photo-mode .dock-btn[data-active="true"] {
 }
 .panel-sink .content-focus,
 .dialog-sink .content-focus,
-.palette-out .content-focus {
+.palette-out .content-focus,
+.panel-sink .content-focus-solid {
   animation: content-defocus 0.16s cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 
@@ -748,6 +792,9 @@ html.photo-mode .dock-btn[data-active="true"] {
 }
 @media (prefers-reduced-motion: reduce) {
   .content-focus {
+    animation: none;
+  }
+  .content-focus-solid {
     animation: none;
   }
   .view-exit {

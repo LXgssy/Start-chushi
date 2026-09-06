@@ -605,7 +605,12 @@ export default function Home() {
   const openPalette = useCallback(() => setPaletteOpen(true), []);
   const closePalette = useCallback(() => setPaletteOpen(false), []);
   const closeEditor = useCallback(() => setEditor({ open: false, editing: null }), []);
-  const gotoPanel = useCallback((p: PanelId) => setPanel(p), []);
+  const gotoPanel = useCallback((p: PanelId) => {
+    /* v2.0.1：与 Dock.switchTo 同律——单帧批量互斥（原先靠下方 effect 二段渲染，
+       两帧间隙选框/舞台双活，音乐面板→内建走了两段式开/关） */
+    setPanel(p);
+    setDockWidget(null);
+  }, []);
   const openAddLink = useCallback(() => emitEditLink(null), []);
   /* 批量管理磁贴（v1.7.1）：PC 端右键菜单直达——进入磁贴编辑模式（连点/连删/拖拽排序），
      模式内点击空白处退出；与触屏长按进入的同一模式 */
@@ -964,6 +969,7 @@ export default function Home() {
           break;
         case "panel":
           setPanel(a.id);
+          setDockWidget(null); // v2.0.1：同帧互斥（见 gotoPanel 注释）
           break;
         case "theme":
           patchSettings({ themeMode: a.mode });

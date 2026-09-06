@@ -87,11 +87,12 @@
     color:var(--ink3);transition:color .3s ease}
   .lyline.on{color:var(--ink)}
   .lyline.gap{font-size:11px;letter-spacing:7px;color:var(--ink3)}
-  .lyw{color:var(--ink3);transition:color .22s ease}
-  .lyw.done{color:var(--ink)}
-  .lyw.act{color:transparent;
-    background:linear-gradient(90deg,var(--ink) var(--p,0%),var(--ink3) var(--p,0%));
-    -webkit-background-clip:text}
+  .lyw{position:relative;color:var(--ink3)}
+  /* v2.0.1 逐字扫色改双层实体色 + clip-path：原 -webkit-background-clip:text
+     + color:transparent 在 transform 过场中部分帧不绘制渐变，整词隐形闪动
+     （真机 30fps 录屏实锤）；底层永远实体色可见，上层同文本按 --p 裁剪显色 */
+  .lyw .ov{position:absolute;left:0;top:0;color:var(--ink);pointer-events:none;
+    clip-path:inset(-8% calc(100% - var(--p,0%)) -8% 0)}
   .lysub{font-size:11px;font-weight:400;color:var(--ink2);margin-top:2px;display:none;
     white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .lyline.on .lysub{display:block}
@@ -112,7 +113,7 @@
   <g id="i-pa"><rect x="6.6" y="4.6" width="3.6" height="14.8" rx="1.3"/><rect x="13.8" y="4.6" width="3.6" height="14.8" rx="1.3"/></g>
   <g id="i-pv"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></g>
   <g id="i-nx"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></g>
-  <polyline id="i-up" points="6 15 12 9 18 15"/>
+  <polyline id="i-dn" points="6 9 12 15 18 9"/>
 </defs></svg>
 
 <div class="card mode-em" id="card">
@@ -128,7 +129,7 @@
         <div class="t3" id="t3"></div>
       </div>
     </div>
-    <button class="cx" id="cxB" aria-label="关闭面板"><svg viewBox="0 0 24 24"><use href="#i-up"/></svg></button>
+    <button class="cx" id="cxB" aria-label="关闭面板"><svg viewBox="0 0 24 24"><use href="#i-dn"/></svg></button>
     <div class="sk" id="sk"><div class="rl"><i id="bar"></i><u id="th"></u></div></div>
     <div class="tm"><span id="tC">0:00</span><span id="tD">0:00</span></div>
     <div class="ct">
@@ -199,7 +200,10 @@ function buildLyric(){
     var ws=[];
     if(lyMode===1&&L.w&&L.w.length){
       for(var j=0;j<L.w.length;j++){
-        var sp=document.createElement("span");sp.className="lyw";sp.textContent=L.w[j].t;
+        var sp=document.createElement("span");sp.className="lyw";
+        sp.appendChild(document.createTextNode(L.w[j].t));
+        var ov=document.createElement("span");ov.className="ov";ov.textContent=L.w[j].t;
+        sp.appendChild(ov);
         ln.appendChild(sp);ws.push(sp);
       }
     }else{ln.textContent=L.t||"· · ·"}
@@ -237,21 +241,30 @@ function render(){
   txt(E.t3,s.album||"");
   txt(E.ap,"已连接 · "+(s.app||"系统媒体"));
   cover(E.aF);
-  var on=!!s.playing;
-  E.yI.classList.toggle("hd",on);E.nI.classList.toggle("hd",!on);
-  E.dt.classList.toggle("pz",!on);card.classList.toggle("pl",on);
-  E.aF.classList.toggle("pz",!on);
+  /* 乐观窗口内且真实态未到（s.playing≠optP）沿用乐观值；确认或超时即回真值 */
+  var on;
+  if(optAt&&Date.now()-optAt<2500&&s.playing!==optP){on=optP}
+  else{on=!!s.playing;optAt=0}
+  playVisual(on);
   if(mode==="em")setMode("fl");
 }
-/* 实时态：rAF 逐帧取宿主预计算结果（进度/时间/逐字高亮），本层零运算 */
+/* 实时态：rAF 逐帧取宿主预计算结果（进度/时间/逐字高亮），本层零运算。
+   v2.0.1：拖动中改渲染 dragRatio 预览——否则本循环每帧会用 now() 覆写进度条，
+   拖动预览 16ms 内就被冲掉（真机「拖动没反应」的直接观感） */
 function tick(){
   if(snap&&snap.connected&&snap.title&&mode!=="em"){
-    var n=mus?mus.now():null;
-    if(n){
-      var w=(n.progress*100).toFixed(2)+"%";
-      E.bar.style.width=w;E.th.style.left=w;
-      txt(E.tC,fmt(n.position));txt(E.tD,n.duration>0?fmt(n.duration):"--:--");
-      lyricFrame(n);
+    if(drag){
+      var dw=(dragRatio*100).toFixed(2)+"%";
+      E.bar.style.width=dw;E.th.style.left=dw;
+      txt(E.tC,fmt(dragRatio*(snap.duration||0)));
+    }else{
+      var n=mus?mus.now():null;
+      if(n){
+        var w=(n.progress*100).toFixed(2)+"%";
+        E.bar.style.width=w;E.th.style.left=w;
+        txt(E.tC,fmt(n.position));txt(E.tD,n.duration>0?fmt(n.duration):"--:--");
+        lyricFrame(n);
+      }
     }
   }
   requestAnimationFrame(tick);
@@ -271,16 +284,26 @@ function lyricFrame(n){
   if(lyMode===1&&lyActive>=0){
     var ws=lyWords[lyActive];
     for(var wI=0;wI<ws.length;wI++){
-      var elw=ws[wI],p=wI===n.wordIndex?n.wordProgress:(wI<n.wordIndex?1:0);
-      if(p>=1){elw.classList.add("done");elw.classList.remove("act");elw.style.removeProperty("--p")}
-      else if(p>0){elw.classList.add("act");elw.classList.remove("done");elw.style.setProperty("--p",(p*100).toFixed(1)+"%")}
-      else{elw.classList.remove("act","done");elw.style.removeProperty("--p")}
+      var p=wI===n.wordIndex?n.wordProgress:(wI<n.wordIndex?1:0);
+      /* v2.0.1：只写 --p 一个变量（clip-path 裁剪显色），无 class 摘挂无 background-clip */
+      ws[wI].style.setProperty("--p",(p*100).toFixed(1)+"%");
     }
   }
 }
 requestAnimationFrame(tick);
-/* 控制 */
-$("pB").addEventListener("click",function(){try{mus.toggle()}catch(e){}});
+/* 控制：v2.0.1 播放/暂停乐观翻转——真翻转最迟零点几秒后由快照确认/纠正，
+   不再等下一轮询才变图标（真机「按钮反应太慢」） */
+var optP=false,optAt=0;
+function playVisual(on){
+  E.yI.classList.toggle("hd",on);E.nI.classList.toggle("hd",!on);
+  E.dt.classList.toggle("pz",!on);card.classList.toggle("pl",on);
+  E.aF.classList.toggle("pz",!on);
+}
+$("pB").addEventListener("click",function(){
+  var cur=(optAt&&Date.now()-optAt<2500)?optP:!!(snap&&snap.playing);
+  optP=!cur;optAt=Date.now();playVisual(optP);
+  try{mus.toggle()}catch(e){}
+});
 $("nx").addEventListener("click",function(){try{mus.next()}catch(e){}});
 $("pv").addEventListener("click",function(){try{mus.prev()}catch(e){}});
 $("cxB").addEventListener("click",function(){try{chushi.close()}catch(e){}});
@@ -299,7 +322,7 @@ sk.addEventListener("pointermove",function(e){if(drag){
   var w=(dragRatio*100).toFixed(2)+"%";
   E.bar.style.width=w;E.th.style.left=w;
   txt(E.tC,fmt(dragRatio*snap.duration));
-}});
+}},{passive:true});
 sk.addEventListener("pointerup",function(){
   if(!drag)return;drag=false;
   if(snap&&snap.duration>0){try{mus.seek(dragRatio*snap.duration)}catch(e){}}

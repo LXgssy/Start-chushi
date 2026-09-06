@@ -1,4 +1,4 @@
-# build-smtc-delivery.py — v2.0.0 SMTC 交付包（统一舞台版：桥 v1.3.0 + 歌词源插件）
+# build-smtc-delivery.py — v2.0.1 SMTC 交付包（六联修复版：桥 v1.4.0 + 歌词源插件）
 # 产线：
 #   1. download/v1.9.0/初始SMTC桥/ —— ps1(UTF-8 BOM) + 3 个 bat(纯 ASCII + CRLF) + 桥内说明
 #   2. download/v1.9.0/初始歌词源-1.0.0.plugin —— BetterNCM 歌词源插件（zip 根部平铺）
@@ -10,7 +10,7 @@
 import shutil, pathlib, zipfile, json
 
 ROOT = pathlib.Path("/home/z/my-project")
-VER = "v2.0.0"
+VER = "v2.0.1"
 OUT = ROOT / "download" / VER
 BRIDGE_SRC = ROOT / "bridge" / "smtc"
 BRIDGE_DST = OUT / "初始SMTC桥"
@@ -31,7 +31,7 @@ BRIDGE_DST.mkdir(parents=True)
 ps1_src = BRIDGE_SRC / "ChuShi-SMTC-Bridge.ps1"
 ps1_bytes = ps1_src.read_bytes()
 assert ps1_bytes[:3] == b"\xef\xbb\xbf", "源 ps1 缺 UTF-8 BOM"
-assert b"$BRIDGE_VERSION = '1.3.0'" in ps1_bytes, "ps1 版本应为 1.3.0"
+assert b"$BRIDGE_VERSION = '1.4.0'" in ps1_bytes, "ps1 版本应为 1.4.0"
 assert b"/api/plugin/lyric" in ps1_bytes and b"/api/lyric" in ps1_bytes, "ps1 缺歌词通道"
 shutil.copy2(ps1_src, BRIDGE_DST / "ChuShi-SMTC-Bridge.ps1")
 
@@ -45,13 +45,15 @@ for bat in ("启动SMTC桥.bat", "添加开机自启.bat", "移除开机自启.b
 
 # 3) 桥内说明（UTF-8 with BOM）
 note = (
-    "「初始」SMTC 桥 v1.3.0\n"
+    "「初始」SMTC 桥 v1.4.0\n"
     "====================\n"
     "双击「启动SMTC桥.bat」启动，保持窗口开着；\n"
     "建议双击「添加开机自启.bat」，开机自动运行。\n"
-    "v1.3.0：播放位置时钟补偿（LastUpdatedTime 插值）——进度条冻结/拖完弹回的根治；\n    v1.2.0：新增「初始歌词源」插件数据通道（/api/plugin/* 与 /api/lyric），\n"
+    "v1.4.0：暂停/恢复归零根治（锚点重置改用连续位置）+ seek 后立即重锚——\n"
+    "  暂停不再回 0:00、恢复不再从头计数、拖动进度条不再被拽回；\n"
+    "v1.3.0：播放位置时钟补偿（LastUpdatedTime 插值）——进度条冻结的根治；\n"
+    "v1.2.0：新增「初始歌词源」插件数据通道（/api/plugin/* 与 /api/lyric），\n"
     "  支持逐字歌词与网易云精确进度/封面兜底（插件可选安装，详见使用说明）。\n"
-    "v1.1.0：.bat 改为纯 ASCII + CRLF 终极方案（窗口英文提示属正常现象）。\n"
     "配合「初始」新标签页底栏的音乐按钮使用（点击弹出音乐面板，详见使用说明）。\n"
 )
 (BRIDGE_DST / "说明.txt").write_bytes(b"\xef\xbb\xbf" + note.encode("utf-8"))

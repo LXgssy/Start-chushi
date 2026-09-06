@@ -2,6 +2,7 @@ import { chromium } from "playwright-core";
 import { createServer } from "node:http";
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
+import { writeFileSync, mkdirSync } from "node:fs";
 
 const ROOT = "/home/z/my-project/out";
 const MIME = { ".html": "text/html", ".js": "application/javascript", ".css": "text/css", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".woff2": "font/woff2" };
@@ -26,17 +27,15 @@ const server = createServer((req, res) => {
   if (!existsSync(f)) f = join(ROOT, "index.html");
   try { const body = readFileSync(f); res.writeHead(200, { "content-type": MIME[f.slice(f.lastIndexOf("."))] ?? "application/octet-stream" }); res.end(body); } catch { res.writeHead(404); res.end("nf"); }
 });
-await new Promise((r) => server.listen(4636, r));
+await new Promise((r) => server.listen(4637, r));
 
 mockLyric = { rev: "l", songId: 1, title: "晴天", artist: "周杰伦", yrc: "[38000,4000](38000,4000,0)测试歌词一行", ytlrc: "", lrc: "", tlyric: "", source: "m" };
 mockState = { ...mockState, track: { app: "网易云音乐", title: "晴天", artist: "周杰伦", album: "叶惠美", playing: true, position: 0, duration: 0, rate: 1, coverRev: "" }, ne: { songId: 1, title: "晴天", artist: "周杰伦", album: "叶惠美", pic: "", positionMs: 40000, durationMs: 269300, playing: true, lyricRev: "l" } };
 
 const browser = await chromium.launch();
-const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 })).newPage();
-const errors = [];
-page.on("pageerror", (e) => errors.push(String(e)));
+const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage();
 await page.addInitScript(() => { try { localStorage.clear(); localStorage.setItem("start:settings", JSON.stringify({ themeMode: "dark" })); } catch (e) {} });
-await page.goto("http://localhost:4636/", { waitUntil: "networkidle" });
+await page.goto("http://localhost:4637/", { waitUntil: "networkidle" });
 await page.waitForSelector(".clock-text", { timeout: 15000 });
 await page.keyboard.press("Control+k");
 await page.waitForTimeout(700);
@@ -45,66 +44,35 @@ await page.waitForTimeout(500);
 await page.locator("input[type=file]").setInputFiles("/home/z/my-project/examples/初始SMTC音乐预设.cshz");
 await page.waitForTimeout(3600);
 await page.keyboard.press("Escape");
-await page.waitForTimeout(400);
+await page.waitForTimeout(500);
 
-/* 采样函数：面板中心点的命中元素链 + 采样像素颜色 */
-async function probe(label) {
-  const info = await page.evaluate(() => {
-    const stage = document.querySelector(".cl-stage");
-    const r = stage?.getBoundingClientRect();
-    if (!r || r.height < 4) return { h: r?.height ?? -1, note: "stage-closed" };
-    const cx = r.x + r.width / 2, cy = r.y + Math.min(r.height, 200) / 2;
-    const el = document.elementFromPoint(cx, cy);
-    const chain = [];
-    let cur = el;
-    for (let i = 0; i < 4 && cur; i++) {
-      chain.push(cur.tagName + (cur.className && typeof cur.className === "string" ? "." + cur.className.split(" ").slice(0, 2).join(".") : ""));
-      cur = cur.parentElement;
-    }
-    return { h: Math.round(r.height), cx: Math.round(cx), cy: Math.round(cy), hit: chain.join(" < ") };
-  });
-  console.log(label, JSON.stringify(info));
-  return info;
-}
-
-await page.locator(".cl-dock button[aria-label='音乐']").click();
-for (const t of [40, 80, 130, 200, 320, 500]) {
-  await page.waitForTimeout(t === 40 ? 40 : 40);
-}
-// 逐点采样（时间不太可控，改在固定间隔打点 + 截屏）
-await page.waitForTimeout(2000);
-console.log("--- 稳态 ---");
-await probe("steady:");
-const st = await page.evaluate(() => {
-  const w = document.querySelector(".cl-dockwidget");
-  const outer = w?.querySelector("iframe");
-  return {
-    wOpacity: w ? getComputedStyle(w).opacity : null,
-    wBg: w ? getComputedStyle(w).background.slice(0, 60) : null,
-    outerSrc: outer?.getAttribute("src"),
-  };
-});
-console.log("widget-view:", JSON.stringify(st));
-
-/* 关键实验：完全关掉再重新打开，高频截图捕捉白帧区间 */
-await page.keyboard.press("Escape");
-await page.waitForTimeout(800);
+const cdp = await page.context().newCDPSession(page);
+await cdp.send("Page.startScreencast", { format: "png", everyNthFrame: 1 });
 const frames = [];
-const t0 = Date.now();
+let t0 = 0;
+cdp.on("Page.screencastFrame", (ev) => {
+  const t = t0 ? Date.now() - t0 : 0;
+  frames.push({ t, data: ev.data });
+  try { cdp.send("Page.screencastFrameAck", { sessionId: ev.sessionId }); } catch (e) {}
+});
+
+/* 第一开（冷） */
+mkdirSync("/home/z/my-project/scripts/pw-lab/shots/cast", { recursive: true });
+t0 = Date.now();
 await page.locator(".cl-dock button[aria-label='音乐']").click();
-for (let i = 0; i < 12; i++) {
-  const buf = await page.screenshot({ clip: { x: 560, y: 460, width: 440, height: 460 } });
-  frames.push({ t: Date.now() - t0, buf });
-  await page.waitForTimeout(30);
-}
-// 用像素均值判断白帧区间
-for (const f of frames) {
-  const { createCanvas, loadImage } = { createCanvas: null, loadImage: null };
-}
-// 简化：把每帧存盘
-const fs = await import("node:fs");
-fs.mkdirSync("/home/z/my-project/scripts/pw-lab/shots/dbg", { recursive: true });
-frames.forEach((f, i) => fs.writeFileSync(`/home/z/my-project/scripts/pw-lab/shots/dbg/f_${String(i).padStart(2, "0")}_${f.t}ms.png`, f.buf));
-console.log("saved", frames.length, "frames");
-console.log("errors:", errors.length);
+await page.waitForTimeout(2500);
+console.log("first-open frames:", frames.length, frames.map((f) => f.t).join(","));
+frames.forEach((f, i) => writeFileSync(`/home/z/my-project/scripts/pw-lab/shots/cast/cold_${String(i).padStart(2, "0")}_${f.t}ms.png`, Buffer.from(f.data, "base64")));
+
+/* 关闭再重开（热） */
+frames.length = 0;
+await page.keyboard.press("Escape");
+await page.waitForTimeout(1000);
+t0 = Date.now();
+await page.locator(".cl-dock button[aria-label='音乐']").click();
+await page.waitForTimeout(2000);
+console.log("reopen frames:", frames.length, frames.map((f) => f.t).join(","));
+frames.forEach((f, i) => writeFileSync(`/home/z/my-project/scripts/pw-lab/shots/cast/hot_${String(i).padStart(2, "0")}_${f.t}ms.png`, Buffer.from(f.data, "base64")));
+
 await browser.close(); mock.close(); server.close();
+console.log("done");

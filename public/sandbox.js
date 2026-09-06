@@ -691,6 +691,11 @@ function widgetMode() {
       widgetKey = str(m.key, 80);
       theme = m.theme === "dark" ? "dark" : "light";
       accent = typeof m.accent === "string" ? m.accent.slice(0, 9) : "";
+      /* v2.0.1：本文档画布底色随主题。合成器在子帧首次绘制前用画布底色填充
+         iframe（默认白）——dock 部件开面板的白色矩形帧即此；color-scheme:dark
+         让预绘制帧变暗色，与暗色部件卡融为一体（开面板闪白根治的组合拳之一，
+         另两手是宿主侧 boot 罩与无 opacity 聚拢） */
+      try { document.documentElement.style.colorScheme = theme; } catch (e) { }
       inner = document.createElement("iframe");
       inner.setAttribute("sandbox", "allow-scripts");
       inner.setAttribute("title", "初始自定义小部件");
