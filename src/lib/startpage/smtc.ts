@@ -168,12 +168,35 @@ function normalizeNe(raw: unknown): NeState | null {
   };
 }
 
-/** 曲目与网易云插件状态是否指同一首歌（标题双向包含即认；SMTC 标题常带修饰） */
+/** 标题归一化：去空白/常见全半角标点——SMTC 与插件源标题修饰差异的容错 */
+function normTitle(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/[\s\-_·・()（）\[\]【】「」『』,，。、!！?？~～'\"＂]+/g, "");
+}
+
+/** 曲目与网易云插件状态是否指同一首歌（标题双向包含即认；SMTC 标题常带修饰）。
+ *  v2.1.0：归一化后再比一轮（全半角标点/空格差异）；仍不中且双方时长已知且
+ *  贴合（±2s）时接受歌手首段重合——SMTC 标题被本地化/加后缀时的概率性不匹配
+ *  正是「切歌后歌词概率加载不出」的隐性分支。 */
 function trackMatchesNe(t: SmtcTrack, ne: NeState): boolean {
   const a = t.title.trim().toLowerCase();
   const b = ne.title.trim().toLowerCase();
   if (!a || !b) return false;
-  return a === b || a.includes(b) || b.includes(a);
+  if (a === b || a.includes(b) || b.includes(a)) return true;
+  const a2 = normTitle(a);
+  const b2 = normTitle(b);
+  if (a2 && b2 && (a2.includes(b2) || b2.includes(a2))) return true;
+  const dGap = t.duration > 0 && ne.durationMs > 0 ? Math.abs(t.duration - ne.durationMs / 1000) : 999;
+  const arA = t.artist.split(/[/,、]/)[0].trim().toLowerCase();
+  const arB = ne.artist.split(/[/,、]/)[0].trim().toLowerCase();
+  if (
+    dGap <= 2 &&
+    arA && arB &&
+    (arA === arB || arA.includes(arB) || arB.includes(arA))
+  )
+    return true;
+  return false;
 }
 
 /** 关键签名：变化才广播（position/fetchedAt 不参与——插值属消费方职责） */
@@ -208,10 +231,14 @@ class SmtcClient {
   /** 已成功取到封面的 coverRev（同版不重拉） */
   private coverRevDone = "";
   private coverTries = 0;
-  /** 已拉取的歌词 rev（同版不重拉）；拉取中标记防并发 */
+  /** 已拉取的歌词 rev（同版不重拉）；拉取中标记 + latest-wins 链（v2.1.0） */
   private lyricRevDone = "";
   private lyricInflight = false;
   private lyricTries = 0;
+  /** 最新期望的歌词 rev：inflight 期间变化，完成后由 finally 链式补拉
+   *  （v2.1.0 根治：切歌瞬间旧拉取仍 inflight → 新 rev 拉取被静默跳过且永不重试
+   *   —— 真机「自动切歌后歌词概率加载不出来」的主因） */
+  private lyricWanted = "";
   /** v2.0.1 旧桥伪影守卫状态：上一拍 reported-expected 偏移（delta 一致性记忆） */
   private lastDelta = 0;
   /** v2.0.1 本端发起的 seek（成功后 4s 内信自己这条线，防旧桥旧基準拽回） */
@@ -454,9 +481,11 @@ class SmtcClient {
       this.coverTries = 0;
       void this.fetchCover(coverRevNow);
     }
-    // 歌词生命周期：rev 变化即重拉；无源（插件离线/曲目不匹配）则清空
+    // 歌词生命周期：rev 变化即重拉；无源（插件离线/曲目不匹配）则清空。
+    // v2.1.0：同步维护 lyricWanted（重试/链式补拉的最新期望）
     if (lyricRevNow !== this.lyricRevDone) {
       this.lyricRevDone = lyricRevNow;
+      this.lyricWanted = lyricRevNow;
       this.lyricTries = 0;
       if (lyricRevNow) {
         void this.fetchLyric(lyricRevNow);
@@ -508,14 +537,20 @@ class SmtcClient {
     }
   }
 
-  /** 拉取歌词（rev 变化时调用；失败限次重试，曲目已变则丢弃） */
+  /** 拉取歌词（rev 变化时调用；latest-wins 链式重试，曲目已变则丢弃）。
+   *  v2.1.0：① inflight 期间 wanted 变化不再被静默跳过（finally 链式补拉）；
+   *  ② 校验桥返回 rev——桥还是旧歌歌词时作失败重试，等待新词到位
+   *  （旧桥无 rev 字段时跳过校验保持兼容）。 */
   private async fetchLyric(rev: string): Promise<void> {
-    if (this.lyricInflight) return;
+    this.lyricWanted = rev;
+    if (this.lyricInflight) return; // inflight 完成后会链到最新 wanted
     this.lyricInflight = true;
     try {
       const j = await this.fetchJson(`${BASE}/api/lyric?v=${encodeURIComponent(rev)}`);
       if (!j || j.ok !== true) throw new Error("no-lyric");
-      if (this.state.lyricRev !== rev) return; // 曲目已变，丢弃
+      if (this.state.lyricRev !== rev) return; // 曲目已变，丢弃（finally 链到最新）
+      const jrev = typeof j.rev === "string" ? j.rev.slice(0, 64) : "";
+      if (jrev && jrev !== rev) throw new Error("stale-lyric"); // 桥还是旧歌歌词，重试等新词
       const l = j.lyric as Record<string, unknown> | null;
       if (!l) throw new Error("bad-lyric");
       const str = (v: unknown, max: number): string => (typeof v === "string" ? v.slice(0, max) : "");
@@ -537,13 +572,22 @@ class SmtcClient {
       this.notify();
     } catch {
       this.lyricTries++;
-      if (this.lyricTries <= 3) {
+      if (this.lyricTries <= 5) {
         setTimeout(() => {
-          if (this.state.lyricRev === rev && this.state.lyric == null) void this.fetchLyric(rev);
-        }, 1500 * this.lyricTries);
+          /* v2.1.0：不再要求 state.lyric == null——切歌快照常保留上一曲歌词
+             （rev 直变无清空步骤），旧条件会让「桥回旧词」的重试被永久抑制
+             （真机「切歌后歌词概率加载不出来」的宿主侧最后一块拼图）；
+             wanted/lyricRev 双守卫已足够：更新 rev 出现即由生命周期块接管 */
+          if (this.lyricWanted === rev && this.state.lyricRev === rev) {
+            void this.fetchLyric(rev);
+          }
+        }, 1200 * this.lyricTries);
       }
     } finally {
       this.lyricInflight = false;
+      // latest-wins：inflight 期间期望 rev 又变了 → 立刻拉最新（旧桥静默跳过缺陷的根治点）
+      const wanted = this.lyricWanted;
+      if (wanted && wanted !== rev) void this.fetchLyric(wanted);
     }
   }
 

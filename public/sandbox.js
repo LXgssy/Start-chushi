@@ -116,7 +116,7 @@
    *   play/pause/toggle/next/prev。旧 chushi.smtc 保持原样兼容。
    * ============================================================ */
   function __chushiMusicCore(hooks) {
-    var st = { cbs: [], snap: null, anchor: null, lines: null, lmode: 0, lrev: "\u0000none", parsed: false };
+    var st = { cbs: [], snap: null, anchor: null, lines: null, lmode: 0, lrev: "\u0000none", parsedRef: null };
 
     function clamp01(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
 
@@ -191,13 +191,18 @@
         ? { position: +t.position || 0, duration: +t.duration || 0, playing: !!t.playing, rate: +t.rate > 0 ? +t.rate : 1, fetchedAt: +t.fetchedAt || Date.now() }
         : null;
       var rev = state ? String(state.lyricRev || "") : "";
-      if (rev !== st.lrev) { st.lrev = rev; st.lines = null; st.lmode = 0; st.parsed = false; }
+      if (rev !== st.lrev) { st.lrev = rev; st.lines = null; st.lmode = 0; st.parsedRef = null; }
       var ly = state && state.lyric;
-      if (ly && !st.parsed) {
+      /* v2.1.0 按载荷对象引用判重（原按 parsed 布尔标志）：
+         切歌快照常捎带上一曲的旧词载荷（宿主新词尚未拉回）——旧逻辑此刻把
+         parsed 置真，随后宿主拉到的新词载荷被永久跳过＝「切歌后歌词概率
+         加载不出来」的沙箱层孪生根因。新逻辑：载荷对象引用变了就重解析，
+         同一对象重复推送不重复解析。 */
+      if (ly && st.parsedRef !== ly) {
         var p = (ly.yrc || ly.lrc) ? parseAll(ly) : null;
         st.lmode = p ? p.mode : 0;
         st.lines = p ? p.lines : null;
-        st.parsed = true;
+        st.parsedRef = ly;
       }
       if (!ly && st.lines) { st.lines = null; st.lmode = 0; }
       var snap = {
