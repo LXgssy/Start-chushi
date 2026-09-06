@@ -10,7 +10,7 @@
 import shutil, pathlib, zipfile, json
 
 ROOT = pathlib.Path("/home/z/my-project")
-VER = "v1.9.0"
+VER = "v2.0.0"
 OUT = ROOT / "download" / VER
 BRIDGE_SRC = ROOT / "bridge" / "smtc"
 BRIDGE_DST = OUT / "初始SMTC桥"
