@@ -248,7 +248,9 @@ function render(){
   txt(E.t1,s.title||"未知曲目");
   txt(E.t2,s.artist||"未知艺术家");
   txt(E.t3,s.album||"");
-  txt(E.ap,"已连接 · "+(s.app||"系统媒体"));
+  /* v2.2.0 页脚诊断：seek 未生效提示优先；否则显示连接态+插件版本
+     （插件版本可见 = 插件心跳在场 + 版本漂移一眼可辨） */
+  txt(E.ap, s.seekNote ? s.seekNote : ("已连接 · "+(s.app||"系统媒体")+(s.pluginVer?" · 插件 v"+s.pluginVer:"")));
   cover(E.aF);
   /* 乐观窗口内且真实态未到（s.playing≠optP）沿用乐观值；确认或超时即回真值 */
   var on;

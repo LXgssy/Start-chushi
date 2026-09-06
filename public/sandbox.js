@@ -217,6 +217,9 @@
         duration: t ? +t.duration || 0 : 0,
         lyricRev: rev,
         lyric: st.lines ? { mode: st.lmode, lines: st.lines } : null,
+        /* v2.2.0：诊断透出——插件版本（页脚可见插件在场）与 seek 结果提示 */
+        pluginVer: state && typeof state.pluginVer === "string" ? state.pluginVer.slice(0, 16) : "",
+        seekNote: state && typeof state.seekNote === "string" ? state.seekNote.slice(0, 40) : "",
       };
       st.snap = snap;
       for (var i = st.cbs.length - 1; i >= 0; i--) { try { st.cbs[i](snap); } catch (e) { } }
