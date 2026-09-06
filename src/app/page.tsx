@@ -830,6 +830,13 @@ export default function Home() {
   );
   const closeDockWidget = useCallback(() => setDockWidget(null), []);
 
+  /* 部件自报高度（v2.0.0 统一舞台）：chushi.resize → 这里 → Dock 舞台高度盒弹簧。
+     回调必须稳定（PresetWidgets 消息回调期经 cbRef 读取，重挂不必要） */
+  const [widgetHeights, setWidgetHeights] = useState<Record<string, number>>({});
+  const onWidgetResize = useCallback((key: string, height: number) => {
+    setWidgetHeights((prev) => (prev[key] === height ? prev : { ...prev, [key]: height }));
+  }, []);
+
   /* 兕底：dock 弹出面板指向的小部件被删（预设移除）时自动关闭 */
   useEffect(() => {
     setDockWidget((k) => (k != null && !presetDockWidgets.some((w) => w.key === k) ? null : k));
@@ -1132,6 +1139,9 @@ export default function Home() {
         onPresetSettingChange={changePresetSetting}
         presetIcons={presetExtras.icons}
         motionProfile={presetExtras.motion.profile ?? "standard"}
+        isDark={isDark}
+        accent={settings.accent}
+        widgetHeights={widgetHeights}
       />
       </div>
 
@@ -1186,7 +1196,7 @@ export default function Home() {
         onOpenUrl={openUrlFromPage}
       />
 
-      {/* 预设小部件层（角落磁贴 + dock 弹出面板，沙箱隔离，见 PresetWidgets / sandbox.js widgetMode） */}
+      {/* 预设小部件层（角落磁贴 + API 路由；dock 部件渲染已并入 Dock 统一舞台） */}
       <PresetWidgets
         widgets={presetWidgets}
         isDark={isDark}
@@ -1195,7 +1205,8 @@ export default function Home() {
         onOpenUrl={openUrlFromPage}
         dockPanelKey={dockWidget}
         onCloseDockPanel={closeDockWidget}
-        motionProfile={presetExtras.motion.profile ?? "standard"}
+        heights={widgetHeights}
+        onResize={onWidgetResize}
       />
 
       {/* 链接编辑对话框 */}
