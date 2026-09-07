@@ -1,0 +1,18 @@
+{
+  "manifest_version": 1,
+  "name": "ChuShi SMTC Manager",
+  "slug": "ChuShi-SMTC-Manager",
+  "version": "7.0.0",
+  "author": "ChuShi",
+  "description": "自研 Windows 系统媒体控制（SMTC）原生模块：在网易云内注册真正独立的系统媒体会话，悬浮窗卡片、锁屏封面、媒体键、可拖动进度全支持，无需开启网易云自带 SMTC 开关。原生 DLL 负责会话与本机数据枢纽，「初始」新标签页经此获取音乐状态。",
+  "betterncm_version": ">=1.0.0",
+  "ncm3-compatible": true,
+  "ncm-version-req": "> 2.10.2",
+  "injects": {
+    "Main": [
+      { "file": "index.js", "type": "script" }
+    ]
+  },
+  "hijacks": {},
+  "native_plugin": "smtc_native.dll"
+}

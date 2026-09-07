@@ -1,0 +1,5 @@
+e5b8cd82c88363fef0083397319ab0cf1d34b786a77ac7b5b38280d00590a084  ChuShi-SMTC-Manager-7.0.0.plugin
+9b9d383614f0580ff57e59d8a72810fcfb67d59ebb890effa0978d05b521b5f1  ChuShi-Music-Bridge-7.0.0.plugin
+735aace1b1d6e0856e47df620f95dd6c58d2972ddf5de489361e4827763d0d32  ChuShi-Lyric-Source-7.0.0.plugin
+0dbc10bd6b57cadf9409c6d6f01cdb1ffe3a9f1e712b5358926b5d03c2dc412a  ChuShi-NewTab-v7.0.0.zip
+d01c4b2889ed51ad1cd69b94d9052b18ad51319e4b9b24ac99eef4527a4656ea  初始SMTC音乐预设.cshz

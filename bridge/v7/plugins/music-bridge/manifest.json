@@ -1,0 +1,17 @@
+{
+  "manifest_version": 1,
+  "name": "ChuShi Music Bridge",
+  "slug": "ChuShi-Music-Bridge",
+  "version": "7.0.0",
+  "author": "ChuShi",
+  "description": "网易云音乐 API 桥：在网易云内只读播放真值（audio 元素粘滞锁 + dva store 只读探针），执行「初始」面板与系统媒体键的播放控制（单次执行 + seek 读回校验），并把真值/歌词经原生枢纽转发给新标签页。不依赖网易云自带 SMTC，不影响本体进度条。",
+  "betterncm_version": ">=1.0.0",
+  "ncm3-compatible": true,
+  "ncm-version-req": "> 2.10.2",
+  "injects": {
+    "Main": [
+      { "file": "index.js", "type": "script" }
+    ]
+  },
+  "hijacks": {}
+}

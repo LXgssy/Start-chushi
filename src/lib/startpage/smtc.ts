@@ -1,42 +1,43 @@
 /* ============================================================================
- * 「初始」音乐面板数据客户端 v6.0.0（第六代，全新实现）
+ * 「初始」音乐面板数据客户端 v7.0.0（第七代，全新实现）
  *
- * 架构律（用户硬性指令的宿主侧表达）：
- *   1. 三插件纯插件架构——第六代起不再有任何外部引擎/后台进程：网易云窗口里
- *      的「ChuShi Music Bridge」插件自建本地数据枢纽（本文件唯一数据源），
- *      「ChuShi SMTC Manager」用 mediaSession 直接持有系统媒体会话，
- *      「ChuShi Lyric Source」按需提供完整逐字歌词。
- *   2. 单真值直显——枢纽 /api/state 里的 ne（桥从网易云读到的真值）是唯一
- *      数据源：一次年龄补偿后原样成曲目，本文件零仲裁、零守卫、零二次加工。
- *   3. 控制只下发——seek/播放控制 POST 给枢纽命令队列，由桥在网易云元素层
- *      单次执行；本文件不碰网易云任何内部状态。
- *   4. 诚实归因——枢纽不可达/版本过旧/桥插件过旧/拖动未生效，一律以状态字段
- *      如实上报，由面板芯片渲染，绝不静默假装成功。
+ * 架构律（v7 宪法）：
+ *   1. 数据面唯一——网易云「ChuShi Music Bridge」插件 1Hz 推送的真值快照
+ *      经原生枢纽（ChuShi SMTC Manager 的 HTTP 中继）原样透传；本文件零仲裁、
+ *      零守卫、零二次加工，只做一次性的采样年龄补偿。
+ *   2. 控制只下发——seek/播放控制 POST 枢纽命令队列，由桥在网易云元素层
+ *      单次执行并读回校验；本文件不碰网易云任何内部状态。
+ *   3. 系统卡片独立——SMTC 会话由原生 DLL 持有（GetForWindow 自有窗口），
+ *      网易云自带 SMTC 开关开/关均无影响；本文件不参与 SMTC。
+ *   4. 诚实归因——枢纽不可达/版本过旧/桥插件过旧/SMTC 原生模块未就绪，
+ *      一律以状态字段如实上报，由面板芯片渲染，绝不静默假装成功。
  *
- * 端口发现：桥默认绑 26801；若端口被旧引擎僵尸占用会自动退到 26802。
- * 本文件按 26801 → 26802 顺序探测，粘住第一个应答 chushi-music-hub 的端口。
+ * 端口发现：原生 DLL 绑 26901（占用时退 26902/26903）；
+ * 本文件按 26901 → 26902 → 26903 顺序探测，粘住第一个应答枢纽身份的端口。
  *
  * 公开面（消费方 page.tsx / PresetWidgets / sandbox.ts / 预设脚本依赖，
- * 第六代保持字段级兼容，消费方零改动）：
+ * 字段级兼容，消费方零改动）：
  *   SMTC_PORT / SmtcTrack / SmtcState / SmtcLyric / SMTC_COMMANDS /
  *   smtcPositionNow / smtc（单例：start/onTick/subscribe/getSnapshot/control）
  * ==========================================================================*/
 
-/** 桥枢纽主端口（bridge 插件端口被占时自动退到 FALLBACK_PORT） */
-export const SMTC_PORT = 26801;
-export const SMTC_FALLBACK_PORT = 26802;
+/** 原生枢纽主端口（被占用时 DLL 自动退到备选端口） */
+export const SMTC_PORT = 26901;
+export const SMTC_FALLBACK_PORT = 26902;
+/** v7 备选端口全集（按序探测） */
+export const SMTC_PORTS: readonly number[] = [26901, 26902, 26903];
 
-const HUB_NAME = "chushi-music-hub";
-const HUB_VER_MIN = "6.0.0";
-const PLUGIN_VER_MIN = "6.0.0";
+const HUB_NAME = "chushi-smtc-hub";
+const HUB_VER_MIN = "7.0.0";
+const PLUGIN_VER_MIN = "7.0.0";
 const POLL_MS = 1000;
-const RETRY_MS = 2600;
-const TIMEOUT_MS = 1500;
+const RETRY_MS = 2400;
+const TIMEOUT_MS = 1400;
 const TRUTH_STALE_SEC = 6;
 
 /** 单条媒体快照（真值直显产物） */
 export interface SmtcTrack {
-  /** 来源应用（v6 恒为网易云桥插件真值源） */
+  /** 来源应用（v7 恒为网易云桥插件真值源） */
   app: string;
   title: string;
   artist: string;
@@ -48,7 +49,7 @@ export interface SmtcTrack {
   duration: number;
   /** 播放速率（插值用；≤0 视作 1） */
   rate: number;
-  /** 兼容字段：v6 无二进制封面，恒空串 */
+  /** 兼容字段：v7 无二进制封面，恒空串 */
   coverRev: string;
   /** 宿主收到快照的时刻（插值基准） */
   fetchedAt: number;
@@ -56,8 +57,8 @@ export interface SmtcTrack {
 
 /** 客户端对外状态（公开面，预设脚本经 chushi.music 消费） */
 export interface SmtcState {
-  connected: boolean;      // 本地桥枢纽可达且版本达标
-  version: string;         // 桥枢纽自报版本
+  connected: boolean;      // 原生枢纽可达且版本达标
+  version: string;         // 枢纽自报版本
   track: SmtcTrack | null; // null = 未连接 / 无真值
   cover: string | null;    // 兼容字段：恒 null（封面走 coverUrl）
   coverUrl: string | null; // 封面 https URL（桥插件真值）
@@ -72,7 +73,7 @@ export interface SmtcState {
   engineOld: boolean;      // 枢纽在场但版本低于要求（兼容字段名，芯片区分文案）
 }
 
-/** 歌词载荷（桥缓存转发，歌词源插件产物） */
+/** 歌词载荷（枢纽缓存转发，歌词源插件产物） */
 export interface SmtcLyric {
   songId: number;
   title: string;
@@ -105,7 +106,7 @@ export function smtcPositionNow(t: SmtcTrack | null, now = Date.now()): number {
 }
 
 /* ---------------------------------------------------------------------- */
-/* 内部工具（v6 全新命名与实现）                                            */
+/* 内部工具                                                                */
 /* ---------------------------------------------------------------------- */
 
 function semverLt(a: string, b: string): boolean {
@@ -173,11 +174,10 @@ type Cb = () => void;
 class SmtcClient {
   private timer: ReturnType<typeof setTimeout> | null = null;
   private busy = false;
-
   private failStreak = 0;
   private lastSig = "";
 
-  /** 端口发现：粘住第一个应答枢纽身份的端口；失败时两端口都重探 */
+  /** 端口发现：粘住第一个应答枢纽身份的端口；失败时全端口重探 */
   private activePort: number | null = null;
 
   /** 歌词拉取状态：wanted 曲目键 / 进行中标记 / 重试计数 */
@@ -308,19 +308,19 @@ class SmtcClient {
     this.notify();
   }
 
-  /** 端口发现：主端口优先，粘住；全失败时下一轮双端口重探 */
-  private async discover(): Promise<{
-    j: Record<string, unknown>;
-    port: number;
-  } | null> {
+  /**
+   * v7 端口发现：原生枢纽以 /api/ping 自报身份（name=chushi-smtc-hub），
+   * 三端口顺序探测，粘住第一个命中者；全部失败时下一轮从头重探。
+   */
+  private async discover(): Promise<number | null> {
     const ports = this.activePort
-      ? [this.activePort, this.activePort === SMTC_PORT ? SMTC_FALLBACK_PORT : SMTC_PORT]
-      : [SMTC_PORT, SMTC_FALLBACK_PORT];
+      ? [this.activePort, ...SMTC_PORTS.filter((p) => p !== this.activePort)]
+      : [...SMTC_PORTS];
     for (const port of ports) {
-      const j = await getJson(`http://127.0.0.1:${port}/api/state`);
+      const j = await getJson(`http://127.0.0.1:${port}/api/ping`);
       if (j && j.ok === true && j.name === HUB_NAME) {
         this.activePort = port;
-        return { j, port };
+        return port;
       }
     }
     return null;
@@ -330,15 +330,17 @@ class SmtcClient {
     if (this.busy) return;
     this.busy = true;
     try {
-      const found = await this.discover();
-      if (!found) throw new Error("hub-not-chushi");
-      const j = found.j;
+      const port = this.activePort ? (await Promise.resolve(this.activePort)) : (await this.discover());
+      if (!port) throw new Error("hub-not-chushi");
+      const j = await getJson(`http://127.0.0.1:${port}/api/state`);
+      if (!j) throw new Error("state-empty");
       const version = clipStr(j.version, 16) || "0.0.0";
-      const hubOld = semverLt(version, HUB_VER_MIN);
       const ne = cleanNe(j.ne);
       const smtcVer = clipStr(j.smtcVer, 16);
 
-      /* 枢纽在场但过旧 → needsBridge（升级 .plugin 后重启网易云即解决） */
+      /* 枢纽本体版本由 /api/ping 提供（discover 阶段缓存），快照里也可能带 */
+      const hubVer = clipStr(j.hubVer, 16) || version;
+      const hubOld = semverLt(hubVer, HUB_VER_MIN);
       const needsBridge = hubOld;
       const pluginVerNow = ne ? ne.v : "";
       const needsPlugin = !pluginVerNow || semverLt(pluginVerNow, PLUGIN_VER_MIN);
@@ -384,7 +386,7 @@ class SmtcClient {
 
       this.state = {
         connected: true,
-        version,
+        version: hubVer,
         track,
         cover: null,
         coverUrl,
@@ -406,11 +408,11 @@ class SmtcClient {
       this.tick();
 
       this.pullLyric(ne);
-      this.schedule(ne ? POLL_MS : POLL_MS);
+      this.schedule(POLL_MS);
     } catch {
       this.failStreak++;
       if (this.activePort !== null && this.failStreak >= 4) {
-        this.activePort = null; /* 粘住的端口疑似死了，下轮双端口重探 */
+        this.activePort = null; /* 粘住的端口疑似死了，下轮全端口重探 */
       }
       if (this.failStreak >= 2) this.goOffline();
       this.schedule(RETRY_MS);

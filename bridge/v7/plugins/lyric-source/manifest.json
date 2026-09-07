@@ -1,0 +1,17 @@
+{
+  "manifest_version": 1,
+  "name": "ChuShi Lyric Source",
+  "slug": "ChuShi-Lyric-Source",
+  "version": "7.0.0",
+  "author": "ChuShi",
+  "description": "「初始」歌词源：按需提供完整歌词（逐字 yrc + 逐字翻译 + 行级 lrc + 翻译），eapi 协议纯 JS 自实现（MD5 + AES-128-ECB），内部 channel 与公开接口双层回退，本地 LRU 缓存。供音乐桥转发给新标签页逐字歌词渲染。",
+  "betterncm_version": ">=1.0.0",
+  "ncm3-compatible": true,
+  "ncm-version-req": "> 2.10.2",
+  "injects": {
+    "Main": [
+      { "file": "index.js", "type": "script" }
+    ]
+  },
+  "hijacks": {}
+}
