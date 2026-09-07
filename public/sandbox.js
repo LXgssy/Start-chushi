@@ -61,25 +61,24 @@
   /** 设置面（v1.2.0）：get 回执 pending 表 + onChange 回调集（必须与消息处理器同作用域） */
   var pendingSettings = {};
   var settingsTargets = new Map();
-  /** SMTC 媒体作用面（v1.8.0）：get/control 共用 pending 表（reqId 全局递增）
-   *  + 定向推送回调集（scriptKey → cbs） */
-  var pendingSmtc = {};
-  var smtcTargets = new Map();
-  /** 每脚本最近一份 SMTC 快照（smtcTick 锚点校正的落点，v1.9.0） */
-  var smtcLast = new Map();
-  var smtcSeq = 0;
-  /** 音乐引擎核心实例（v2.0.0）：scriptKey → api（smtcPush/smtcTick 同源喂数） */
-  var musicTargets = new Map();
+  /** 媒体通道状态（v5 全新命名）：get/control 共用 pending 表 + 定向快照回调集 */
+  var pendingMedia = {};
+  var mediaSnapCbs = new Map();
+  /** 每脚本最近一份快照（smtcTick 锚点校正的落点） */
+  var mediaLastSnap = new Map();
+  var mediaReqSeq = 0;
+  /** 音乐引擎核心实例：scriptKey → api（smtcPush/smtcTick 同源喂数） */
+  var musicCores = new Map();
 
-  /** SMTC 控制请求（脚本通道共用）：smtc.control 与 music hooks 同一实现 */
-  function smtcControlReq(scriptKey, cmd, position) {
+  /** 媒体控制请求（脚本通道共用实现）：8s 超时 Promise，白名单由宿主复核 */
+  function mediaControlRequest(scriptKey, cmd, position) {
     return new Promise(function (resolve) {
-      var id = ++smtcSeq;
+      var id = ++mediaReqSeq;
       var t = setTimeout(function () {
-        delete pendingSmtc[id];
+        delete pendingMedia[id];
         resolve(false);
       }, 8000);
-      pendingSmtc[id] = {
+      pendingMedia[id] = {
         f: function (v) {
           clearTimeout(t);
           resolve(v === true);
@@ -97,267 +96,325 @@
   }
 
   /* ============================================================
-   * 音乐引擎核心（v2.0.0）——「初始」内建的媒体数据面
+   * 音乐引擎核心（v5.0.0，第五代全新实现）——「初始」内建媒体数据面
    *
-   * 用户指令：SMTC 检测/歌词解析/时间戳对齐/进度插值全部写在「初始」里面，
-   * 预设（面板 UI）只消费预计算结果，零计算。本函数即那个"里面"：
-   *   - 解析逐字歌词（yrc）/行级歌词（lrc）+ 双语翻译对齐（一次性）；
-   *   - 以宿主广播的锚点（position/fetchedAt/playing/rate）做本地时钟插值；
-   *   - now() 同步返回 {position, progress, lineIndex, wordIndex, wordProgress,
-   *     lineText, lineTr, wordText…}——预设的 rAF 直接取用即可渲染卡拉 OK；
-   *   - seek 成功后乐观重锚（拖完立即生效，不等下一拍）；
-   *   - 快照只在离散变化（曲目/封面/歌词/连接态）时推送（feed 由通道桥接）。
-   * 通道桥接：
-   *   - 脚本通道（makeChushi）：smtcPush/smtcTick → feed/tick（宿主 sandbox.ts
-   *     已有的推送，不新增消息类型）；
-   *   - 部件通道（widgetShim 字符串）：经 Function.toString() 原文内嵌 srcdoc，
-   *     widgetSmtc/widgetSmtcTick → feed/tick。两通道零漂移（同一份源码）。
-   * 契约（chushi.music）：snapshot()/now()/lyrics()/subscribe(cb)/seek(sec)/
-   *   play/pause/toggle/next/prev。旧 chushi.smtc 保持原样兼容。
+   * 职责分工律：插件产真值，引擎只搬运，本层管呈现——
+   *   - 解析逐字歌词（yrc 括号时间轴）/行级歌词（lrc）+ 双语翻译对齐；
+   *   - 锚点 = {position, fetchedAt, playing, rate, duration}，本地时钟
+   *     插值：任何时刻的显示位置 = 锚点 + 已流逝，绝无逐帧累加，
+   *     从根上排除累积漂移；
+   *   - slew 吸收：播放中真值抖动 < 0.35s 的拍只确认不重锚
+   *     （1s 轮询的到达抖动是逐字扫色肉眼抖动的来源）；
+   *   - 暂停淡入淡出：播放→暂停翻转的当拍，按「当前词剩余时长」
+   *     计算一次 fadeMs（用户指定的防漂移管线的最后一环），恢复沿用；
+   *   - now() 同步返回预计算实时态，面板 rAF 直接取用，零计算。
+   * 通道桥接（两通道同一份源码，零漂移）：
+   *   - 脚本通道：全局 smtcPush/smtcTick 处理器 → feed/tick；
+   *   - 部件通道：本函数经 Function.toString() 原文内嵌 widgetShim。
+   * 契约（chushi.music）：feed/tick/now/snapshot/lyrics/subscribe/seek/
+   *   play/pause/toggle/next/prev。
    * ============================================================ */
-  function __chushiMusicCore(hooks) {
-    /* ============================================================
-     * ChuShi music core (v4 generation, rewritten from scratch).
-     * Data plane of the built-in music engine. The plugin produces the
-     * truth; the engine relays it; THIS layer renders it:
-     *   - parse word-level (yrc) / line-level (lrc) lyrics + translations;
-     *   - anchor = {position, fetchedAt, playing, rate, duration}: local
-     *     clock interpolation between 1 Hz engine snapshots;
-     *   - slew window: while playing, re-anchor only when the fresh truth
-     *     drifted >= LY_SLEW_SEC from the interpolated clock (kills the
-     *     per-poll arrival jitter that made karaoke sweep visibly twitch);
-     *   - pause fade: on playing->paused compute fadeMs from the CURRENT
-     *     word's remaining time (user pipeline: full lyrics -> truth
-     *     timestamps -> pause-time fade -> zero cumulative drift);
-     *   - now(): precomputed realtime state {position, progress,
-     *     lineIndex, wordIndex, wordProgress, fadeMs...} for rAF renderers.
-     * Contract (unchanged): feed/tick bridged by both channels;
-     * snapshot()/now()/lyrics()/subscribe(cb)/seek(sec)/play/pause/
-     * toggle/next/prev.
-     * ============================================================ */
-    var st = { cbs: [], snap: null, anchor: null, lines: null, lmode: 0, lrev: "\u0000none", parsedRef: null, fadeMs: 0 };
-    var LY_SLEW_SEC = 0.35;
+  function __chushiMusicCoreV5(hooks) {
+    "use strict";
+    var SLEW_SEC = 0.35;
+    var anchor = null;        /* {position, duration, playing, rate, fetchedAt} */
+    var snapCbs = [];
+    var lastSnap = null;
+    var parsed = null;        /* {mode, lines:[{s,e,t,tr,w:[{s,d,t}]}]} */
+    var parsedKey = "\u0000none";
+    var parsedRef = null;
+    var fadeMs = 0;
 
-    function clamp01(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
-    function bisectLine(ms) {
-      var L = st.lines, lo = 0, hi = L.length - 1;
-      while (lo <= hi) { var mid = (lo + hi) >> 1; if (L[mid].s <= ms) lo = mid + 1; else hi = mid - 1; }
-      return hi;
+    function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+    function rateOf() { return anchor && anchor.rate > 0 ? anchor.rate : 1; }
+
+    /* ---- 本地时钟插值：唯一位置公式，绝不逐帧累加 ---- */
+    function posNow() {
+      if (!anchor) return 0;
+      var p = anchor.position +
+        (anchor.playing ? ((Date.now() - anchor.fetchedAt) / 1000) * rateOf() : 0);
+      if (anchor.duration > 0) return clamp(p, 0, anchor.duration);
+      return Math.max(0, p);
     }
 
-    /* yrc: "[start,dur](s,d,0)word(s,d,0)word..." (ms) -> line objects */
-    function parseYrc(text) {
-      var out = [], rows = String(text).split(/\r?\n/);
+    /* ---- 歌词解析（一次性，缓存按 rev + 对象引用双重失效） ---- */
+    function parseWordLine(line) {
+      var head = /^\s*\[(\d+),(\d+)\]/.exec(line);
+      if (!head) return null; /* JSON 版权头行等非时间轴内容一律跳过 */
+      var s = +head[1], d = +head[2];
+      var marks = [], m;
+      var re = /\((\d+),(\d+),\d+\)/g;
+      while ((m = re.exec(line))) marks.push({ at: m.index, len: m[0].length, s: +m[1], d: +m[2] });
+      if (!marks.length) return null;
+      var words = [];
+      for (var i = 0; i < marks.length; i++) {
+        var from = marks[i].at + marks[i].len;
+        var to = i + 1 < marks.length ? marks[i + 1].at : line.length;
+        var txt = line.slice(from, to);
+        if (txt) words.push({ s: marks[i].s, d: marks[i].d, t: txt });
+      }
+      if (!words.length) return null;
+      return { s: s, e: s + d, t: words.map(function (w) { return w.t; }).join(""), tr: "", w: words };
+    }
+
+    function parseWordText(text) {
+      var lines = [];
+      var rows = String(text || "").split("\n");
       for (var i = 0; i < rows.length; i++) {
-        var m = rows[i].match(/^\[(\d+),(\d+)\](.*)$/);
-        if (!m) continue;
-        var s0 = +m[1], dur = Math.max(1, +m[2]), rest = m[3] || "";
-        var words = [], re = /\((\d+),(\d+),\d+\)([^(]*)/g, wm, joined = "";
-        while ((wm = re.exec(rest))) {
-          if (wm[3] !== "") { words.push({ s: +wm[1], d: Math.max(1, +wm[2]), t: wm[3] }); joined += wm[3]; }
+        var ln = parseWordLine(rows[i]);
+        if (ln) lines.push(ln);
+      }
+      lines.sort(function (a, b) { return a.s - b.s; });
+      return lines;
+    }
+
+    function parseLineText(text) {
+      var out = [];
+      var rows = String(text || "").split("\n");
+      for (var i = 0; i < rows.length; i++) {
+        var row = rows[i];
+        if (!row) continue;
+        var times = [], m;
+        var re = /\[(\d{1,2}):(\d{1,2})(?:[.:](\d{1,3}))?\]/g;
+        while ((m = re.exec(row))) {
+          times.push(+m[1] * 60 + +m[2] + (m[3] ? +(m[3] + "000").slice(0, 3) / 1000 : 0));
         }
-        out.push({ s: s0, e: s0 + dur, t: joined, tr: "", w: words });
+        if (!times.length) continue;
+        var txt = row.slice(row.lastIndexOf("]") + 1).trim();
+        for (var t = 0; t < times.length; t++) {
+          out.push({ s: Math.round(times[t] * 1000), e: 0, t: txt, tr: "", w: null });
+        }
       }
       out.sort(function (a, b) { return a.s - b.s; });
-      return out;
-    }
-
-    /* lrc: "[mm:ss.xx]text" -> line objects (line end = next line start) */
-    function parseLrc(text) {
-      var out = [], rows = String(text).split(/\r?\n/);
-      for (var i = 0; i < rows.length; i++) {
-        var stamps = rows[i].match(/\[(\d+):(\d+)(?:[.:](\d+))?\]/g);
-        if (!stamps) continue;
-        var body = rows[i].replace(/\[[^\]]*\]/g, "").trim();
-        for (var j = 0; j < stamps.length; j++) {
-          var m = stamps[j].match(/\[(\d+):(\d+)(?:[.:](\d+))?\]/);
-          var sec = (+m[1]) * 60 + (+m[2]) + (m[3] ? +("0." + m[3]) : 0);
-          out.push({ s: Math.round(sec * 1000), e: 0, t: body, tr: "", w: null });
-        }
+      for (var k = 0; k < out.length; k++) {
+        out[k].e = k + 1 < out.length ? out[k + 1].s : out[k].s + 8000;
       }
-      out.sort(function (a, b) { return a.s - b.s; });
-      for (var k = out.length - 1; k > 0; k--) if (out[k].s === out[k - 1].s && out[k].t === out[k - 1].t) out.splice(k, 1);
-      for (var q = 0; q < out.length; q++) out[q].e = q + 1 < out.length ? out[q + 1].s : out[q].s + 8000;
-      return out;
+      /* 去重：同刻同文只留一条 */
+      var dedup = [];
+      for (var j = 0; j < out.length; j++) {
+        var prev = dedup[dedup.length - 1];
+        if (prev && prev.s === out[j].s && prev.t === out[j].t) continue;
+        dedup.push(out[j]);
+      }
+      return dedup;
     }
 
-    /* snap translations onto lines by nearest line start (winMs tolerance) */
-    function attachTr(lines, trLines, winMs) {
-      if (!trLines || !trLines.length || !lines) return;
+    /* 翻译吸附：按最近行起点匹配（逐字窗 800ms / 行级窗 600ms） */
+    function joinTranslation(lines, trText, windowMs) {
+      var trs = parseLineText(trText);
+      if (!trs.length || !lines.length) return;
+      var j = 0;
       for (var i = 0; i < lines.length; i++) {
-        var best = null, bd = winMs;
-        for (var j = 0; j < trLines.length; j++) {
-          var d = Math.abs(trLines[j].s - lines[i].s);
-          if (d <= bd) { bd = d; best = trLines[j]; }
+        while (j + 1 < trs.length && trs[j + 1].s <= lines[i].s) j++;
+        var best = -1, bestGap = windowMs;
+        for (var k = Math.max(0, j - 2); k < Math.min(trs.length, j + 3); k++) {
+          var gap = Math.abs(trs[k].s - lines[i].s);
+          if (gap <= bestGap) { bestGap = gap; best = k; }
         }
-        if (best) {
-          var tt = best.t || "";
-          if (best.w && best.w.length) { tt = ""; for (var x = 0; x < best.w.length; x++) tt += best.w[x].t; }
-          lines[i].tr = String(tt).trim();
-        }
+        if (best >= 0 && trs[best].t) lines[i].tr = trs[best].t;
       }
     }
 
-    function parseAll(ly) {
-      if (ly.yrc) {
-        var p = parseYrc(ly.yrc);
-        if (p.length) { attachTr(p, ly.ytlrc ? parseYrc(ly.ytlrc) : null, 800); return { mode: 1, lines: p }; }
+    function ensureParsed(ly) {
+      if (!ly || typeof ly !== "object") return null;
+      var key = String(ly.yrc || "").length + ":" + String(ly.lrc || "").length;
+      if (parsedRef === ly && parsedKey === key) return parsed;
+      parsedRef = ly;
+      parsedKey = key;
+      var yrcLines = parseWordText(ly.yrc);
+      if (yrcLines.length) {
+        joinTranslation(yrcLines, ly.ytlrc, 800);
+        parsed = { mode: 1, lines: yrcLines };
+        return parsed;
       }
-      if (ly.lrc) {
-        var q = parseLrc(ly.lrc);
-        if (q.length) { attachTr(q, ly.tlyric ? parseLrc(ly.tlyric) : null, 600); return { mode: 2, lines: q }; }
+      var lrcLines = parseLineText(ly.lrc);
+      if (lrcLines.length) {
+        joinTranslation(lrcLines, ly.tlyric, 600);
+        parsed = { mode: 2, lines: lrcLines };
+        return parsed;
       }
+      parsed = null;
       return null;
     }
 
-    /* Discrete snapshot arrival: re-anchor + parse lyrics on demand */
-    function feed(state) {
-      var t = state && state.track ? state.track : null;
-      st.anchor = t
-        ? { position: +t.position || 0, duration: +t.duration || 0, playing: !!t.playing, rate: +t.rate > 0 ? +t.rate : 1, fetchedAt: +t.fetchedAt || Date.now() }
-        : null;
-      var rev = state ? String(state.lyricRev || "") : "";
-      if (rev !== st.lrev) { st.lrev = rev; st.lines = null; st.lmode = 0; st.parsedRef = null; }
-      var ly = state && state.lyric;
-      /* re-parse only when the payload object reference changed (a stale
-         payload riding along a song-change snapshot must never mark the
-         NEW payload as already-parsed) */
-      if (ly && st.parsedRef !== ly) {
-        var p = (ly.yrc || ly.lrc) ? parseAll(ly) : null;
-        st.lmode = p ? p.mode : 0;
-        st.lines = p ? p.lines : null;
-        st.parsedRef = ly;
+    /* ---- 逐行/逐词二分定位 ---- */
+    function alignAt(ms) {
+      var data = ensureParsed(lastSnap && lastSnap._lyricRaw);
+      var none = { lineIndex: -1, wordIndex: -1, wordProgress: 0, lineProgress: 0, lineText: "", lineTr: "", wordText: "" };
+      if (!data || !data.lines.length) return none;
+      var lines = data.lines;
+      var lo = 0, hi = lines.length - 1, idx = -1;
+      while (lo <= hi) {
+        var mid = (lo + hi) >> 1;
+        if (lines[mid].s <= ms) { idx = mid; lo = mid + 1; } else { hi = mid - 1; }
       }
-      if (!ly && st.lines) { st.lines = null; st.lmode = 0; }
-      var snap = {
-        connected: !!(state && state.connected),
-        app: t ? String(t.app || "") : "",
-        title: t ? String(t.title || "") : "",
-        artist: t ? String(t.artist || "") : "",
-        album: t ? String(t.album || "") : "",
-        cover: (state && state.cover) || null,
-        coverUrl: (state && state.coverUrl) || null,
-        playing: t ? !!t.playing : false,
-        duration: t ? +t.duration || 0 : 0,
-        lyricRev: rev,
-        lyric: st.lines ? { mode: st.lmode, lines: st.lines } : null,
-        pluginVer: state && typeof state.pluginVer === "string" ? state.pluginVer.slice(0, 16) : "",
-        smtcVer: state && typeof state.smtcVer === "string" ? state.smtcVer.slice(0, 16) : "",
-        seekNote: state && typeof state.seekNote === "string" ? state.seekNote.slice(0, 40) : "",
-        needsUpdate: !!(state && state.needsUpdate === true),
-        needsPlugin: !!(state && state.needsPlugin === true),
-        needsBridge: !!(state && state.needsBridge === true),
-      };
-      st.snap = snap;
-      for (var i = st.cbs.length - 1; i >= 0; i--) { try { st.cbs[i](snap); } catch (e) { } }
-    }
-
-    function posNow() {
-      var a = st.anchor;
-      if (!a) return 0;
-      var p = a.position + (a.playing ? (Date.now() - a.fetchedAt) / 1000 * a.rate : 0);
-      return a.duration > 0 ? Math.min(a.duration, Math.max(0, p)) : Math.max(0, p);
-    }
-
-    /* fade duration = clamp(120..420ms, remaining time of the word in
-       progress at the pause instant); fallback: line tail, then 260ms. */
-    function calcFadeMs(ms) {
-      var L = st.lines;
-      if (!L || !L.length) return 260;
-      var li = bisectLine(ms);
-      if (li < 0) return 260;
-      var ln = L[li];
-      if (ln.w && ln.w.length) {
-        var lo = 0, hi = ln.w.length - 1, wi = -1;
-        while (lo <= hi) { var m2 = (lo + hi) >> 1; if (ln.w[m2].s <= ms) { wi = m2; lo = m2 + 1; } else hi = m2 - 1; }
-        if (wi >= 0) return Math.max(120, Math.min(420, (ln.w[wi].s + ln.w[wi].d) - ms));
+      if (idx < 0 || ms > lines[idx].e + 200) return none;
+      var ln = lines[idx];
+      var lp = clamp((ms - ln.s) / Math.max(1, ln.e - ln.s), 0, 1);
+      if (!ln.w) {
+        return { lineIndex: idx, wordIndex: -1, wordProgress: 0, lineProgress: lp, lineText: ln.t, lineTr: ln.tr, wordText: "" };
       }
-      return Math.max(120, Math.min(420, ln.e - ms));
-    }
-
-    /* Per-second anchor tick. Slew: while playing, absorb truth drifts
-       < LY_SLEW_SEC (display smoothing; the truth itself is untouched);
-       big jumps / playing flips / seeks re-anchor immediately. Pause fade:
-       compute once on the playing->paused edge, reuse for the fade-in. */
-    function tick(tk) {
-      var a = st.anchor;
-      if (!tk || !a) return;
-      var prevPlaying = a.playing;
-      var expected = posNow();
-      if (typeof tk.position === "number") {
-        var reanchor = prevPlaying !== !!tk.playing || !a.playing || Math.abs(tk.position - expected) >= LY_SLEW_SEC;
-        if (reanchor) {
-          a.position = tk.position;
-          a.fetchedAt = typeof tk.fetchedAt === "number" ? tk.fetchedAt : Date.now();
-        }
-      } else if (typeof tk.fetchedAt === "number") {
-        a.fetchedAt = tk.fetchedAt;
+      var ws = ln.w, wi = -1;
+      lo = 0; hi = ws.length - 1;
+      while (lo <= hi) {
+        var mid2 = (lo + hi) >> 1;
+        if (ws[mid2].s <= ms) { wi = mid2; lo = mid2 + 1; } else { hi = mid2 - 1; }
       }
-      if (typeof tk.duration === "number") a.duration = tk.duration;
-      if (typeof tk.playing === "boolean") a.playing = tk.playing;
-      if (typeof tk.rate === "number" && tk.rate > 0) a.rate = tk.rate;
-      if (prevPlaying === true && a.playing === false) st.fadeMs = calcFadeMs(posNow());
-    }
-
-    /* Timestamp alignment: binary search current line/word (0-1 progress) */
-    function align(ms) {
-      var L = st.lines;
-      if (!L || !L.length) return null;
-      var li = bisectLine(ms);
-      if (li < 0) return { lineIndex: -1, wordIndex: -1, wordProgress: 0, lineProgress: 0 };
-      var ln = L[li];
-      var lp = clamp01((ms - ln.s) / Math.max(1, ln.e - ln.s));
-      if (!ln.w || !ln.w.length) return { lineIndex: li, wordIndex: -1, wordProgress: 0, lineProgress: lp };
-      var lo = 0, hi = ln.w.length - 1, wi = -1;
-      while (lo <= hi) { var m2 = (lo + hi) >> 1; if (ln.w[m2].s <= ms) { wi = m2; lo = m2 + 1; } else hi = m2 - 1; }
-      var wp = wi >= 0 ? clamp01((ms - ln.w[wi].s) / Math.max(1, ln.w[wi].d)) : 0;
-      return { lineIndex: li, wordIndex: wi, wordProgress: wp, lineProgress: lp };
-    }
-
-    /* Realtime state (called every rAF frame by renderers) */
-    function now() {
-      var p = posNow(), a = st.anchor;
-      var d = a ? a.duration : 0;
-      var al = align(p * 1000);
-      var ln = al && al.lineIndex >= 0 ? st.lines[al.lineIndex] : null;
-      var w = ln && al.wordIndex >= 0 && ln.w && ln.w.length ? ln.w[al.wordIndex] : null;
+      if (wi < 0) {
+        return { lineIndex: idx, wordIndex: -1, wordProgress: 0, lineProgress: lp, lineText: ln.t, lineTr: ln.tr, wordText: "" };
+      }
+      var wd = ws[wi];
+      var wp = clamp((ms - wd.s) / Math.max(1, wd.d), 0, 1);
       return {
-        position: p,
-        duration: d,
-        progress: d > 0 ? clamp01(p / d) : 0,
-        playing: a ? a.playing : false,
-        fadeMs: st.fadeMs || 0,
-        lineIndex: al ? al.lineIndex : -1,
-        wordIndex: al ? al.wordIndex : -1,
-        wordProgress: al ? al.wordProgress : 0,
-        lineProgress: al ? al.lineProgress : 0,
-        lineText: ln ? String(ln.t || "") : "",
-        lineTr: ln ? String(ln.tr || "") : "",
-        wordText: w ? String(w.t || "") : "",
+        lineIndex: idx, wordIndex: wi, wordProgress: wp, lineProgress: lp,
+        lineText: ln.t, lineTr: ln.tr, wordText: wd.t,
       };
     }
 
-    function snapshot() { return st.snap; }
-    function lyrics() { return st.lines ? { mode: st.lmode, lines: st.lines } : null; }
+    /* ---- 暂停淡入淡出：按当前词剩余时长算一次（用户指定管线） ---- */
+    function computeFadeMs() {
+      var ms = posNow() * 1000;
+      var a = alignAt(ms);
+      var data = ensureParsed(lastSnap && lastSnap._lyricRaw);
+      if (a.wordIndex >= 0 && data) {
+        var wd = data.lines[a.lineIndex].w[a.wordIndex];
+        return clamp(Math.round(wd.s + wd.d - ms), 120, 420);
+      }
+      if (a.lineIndex >= 0 && data) {
+        var ln = data.lines[a.lineIndex];
+        return clamp(Math.round(ln.e - ms), 120, 420);
+      }
+      return 260;
+    }
+
+    /* ---- 离散快照：宿主状态 → 白名单快照（歌词就地解析） ----
+     * 宿主 SmtcState 形态：track.{app,title,artist,album,playing,duration}
+     * 嵌套；coverUrl/lyric/版本/提示在顶层。快照输出为拍平后的消费形态。 */
+    function whitelist(s) {
+      var t = s && s.track && typeof s.track === "object" ? s.track : null;
+      var ly = s && s.lyric && typeof s.lyric === "object" ? s.lyric : null;
+      var out = {
+        connected: !!(s && s.connected),
+        app: t ? String(t.app || "").slice(0, 40) : "",
+        title: t ? String(t.title || "").slice(0, 200) : "",
+        artist: t ? String(t.artist || "").slice(0, 200) : "",
+        album: t ? String(t.album || "").slice(0, 200) : "",
+        cover: s && typeof s.cover === "string" ? s.cover.slice(0, 500000) : "",
+        coverUrl: s && typeof s.coverUrl === "string" ? s.coverUrl.slice(0, 500) : "",
+        playing: !!(t && t.playing),
+        duration: t && typeof t.duration === "number" && isFinite(t.duration) ? Math.max(0, t.duration) : 0,
+        lyricRev: s ? String(s.lyricRev || "").slice(0, 80) : "",
+        lyric: null,
+        pluginVer: s ? String(s.pluginVer || "").slice(0, 16) : "",
+        smtcVer: s ? String(s.smtcVer || "").slice(0, 16) : "",
+        seekNote: s ? String(s.seekNote || "").slice(0, 40) : "",
+        needsUpdate: !!(s && s.needsUpdate),
+        needsPlugin: !!(s && s.needsPlugin),
+        needsBridge: !!(s && s.needsBridge),
+        engineOld: !!(s && s.engineOld),
+      };
+      if (ly) {
+        var data = ensureParsed(ly);
+        if (data) {
+          out.lyric = { mode: data.mode, lines: data.lines };
+          out._lyricRaw = ly; /* 内部字段：定位/淡入淡出用 */
+        }
+      }
+      return out;
+    }
+
+    function push() {
+      for (var i = snapCbs.length - 1; i >= 0; i--) {
+        try { snapCbs[i](lastSnap); } catch (e) { /* 单订阅方异常互不干扰 */ }
+      }
+    }
+
+    function feed(state) {
+      lastSnap = whitelist(state && typeof state === "object" ? state : null);
+      var t = state && state.track && typeof state.track === "object" ? state.track : null;
+      anchor = {
+        position: t && typeof t.position === "number" && isFinite(t.position) ? Math.max(0, t.position) : 0,
+        duration: t && typeof t.duration === "number" && isFinite(t.duration) ? Math.max(0, t.duration) : 0,
+        playing: !!(t && t.playing),
+        rate: t && typeof t.rate === "number" && t.rate > 0 ? t.rate : 1,
+        fetchedAt: t && typeof t.fetchedAt === "number" ? t.fetchedAt : Date.now(),
+      };
+      push();
+    }
+
+    /* ---- 节拍：slew 吸收 + 播放态翻转时算 fadeMs ---- */
+    function tick(tk) {
+      if (!anchor) return;
+      if (!tk || typeof tk !== "object") return;
+      var prevPlaying = anchor.playing;
+      if (typeof tk.position === "number" && isFinite(tk.position)) {
+        var expected = posNow();
+        var reanchor = prevPlaying !== !!tk.playing || !anchor.playing ||
+          Math.abs(tk.position - expected) >= SLEW_SEC;
+        if (reanchor) {
+          anchor.position = Math.max(0, tk.position);
+          anchor.fetchedAt = typeof tk.fetchedAt === "number" && tk.fetchedAt > 0 ? tk.fetchedAt : Date.now();
+        }
+      }
+      if (typeof tk.duration === "number" && isFinite(tk.duration) && tk.duration >= 0) anchor.duration = tk.duration;
+      if (typeof tk.playing === "boolean") anchor.playing = tk.playing;
+      if (typeof tk.rate === "number" && tk.rate > 0) anchor.rate = tk.rate;
+      if (typeof tk.fetchedAt === "number" && tk.fetchedAt > 0 && !anchor.playing) anchor.fetchedAt = tk.fetchedAt;
+      if (prevPlaying === true && anchor.playing === false) fadeMs = computeFadeMs();
+    }
+
+    /* ---- 实时态（面板 rAF 每帧取用） ---- */
+    function now() {
+      var ms = posNow() * 1000;
+      var a = alignAt(ms);
+      var dur = anchor ? anchor.duration : 0;
+      return {
+        position: ms / 1000,
+        duration: dur,
+        progress: dur > 0 ? clamp(ms / (dur * 1000), 0, 1) : 0,
+        playing: anchor ? anchor.playing : false,
+        fadeMs: fadeMs,
+        lineIndex: a.lineIndex,
+        wordIndex: a.wordIndex,
+        wordProgress: a.wordProgress,
+        lineProgress: a.lineProgress,
+        lineText: a.lineText,
+        lineTr: a.lineTr,
+        wordText: a.wordText,
+      };
+    }
+
+    function snapshot() { return lastSnap; }
+    function lyrics() { return ensureParsed(lastSnap && lastSnap._lyricRaw); }
 
     function subscribe(cb) {
       if (typeof cb !== "function") return function () { };
-      st.cbs.push(cb);
-      hooks.requestSubscribe();
-      if (st.snap) { try { cb(st.snap); } catch (e) { } }
-      return function () { var i = st.cbs.indexOf(cb); if (i >= 0) st.cbs.splice(i, 1); };
+      snapCbs.push(cb);
+      if (hooks && typeof hooks.requestSubscribe === "function") hooks.requestSubscribe();
+      if (lastSnap) { try { cb(lastSnap); } catch (e) { } }
+      return function () {
+        var i = snapCbs.indexOf(cb);
+        if (i >= 0) snapCbs.splice(i, 1);
+      };
     }
 
-    /* seek: optimistic re-anchor on success (instant feedback; the next
-       truth tick corrects or confirms) */
+    /* ---- 控制面：seek 成功即乐观重锚（拖完立即生效，不等下一拍） ---- */
     function seek(sec) {
       var s = typeof sec === "number" && isFinite(sec) ? Math.max(0, sec) : 0;
       return Promise.resolve(hooks.control("seek", s)).then(function (ok) {
-        if (ok && st.anchor) { st.anchor.position = s; st.anchor.fetchedAt = Date.now(); }
+        if (ok === true && anchor) {
+          anchor.position = s;
+          anchor.fetchedAt = Date.now();
+        }
         return ok === true;
       });
     }
-    function simple(cmd) { return function () { return Promise.resolve(hooks.control(cmd, null)).then(function (ok) { return ok === true; }); }; }
+
+    function simple(cmd) {
+      return function () {
+        return Promise.resolve(hooks.control(cmd, null)).then(function (ok) { return ok === true; });
+      };
+    }
 
     return {
       feed: feed, tick: tick, now: now, snapshot: snapshot, lyrics: lyrics,
@@ -378,16 +435,16 @@
     var fxResizeCbs = [];
     var settingsCbs = [];
     settingsTargets.set(scriptKey, settingsCbs);
-    var smtcCbs = [];
-    smtcTargets.set(scriptKey, smtcCbs);
-    /* 音乐引擎核心实例（v2.0.0）：喂数由全局 smtcPush/smtcTick 处理器桥接 */
-    var musicApi = __chushiMusicCore({
-      control: function (cmd, position) { return smtcControlReq(scriptKey, cmd, position); },
+    var coreCbs = [];
+    mediaSnapCbs.set(scriptKey, coreCbs);
+    /* 音乐引擎核心实例（v5）：喂数由全局 smtcPush/smtcTick 处理器桥接 */
+    var coreApi = __chushiMusicCoreV5({
+      control: function (cmd, position) { return mediaControlRequest(scriptKey, cmd, position); },
       requestSubscribe: function () {
         post({ type: "api", op: "smtcSubscribe", scriptKey: scriptKey });
       },
     });
-    musicTargets.set(scriptKey, musicApi);
+    musicCores.set(scriptKey, coreApi);
 
     function fxApi(op, id, html) {
       post({ type: "api", op: op, scriptKey: scriptKey, fxId: id, html: html });
@@ -544,21 +601,19 @@
           };
         },
       },
-      /* ---------- SMTC 媒体作用面（v1.8.0）----------
-       * get()：Promise<state|null> —— 当前系统媒体会话快照（含连接态/封面 data URL）。
+      /* ---------- SMTC 媒体作用面（v5 全新实现）----------
+       * get()：Promise<state|null> 当前媒体快照（宿主白名单产物）；
        * control(cmd, position?)：play/pause/toggle/next/prev/seek（seek 附秒），
-       *   Promise<boolean> 兑现执行结果；cmd 白名单在宿主复核。
-       * subscribe(cb)：快照变化即回调（position 不推，消费方按 fetchedAt 插值），
-       *   订阅即回推当前值；返回退订函数。删除/冻结预设时宿主回收订阅。 */
+       *   Promise<boolean> 兑现执行结果；subscribe(cb)：快照变化即回调。 */
       smtc: {
         get: function () {
           return new Promise(function (resolve) {
-            var id = ++smtcSeq;
+            var id = ++mediaReqSeq;
             var t = setTimeout(function () {
-              delete pendingSmtc[id];
+              delete pendingMedia[id];
               resolve(null);
             }, 8000);
-            pendingSmtc[id] = {
+            pendingMedia[id] = {
               f: function (v) {
                 clearTimeout(t);
                 resolve(v);
@@ -568,34 +623,32 @@
           });
         },
         control: function (cmd, position) {
-          return smtcControlReq(scriptKey, cmd, position);
+          return mediaControlRequest(scriptKey, cmd, position);
         },
         subscribe: function (cb) {
           if (typeof cb !== "function") return function () {};
-          smtcCbs.push(cb);
+          coreCbs.push(cb);
           post({ type: "api", op: "smtcSubscribe", scriptKey: scriptKey });
           return function () {
-            var i = smtcCbs.indexOf(cb);
-            if (i >= 0) smtcCbs.splice(i, 1);
+            var i = coreCbs.indexOf(cb);
+            if (i >= 0) coreCbs.splice(i, 1);
           };
         },
       },
-      /* ---------- 音乐引擎作用面（v2.0.0）----------
-       * 「初始」内建的数据面：解析/插值/时间戳对齐都在宿主侧完成，
-       * 预设零计算。now() 同步返回实时态（rAF 每帧调用即可）；
-       * snapshot()/subscribe() 返回离散快照（含解析好的歌词结构）；
-       * seek(sec) 成功即本地乐观重锚。旧 chushi.smtc 保持兼容。 */
+      /* ---------- 音乐引擎作用面（v5 全新实现）----------
+       * 解析/插值/时间戳对齐全在宿主侧完成，预设零计算；
+       * now() 同步返回实时态（rAF 每帧取用）；seek 成功即乐观重锚。 */
       music: {
-        snapshot: function () { return musicApi.snapshot(); },
-        now: function () { return musicApi.now(); },
-        lyrics: function () { return musicApi.lyrics(); },
-        subscribe: musicApi.subscribe,
-        seek: musicApi.seek,
-        play: musicApi.play,
-        pause: musicApi.pause,
-        toggle: musicApi.toggle,
-        next: musicApi.next,
-        prev: musicApi.prev,
+        snapshot: function () { return coreApi.snapshot(); },
+        now: function () { return coreApi.now(); },
+        lyrics: function () { return coreApi.lyrics(); },
+        subscribe: coreApi.subscribe,
+        seek: coreApi.seek,
+        play: coreApi.play,
+        pause: coreApi.pause,
+        toggle: coreApi.toggle,
+        next: coreApi.next,
+        prev: coreApi.prev,
       },
     };
   }
@@ -671,18 +724,14 @@ function pageMode() {
  * 把 HTML 写进嵌套的 srcdoc iframe（sandbox="allow-scripts"，不透明源），并把
  * 部件内 chushi API（notify/open/storage/resize/close）带上 widgetKey 中继回应用层；
  * 应用层回传的 storage 结果与主题变更反向下发进部件。
- * panelMode（v1.8.2）：dock 表面部件以面板形态渲染，置 dataset.panel=1
- * （部件据此直开展开卡），chushi.close() 上报 closePanel 由应用层关闭弹层。
- * 两层隔离：应用层 → 本页（唯一源）→ 部件（不透明源），部件拿不到
- * 主文档/localStorage/扩展 API；open/storage/close 均由应用层白名单复核。 */
+ * panelMode（v1.8.2）：dock 表面部件以面板形态渲染，置 dataset.panel=1。
+ * v5：音乐引擎核心经 Function.toString() 原文内嵌（同一份源码，两通道零漂移）。 */
 function widgetShim(theme, accent, panelMode) {
   var accentSet = /^#[0-9a-fA-F]{3,8}$/.test(accent || "")
     ? "document.documentElement.style.setProperty('--w-accent','" + accent + "');"
     : "";
-  /* 音乐引擎核心（v2.0.0）：与脚本通道同一份源码（Function.toString 原文内嵌，
-   * public/ 资产不经打包器，无压缩改写风险）——解析/插值/对齐全在宿主侧完成 */
   var musicSrc =
-    "var __music=(" + __chushiMusicCore.toString() + ")({" +
+    "var __music=(" + __chushiMusicCoreV5.toString() + ")({" +
     "control:function(c,p){return new Promise(function(res){var id=++seq;pending[id]={f:res,op:'smtcControl'};" +
     "post({type:'widgetApi',op:'smtcControl',cmd:String(c||'').slice(0,8)," +
     "position:(typeof p==='number'&&isFinite(p))?p:null,reqId:id})})}," +
@@ -704,7 +753,6 @@ function widgetShim(theme, accent, panelMode) {
     "set:function(k,v){return new Promise(function(res){var id=++seq;pending[id]={f:res,op:'storageSet'};var s='';" +
     "try{var j=JSON.stringify(v);s=j==null?'':j}catch(e){}" +
     "post({type:'widgetApi',op:'storageSet',key:String(k||'').slice(0,64),value:s.slice(0,4000),reqId:id})})}}," +
-    /* SMTC 媒体作用面（v1.8.0）：与脚本通道同契约（get/control/subscribe） */
     "smtc:{get:function(){return new Promise(function(res){var id=++seq;pending[id]={f:res,op:'smtcGet'};" +
     "post({type:'widgetApi',op:'smtcGet',reqId:id})})}," +
     "control:function(c,p){return new Promise(function(res){var id=++seq;pending[id]={f:res,op:'smtcControl'};" +
@@ -713,7 +761,6 @@ function widgetShim(theme, accent, panelMode) {
     "subscribe:function(cb){if(typeof cb!=='function')return function(){};smtcCbs.push(cb);" +
     "post({type:'widgetApi',op:'smtcSubscribe'});return function(){var i=smtcCbs.indexOf(cb);" +
     "if(i>=0)smtcCbs.splice(i,1)}}}," +
-    /* 音乐引擎作用面（v2.0.0）：snapshot/now/lyrics/subscribe/seek/播放控制 */
     "music:{snapshot:function(){return __music.snapshot()},now:function(){return __music.now()}," +
     "lyrics:function(){return __music.lyrics()},subscribe:__music.subscribe,seek:__music.seek," +
     "play:__music.play,pause:__music.pause,toggle:__music.toggle,next:__music.next,prev:__music.prev}};" +
@@ -725,7 +772,6 @@ function widgetShim(theme, accent, panelMode) {
     "lastSmtc=s;__music.feed(s);" +
     "for(var i=smtcCbs.length-1;i>=0;i--){try{smtcCbs[i](s)}catch(e){}}};" +
     "if(d.type==='widgetSmtcTick'){var tk=d.tick&&typeof d.tick==='object'?d.tick:null;" +
-    /* 每拍轻量锚点（v1.9.0）：只改锚点字段，不覆盖 cover/lyric；seek 后新位置靠它到达 */
     "if(tk&&lastSmtc&&lastSmtc.track){" +
     "if(typeof tk.position==='number')lastSmtc.track.position=tk.position;" +
     "if(typeof tk.duration==='number')lastSmtc.track.duration=tk.duration;" +
@@ -914,16 +960,16 @@ window.addEventListener("message", function (e) {
     }
 
     if (m.type === "smtcPush" && typeof m.scriptKey === "string") {
-      /* SMTC 快照定向推送（签名变化才到）：state 整包透传（宿主已白名单构造） */
-      var st = smtcTargets.get(m.scriptKey);
-      var mst = m.state && typeof m.state === "object" ? m.state : null;
-      smtcLast.set(m.scriptKey, mst);
-      var mua = musicTargets.get(m.scriptKey);
-      if (mua && mst) mua.feed(mst); /* 音乐引擎同源喂数（v2.0.0） */
-      if (!st || st.length === 0) return;
-      for (var si = 0; si < st.length; si++) {
+      /* 快照定向推送（签名变化才到）：state 整包透传，音乐核心同源喂数 */
+      var snapCbs = mediaSnapCbs.get(m.scriptKey);
+      var snapMsg = m.state && typeof m.state === "object" ? m.state : null;
+      mediaLastSnap.set(m.scriptKey, snapMsg);
+      var coreA = musicCores.get(m.scriptKey);
+      if (coreA && snapMsg) coreA.feed(snapMsg);
+      if (!snapCbs || snapCbs.length === 0) return;
+      for (var ai = 0; ai < snapCbs.length; ai++) {
         try {
-          st[si](mst);
+          snapCbs[ai](snapMsg);
         } catch (err) {
           post({ type: "runtimeError", message: errMsg(err) });
         }
@@ -932,24 +978,22 @@ window.addEventListener("message", function (e) {
     }
 
     if (m.type === "smtcTick" && typeof m.scriptKey === "string") {
-      /* 每拍轻量锚点（v1.9.0）：seek 后的新位置/插值漂移校正。
-         只改锚点字段（position/duration/playing/rate/fetchedAt），
-         不覆盖 cover/lyric 等重载荷；未拿到过快照则丢弃（下一拍再试）。 */
+      /* 每拍锚点：只改锚点字段，不覆盖重载荷；未拿到过快照则丢弃 */
       var tk = m.tick && typeof m.tick === "object" ? m.tick : null;
-      var last = smtcLast.get(m.scriptKey);
-      if (!tk || !last || !last.track) return;
-      if (typeof tk.position === "number") last.track.position = tk.position;
-      if (typeof tk.duration === "number") last.track.duration = tk.duration;
-      if (typeof tk.playing === "boolean") last.track.playing = tk.playing;
-      if (typeof tk.rate === "number") last.track.rate = tk.rate;
-      if (typeof tk.fetchedAt === "number") last.track.fetchedAt = tk.fetchedAt;
-      var mua2 = musicTargets.get(m.scriptKey);
-      if (mua2) mua2.tick(tk); /* 音乐引擎锚点同步（v2.0.0） */
-      var stt = smtcTargets.get(m.scriptKey);
-      if (!stt || stt.length === 0) return;
-      for (var sj = 0; sj < stt.length; sj++) {
+      var lastSnapMsg = mediaLastSnap.get(m.scriptKey);
+      if (!tk || !lastSnapMsg || !lastSnapMsg.track) return;
+      if (typeof tk.position === "number") lastSnapMsg.track.position = tk.position;
+      if (typeof tk.duration === "number") lastSnapMsg.track.duration = tk.duration;
+      if (typeof tk.playing === "boolean") lastSnapMsg.track.playing = tk.playing;
+      if (typeof tk.rate === "number") lastSnapMsg.track.rate = tk.rate;
+      if (typeof tk.fetchedAt === "number") lastSnapMsg.track.fetchedAt = tk.fetchedAt;
+      var coreB = musicCores.get(m.scriptKey);
+      if (coreB) coreB.tick(tk);
+      var tickCbs = mediaSnapCbs.get(m.scriptKey);
+      if (!tickCbs || tickCbs.length === 0) return;
+      for (var bi = 0; bi < tickCbs.length; bi++) {
         try {
-          stt[sj](last);
+          tickCbs[bi](lastSnapMsg);
         } catch (err) {
           post({ type: "runtimeError", message: errMsg(err) });
         }
@@ -958,19 +1002,19 @@ window.addEventListener("message", function (e) {
     }
 
     if (m.type === "smtcGetResult") {
-      var pg = pendingSmtc[m.reqId];
-      if (pg) {
-        delete pendingSmtc[m.reqId];
-        pg.f(m.state && typeof m.state === "object" ? m.state : null);
+      var getWaiter = pendingMedia[m.reqId];
+      if (getWaiter) {
+        delete pendingMedia[m.reqId];
+        getWaiter.f(m.state && typeof m.state === "object" ? m.state : null);
       }
       return;
     }
 
     if (m.type === "smtcControlResult") {
-      var pc = pendingSmtc[m.reqId];
-      if (pc) {
-        delete pendingSmtc[m.reqId];
-        pc.f(m.ok === true);
+      var ctlWaiter = pendingMedia[m.reqId];
+      if (ctlWaiter) {
+        delete pendingMedia[m.reqId];
+        ctlWaiter.f(m.ok === true);
       }
       return;
     }

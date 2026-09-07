@@ -1,389 +1,488 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ChuShi Music</title>
 <style>
-  :root{color-scheme:light dark}
-  *{margin:0;padding:0;box-sizing:border-box}
-  html,body{width:100%;height:100%;overflow:hidden;background:transparent}
-  body{
-    font-family:ui-sans-serif,system-ui,"PingFang SC","Microsoft YaHei",sans-serif;
-    user-select:none;
-    --ink:#27272a;--ink2:#71717a;--ink3:#a1a1aa;--line:rgba(0,0,0,.08);
-    --pr:rgba(0,0,0,.10);--ok:#34d399;--card:rgba(255,255,255,.86);--card2:rgba(255,255,255,.55);
-    --acc:var(--w-accent,#8b5cf6);
-    --acc20:color-mix(in oklab,var(--acc) 20%,transparent);
-    --acc32:color-mix(in oklab,var(--acc) 32%,transparent);
-    --acc66:color-mix(in oklab,var(--acc) 66%,transparent);
-    /* 与「初始」内建同款真实缓动（跨 iframe 拿不到宿主变量，给真值） */
-    --ez:cubic-bezier(.22,1,.36,1);--r9:999px;
+:root{color-scheme:light dark}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:transparent}
+body{
+  font-family:ui-sans-serif,system-ui,"PingFang SC","Microsoft YaHei",sans-serif;
+  user-select:none;
+  --ink:#27272a;--ink2:#71717a;--ink3:#a1a1aa;--line:rgba(0,0,0,.08);
+  --pr:rgba(0,0,0,.10);--ok:#34d399;--card:rgba(255,255,255,.86);--card2:rgba(255,255,255,.55);
+  --acc:var(--w-accent,#8b5cf6);
+  --acc20:color-mix(in oklab,var(--acc) 20%,transparent);
+  --acc32:color-mix(in oklab,var(--acc) 32%,transparent);
+  --acc66:color-mix(in oklab,var(--acc) 66%,transparent);
+  /* 「初始」内建同款真实缓动（跨 iframe 拿不到宿主变量，给真值） */
+  --ez:cubic-bezier(.22,1,.36,1);--r9:999px;
+}
+[data-theme=dark] body{
+  --ink:#f4f4f5;--ink2:#a1a1aa;--ink3:#71717a;--line:rgba(255,255,255,.09);
+  --pr:rgba(255,255,255,.12);--card:rgba(24,24,28,.88);--card2:rgba(39,39,44,.55);
+}
+.cs-card{position:relative;width:100%;height:100%;background:var(--card);
+  backdrop-filter:blur(22px) saturate(1.5);
+  border:1px solid var(--line);border-radius:18px;overflow:hidden;
+  box-shadow:0 10px 34px rgba(0,0,0,.13),0 1px 0 rgba(255,255,255,.14) inset;
   }
-  [data-theme=dark] body{
-    --ink:#f4f4f5;--ink2:#a1a1aa;--ink3:#71717a;--line:rgba(255,255,255,.09);
-    --pr:rgba(255,255,255,.12);--card:rgba(24,24,28,.88);--card2:rgba(39,39,44,.55);
-  }
-  .card{position:relative;width:100%;height:100%;background:var(--card);
-    backdrop-filter:blur(22px) saturate(1.5);
-    border:1px solid var(--line);border-radius:18px;overflow:hidden;
-    box-shadow:0 10px 34px rgba(0,0,0,.13),0 1px 0 rgba(255,255,255,.14) inset;
-    }
-  /* ---------- 展开卡：dock 面板形态（v2.0.0：本预设只写面板样式，
-     数据全部来自宿主 chushi.music API——封面/歌名/歌词/进度均已预计算） ---------- */
-  .fl{position:absolute;inset:0;display:flex;flex-direction:column;padding:14px 16px 11px;
-    opacity:0;pointer-events:none;transition:opacity .32s ease}
-  .mode-fl .fl{opacity:1;pointer-events:auto}
-  .rw{display:flex;align-items:center;gap:14px}
-  .cw{position:relative;flex:none}
-  .glow{position:absolute;inset:-7px;border-radius:22px;background:var(--acc);opacity:0;
-    filter:blur(12px);transition:opacity .55s ease}
-  .pl .glow{opacity:.24}
-  .he{position:relative;width:96px;height:96px;border-radius:16px;overflow:hidden;
-    background:linear-gradient(135deg,var(--acc32),var(--acc20));
-    box-shadow:0 4px 14px rgba(0,0,0,.16);transition:transform .5s var(--ez)}
-  .pl .he{transform:scale(1.02)}
-  .he img{width:100%;height:100%;object-fit:cover;display:block;opacity:0;
-    transition:opacity .6s var(--ez),filter .5s ease}
-  .he img.on{opacity:1}
-  .pz{filter:saturate(.55) brightness(.9)}
-  .dot{position:absolute;right:6px;top:6px;width:6px;height:6px;border-radius:var(--r9);
-    background:var(--ok);box-shadow:0 0 6px var(--ok);opacity:0;transition:opacity .4s}
-  .pl .dot{opacity:1}
-  .info{flex:1;min-width:0;padding-right:24px}
-  .t1{font-size:15px;font-weight:560;color:var(--ink);line-height:1.3;white-space:nowrap;
-    overflow:hidden;text-overflow:ellipsis}
-  .t2{font-size:12px;color:var(--ink2);margin-top:3px;white-space:nowrap;overflow:hidden;
-    text-overflow:ellipsis}
-  .t3{font-size:11px;color:var(--ink3);margin-top:2px;white-space:nowrap;overflow:hidden;
-    text-overflow:ellipsis}
-  .sw{animation:ri .5s var(--ez)}
-  @keyframes ri{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
-  .cx{position:absolute;right:10px;top:10px;appearance:none;border:0;cursor:pointer;
-    display:flex;align-items:center;justify-content:center;width:24px;height:24px;
-    border-radius:var(--r9);color:var(--ink2);background:var(--card2);opacity:.85;
-    transition:transform .35s var(--ez)}
-  .cx svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2;
-    stroke-linecap:round;stroke-linejoin:round}
-  .cx:hover{transform:scale(1.08)}
-  .sk{margin-top:13px;height:14px;display:flex;align-items:center;cursor:pointer;touch-action:none}
-  .rl{position:relative;width:100%;height:4px;border-radius:4px;background:var(--pr)}
-  .rl i{position:absolute;left:0;top:0;height:100%;width:0%;border-radius:4px;background:var(--acc)}
-  .rl u{position:absolute;left:0;top:50%;width:10px;height:10px;border-radius:var(--r9);background:#fff;
-    border:2px solid var(--acc);transform:translate(-50%,-50%);pointer-events:none}
-  .tm{display:flex;justify-content:space-between;margin-top:2px;font-size:10.5px;
-    color:var(--ink3);font-variant-numeric:tabular-nums}
-  .bt{appearance:none;border:0;background:transparent;color:var(--ink2);width:38px;height:38px;
-    border-radius:var(--r9);flex:none;display:flex;align-items:center;justify-content:center;
-    cursor:pointer;transition:transform .25s var(--ez)}
-  .bt svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.75;
-    stroke-linecap:round;stroke-linejoin:round}
-  .bt svg.pc{fill:currentColor;stroke:none}
-  .bt:hover{background:var(--card2);color:var(--ink);transform:scale(1.06)}
-  .bt.mi{width:46px;height:46px;color:#fff;background:var(--acc);position:relative;
-    box-shadow:0 4px 14px var(--acc32),0 1px 0 rgba(255,255,255,.22) inset}
-  /* v2.1.0 双图标绝对堆叠 + 交叉淡切：原双 svg 流内排布 + display 硬切换，
-     细线框▶→实心⏸ 的视觉质量跳变被真机读作「按钮轻微位移」；
-     现在两图标同圆心叠放（布局零位移），切换 = opacity+scale 交叉过渡 */
-  .bt.mi svg{position:absolute;left:50%;top:50%;width:20px;height:20px;
-    margin:-10px 0 0 -10px;opacity:1;
-    transition:opacity .16s ease,transform .16s var(--ez)}
-  .bt.mi svg.off{opacity:0;transform:scale(.55)}
-  .bt.mi:active{transform:scale(.94)}
-  .ct{flex:1;display:flex;align-items:center;justify-content:center;gap:20px}
-  /* ---------- 逐字歌词（渲染层：行/词 DOM 与高亮均由宿主 API 预计算驱动） ---------- */
-  .ly{position:relative;height:124px;margin-top:8px;overflow:hidden;flex:none;
-    -webkit-mask-image:linear-gradient(180deg,transparent,#000 16%,#000 84%,transparent)}
-  .lyin{position:absolute;left:0;right:0;top:0;transition:transform .55s var(--ez);will-change:transform}
-  .lyline{padding:4px 2px;text-align:center;font-size:14.5px;font-weight:560;line-height:1.45;
-    color:var(--ink3);transition:color .3s ease}
-  .lyline.on{color:var(--ink)}
-  .lyline.gap{font-size:11px;letter-spacing:7px;color:var(--ink3)}
-  .lyw{position:relative;color:var(--ink3)}
-  /* v2.0.1 逐字扫色改双层实体色 + clip-path：原 -webkit-background-clip:text
-     + color:transparent 在 transform 过场中部分帧不绘制渐变，整词隐形闪动
-     （真机 30fps 录屏实锤）；底层永远实体色可见，上层同文本按 --p 裁剪显色 */
-  .lyw .ov{position:absolute;left:0;top:0;color:var(--ink);pointer-events:none;
-    clip-path:inset(-8% calc(100% - var(--p,0%)) -8% 0)}
-  .lysub{font-size:11px;font-weight:400;color:var(--ink2);margin-top:2px;display:none;
-    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .lyline.on .lysub{display:block}
-  .ft{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--ink3);margin-top:auto}
-  .dt{width:6px;height:6px;border-radius:var(--r9);background:var(--ok);flex:none;transition:background .3s}
-  .dt.pz{background:#fbbf24}
-  /* ---------- v2.3.0 提示芯片 ----------
-   * seekNote 旧版只在 10.5px 页脚文案里，真机用户看不到（「拖动失败没有提示」）——
-   * 现在改为进度条上方的醒目芯片；needsUpdate 常驻顶部（版本漂移从症状可见） */
-  .chip{position:absolute;left:50%;transform:translateX(-50%);z-index:4;display:none;
-    align-items:center;gap:5px;padding:4px 10px;border-radius:var(--r9);
-    font-size:11px;font-weight:550;white-space:nowrap;pointer-events:none;
-    background:var(--ink);color:var(--card);box-shadow:0 3px 12px rgba(0,0,0,.22);}
-  .chip.on{display:flex;animation:chipIn .3s var(--ez)}
-  @keyframes chipIn{from{opacity:0;transform:translateX(-50%) translateY(-5px)}to{opacity:1;transform:translateX(-50%)}}
-  .chip svg{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round}
-  .chip.warn{background:#b45309;color:#fff}
-  /* ---------- 空态 ---------- */
-  .em{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
-    justify-content:center;gap:7px;text-align:center;padding:12px}
-  .em .ic{color:var(--acc66)}
-  .em .e1{font-size:12.5px;font-weight:550;color:var(--ink)}
-  .em .e2{font-size:11px;color:var(--ink3);line-height:1.5;max-width:250px}
-  .hd{display:none!important}
+/* ---------- 展开面板（dock 形态）：数据全部来自宿主 chushi.music API ---------- */
+.cs-live{position:absolute;inset:0;display:flex;flex-direction:column;padding:14px 16px 11px;
+  opacity:0;pointer-events:none;transition:opacity .32s ease}
+.cs-mode-fl .cs-live{opacity:1;pointer-events:auto}
+.cs-empty{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;
+  justify-content:center;gap:7px;text-align:center;padding:12px}
+.cs-mode-em .cs-empty{display:flex}
+.cs-head{display:flex;align-items:center;gap:14px}
+.cs-cov{position:relative;flex:none}
+.cs-glow{position:absolute;inset:-7px;border-radius:22px;background:var(--acc);opacity:0;
+  filter:blur(12px);transition:opacity .55s ease}
+.cs-playing .cs-glow{opacity:.24}
+.cs-pic{position:relative;width:96px;height:96px;border-radius:16px;overflow:hidden;
+  background:linear-gradient(135deg,var(--acc32),var(--acc20));
+  box-shadow:0 4px 14px rgba(0,0,0,.16);transition:transform .5s var(--ez)}
+.cs-playing .cs-pic{transform:scale(1.02)}
+.cs-pic img{width:100%;height:100%;object-fit:cover;display:block;opacity:0;
+  transition:opacity .6s var(--ez),filter .5s ease}
+.cs-pic img.on{opacity:1}
+.cs-pz img{filter:saturate(.55) brightness(.9)}
+.cs-dot{position:absolute;right:6px;top:6px;width:6px;height:6px;border-radius:var(--r9);
+  background:var(--ok);box-shadow:0 0 6px var(--ok);opacity:0;transition:opacity .4s}
+.cs-playing .cs-dot{opacity:1}
+.cs-meta{flex:1;min-width:0;padding-right:24px}
+.cs-t1{font-size:15px;font-weight:560;color:var(--ink);line-height:1.3;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.cs-t2{font-size:12px;color:var(--ink2);margin-top:3px;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
+.cs-t3{font-size:11px;color:var(--ink3);margin-top:2px;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis}
+.cs-swin{animation:cs-ri .5s var(--ez)}
+@keyframes cs-ri{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+.cs-x{position:absolute;right:10px;top:10px;appearance:none;border:0;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;width:24px;height:24px;
+  border-radius:var(--r9);color:var(--ink2);background:var(--card2);opacity:.85;
+  transition:transform .35s var(--ez)}
+.cs-x svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2;
+  stroke-linecap:round;stroke-linejoin:round}
+.cs-x:hover{transform:scale(1.08)}
+.cs-seek{margin-top:13px;height:14px;display:flex;align-items:center;cursor:pointer;touch-action:none}
+.cs-rail{position:relative;width:100%;height:4px;border-radius:4px;background:var(--pr)}
+.cs-rail i{position:absolute;left:0;top:0;height:100%;width:0%;border-radius:4px;background:var(--acc)}
+.cs-rail u{position:absolute;left:0;top:50%;width:10px;height:10px;border-radius:var(--r9);background:#fff;
+  border:2px solid var(--acc);transform:translate(-50%,-50%);pointer-events:none}
+.cs-tm{display:flex;justify-content:space-between;margin-top:2px;font-size:10.5px;
+  color:var(--ink3);font-variant-numeric:tabular-nums}
+.cs-b{appearance:none;border:0;background:transparent;color:var(--ink2);width:38px;height:38px;
+  border-radius:var(--r9);flex:none;display:flex;align-items:center;justify-content:center;
+  cursor:pointer;transition:transform .25s var(--ez)}
+.cs-b svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:1.75;
+  stroke-linecap:round;stroke-linejoin:round}
+.cs-b svg.fi{fill:currentColor;stroke:none}
+.cs-b:hover{background:var(--card2);color:var(--ink);transform:scale(1.06)}
+/* 主播放键：双图标绝对堆叠同圆心（布局零位移），切换 = opacity+scale 交叉过渡
+   ——细线框▶与实心⏸流内排布 + display 硬切换曾被真机读作「按钮位移」，此法根治 */
+.cs-bmain{width:46px;height:46px;color:#fff;background:var(--acc);position:relative;
+  box-shadow:0 4px 14px var(--acc32),0 1px 0 rgba(255,255,255,.22) inset}
+.cs-bmain svg{position:absolute;left:50%;top:50%;width:20px;height:20px;
+  margin:-10px 0 0 -10px;opacity:1;
+  transition:opacity .16s ease,transform .16s var(--ez)}
+.cs-bmain svg.off{opacity:0;transform:scale(.55)}
+.cs-bmain:active{transform:scale(.94)}
+.cs-ctl{flex:1;display:flex;align-items:center;justify-content:center;gap:20px}
+/* ---------- 逐字歌词：行/词 DOM 与高亮由宿主预计算驱动 ---------- */
+.cs-lyr{position:relative;height:124px;margin-top:8px;overflow:hidden;flex:none;
+  -webkit-mask-image:linear-gradient(180deg,transparent,#000 16%,#000 84%,transparent)}
+.cs-lyr-in{position:absolute;left:0;right:0;top:0;transition:transform .55s var(--ez);will-change:transform}
+.cs-ln{padding:4px 2px;text-align:center;font-size:14.5px;font-weight:560;line-height:1.45;
+  color:var(--ink3);transition:color .3s ease}
+.cs-ln.on{color:var(--ink)}
+.cs-ln.gap{font-size:11px;letter-spacing:7px;color:var(--ink3)}
+/* 逐字扫色：双层实体色 + clip-path（background-clip:text 在 transform 过场中
+   会整词隐形闪动；底层永远实体色可见，上层同文本按 --p 裁剪显色） */
+.cs-w{position:relative;color:var(--ink3)}
+.cs-w .ov{position:absolute;left:0;top:0;color:var(--ink);pointer-events:none;
+  clip-path:inset(-8% calc(100% - var(--p,0%)) -8% 0)}
+.cs-sub{font-size:11px;font-weight:400;color:var(--ink2);margin-top:2px;display:none;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cs-ln.on .cs-sub{display:block}
+.cs-foot{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--ink3);margin-top:auto}
+.cs-led{width:6px;height:6px;border-radius:var(--r9);background:var(--ok);flex:none;transition:background .3s}
+.cs-led.pz{background:#fbbf24}
+/* ---------- 提示芯片 ---------- */
+.cs-chip{position:absolute;left:50%;transform:translateX(-50%);z-index:4;display:none;
+  align-items:center;gap:5px;padding:4px 10px;border-radius:var(--r9);
+  font-size:11px;font-weight:550;white-space:nowrap;pointer-events:none;
+  background:var(--ink);color:var(--card);box-shadow:0 3px 12px rgba(0,0,0,.22)}
+.cs-chip.on{display:flex;animation:cs-chipin .3s var(--ez)}
+@keyframes cs-chipin{from{opacity:0;transform:translateX(-50%) translateY(-5px)}to{opacity:1;transform:translateX(-50%)}}
+.cs-chip svg{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round}
+.cs-chip.warn{background:#b45309;color:#fff}
+/* ---------- 空态 ---------- */
+.cs-eic{color:var(--acc66)}
+.cs-e1{font-size:12.5px;font-weight:550;color:var(--ink)}
+.cs-e2{font-size:11px;color:var(--ink3);line-height:1.5;max-width:250px}
+.cs-hide{display:none!important}
 </style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="cs-i-play" viewBox="0 0 24 24"><path d="M8 4l12 8-12 8V4z"/></symbol>
+    <symbol id="cs-i-pause" viewBox="0 0 24 24"><rect x="6.6" y="4.6" width="3.6" height="14.8" rx="1.3"/><rect x="13.8" y="4.6" width="3.6" height="14.8" rx="1.3"/></symbol>
+    <symbol id="cs-i-prev" viewBox="0 0 24 24"><path d="M19 20L9 12l10-8v16z"/><path d="M6 5.5v13"/></symbol>
+    <symbol id="cs-i-next" viewBox="0 0 24 24"><path d="M5 4l10 8-10 8V4z"/><path d="M18 5.5v13"/></symbol>
+    <symbol id="cs-i-chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
+    <symbol id="cs-i-warn" viewBox="0 0 24 24"><path d="M12 4L2.6 20h18.8L12 4z"/><path d="M12 10.5v4"/><path d="M12 17.4v.2"/></symbol>
+    <symbol id="cs-i-note" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.4"/><path d="M10 16V8.6l5.4 3"/></symbol>
+  </defs>
+</svg>
 
-<svg width="0" height="0" style="position:absolute" aria-hidden><defs>
-  <polygon id="i-pl" points="8 4 20 12 8 20 8 4"/>
-  <g id="i-pa"><rect x="6.6" y="4.6" width="3.6" height="14.8" rx="1.3"/><rect x="13.8" y="4.6" width="3.6" height="14.8" rx="1.3"/></g>
-  <g id="i-pv"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></g>
-  <g id="i-nx"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></g>
-  <polyline id="i-dn" points="6 9 12 15 18 9"/>
-</defs></svg>
-
-<div class="card mode-em" id="card">
-  <div class="fl" id="fl">
-    <div class="rw">
-      <div class="cw">
-        <div class="glow"></div>
-        <div class="he"><img id="aF" alt=""><span class="dot" id="dot"></span></div>
+<div class="cs-card cs-mode-em" id="csCard">
+  <section class="cs-live" id="csPanel">
+    <div class="cs-head">
+      <div class="cs-cov" id="csCov">
+        <span class="cs-glow"></span>
+        <span class="cs-pic cs-pz" id="csPic"><img id="csCoverImg" alt=""></span>
+        <span class="cs-dot"></span>
       </div>
-      <div class="info">
-        <div class="t1" id="t1">—</div>
-        <div class="t2" id="t2"></div>
-        <div class="t3" id="t3"></div>
+      <div class="cs-meta">
+        <div class="cs-t1" id="csT1">—</div>
+        <div class="cs-t2" id="csT2"></div>
+        <div class="cs-t3" id="csT3"></div>
       </div>
     </div>
-    <button class="cx" id="cxB" aria-label="关闭面板"><svg viewBox="0 0 24 24"><use href="#i-dn"/></svg></button>
-    <div class="sk" id="sk"><div class="rl"><i id="bar"></i><u id="th"></u></div>
-      <div class="chip" id="noteChip"><svg viewBox="0 0 24 24"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg><span id="noteTxt"></span></div>
+    <button class="cs-x" id="csClose" title="收起"><svg><use href="#cs-i-chev"/></svg></button>
+    <div class="cs-seek" id="csSeek">
+      <div class="cs-rail"><i id="csFill"></i><u id="csThumb"></u></div>
+      <div class="cs-chip" id="csNote"><svg><use href="#cs-i-warn"/></svg><span id="csNoteTxt"></span></div>
     </div>
-    <div class="chip warn" id="updChip" style="top:8px"><span id="updTxt">组件待更新 · 见下方指引</span></div>
-    <div class="tm"><span id="tC">0:00</span><span id="tD">0:00</span></div>
-    <div class="ct">
-      <button class="bt" id="pv" aria-label="上一首"><svg viewBox="0 0 24 24"><use href="#i-pv"/></svg></button>
-      <button class="bt mi" id="pB" aria-label="播放或暂停">
-        <svg id="yI" viewBox="0 0 24 24" class="pc"><use href="#i-pl"/></svg>
-        <svg id="nI" viewBox="0 0 24 24" class="off pc"><use href="#i-pa"/></svg>
+    <div class="cs-chip warn" id="csUpd" style="top:8px"><svg><use href="#cs-i-warn"/></svg><span id="csUpdTxt"></span></div>
+    <div class="cs-tm"><span id="csTCur">0:00</span><span id="csTDur">--:--</span></div>
+    <div class="cs-ctl">
+      <button class="cs-b" id="csPrev" title="上一首"><svg><use href="#cs-i-prev"/></svg></button>
+      <button class="cs-b cs-bmain" id="csPlay" title="播放 / 暂停">
+        <svg class="fi" id="csIcPlay"><use href="#cs-i-play"/></svg>
+        <svg class="fi off" id="csIcPause"><use href="#cs-i-pause"/></svg>
       </button>
-      <button class="bt" id="nx" aria-label="下一首"><svg viewBox="0 0 24 24"><use href="#i-nx"/></svg></button>
+      <button class="cs-b" id="csNext" title="下一首"><svg><use href="#cs-i-next"/></svg></button>
     </div>
-    <div class="ly hd" id="ly"></div>
-    <div class="ft"><span class="dt" id="dt"></span><span id="ap">已连接</span></div>
-  </div>
-
-  <div class="em" id="em">
-    <svg class="ic" width="26" height="26" viewBox="0 0 24 24" fill="none"><circle cx="8" cy="18" r="4"/><path d="M12 18V2l7 4"/></svg>
-    <div class="e1" id="e1">系统媒体待接入</div>
-    <div class="e2" id="e2">启动初始SMTC桥后接入</div>
-  </div>
+    <div class="cs-lyr cs-hide" id="csLyr"><div class="cs-lyr-in" id="csLyrIn"></div></div>
+    <div class="cs-foot"><span class="cs-led" id="csLed"></span><span id="csFootTxt">未连接</span></div>
+  </section>
+  <section class="cs-empty" id="csEmpty">
+    <svg class="cs-eic" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><use href="#cs-i-note"/></svg>
+    <div class="cs-e1" id="csE1">系统媒体待接入</div>
+    <div class="cs-e2" id="csE2">安装 ChuShi SMTC Manager + ChuShi Music API 双插件并播放音乐即自动接入</div>
+  </section>
 </div>
 
 <script>
-(function(){
-"use strict";
-var $=function(id){return document.getElementById(id)};
-/* ============================================================
- * v4 generation music panel -- styles & rendering only, zero math.
- * Data plane = host engine chushi.music:
- *   snapshot()/subscribe(cb) -> discrete snapshots (cover, titles,
- *                              parsed lyric structure, duration)
- *   now()                    -> realtime {position, progress, lineIndex,
- *                              wordIndex, wordProgress, fadeMs} aligned
- *                              against plugin truth by the host core
- *   seek(s)/toggle/next/prev -> controls (host re-anchors optimistically)
- * Pause fade (user pipeline): fadeMs is computed by the host core from
- * the current word's timeline at the pause instant; this layer only
- * consumes it (opacity transition, zero layout impact).
- * ============================================================ */
-var card=$("card"),sk=$("sk");
-var E={aF:$("aF"),t1:$("t1"),t2:$("t2"),t3:$("t3"),bar:$("bar"),th:$("th"),
-  tC:$("tC"),tD:$("tD"),ap:$("ap"),dt:$("dt"),yI:$("yI"),nI:$("nI"),
-  e1:$("e1"),e2:$("e2"),ly:$("ly"),noteChip:$("noteChip"),noteTxt:$("noteTxt"),updChip:$("updChip"),updTxt:$("updTxt")};
-function verLt(a,b){var pa=String(a||"").split("."),pb=String(b||"").split(".");
-  for(var i=0;i<3;i++){var x=parseInt(pa[i],10)||0,y=parseInt(pb[i],10)||0;if(x!==y)return x<y}return false}
-var H={fl:248,em:92},LY_H=124;
-var DEF="asset:cover.svg";
-var snap=null,mode="em",lastKey="",drag=false,dragRatio=0;
-var lyHold=false; /* lyric height hysteresis: a temporarily missing lyric
-   must not collapse the panel (button would visibly jump) */
-var lyBox=E.ly,lyInr=null,lyEls=null,lyWords=null,lyActive=-1,lyMode=0,lyKey="__none__",lyRef=null,lyPrevOn=null;
-var mus=window.chushi&&window.chushi.music?window.chushi.music:null;
-function txt(el,v){if(el.textContent!==v)el.textContent=v}
-function fmt(s){s=Math.max(0,Math.floor(s));return Math.floor(s/60)+":"+(s%60<10?"0":"")+s%60}
-function hasLyric(){return !!(snap&&snap.lyric&&snap.lyric.lines&&snap.lyric.lines.length)}
-function hFor(){return mode==="fl"&&(hasLyric()||lyHold)?H.fl+LY_H:H[mode]}
-function setMode(m){
-  mode=m;card.className="card mode-"+m;
-  $("em").classList.toggle("hd",m!=="em");
-  try{chushi.resize(340,hFor())}catch(e){}
-}
-function cover(img){
-  var src=(snap&&snap.cover)||(snap&&snap.coverUrl)||DEF;
-  if(img.__s!==src){img.src=src;img.__s=src}
-  img.classList.add("on");
-}
-/* Lyric DOM: consumes host-parsed lines (t=text tr=translation w=[{s,d,t}]) */
-function buildLyric(){
-  lyBox.innerHTML="";lyEls=[];lyWords=[];lyActive=-1;lyInr=null;lyPrevOn=null;
-  if(!hasLyric()){lyBox.classList.add("hd");lyMode=0;return}
-  var lines=snap.lyric.lines;lyMode=snap.lyric.mode;
-  lyBox.classList.remove("hd");lyHold=true;
-  lyInr=document.createElement("div");lyInr.className="lyin";lyBox.appendChild(lyInr);
-  for(var i=0;i<lines.length;i++){
-    var L=lines[i],ln=document.createElement("div");
-    ln.className="lyline"+(L.w&&L.w.length?"":" gap");
-    var ws=[];
-    if(lyMode===1&&L.w&&L.w.length){
-      for(var j=0;j<L.w.length;j++){
-        var sp=document.createElement("span");sp.className="lyw";
-        sp.appendChild(document.createTextNode(L.w[j].t));
-        var ov=document.createElement("span");ov.className="ov";ov.textContent=L.w[j].t;
-        sp.appendChild(ov);
-        ln.appendChild(sp);ws.push(sp);
-      }
-    }else{ln.textContent=L.t||"· · ·"}
-    if(L.tr){var sub=document.createElement("div");sub.className="lysub";sub.textContent=L.tr;ln.appendChild(sub)}
-    lyInr.appendChild(ln);
-    lyEls.push(ln);lyWords.push(ws);
-  }
-}
-/* Discrete snapshot render */
-function render(){
-  var s=snap;
-  if(!s||!s.connected){
-    txt(E.e1,"系统媒体待接入");txt(E.e2,"安装 ChuShi SMTC Manager + ChuShi Music API 双插件并播放音乐即自动接入");
-    txt(E.ap,"未连接");
-    if(mode!=="em")setMode("em");
+(function () {
+  "use strict";
+  /* ================= ChuShi music widget v5.0.0（全新实现）=================
+     纯渲染层：解析/插值/对齐/淡入淡出全部由宿主 chushi.music API 预计算，
+     本层每帧只做取数 + 写样式。布局零位移三律：主键双 SVG 同圆心堆叠、
+     歌词高度迟滞（歌词短暂缺失不塌面板）、无逐帧布局读写。 */
+  var H = { fl: 248, em: 92 }, LY_H = 124, W = 340;
+  var DEF = "asset:cover.svg";
+  function $(id) { return document.getElementById(id); }
+
+  var root = $("csCard"), pic = $("csPic"), img = $("csCoverImg");
+  var t1 = $("csT1"), t2 = $("csT2"), t3 = $("csT3");
+  var seekBox = $("csSeek"), fill = $("csFill"), thumb = $("csThumb");
+  var chipNote = $("csNote"), noteTxt = $("csNoteTxt");
+  var chipUpd = $("csUpd"), updTxt = $("csUpdTxt");
+  var tCur = $("csTCur"), tDur = $("csTDur");
+  var icPlay = $("csIcPlay"), icPause = $("csIcPause");
+  var lyBox = $("csLyr"), lyInr = $("csLyrIn");
+  var led = $("csLed"), footTxt = $("csFootTxt");
+  var e1 = $("csE1"), e2 = $("csE2");
+
+  /* 宿主过旧：静态提示，不进入渲染循环 */
+  if (!window.chushi || !window.chushi.music || typeof window.chushi.music.now !== "function") {
+    e1.textContent = "宿主版本过旧";
+    e2.textContent = "请更新「初始」后再导入本预设";
+    root.className = "cs-card cs-mode-em";
+    if (window.chushi && typeof window.chushi.resize === "function") chushi.resize(340, H.em);
     return;
   }
-  if(!s.title){
-    txt(E.e1,"等待播放");txt(E.e2,"在网易云放首歌即会亮起（无需开启网易云自带 SMTC）");
-    if(mode!=="em")setMode("em");
-    return;
+  var mus = window.chushi.music;
+
+  var snap = mus.snapshot() || null;
+  var mode = "em";
+  var lyHold = false;          /* 歌词高度迟滞：短暂缺失不塌面板（按钮不跳） */
+  var lyKey = "", lyRef = null, lyMode = 0;
+  var lineEls = [];            /* [{el, words:[{ov}], line}] */
+  var activeLine = -2;
+  var drag = false, dragRatio = 0;
+  var optP = false, optAt = 0; /* 播放/暂停乐观翻转窗口 */
+  var trackKey = "";
+  var prevShownPlaying = null;
+
+  function fmt(s) {
+    s = Math.max(0, Math.floor(s || 0));
+    var m = Math.floor(s / 60), r = s % 60;
+    return m + ":" + (r < 10 ? "0" : "") + r;
   }
-  /* lyric key = rev + presence + lines array reference */
-  var lk=(s.lyricRev||"")+(s.lyric?"#1":"#0");
-  var lr=s.lyric?s.lyric.lines:null;
-  if(lk!==lyKey||lr!==lyRef){lyKey=lk;lyRef=lr;buildLyric();if(mode!=="em")setMode(mode)}
-  var key=[s.title,s.artist,s.album,s.app].join("|");
-  if(key!==lastKey){
-    lastKey=key;
-    lyHold=hasLyric();
-    if(mode!=="em")setMode(mode);
-    var els=[E.t1,E.t2,E.t3];
-    for(var i=0;i<els.length;i++){els[i].classList.remove("sw");void els[i].offsetWidth;els[i].classList.add("sw")}
+  function hasLyric() { return !!(snap && snap.lyric && snap.lyric.lines && snap.lyric.lines.length); }
+  function hFor() { return mode === "fl" && (hasLyric() || lyHold) ? H.fl + LY_H : H[mode]; }
+  function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
+
+  function setMode(m) {
+    if (m === mode) return;
+    mode = m;
+    root.className = "cs-card cs-mode-" + m;
+    if (window.chushi && typeof window.chushi.resize === "function") chushi.resize(W, hFor());
   }
-  txt(E.t1,s.title||"未知曲目");
-  txt(E.t2,s.artist||"未知艺术家");
-  txt(E.t3,s.album||"");
-  /* chips: seekNote + honest update attribution (every text maps to a real
-     action -- zero tolerance for dead guidance):
-     - engine unreachable -> install Manager plugin (auto-manages engine)
-     - Music API plugin missing -> install it (progress/lyrics/seek live there)
-     - plugin too old -> update both .plugin files */
-  var noteOn=!!s.seekNote;
-  E.noteChip.classList.toggle("on",noteOn);
-  if(noteOn)txt(E.noteTxt,s.seekNote);
-  E.updChip.classList.toggle("on",!!s.needsUpdate);
-  if(s.needsUpdate){
-    if(s.needsBridge){
-      txt(E.updTxt,"引擎未运行 · 安装 ChuShi SMTC Manager 插件自动管理，或双击交付包内 Start-Engine.bat");
-    }else if(!s.pluginVer){
-      txt(E.updTxt,"未装 ChuShi Music API 插件 · 装后重启网易云即有逐字歌词/精确进度/进度条拖动");
-    }else{
-      txt(E.updTxt,"组件待更新 · 请更新两个 .plugin 至最新版并重启网易云");
+
+  /* ---------- 播放态（含乐观窗口） ---------- */
+  function effPlaying() {
+    if (optAt && Date.now() - optAt < 2500) return optP;
+    return !!(snap && snap.playing);
+  }
+  function playVisual(on) {
+    icPlay.classList.toggle("off", on);
+    icPause.classList.toggle("off", !on);
+    root.classList.toggle("cs-playing", on);
+    pic.classList.toggle("cs-pz", !on);
+    led.classList.toggle("pz", !on);
+  }
+
+  /* ---------- 封面：单 img 淡入 + 自缓存属性防重复解码 ---------- */
+  function renderCover(s) {
+    var src = s.cover || s.coverUrl || DEF;
+    if (img.getAttribute("src") !== src && img.__cs !== src) {
+      img.__cs = src;
+      img.src = src;
     }
+    img.classList.add("on");
   }
-  txt(E.ap, s.seekNote ? s.seekNote : ("已连接 · "+(s.pluginVer?"API v"+s.pluginVer:"")+(s.smtcVer?" · 管理 v"+s.smtcVer:"")));
-  cover(E.aF);
-  var on;
-  if(optAt&&Date.now()-optAt<2500&&s.playing!==optP){on=optP}
-  else{on=!!s.playing;optAt=0}
-  playVisual(on);
-  if(mode==="em")setMode("fl");
-}
-/* rAF loop: pure consumption of host-precomputed state */
-function tick(){
-  if(snap&&snap.connected&&snap.title&&mode!=="em"){
-    if(drag){
-      var dw=(dragRatio*100).toFixed(2)+"%";
-      E.bar.style.width=dw;E.th.style.left=dw;
-      txt(E.tC,fmt(dragRatio*(snap.duration||0)));
-    }else{
-      var n=mus?mus.now():null;
-      if(n){
-        var w=(n.progress*100).toFixed(2)+"%";
-        E.bar.style.width=w;E.th.style.left=w;
-        txt(E.tC,fmt(n.position));txt(E.tD,n.duration>0?fmt(n.duration):"--:--");
-        lyricFrame(n);
+
+  /* ---------- 芯片与页脚（诚实归因文案） ---------- */
+  function renderChips(s) {
+    if (s.seekNote) {
+      chipNote.classList.add("on");
+      noteTxt.textContent = s.seekNote;
+    } else {
+      chipNote.classList.remove("on");
+    }
+    if (s.needsUpdate) {
+      chipUpd.classList.add("on");
+      updTxt.textContent = s.needsBridge
+        ? (s.engineOld
+          ? "引擎版本过旧 · 安装/更新 ChuShi SMTC Manager 插件后自动升级"
+          : "引擎未运行 · 安装 ChuShi SMTC Manager 插件自动管理，或双击交付包内 Start-Engine.bat")
+        : (!s.pluginVer
+          ? "未装 ChuShi Music API 插件 · 装后重启网易云即有逐字歌词/精确进度/进度条拖动"
+          : "组件待更新 · 请更新两个 .plugin 至最新版并重启网易云");
+    } else {
+      chipUpd.classList.remove("on");
+    }
+    footTxt.textContent = s.seekNote
+      ? s.seekNote
+      : ("已连接 · " + (s.pluginVer ? "API v" + s.pluginVer : "") +
+        (s.smtcVer ? " · 管理 v" + s.smtcVer : ""));
+  }
+
+  /* ---------- 歌词 DOM 构建（歌词键 + 对象引用双判定才重建） ---------- */
+  function buildLyric() {
+    var l = snap && snap.lyric;
+    var key = (snap && snap.lyricRev || "") + (l ? "#" + (l.mode || 0) + ":" + (l.lines ? l.lines.length : 0) : "#0");
+    if (key === lyKey && l === lyRef) return;
+    lyKey = key;
+    lyRef = l;
+    activeLine = -2;
+    lyInr.innerHTML = "";
+    lineEls = [];
+    lyMode = 0;
+    if (l && l.lines && l.lines.length) {
+      lyMode = l.mode || 0;
+      lyBox.classList.remove("cs-hide");
+      for (var i = 0; i < l.lines.length; i++) {
+        var ln = l.lines[i];
+        var row = document.createElement("div");
+        row.className = "cs-ln";
+        var words = [];
+        if (lyMode === 1 && ln.w && ln.w.length) {
+          for (var w = 0; w < ln.w.length; w++) {
+            var sp = document.createElement("span");
+            sp.className = "cs-w";
+            sp.appendChild(document.createTextNode(ln.w[w].t));
+            var ov = document.createElement("span");
+            ov.className = "ov";
+            ov.appendChild(document.createTextNode(ln.w[w].t));
+            sp.appendChild(ov);
+            row.appendChild(sp);
+            words.push({ ov: ov });
+          }
+          if (!ln.t) row.classList.add("gap");
+        } else {
+          row.textContent = ln.t || "· · ·";
+          if (!ln.t) row.classList.add("gap");
+        }
+        if (ln.tr) {
+          var sub = document.createElement("div");
+          sub.className = "cs-sub";
+          sub.textContent = ln.tr;
+          row.appendChild(sub);
+        }
+        lyInr.appendChild(row);
+        lineEls.push({ el: row, words: words, line: ln });
+      }
+      lyHold = true;
+    } else {
+      /* 歌词缺席：只藏 DOM，lyHold 不动（高度迟滞由切歌时重算） */
+      lyBox.classList.add("cs-hide");
+    }
+    if (window.chushi && typeof window.chushi.resize === "function") chushi.resize(W, hFor());
+  }
+
+  /* ---------- 逐帧歌词渲染：行切换 + 当前词扫色 + 暂停淡入淡出 ---------- */
+  function lyricFrame(n) {
+    if (!lyMode) return;
+    if (n.lineIndex !== activeLine) {
+      var prev = activeLine;
+      activeLine = n.lineIndex;
+      if (prev >= 0 && prev < lineEls.length) finalizeLine(prev);
+      for (var i = 0; i < lineEls.length; i++) {
+        lineEls[i].el.classList.toggle("on", i === activeLine);
+      }
+      if (activeLine >= 0 && activeLine < lineEls.length) {
+        var el = lineEls[activeLine].el;
+        var target = (lyBox.clientHeight - el.offsetHeight) / 2 - el.offsetTop;
+        lyInr.style.transform = "translateY(" + target + "px)";
       }
     }
-  }
-  requestAnimationFrame(tick);
-}
-function lyricFrame(n){
-  if(!lyEls||!lyEls.length)return;
-  var idx=n.lineIndex;
-  if(idx!==lyActive){
-    if(idx>=0&&idx<lyEls.length){
-      lyActive=idx;
-      for(var k=0;k<lyEls.length;k++)lyEls[k].classList.toggle("on",k===idx);
-      var el=lyEls[idx];
-      var target=(lyBox.clientHeight-el.offsetHeight)/2-el.offsetTop;
-      if(lyInr)lyInr.style.transform="translateY("+target.toFixed(1)+"px)";
+    /* 逐帧只写当前行的词（性能律：其余行在离场时一次性定稿） */
+    if (lyMode === 1 && activeLine >= 0 && activeLine < lineEls.length) {
+      var ws = lineEls[activeLine].words;
+      for (var j = 0; j < ws.length; j++) {
+        var p = j < n.wordIndex ? 1 : j > n.wordIndex ? 0 : (n.wordIndex >= 0 ? n.wordProgress : 0);
+        ws[j].ov.style.setProperty("--p", (p * 100).toFixed(1) + "%");
+      }
+    }
+    /* 播放态翻转：暂停淡出 / 恢复淡入（fadeMs 由宿主按当前词剩余时长算好） */
+    if (prevShownPlaying !== n.playing) {
+      prevShownPlaying = n.playing;
+      var fd = Math.max(120, Math.min(420, n.fadeMs || 260));
+      lyInr.style.transition = "transform .55s var(--ez), opacity " + fd + "ms ease";
+      lyInr.style.opacity = n.playing ? "1" : "0.38";
     }
   }
-  if(lyMode===1&&lyActive>=0){
-    var ws=lyWords[lyActive];
-    for(var wI=0;wI<ws.length;wI++){
-      var p=wI===n.wordIndex?n.wordProgress:(wI<n.wordIndex?1:0);
-      ws[wI].style.setProperty("--p",(p*100).toFixed(1)+"%");
+  function finalizeLine(idx) {
+    /* 行离场定稿：已唱词全量显色，未唱词全量隐藏 */
+    var ws = lineEls[idx].words;
+    for (var j = 0; j < ws.length; j++) {
+      ws[j].ov.style.setProperty("--p", "100%");
     }
   }
-  /* pause fade-out / resume fade-in (fadeMs from host word timeline) */
-  var on2=!!n.playing;
-  if(on2!==lyPrevOn&&lyInr){
-    var fd=Math.max(120,Math.min(420,n.fadeMs||260));
-    lyInr.style.transition="transform .55s var(--ez), opacity "+fd+"ms ease";
-    lyInr.style.opacity=on2?"1":"0.38";
-    lyPrevOn=on2;
+
+  /* ---------- 主渲染 ---------- */
+  function render() {
+    var s = snap;
+    if (!s || !s.connected) {
+      e1.textContent = "系统媒体待接入";
+      e2.textContent = "安装 ChuShi SMTC Manager + ChuShi Music API 双插件并播放音乐即自动接入";
+      footTxt.textContent = "未连接";
+      setMode("em");
+      return;
+    }
+    setMode("fl");
+    var key = [s.title, s.artist, s.album, s.app].join("|");
+    if (key !== trackKey) {
+      trackKey = key;
+      lyHold = hasLyric();       /* 切歌时重算歌词高度迟滞 */
+      lyKey = "\u0000force";     /* 强制重建 */
+      buildLyric();
+      replay(t1); replay(t2); replay(t3);
+    } else {
+      buildLyric();
+    }
+    t1.textContent = s.title || "—";
+    t2.textContent = s.artist || "";
+    t3.textContent = s.album || "";
+    renderCover(s);
+    renderChips(s);
+    playVisual(effPlaying());
+    if (optAt && Date.now() - optAt >= 2500 && s.playing === optP) { /* 真值已确认，窗口自然过期 */ }
   }
-}
-requestAnimationFrame(tick);
-/* controls: optimistic play/pause flip (confirmed by next snapshot) */
-var optP=false,optAt=0;
-function playVisual(on){
-  E.yI.classList.toggle("off",on);E.nI.classList.toggle("off",!on);
-  E.dt.classList.toggle("pz",!on);card.classList.toggle("pl",on);
-  E.aF.classList.toggle("pz",!on);
-}
-$("pB").addEventListener("click",function(){
-  var cur=(optAt&&Date.now()-optAt<2500)?optP:!!(snap&&snap.playing);
-  optP=!cur;optAt=Date.now();playVisual(optP);
-  try{mus.toggle()}catch(e){}
-});
-$("nx").addEventListener("click",function(){try{mus.next()}catch(e){}});
-$("pv").addEventListener("click",function(){try{mus.prev()}catch(e){}});
-$("cxB").addEventListener("click",function(){try{chushi.close()}catch(e){}});
-/* seek: drag preview by ratio, commit on release */
-function ratio(e){
-  var r=sk.getBoundingClientRect();
-  return Math.min(1,Math.max(0,(e.clientX-r.left)/Math.max(1,r.width)));
-}
-sk.addEventListener("pointerdown",function(e){
-  if(!snap||!(snap.duration>0))return;
-  drag=true;dragRatio=ratio(e);
-  sk.setPointerCapture(e.pointerId);
-});
-sk.addEventListener("pointermove",function(e){if(drag){
-  dragRatio=ratio(e);
-  var w=(dragRatio*100).toFixed(2)+"%";
-  E.bar.style.width=w;E.th.style.left=w;
-  txt(E.tC,fmt(dragRatio*snap.duration));
-}},{passive:true});
-sk.addEventListener("pointerup",function(){
-  if(!drag)return;drag=false;
-  if(snap&&snap.duration>0){try{mus.seek(dragRatio*snap.duration)}catch(e){}}
-});
-/* subscribe (immediate push of current snapshot) */
-if(mus){
-  try{mus.subscribe(function(s){snap=s;render()})}catch(e){}
-}else{
-  txt(E.e1,"宿主版本过旧");txt(E.e2,"请更新「初始」后再导入本预设");
-}
-setMode("em");
+  function replay(el) {
+    el.classList.remove("cs-swin");
+    void el.offsetWidth;
+    el.classList.add("cs-swin");
+  }
+
+  /* ---------- 交互 ---------- */
+  $("csClose").addEventListener("click", function () {
+    if (window.chushi && typeof window.chushi.close === "function") chushi.close();
+  });
+  $("csPrev").addEventListener("click", function () { mus.prev(); });
+  $("csNext").addEventListener("click", function () { mus.next(); });
+  $("csPlay").addEventListener("click", function () {
+    var cur = effPlaying();
+    optP = !cur;
+    optAt = Date.now();
+    playVisual(optP);
+    mus.toggle();
+  });
+
+  function ratioOf(e) {
+    var r = seekBox.getBoundingClientRect();
+    return clamp01((e.clientX - r.left) / Math.max(1, r.width));
+  }
+  function showDragVisual() {
+    var pct = (dragRatio * 100).toFixed(2) + "%";
+    fill.style.width = pct;
+    thumb.style.left = pct;
+    if (snap && snap.duration > 0) tCur.textContent = fmt(dragRatio * snap.duration);
+  }
+  seekBox.addEventListener("pointerdown", function (e) {
+    if (!(snap && snap.duration > 0)) return;
+    drag = true;
+    dragRatio = ratioOf(e);
+    try { seekBox.setPointerCapture(e.pointerId); } catch (err) { }
+    showDragVisual();
+  });
+  seekBox.addEventListener("pointermove", function (e) {
+    if (!drag) return;
+    dragRatio = ratioOf(e);
+    showDragVisual();
+  });
+  seekBox.addEventListener("pointerup", function (e) {
+    if (!drag) return;
+    drag = false;
+    dragRatio = ratioOf(e);
+    showDragVisual();
+    mus.seek(dragRatio * (snap ? snap.duration : 0));
+  });
+  seekBox.addEventListener("pointercancel", function () { drag = false; });
+
+  /* ---------- rAF 主循环（永不停止；拖动中优先显示拖动值） ---------- */
+  function loop() {
+    if (drag) {
+      showDragVisual();
+    } else {
+      var n = mus.now();
+      var pct = (n.progress * 100).toFixed(2) + "%";
+      fill.style.width = pct;
+      thumb.style.left = pct;
+      tCur.textContent = fmt(n.position);
+      tDur.textContent = n.duration > 0 ? fmt(n.duration) : "--:--";
+      lyricFrame(n);
+    }
+    requestAnimationFrame(loop);
+  }
+
+  mus.subscribe(function (s) {
+    snap = s;
+    render();
+  });
+  render();
+  requestAnimationFrame(loop);
 })();
 </script>
+</body>
+</html>

@@ -2,18 +2,12 @@
   "manifest_version": 1,
   "name": "ChuShi Music API",
   "slug": "cc.chushi.ncmapi",
-  "version": "3.0.0",
+  "version": "5.0.0",
   "author": "ChuShi",
-  "description": "ChuShi Music API (ASCII-only build): the single producer of playback truth for the ChuShi SMTC stack. Pure observation -- native engine events (PlayState/PlayProgress/Seek) + read-only dva store access + validated media element reads. NEVER patches prototypes, NEVER dispatches store actions, NEVER rewrites currentTime in loops (NetEase's own progress bar stays untouched and healthy). Pushes 1 Hz truth (songId/position/duration/playing/metadata) and full lyrics (eapi word-level yrc with self-contained fresh MD5+AES-128-ECB crypto, klyric/channel/direct fallbacks) to the SMTC engine. Executes overlay and page controls at the element level (play/pause/seek) or via NetEase's own visible buttons (next/prev), with honest seek verification acks. Works whether NetEase's built-in SMTC switch is ON or OFF. Pair with ChuShi SMTC Manager (same port).",
+  "description": "Reads real playback truth (track, position, play state, full word-level lyrics) from NetEase Music and relays it to the ChuShi SMTC engine; executes control commands strictly once at the element level. Read-only by design: NetEase Music's own UI and progress bar are never modified. Works with NetEase Music's built-in SMTC switch turned OFF.",
   "ncm3-compatible": true,
   "ncm-version-req": "> 2.10.2",
   "betterncm_version": ">=1.0.0",
-  "injects": {
-    "Main": [
-      {
-        "file": "index.js"
-      }
-    ]
-  },
+  "injects": { "Main": [ { "file": "index.js" } ] },
   "hijacks": {}
 }

@@ -19,7 +19,7 @@
 
 import { memo, useEffect, useRef } from "react";
 import { sandboxWidgetSrc } from "@/lib/startpage/sandbox";
-import { smtc, SMTC_COMMANDS, type SmtcState } from "@/lib/startpage/smtc";
+import { smtc, SMTC_COMMANDS } from "@/lib/startpage/smtc";
 import { postToWidget, widgetFrameGet, widgetFrameSet, widgetThemeBroadcast } from "@/lib/startpage/widget-frames";
 
 export interface ActiveWidget {
@@ -88,10 +88,10 @@ function writeKv(kv: Record<string, string>) {
   }
 }
 
-/** 回推快照给单个部件帧（reqId 携带则同时视作 get 回执） */
-function replySmtc(wkey: string, reqId?: unknown) {
-  const state: SmtcState = smtc.getSnapshot();
-  postToWidget(wkey, { type: "widgetSmtc", widgetKey: wkey, state, reqId: typeof reqId === "number" ? reqId : 0 });
+/** 向单个部件帧推送当前快照（reqId 携带时兼作 smtcGet 回执） */
+function pushSmtcSnapshot(wkey: string, reqId?: unknown) {
+  const snap = smtc.getSnapshot();
+  postToWidget(wkey, { type: "widgetSmtc", widgetKey: wkey, state: snap, reqId: typeof reqId === "number" ? reqId : 0 });
 }
 
 function PresetWidgets(props: {
@@ -128,13 +128,13 @@ function PresetWidgets(props: {
     kvRef.current = readKv();
   }, []);
 
-  /* SMTC 快照广播（v1.8.0）+ 每拍轻量锚点（v1.9.0）：
-     完整快照（含歌词大载荷）签名变化才发；tick {position,fetchedAt,…} 每拍必发——
-     seek 后的新位置/插值漂移校正靠它到达部件（否则进度条拖完弹回）。
-     v2.0.0：dock 部件帧由统一舞台渲染，注册表互通后广播逻辑不变。 */
+  /* 媒体双通道（v5 全新实现）：
+     - 快照通道：签名变化才广播完整 state（含歌词大载荷）；
+     - 节拍通道：每拍必发轻量锚点 {position,duration,playing,rate,fetchedAt}——
+       seek 后的新位置/插值漂移校正靠它到达部件。 */
   useEffect(() => {
     smtc.start();
-    const unTick = smtc.onTick(() => {
+    const sendTick = () => {
       const t = smtc.getSnapshot().track;
       if (!t) return;
       const tick = {
@@ -147,16 +147,18 @@ function PresetWidgets(props: {
       for (const wkey of smtcSubsRef.current) {
         postToWidget(wkey, { type: "widgetSmtcTick", widgetKey: wkey, tick });
       }
-    });
-    const unSub = smtc.subscribe(() => {
-      const state = smtc.getSnapshot();
+    };
+    const sendSnap = () => {
+      const snap = smtc.getSnapshot();
       for (const wkey of smtcSubsRef.current) {
-        postToWidget(wkey, { type: "widgetSmtc", widgetKey: wkey, state });
+        postToWidget(wkey, { type: "widgetSmtc", widgetKey: wkey, state: snap });
       }
-    });
+    };
+    const offTick = smtc.onTick(sendTick);
+    const offSub = smtc.subscribe(sendSnap);
     return () => {
-      unTick();
-      unSub();
+      offTick();
+      offSub();
     };
   }, []);
 
@@ -192,31 +194,30 @@ function PresetWidgets(props: {
         cbRef.current.onResize(wkey, h);
         break;
       }
-      /* ---------- SMTC 通道（v1.8.0）----------
-         smtcGet：立即回推当前快照；smtcSubscribe：登记后同样回推（
-         后续变化由 smtc.subscribe 广播承接）；smtcControl：白名单复核后
-         转桥，回执 widgetSmtcResult。快照里 track/cover 均为宿主白名单产物。 */
+      /* ---------- 媒体通道（v5 全新实现）----------
+         smtcGet：立即回推快照；smtcSubscribe：登记后回推，后续由广播承接；
+         smtcControl：白名单复核 → 宿主客户端下发 → 回执 widgetSmtcResult。 */
       case "smtcGet": {
         smtc.start();
-        replySmtc(wkey, m.reqId);
+        pushSmtcSnapshot(wkey, m.reqId);
         break;
       }
       case "smtcSubscribe": {
         smtc.start();
         smtcSubsRef.current.add(wkey);
-        replySmtc(wkey, m.reqId);
+        pushSmtcSnapshot(wkey, m.reqId);
         break;
       }
       case "smtcControl": {
         const cmd = s(m.cmd, 8);
-        if (!SMTC_COMMANDS.has(cmd)) break;
         const posRaw = m.position as unknown;
         const pos =
           typeof posRaw === "number" && Number.isFinite(posRaw)
             ? Math.max(0, Math.min(86400, posRaw))
             : undefined;
+        if (!SMTC_COMMANDS.has(cmd)) break;
         smtc.start();
-        void smtc.control(cmd, pos).then((ok) => {
+        smtc.control(cmd, pos).then((ok) => {
           postToWidget(wkey, { type: "widgetSmtcResult", widgetKey: wkey, reqId: m.reqId, ok });
         });
         break;
