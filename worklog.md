@@ -768,3 +768,26 @@ Stage Summary:
 - 待办：用户真机复测（扩展 3.0.1 + 插件B 2.1.0 替换 + 重启网易云 + Ctrl+F5；看进度/时间/逐字歌词跟手、页脚 API v2.1.0 在场）；任务 A（seek 真机参数实抓）仍为下轮最高优先
 - 【交付落盘】main 2eec15e 推送；gh-pages DEPLOY-OK + 线上指纹实证（chunk 77b5fc11f59bb797.js 内 `e.track??{app:"NetEase Music"...` 虚拟曲目代码与本地逐字节一致）；Release v3.0.1 id=383802989 五资产直链 SHA-256 ALL OK（Delivery/SmtcBridge-2.0.0/NcmApi-2.1.0/Preset.cshz/NewTab-v3.0.1.zip）；文叔叔合并包 https://c.wss.ink/f/ktcz2owgf4j（complete code=0 success 99%）
 - 【排障备忘】rel 脚本三坑：①API 基址已含 /releases，path 再带 /releases 前缀 = 双重路径 404（PATCH/DELETE/list assets 全中）；②/tag 返回 tag SHA 对象非 release；③release by tag 正确写法 = api(f"/tags/{TAG}")。上传段加 4 次退避重试
+
+---
+Task ID: 88
+Agent: main (Super Z)
+Task: 用户指令「看视频：音乐一直在播放但初始显示暂停；进度条不能拖动不显示进度——不要依靠网易云自带的残疾 smtc，自己写满血版 smtc 插件，桥连接自己写的 smtc；逐字歌词=api 插件取全量歌词→smtc 对时间戳→暂停时计算淡入淡出时间防累积漂移」→ v3.1.0 满血版 SMTC 重写
+
+Work Log:
+- 【技术考证（一手资料定路径）】微软官方 manual-control 文档逐段实读：MediaPlayer.SystemMediaTransportControls + CommandManager.IsEnabled=false = 手动控制正门；cnblogs（.NET 与 SMTC 交互）实证 ISystemMediaTransportControlsInterop::GetForWindow 在 .NET SDK 受保护不可直接调——GetForWindow 路线否决，MediaPlayer 路线选定；时间线律「必须设 MinSeekTime/MaxSeekTime 否则不给抛 PositionChangeRequest」+ 官方建议 5s/次更新（本桥 1Hz）
+- 【桥 v3.0.0 满血自有 SMTC 会话】Initialize-OwnSmtc：显式 AUMID 'ChuShi.SmtcBridge'（SetCurrentProcessExplicitAppUserModelID，读会话侧自过滤锚点）→ InMemoryRandomAccessStream 内存构造 1s 静音 WAV（DataWriter StoreAsync/FlushAsync，绝不落 %TEMP%——中文用户名路径防御）→ MediaPlayer（Volume 0/muted/looping）→ CommandManager 禁用 → IsPlay/Pause/Next/Previous/PlaybackPositionEnabled 全开 → Register-ObjectEvent(ButtonPressed/PlaybackPositionChangeRequested, -MessageData 同步 ArrayList——规避 scriptblock 强转 WinRT 委托的回调线程无 runspace 崩溃) → Play() 注册会话；Update-SmtcOwn 随每次 ne 心跳驱动（元数据 DisplayUpdater+https 封面 URI/状态 PlaybackStatus/时间线 UpdateTimelineProperties 1Hz 墙钟推进+age 补偿）；Tick-SmtcOwn 真值断供 6s → Closed 防僵尸卡片；Pop-SmtcEvents 主循环每次请求出栈（延迟 ≤300ms 插件轮询约束）
+- 【控制全回路】媒体键/悬浮窗按钮 → Invoke-Control Try*Async 直控网易云会话（play/pause/next/prev 真机已验证可行），失败自动 Enqueue-NeCmd 转插件页内执行；悬浮窗拖动 seek → 恒转插件（网易云唯一接受路径）+ 自有时间线乐观重锚（悬浮窗条即时跟手，心跳纠偏=诚实弹回）；命令队列化 $script:NeCmdQueue（单槽→同步 ArrayList，最早优先 5s 过期 cap8——面板 seek/悬浮窗按钮/拖动可并存）；桥控制门两修复：无 SMTC 会话（虚拟曲目场景）时 Invoke-Control 转发插件（旧版 ok:false 死路=面板按钮拖动全灭），seek 旧标题匹配门废除（SMTC 会话标题与插件标题不一致时静默杀 seek=真机「拖了没反应」桥侧根因；插件本就有歌身份闸，桥层门是冗余误杀）
+- 【插件B 2.2.0 控制执行器】applyBridgeCmd 扩 play/pause/toggle/next/prev（toggle 按快照播放态定方向防双翻转）；ctrlPlayPause 锁定元素 play()/pause() 优先（与本体 audio 引擎同源语义）+ 页脚可见按钮多候选兑底（#btn-pause/#btn-play/.btn-* offsetParent 可见性点击，不押注单一选择器）；ctrlNextPrev 页脚可见按钮；⚠ vm 白盒揪出并修复作用域 bug：startSeekWatch 的 elNow 原声明在 try 块内，身份捕获代码在块外引用会 ReferenceError 静默炸掉 seek 监视；seek 末级加固 1600ms 重写（防本体直写后重置 currentTime）+ 身份捕获（被直写且真实生效的元素立即 elLock 上锁 streak=2，真值读取不再依赖评分漂移）
+- 【渲染层逐字歌词防漂移（用户思路落地）】sandbox.js 音乐核心：①slew 微抖吸收 LY_SLEW_SEC=0.35——播放中真值漂移 <0.35s 的拍不重锚（position/fetchedAt 都不动，只改其一=倒退；1s 轮询的事件到达抖动是逐字扫色肉眼抖动的来源），大跳/播放态翻转/seek 立即重锚——显示层平滑不改真值；②calcFadeMs=clamp(120..420ms, 当前词剩余时长)（二分定位当前词，无词在唱用行尾剩余，兜底 260ms）——播放→暂停翻转时算一次，恢复沿用该值淡入；now() 增发 fadeMs；部件 lyricFrame 消费（内联 transition='transform .55s var(--ez), opacity Nms ease' + opacity 1↔0.38，CSS 布局零改动，防位移/高度迟滞全保留）
+- 【宿主 3.1.0】needsPlugin 阈值 2.0.0→2.2.0（2.0/2.1 用户诚实喊更新）、needsBridge 2.0.0→3.0.0（缺满血会话；插件A 自动升级桥，拦截才亮芯片）；smtcOwn 诊断字段前向兼容（e2e 实证）
+- 【⚠本版环境级新坑】①MultiEdit 顺序提交语义：原子失败声明下已成功的编辑照样落盘（sandbox.js/AI-HANDOFF 两度中招）——多段编辑后必须 grep 核对全部目标段实际状态再续作；②GitHub Release 资产上传必须走 uploads.github.com（api.github.com 上传 404——rel-v301 教训在本版重蹈，已固化进 rel-v310）；③终端显示吃 [m 字符串（ANSI SGR）——'.bt.mi svg...' 等含 [x] 断言的显示假象要用 python in 判定不信目视
+- 【验证】verify-v31 58/58 × 2 轮稳定：新增 PSX 门（.pkgtmp/pwsh = Linux 版 PowerShell 7 真解析器 ParseFile 验证桥 ps1 语法 SYNTAX OK——此前 11 版桥脚本首次有真语法门）+ ST19a/b/c 满血 SMTC 全要素静态 + ST20 控制门修复 + ST22a/b/c 插件B 执行器/末级重写/歌词链 + ST23 宿主新阈值 + ST24a/b sandbox slew/fadeMs + ST25 部件淡入淡出 + ST26 版本；PB1-5 v3.0.1 全量回归 + PB6/PB7 控制执行器白盒（play/pause 走元素、next/prev 页脚点击、toggle 方向、真值上报不破坏）；PA1-5 桥管理回归（pingVer 3.0.0）；e2e N1-N10b 全量回归（mock 桥 3.0.0+smtcOwn）+ N7b 新阈值 2.1.0→组件待更新芯片；X1 pageerror=0
+- 【构建/发布】双 .plugin 回环断言（内嵌桥逐字节+满血标记）；build-v310-assets 六项指纹断言（预设 html 内嵌 manifest 形态的断言修正——⚠.cshz 里 widget html 在 manifest.widgets[0].html 不在 zip 根）；扩展 3.1.0 zip 11.7MB；main 99ab7e8 推送；gh-pages DEPLOY-OK + 线上指纹（sandbox.js LY_SLEW_SEC×2 命中 + chunk 9d493f9f "3.0.0" 阈值+judgeNcmOwns 命中）；Release v3.1.0 id=383843444 五资产直链 SHA-256 ALL OK；文叔叔合并包 https://c.wss.ink/f/ktdz3e2w36t（complete code=0 success pro=99）
+- 【文档】AI-HANDOFF v3.1.0：新拓扑图（桥=传输+满血会话双职责，控制回路全景）、兼容矩阵 v3.1.0 行、坑 13（MediaPlayer 手动控制全要素+Register-ObjectEvent 律）坑 14（中文路径/ASCII 防御）、任务 A=满血 SMTC 真机验收清单（悬浮窗卡片/可拖进度/自动升级链路/排障口令）任务 B=seek 真机（新路径对比）；README v3.1.0 版本段
+
+Stage Summary:
+- 用户「满血版 SMTC」指令全链落地：Windows 侧从「读网易云残疾会话」翻转为「桥自有满血会话」，悬浮窗/锁屏进度真实可拖、媒体键全通，网易云残疾 SMTC 退役；面板拖动的桥侧误杀门（标题匹配）废除+无会话转发——「拖动无效」的桥侧死路清空，剩余成败移交插件页内阶梯（任务 B 真机实抓）
+- 逐字歌词按用户三段思路闭环：全量歌词（既有 eapi 链）→真值时间轴对齐+slew 吸收→暂停按词时间计算淡入淡出；冻结感/扫色抖动/累积漂移三形态分别有渲染层/显示层/真值层对策
+- 新律：①选型前一手文档逐段实读（manual-control 模式+Min/MaxSeekTime 门槛都是文档里读出来的，搜索摘要给不了）；②被平台「保护」的 API 必有替代正门（interop 受保护→MediaPlayer 自动集成就是门）；③真语法门优于一切静态断言——70MB 的 pwsh 换 11 版桥脚本首次 SYNTAX OK，值
+- 待办：用户真机复测（扩展 3.1.0 + 双插件 2.1.0/2.2.0 + 重启网易云 + Ctrl+F5；看悬浮窗卡片可拖进度/媒体键/面板拖动/暂停淡入淡出）；任务 B 剩余=audioplayer.seek 参数实抓；Edge 商店材料仍未动

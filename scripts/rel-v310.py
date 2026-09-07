@@ -99,14 +99,24 @@ for local, name in ASSETS:
         time.sleep(1)
     data = local.read_bytes()
     up = None
+    done = False
     for attempt in range(4):  # 上传 4 次退避重试（rel 脚本教训）
         try:
-            up = api(f"/{rid}/assets?name={name}", "POST", data, ctype="octet-stream")
+            # 资产上传必须走 uploads.github.com（api.github.com 上传 404）
+            req = urllib.request.Request(
+                f"https://uploads.github.com/repos/{REPO}/releases/{rid}/assets?name={name}",
+                method="POST",
+            )
+            req.add_header("Authorization", f"Bearer {TOKEN}")
+            req.add_header("Content-Type", "application/octet-stream")
+            req.add_header("User-Agent", "rel-v310")
+            urllib.request.urlopen(req, data, timeout=600)
+            done = True
             break
         except Exception as e:
             print(f"upload retry {attempt + 1} for {name}: {e}")
             time.sleep(2 * (attempt + 1))
-    if not up or not up.get("id"):
+    if not done:
         sys.exit(f"上传失败: {name}")
     print(f"uploaded: {name}  {len(data) / 1024:.1f} KB")
 
