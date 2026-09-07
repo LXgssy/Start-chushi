@@ -766,3 +766,5 @@ Stage Summary:
 - 三症状根因全闭环且有针对性回归实证：虚拟曲目（N10/N10b e2e 实证桥无会话时真值独占+进度推进）、物理自愈（PB4 三拍实证 <800ms 不误判/>800ms 必自愈）、store 兜底（PB5 实证原生死+元素不可信时 pos=120000 不冻死）
 - 新律：①「判独占」与「消费独占」必须同拍同条件落地——仲裁层判定 true 而消费端不接 = 真值黑洞；②物理自愈（进度推进=在播放）是播放态事件丢失的终极兜底，闸必须是每拍独立判定 + <800ms 窗，写回事件语义让下拍接管；③测试 mock 外部系统必须同构到隐藏协议面（webpack require.c），差一个属性整个链路静默失败
 - 待办：用户真机复测（扩展 3.0.1 + 插件B 2.1.0 替换 + 重启网易云 + Ctrl+F5；看进度/时间/逐字歌词跟手、页脚 API v2.1.0 在场）；任务 A（seek 真机参数实抓）仍为下轮最高优先
+- 【交付落盘】main 2eec15e 推送；gh-pages DEPLOY-OK + 线上指纹实证（chunk 77b5fc11f59bb797.js 内 `e.track??{app:"NetEase Music"...` 虚拟曲目代码与本地逐字节一致）；Release v3.0.1 id=383802989 五资产直链 SHA-256 ALL OK（Delivery/SmtcBridge-2.0.0/NcmApi-2.1.0/Preset.cshz/NewTab-v3.0.1.zip）；文叔叔合并包 https://c.wss.ink/f/ktcz2owgf4j（complete code=0 success 99%）
+- 【排障备忘】rel 脚本三坑：①API 基址已含 /releases，path 再带 /releases 前缀 = 双重路径 404（PATCH/DELETE/list assets 全中）；②/tag 返回 tag SHA 对象非 release；③release by tag 正确写法 = api(f"/tags/{TAG}")。上传段加 4 次退避重试
