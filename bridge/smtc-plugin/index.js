@@ -14,7 +14,7 @@
   if (window.__chushiSmtcManagerV5) return;
   window.__chushiSmtcManagerV5 = true;
 
-  var PLUGIN_VERSION = "5.0.0";
+  var PLUGIN_VERSION = "5.0.1";
   var ENGINE_VER_REQUIRED = "5.0.0";
   var ENGINE_NAME = "chushi-smtc-engine";
   var DEFAULT_PORT = 26801;

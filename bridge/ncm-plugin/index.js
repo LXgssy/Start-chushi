@@ -27,7 +27,7 @@
   if (window.__chushiMusicApiV5) return;
   window.__chushiMusicApiV5 = true;
 
-  var PLUGIN_VERSION = "5.0.0";
+  var PLUGIN_VERSION = "5.0.1";
   var DEFAULT_PORT = 26801;
   var POLL_MS = 1000;        /* truth push cadence */
   var CMD_POLL_MS = 300;     /* command queue poll */

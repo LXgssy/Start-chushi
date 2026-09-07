@@ -140,6 +140,20 @@
 16. **测试基建的三重根因都披着「被测代码坏了」的外衣**：v5 e2e 三连修
     （innerHTML→srcdoc / replace 陷阱 / 模式分发）全非产品 bug；先分层
     归因（产品 vs harness）再动手，别急着改产品代码。
+17. **BetterNCM 在网易云 3.x 静默丢弃缺 `ncm3-compatible:true` 的插件**
+    （v5.0.1 真机实锤，源码级根因）：PluginManager 过滤链
+    `isNCM3 && !manifest.ncm3Compatible → continue`——不解压、不加载、
+    列表不显示、不报错。v5.0.0 的 SMTC Manager 重写时丢了这个字段
+    （老版 2.1.0 有）→ 「装了但插件列表看不到」；Music API 5.0.0 带着字段
+    所以显示正常——症状不对称正是定位线索。构建门已锁死（manifest 结构门
+    强制 ncm3-compatible）。同源实锤两条：①中文 .plugin **文件名**在
+    zip_open 按 ANSI(GBK) 码页解析 → 永远打不开 → 用户「中文读不了」
+    的判断正确，ASCII 文件名门继续保留；②同 slug 插件解压到同一目录，
+    plugins 文件夹里旧 .plugin 不删会在启动时反向覆盖新插件（中文文件名
+    ASCII 序在后 = 旧包覆盖新包），升级说明必须强调「删掉所有旧 .plugin」。
+    另有 disable_list.txt 连坐：旧版被停用记录同 slug，新插件也会被跳过。
+    （BetterNCM 本体已改名 std-microblock/chromatic，v2 源码从 fork 找，
+    如 NanoRocky/BetterNCM）
 
 ## 用户机器的已知约束（真机实证）
 
@@ -149,12 +163,15 @@
 
 ## 下一步开发任务（按优先级）
 
-### A. v5.0.0 真机验收（最高优先，等用户反馈）
+### A. v5.0.1 真机验收（最高优先，等用户反馈）
+0. **插件列表同时出现 ChuShi Music API 与 ChuShi SMTC Manager**（v5.0.1
+   修复项：网易云 3.x 不再静默丢弃；若仍不见 → disable_list.txt 排查，
+   见使用说明）。用户规则：插件名称英文、介绍中文、文件名 ASCII。
 1. 网易云 SMTC 开关**关闭**状态下：放歌 → 悬浮窗/锁屏出现本引擎卡片
    （进度每秒走、可拖、媒体键全响应）；拖动后网易云真实跳转。
 2. 面板进度/时间/逐字歌词跟手；暂停淡出、恢复淡入；暂停 30s 恢复无漂移。
 3. 网易云**自家**进度条/按钮与装插件前行为一致（"装插件弄坏本体"根治确认）。
-4. 页脚 `API v5.0.0 · 管理 v5.0.0`；升级芯片熄灭。
+4. 页脚 `API v5.0.1 · 管理 v5.0.1`；升级芯片熄灭。
 5. 若引擎未自启（策略拦截）：交付包手动 Start-Engine.bat 后面板应连上。
 
 ### B. seek 元素级真机验证
