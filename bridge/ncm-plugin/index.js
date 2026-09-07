@@ -1,120 +1,497 @@
 /*
- * 初始网易云API (ChuShi NetEase API) — BetterNCMII / chromatic 插件（纯 API，无 UI）
- * v3.0.0 双插件架构：本插件 = 网易云真值的唯一生产者（零桥进程管理）。
- * 桥进程的部署/拉起/监督由「初始SMTC桥」插件（cc.chushi.smtcbridge）负责。
- * v2.1.0：播放态物理自愈（进度推进 = 在播放——修面板状态不同步/全冻结）
- *         + dva store.position 次级真值（原生进度事件死时不再冻死）。
- * v2.2.0：满血 SMTC 控制回路的插件侧执行器（桥 3.0.0 把系统媒体键/悬浮窗
- *         按钮/悬浮窗拖动进度全部转发到本插件）+ 命令队列（bridge v3.0.0
- *         起 cmd 支持 play/pause/toggle/next/prev/seek 多命令排队下发）
- *         + seek 末级重写加固（1600ms 二次直写防本体重置元素 + 生效时
- *         身份捕获锁定真主元素）。
+ * ChuShi Music API (cc.chushi.ncmapi) v3.0.0 -- REWRITTEN FROM SCRATCH.
  *
- * 职责（每数据单主——位置/时长/播放态/元数据/歌词的真值只出自这里）：
- *   ① 精确播放状态（songId/positionMs/durationMs/playing/封面 URL）——帧级真值
- *   ② 逐字歌词（yrc）——网易云客户端内部才有，SMTC 不提供
- *   ③ 命令执行：seek 三级阶梯（channel.seek→dispatch→el.currentTime，
- *      逐级实测校验 + seekAck 诚实回传）/ 播放态命令
- * 数据主动 POST 推送到「初始 SMTC 桥」(http://127.0.0.1:20754，见本文件末尾配置)：
- *      /api/plugin/state  1s 心跳（暂停 3.5s），携带 role:"ncm" —— 桥据此
- *                         压制旧一体化插件的 role-less 心跳（并存不互打）
- *      /api/plugin/lyric  切歌时推送 + 启动时补推缓存
+ * Single source of playback truth for the ChuShi SMTC stack. Runs inside the
+ * NetEase Cloud Music renderer (BetterNCM). This generation is built around
+ * three hard rules from the user:
  *
- * 歌词获取策略（按优先级，先到先用）：
- *   A. eapi /api/song/lyric/v1（yv=1）→ yrc 逐字 + ytlrc 逐字翻译（主流曲库均有）
- *   B. 同接口返回的 klyric（卡拉 OK 字级，覆盖较少）→ 自行转 yrc 同构文本
- *   C. channel.call("track.lyric.getinfo") → lrc/tlyric 行级
- *   D. 直连 music.163.com/api/song/lyric → lrc/tlyric 行级
- * 歌词按 songId 缓存（内存 + localStorage，上限 8 首），切回最近曲目不重拉。
+ *   RULE 1 -- OBSERVE, NEVER FIGHT. Reading truth is pure observation:
+ *   native engine events (legacyNativeCmder) + dva store reads + audio
+ *   element property reads. We never patch prototypes, never wrap channel
+ *   calls, never dispatch store actions, never rewrite currentTime in a
+ *   loop. (The previous generation fought the player and froze NetEase's
+ *   own progress bar; that class of bug is structurally gone here.)
  *
- * 状态源（v1.4.0 真值熔断：原生事件为主，媒体元素只作对齐校验）：
- *   ① legacyNativeCmder 原生事件（PlayState/PlayProgress/Seek）——网易云自家
- *      引擎直出，不会被流浪 video/预加载元素污染（主源）；
- *   ② 媒体元素：仅当与原生期望位置对齐（≤1.5s）时采信其 currentTime（亚秒精度）；
- *      原生事件缺失时才用评分制选元素兑底（v1.3.0 粘滞首中选元曾被预加载/
- *      流浪元素污染，真机报出 paused+0 → 面板冻死 0:00 + 播放态反转）
+ *   RULE 2 -- CONTROL AT THE ELEMENT. Every control command (from the
+ *   Windows overlay via the engine, or from the ChuShi page) executes once,
+ *   at the media element (play/pause/currentTime) or NetEase's own visible
+ *   footer buttons (next/prev). If a seek did not take, we report the
+ *   failure honestly (seekAck) instead of fighting the player.
  *
- * 本文件由 BetterNCMII(js-framework) 以 AsyncFunction("plugin", code) 调用执行，
- * 顶层即异步上下文。注入通道：manifest 的 injects.Main。
+ *   RULE 3 -- NO NETEASE SMTC DEPENDENCY. Everything here works whether the
+ *   NetEase SMTC switch in its settings is ON or OFF. We do not read any
+ *   SMTC session anywhere.
+ *
+ * Push model (engine: chushi-smtc-engine.ps1 on 127.0.0.1:<port>):
+ *   POST /api/ne    1 Hz playback truth
+ *   POST /api/lyric full lyrics on song change (yrc word-level first)
+ *   GET  /api/cmd   300 ms command poll
+ *
+ * Lyrics sources (first hit wins, cached 8 songs):
+ *   A. eapi /api/song/lyric/v1 (yv=1, fallback yv=-1) -> yrc + ytlrc
+ *      (self-contained fresh crypto: RFC 1321 MD5 + AES-128-ECB with a
+ *      runtime-generated S-box; no external dependency)
+ *   B. same response klyric (karaoke) -> converted to yrc-shaped text
+ *   C. channel "track.lyric.getinfo" -> lrc/tlyric
+ *   D. direct https://music.163.com/api/song/lyric -> lrc/tlyric
+ *
+ * Executed by BetterNCM as AsyncFunction("plugin", code). ASCII-only file.
  */
-/* eslint-disable */
 (async function () {
-  if (window.__chushiNcmApiActive) return;
-  window.__chushiNcmApiActive = true;
+  if (window.__chushiMusicApiV4) return;
+  window.__chushiMusicApiV4 = true;
 
-  const TAG = "[ChuShiNcmApi]";
+  const PLUGIN_VERSION = "3.0.0";
+  const ENGINE_VER_NEEDED = "4.0.0";
+  const DEFAULT_PORT = 26801;
+
+  const TAG = "[ChuShiMusicApi]";
   const log = (...a) => console.log(TAG, ...a);
   const warn = (...a) => console.warn(TAG, ...a);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const PLUGIN_VERSION = "2.2.0";
+  const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
 
-  /*__EAPI_CRYPTO_START__*/
-  // —— eapi 加密（与 NetEaseCloudMusicApi 同构：nobody{url}use{text}md5forencrypt
-  //    + AES-128-ECB(key=e82ckenh8dichen8) → 大写 hex）。自包含实现，运行时
-  //    生成 S-box（GF(2^8) 逆元 + 仿射变换），避免手抄 256 魔数出错。
-  function utf8Bytes(str) {
-    const bin = unescape(encodeURIComponent(str));
-    const out = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i) & 0xff;
-    return out;
+  const PORT = (parseInt(plugin.getConfig("port", DEFAULT_PORT), 10) || DEFAULT_PORT);
+  const BASE = "http://127.0.0.1:" + PORT;
+
+  /* ============================================================
+   * 1) Native engine events (NetEase's own audio pipeline, direct)
+   * ============================================================ */
+  let evPlaying = false, evPlayingAt = 0;      // last PlayState (state===1 -> playing)
+  let evProgSec = -1, evProgAt = 0;            // last PlayProgress (seconds)
+  let evSongId = 0;                            // last PlayState idStr
+  let disposed = false;
+
+  (async function registerEvents() {
+    for (let i = 0; i < 100 && !window.legacyNativeCmder && !disposed; i++) await sleep(200);
+    const cmder = window.legacyNativeCmder;
+    if (!cmder || typeof cmder.appendRegisterCall !== "function") {
+      warn("legacyNativeCmder unavailable; running on store + element sources only");
+      return;
+    }
+    cmder.appendRegisterCall("PlayState", "audioplayer", function (playId, idStr, state) {
+      evPlaying = state === 1;
+      evPlayingAt = Date.now();
+      const idNum = parseInt(idStr, 10);
+      if (idNum > 0) evSongId = idNum;
+    });
+    cmder.appendRegisterCall("PlayProgress", "audioplayer", function (playId, sec) {
+      if (typeof sec === "number" && sec >= 0 && isFinite(sec)) {
+        evProgSec = sec; evProgAt = Date.now();
+      }
+    });
+    cmder.appendRegisterCall("Seek", "audioplayer", function (playId, seekId, code, pos) {
+      if (typeof pos === "number" && pos >= 0 && isFinite(pos)) {
+        evProgSec = pos; evProgAt = Date.now();
+      }
+    });
+    log("native events registered (PlayState/PlayProgress/Seek)");
+  })();
+
+  /* ============================================================
+   * 2) dva store discovery (read-only: getState() only, NEVER dispatch)
+   * ============================================================ */
+  let store = null;
+
+  function captureWebpackRequire() {
+    return new Promise((resolve) => {
+      try {
+        const gp = window.webpackJsonp;
+        if (gp && typeof gp.push === "function") {
+          const id = "__chushi_mapiv4_" + Date.now() + "_" + Math.floor(Math.random() * 1e6);
+          const chunk = {};
+          chunk[id] = function (module, exports, require) {
+            resolve(typeof require === "function" ? require : null);
+          };
+          if (Array.isArray(gp[0])) gp.push([[id], chunk, [[id]]]);
+          else gp.push([[id], chunk]);
+          setTimeout(() => resolve(null), 3000);
+          return;
+        }
+      } catch (e) { /* fall through to webpack5 shape */ }
+      try {
+        for (const k in window) {
+          if (k.indexOf("webpackChunk") === 0 && window[k] && typeof window[k].push === "function") {
+            let req = null;
+            window[k].push([["__chushi_mapiv4_" + Date.now()], {}, function (a, b) {
+              if (typeof a === "function") req = a;
+              else if (typeof b === "function") req = b;
+            }]);
+            resolve(req);
+            return;
+          }
+        }
+      } catch (e) { /* ignore */ }
+      resolve(null);
+    });
   }
-  function bytesToHexUpper(bytes) {
-    let s = "";
-    for (let i = 0; i < bytes.length; i++) s += (bytes[i] >> 4).toString(16) + (bytes[i] & 15).toString(16);
-    return s.toUpperCase();
+
+  (async function findStore() {
+    for (let i = 0; i < 50 && !disposed && !store; i++) {
+      const req = await captureWebpackRequire();
+      if (req) {
+        try {
+          for (const key of Object.keys(req.m || req.c || {})) {
+            let ex = null;
+            try { ex = req(key); } catch (e) { continue; }
+            const dva = ex && typeof ex === "object" && ex.a && typeof ex.a.getStore === "function" ? ex.a : null;
+            if (dva && dva.inited && dva.app && dva.app._store) { store = dva.app._store; break; }
+          }
+        } catch (e) { /* keep scanning next round */ }
+        if (store) { log("dva store acquired (read-only)"); break; }
+      }
+      await sleep(400);
+    }
+    if (!store) warn("dva store not found; element-only mode (lyrics still work via songId from events)");
+  })();
+
+  /* ============================================================
+   * 3) Media element: one sticky, validated element. No scoring roulette.
+   * ============================================================ */
+  let mainEl = null;
+
+  function expectedDurMs() {
+    try {
+      const p = store ? (store.getState().playing || {}) : {};
+      if (p.curTrack && p.curTrack.duration > 0) return Math.floor(p.curTrack.duration);
+    } catch (e) { }
+    try {
+      const d = (window.betterncm && window.betterncm.ncm && window.betterncm.ncm.getPlayingSong)
+        ? (window.betterncm.ncm.getPlayingSong() || {}).data : null;
+      if (d && d.duration > 0) return Math.floor(d.duration);
+    } catch (e) { }
+    return 0;
   }
-  // ---------- MD5（RFC 1321，输入 Uint8Array，输出小写 hex） ----------
-  function md5Bytes(bytes) {
-    const s = [7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
+
+  function elementValid(el) {
+    if (!el || !el.tagName || !/^(audio|video)$/i.test(el.tagName)) return false;
+    if (!el.isConnected) return false;
+    if (!(el.currentTime >= 0) || !isFinite(el.currentTime)) return false;
+    const dur = expectedDurMs();
+    if (dur > 0 && el.duration > 0 && isFinite(el.duration)) {
+      if (Math.abs(el.duration * 1000 - dur) > 1500) return false;
+    }
+    return true;
+  }
+
+  function getEl() {
+    if (elementValid(mainEl)) return mainEl;
+    mainEl = null;
+    const list = document.querySelectorAll("audio, video");
+    for (const el of list) {
+      if (elementValid(el)) { mainEl = el; break; }
+    }
+    if (!mainEl) {
+      // no duration-validated element yet: accept any audio with a live clock
+      for (const el of document.querySelectorAll("audio")) {
+        if (el.isConnected && isFinite(el.currentTime)) { mainEl = el; break; }
+      }
+    }
+    return mainEl;
+  }
+
+  /* ============================================================
+   * 4) Metadata (store first, BetterNCM API second). https-only cover.
+   * ============================================================ */
+  function httpsUp(u) {
+    const s = String(u || "");
+    if (s.indexOf("http://") === 0) return "https://" + s.slice(7);
+    return s;
+  }
+
+  function getMeta() {
+    try {
+      const p = store ? (store.getState().playing || {}) : {};
+      const id = p.resourceTrackId || p.onlineResourceId || evSongId || 0;
+      if (id) {
+        const artists = (p.resourceArtists || []).map((a) => a && a.name).filter(Boolean);
+        return {
+          id: Number(id) || 0,
+          title: String(p.resourceName || ""),
+          artist: artists.join("/"),
+          album: (p.curTrack && p.curTrack.album && (p.curTrack.album.albumName || p.curTrack.album.name)) || "",
+          pic: httpsUp(p.resourceCoverUrl || (p.curTrack && p.curTrack.album && p.curTrack.album.picUrl) || ""),
+          durMs: (p.curTrack && p.curTrack.duration > 0) ? Math.floor(p.curTrack.duration) : 0,
+        };
+      }
+    } catch (e) { }
+    try {
+      const d = (window.betterncm && window.betterncm.ncm && window.betterncm.ncm.getPlayingSong)
+        ? (window.betterncm.ncm.getPlayingSong() || {}).data : null;
+      if (d) {
+        const artists = (d.artists || []).map((a) => a && a.name).filter(Boolean);
+        return {
+          id: evSongId || 0,
+          title: String(d.name || ""),
+          artist: artists.join("/"),
+          album: (d.album && (d.album.name || d.album.albumName)) || "",
+          pic: httpsUp((d.album && d.album.picUrl) || ""),
+          durMs: (d.duration > 0) ? Math.floor(d.duration) : 0,
+        };
+      }
+    } catch (e) { }
+    return { id: evSongId || 0, title: "", artist: "", album: "", pic: "", durMs: 0 };
+  }
+
+  /* ============================================================
+   * 5) Truth snapshot (pure read; reconciliation, zero mutation)
+   * ============================================================ */
+  let seekAck = { id: "", ok: true, at: 0 };
+  let seekSeq = 0;
+
+  function buildSnapshot() {
+    const now = Date.now();
+    const el = getEl();
+    const meta = getMeta();
+
+    // playing: last native event wins (fresh window), then store, then element
+    let playing = null;
+    if (evPlayingAt && now - evPlayingAt < 3000) playing = evPlaying;
+    else {
+      try {
+        const p = store ? (store.getState().playing || {}) : {};
+        if (typeof p.paused === "boolean") playing = !p.paused;
+      } catch (e) { }
+    }
+    if (playing === null && el) playing = el.paused === false;
+    if (playing === null) playing = false;
+
+    // position: element fine clock when aligned with native progress;
+    // native progress; store position; bare element; else keep last push
+    const nativeFresh = evProgAt && now - evProgAt < 5000;
+    const nativeSec = nativeFresh ? evProgSec : -1;
+    let posSec = -1;
+    if (el && isFinite(el.currentTime)) {
+      const elSec = el.currentTime;
+      if (nativeSec >= 0 && Math.abs(elSec - nativeSec) <= 1.5) posSec = elSec;
+      else if (nativeSec < 0) posSec = elSec;
+    }
+    if (posSec < 0 && nativeSec >= 0) posSec = nativeSec;
+    if (posSec < 0) {
+      try {
+        const sp = store ? Number(store.getState().playing && store.getState().playing.position) : 0;
+        if (sp > 0 && isFinite(sp)) posSec = sp;
+      } catch (e) { }
+    }
+    if (posSec < 0) posSec = 0;
+
+    const durMs = meta.durMs > 0 ? meta.durMs
+      : (el && el.duration > 0 && isFinite(el.duration) ? Math.floor(el.duration * 1000) : 0);
+    if (durMs > 0 && posSec * 1000 > durMs) posSec = durMs / 1000;
+
+    return {
+      v: PLUGIN_VERSION,
+      ts: now,
+      songId: meta.id || 0,
+      title: meta.title || "",
+      artist: meta.artist || "",
+      album: meta.album || "",
+      pic: meta.pic || "",
+      position: Math.round(posSec * 1000) / 1000,
+      duration: Math.round(durMs / 1000 * 1000) / 1000,
+      playing: playing === true,
+      seekAckId: seekAck.id || "",
+      seekAckOk: seekAck.ok === true,
+      seekAckAt: seekAck.at || 0,
+    };
+  }
+
+  /* ============================================================
+   * 6) Control executor (one action per command; honest verification)
+   * ============================================================ */
+  function visibleBtn(ids) {
+    for (const sel of ids) {
+      try {
+        const el = document.querySelector(sel);
+        if (el && el.offsetParent !== null) { el.click(); return true; }
+      } catch (e) { }
+    }
+    return false;
+  }
+
+  function ctrlPlayPause(target) {
+    const el = getEl();
+    if (el) {
+      try {
+        if (target === "play" && el.paused) { el.play(); return true; }
+        if (target === "pause" && !el.paused) { el.pause(); return true; }
+        return true; // already in the requested state
+      } catch (e) { /* fall through to buttons */ }
+    }
+    if (target === "play") return visibleBtn(["#btn-play", ".btn-play", "#btn-pause", ".btn-pause"]);
+    return visibleBtn(["#btn-pause", ".btn-pause", "#btn-play", ".btn-play"]);
+  }
+
+  function ctrlToggle() {
+    const snap = buildSnapshot();
+    return ctrlPlayPause(snap.playing ? "pause" : "play");
+  }
+
+  function ctrlSkip(dir) {
+    return dir === "next"
+      ? visibleBtn(["#btn-next", ".btn-next"])
+      : visibleBtn(["#btn-previous", "#btn-prev", ".btn-previous", ".btn-prev"]);
+  }
+
+  /* Seek: set currentTime ONCE, verify by read-back, never rewrite.
+     The seekAck travels to the host with the next pushes so the page can
+     honestly say "drag did not take" instead of pretending. */
+  function ctrlSeek(sec) {
+    const id = "s" + (++seekSeq) + "t" + Date.now();
+    const el = getEl();
+    if (!el || !(sec >= 0)) {
+      seekAck = { id, ok: false, at: Date.now() };
+      return;
+    }
+    try {
+      const dur = el.duration > 0 && isFinite(el.duration) ? el.duration : 0;
+      const target = dur > 0 ? clamp(sec, 0, dur) : Math.max(0, sec);
+      el.currentTime = target;
+      const elTag = el;
+      setTimeout(function () {
+        try {
+          if (elTag !== mainEl) { seekAck = { id, ok: false, at: Date.now() }; return; }
+          const now2 = elTag.currentTime;
+          seekAck = { id, ok: Math.abs(now2 - target) <= 0.9, at: Date.now() };
+        } catch (e) { seekAck = { id, ok: false, at: Date.now() }; }
+      }, 420);
+      setTimeout(function () {
+        try {
+          if (seekAck.id === id && seekAck.ok === false) {
+            // second chance: maybe the first read caught a buffering frame
+            const now3 = elTag.currentTime;
+            const drift = Math.abs(now3 - target);
+            seekAck = { id, ok: drift <= 1.2, at: Date.now() };
+          }
+        } catch (e) { }
+      }, 1000);
+    } catch (e) {
+      seekAck = { id, ok: false, at: Date.now() };
+    }
+  }
+
+  function execCmd(c) {
+    if (!c || !c.cmd) return;
+    switch (c.cmd) {
+      case "play": ctrlPlayPause("play"); break;
+      case "pause": ctrlPlayPause("pause"); break;
+      case "toggle": ctrlToggle(); break;
+      case "next": ctrlSkip("next"); break;
+      case "prev": ctrlSkip("prev"); break;
+      case "seek": ctrlSeek(Number(c.position) || 0); break;
+      default: break;
+    }
+  }
+
+  /* ============================================================
+   * 7) HTTP: push truth 1 Hz, poll commands 300 ms
+   * ============================================================ */
+  let lastSnap = null;
+
+  async function httpJson(path, method, body, timeoutMs) {
+    const ctl = new AbortController();
+    const t = setTimeout(() => { try { ctl.abort(); } catch (e) { } }, timeoutMs || 2500);
+    try {
+      const r = await fetch(BASE + path, {
+        method: method || "GET",
+        signal: ctl.signal,
+        headers: { "Content-Type": "application/json" },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      return await r.json();
+    } catch (e) {
+      return null;
+    } finally { clearTimeout(t); }
+  }
+
+  (async function pushLoop() {
+    while (!disposed) {
+      try {
+        const snap = buildSnapshot();
+        lastSnap = snap;
+        await httpJson("/api/ne", "POST", snap, 1800);
+      } catch (e) { }
+      await sleep(1000);
+    }
+  })();
+
+  (async function cmdLoop() {
+    while (!disposed) {
+      try {
+        const j = await httpJson("/api/cmd", "GET", null, 1200);
+        if (j && j.ok === true && Array.isArray(j.cmds)) {
+          for (const c of j.cmds) {
+            try { execCmd(c); } catch (e) { warn("cmd failed:", c && c.cmd, e && e.message); }
+          }
+        }
+      } catch (e) { }
+      await sleep(300);
+    }
+  })();
+
+  /* ============================================================
+   * 8) Lyrics: full word-level lyrics, fresh crypto, cached
+   * ============================================================ */
+
+  /* ---- MD5 (RFC 1321) over bytes -> lowercase hex ---- */
+  function md5Hex(bytes) {
+    const S = [7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
       5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
       4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
       6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21];
-    // 64 个常量：floor(abs(sin(i+1)) * 2^32)
     const K = new Int32Array(64);
-    for (let i = 0; i < 64; i++) K[i] = Math.floor(Math.abs(Math.sin(i + 1)) * 4294967296) | 0;
+    for (let i = 0; i < 64; i++) K[i] = (Math.abs(Math.sin(i + 1)) * 4294967296) | 0;
     let a0 = 0x67452301 | 0, b0 = 0xefcdab89 | 0, c0 = 0x98badcfe | 0, d0 = 0x10325476 | 0;
-    const origLen = bytes.length;
-    const bitLen = origLen * 8;
-    // padding: msg + 0x80 + zeros + 8-byte little-endian bitLen
-    const padded = (((origLen + 8) >> 6) + 1) << 6;
-    const msg = new Uint8Array(padded);
-    msg.set(bytes);
-    msg[origLen] = 0x80;
-    /* ⚠ JS 移位计数取模 32：8*i ≥ 32 时 x>>>(8*i) 等于不移位，会把低位字节重复写进
-       高位长度字（md5('a') 首次跑错就是它）——i≥4 的长度字节直接置 0（消息 < 512MB 恒成立） */
-    for (let i = 0; i < 8; i++) msg[padded - 8 + i] = i < 4 ? (bitLen >>> (8 * i)) & 0xff : 0;
-    const M = new Int32Array(16);
-    const rl = (x, c) => (x << c) | (x >>> (32 - c));
-    for (let off = 0; off < padded; off += 64) {
-      for (let i = 0; i < 16; i++) {
-        const j = off + i * 4;
-        M[i] = (msg[j] | (msg[j + 1] << 8) | (msg[j + 2] << 16) | (msg[j + 3] << 24)) | 0;
-      }
+    const len = bytes.length;
+    const total = (((len + 8) >> 6) + 1) << 6;
+    const m = new Uint8Array(total);
+    m.set(bytes);
+    m[len] = 0x80;
+    const bitLen = len * 8;
+    /* JS shifts mask the count mod 32 (bitLen >>> 32 === bitLen >>> 0), so
+       high length bytes must be computed arithmetically, never via >>> 32+. */
+    const bitLenLo = bitLen >>> 0;
+    const bitLenHi = Math.floor(bitLen / 4294967296);
+    const lenBytes = [
+      bitLenLo & 0xff, (bitLenLo >>> 8) & 0xff, (bitLenLo >>> 16) & 0xff, (bitLenLo >>> 24) & 0xff,
+      bitLenHi & 0xff, (bitLenHi >>> 8) & 0xff, (bitLenHi >>> 16) & 0xff, (bitLenHi >>> 24) & 0xff,
+    ];
+    for (let i = 0; i < 8; i++) m[total - 8 + i] = lenBytes[i];
+    const M = new Int32Array(total / 4);
+    for (let i = 0; i < M.length; i++) {
+      M[i] = (m[i * 4] | (m[i * 4 + 1] << 8) | (m[i * 4 + 2] << 16) | (m[i * 4 + 3] << 24)) | 0;
+    }
+    const rotl = (x, c) => ((x << c) | (x >>> (32 - c))) | 0;
+    for (let off = 0; off < M.length; off += 16) {
+      const X = M.subarray(off, off + 16);
       let A = a0, B = b0, C = c0, D = d0;
       for (let i = 0; i < 64; i++) {
         let F, g;
         if (i < 16) { F = (B & C) | (~B & D); g = i; }
-        else if (i < 32) { F = (D & B) | (~D & C); g = (5 * i + 1) & 15; }
-        else if (i < 48) { F = B ^ C ^ D; g = (3 * i + 5) & 15; }
-        else { F = C ^ (B | ~D); g = (7 * i) & 15; }
-        F = (F + A + K[i] + M[g]) | 0;
+        else if (i < 32) { F = (D & B) | (~D & C); g = (5 * i + 1) % 16; }
+        else if (i < 48) { F = B ^ C ^ D; g = (3 * i + 5) % 16; }
+        else { F = C ^ (B | ~D); g = (7 * i) % 16; }
+        F = (F + A + K[i] + X[g]) | 0;
         A = D; D = C; C = B;
-        B = (B + rl(F, s[i])) | 0;
+        B = (B + rotl(F, S[i])) | 0;
       }
       a0 = (a0 + A) | 0; b0 = (b0 + B) | 0; c0 = (c0 + C) | 0; d0 = (d0 + D) | 0;
     }
     const out = new Uint8Array(16);
-    const words = [a0, b0, c0, d0];
-    for (let i = 0; i < 4; i++)
-      for (let j = 0; j < 4; j++) out[i * 4 + j] = (words[i] >>> (8 * j)) & 0xff;
-    let hex = "";
-    for (let i = 0; i < 16; i++) hex += (out[i] >> 4).toString(16) + (out[i] & 15).toString(16);
-    return hex;
+    const regs = [a0, b0, c0, d0];
+    for (let r = 0; r < 4; r++) {
+      for (let i = 0; i < 4; i++) out[r * 4 + i] = (regs[r] >>> (8 * i)) & 0xff;
+    }
+    let s = "";
+    for (let i = 0; i < 16; i++) s += (out[i] >>> 4).toString(16) + (out[i] & 15).toString(16);
+    return s;
   }
-  // ---------- AES-128 ECB 加密 ----------
-  const AES = (() => {
-    // GF(2^8) 乘法
-    const gmul = (a, b) => {
+
+  /* ---- AES-128 ECB encrypt-only, S-box generated at runtime ---- */
+  const AES = (function () {
+    // S-box: multiplicative inverse in GF(2^8) + affine transform
+    const sbox = new Uint8Array(256);
+    const mul = (a, b) => {
       let p = 0;
       for (let i = 0; i < 8; i++) {
         if (b & 1) p ^= a;
@@ -125,27 +502,15 @@
       }
       return p;
     };
-    // S-box：乘法逆元 + 仿射变换（运行时构造）
-    const SBOX = new Uint8Array(256);
-    {
-      const inv = new Uint8Array(256);
-      // 求逆元：枚举（256 元素小表，O(256^2) 可接受）
-      for (let i = 1; i < 256; i++)
-        for (let j = 1; j < 256; j++)
-          if (gmul(i, j) === 1) { inv[i] = j; break; }
-      inv[0] = 0;
-      for (let i = 0; i < 256; i++) {
-        let x = inv[i], s = x;
-        for (let b = 0; b < 4; b++) {
-          // 循环左移 1 位
-          const hi = (x >> 7) & 1;
-          x = ((x << 1) | hi) & 0xff;
-          s ^= x;
-        }
-        SBOX[i] = (s ^ 0x63) & 0xff;
-      }
+    for (let i = 0, inv = 0; i < 256; i++) {
+      // find inverse of i in GF(2^8) (0 maps to 0)
+      inv = 0;
+      if (i !== 0) { for (let j = 1; j < 256; j++) { if (mul(i, j) === 1) { inv = j; break; } } }
+      let x = inv, s = x;
+      for (let k = 0; k < 4; k++) { s = ((s << 1) | (s >>> 7)) & 0xff; x ^= s; }
+      sbox[i] = x ^ 0x63;
     }
-    const RCON = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36];
+    const rcon = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36];
     function expandKey(key) {
       const w = new Uint8Array(176);
       w.set(key);
@@ -153,10 +518,8 @@
         let t0 = w[i - 4], t1 = w[i - 3], t2 = w[i - 2], t3 = w[i - 1];
         if (i % 16 === 0) {
           const tmp = t0;
-          t0 = SBOX[t1] ^ RCON[i / 16 - 1];
-          t1 = SBOX[t2];
-          t2 = SBOX[t3];
-          t3 = SBOX[tmp];
+          t0 = sbox[t1] ^ rcon[i / 16 - 1];
+          t1 = sbox[t2]; t2 = sbox[t3]; t3 = sbox[tmp];
         }
         w[i] = w[i - 16] ^ t0;
         w[i + 1] = w[i - 15] ^ t1;
@@ -165,1024 +528,248 @@
       }
       return w;
     }
-    function encryptBlock(w, input) {
-      const st = new Uint8Array(16);
-      for (let i = 0; i < 16; i++) st[i] = input[i] ^ w[i];
-      for (let round = 1; round <= 10; round++) {
-        // SubBytes + ShiftRows（⚠ 四行都要从 t 回写——只写 1..3 行会让第 0 行
-        // 跳过 SubBytes，整轮密文全错）
-        const t = new Uint8Array(16);
-        for (let i = 0; i < 16; i++) t[i] = SBOX[st[i]];
-        for (let c = 0; c < 4; c++)
-          for (let r = 0; r < 4; r++) st[r + 4 * c] = t[r + 4 * ((c + r) & 3)];
-        if (round !== 10) {
-          // MixColumns（列主序 st[4c+r]，标准矩阵 2/3/1/1）
-          for (let c = 0; c < 4; c++) {
-            const a0 = st[4 * c], a1 = st[4 * c + 1], a2 = st[4 * c + 2], a3 = st[4 * c + 3];
-            st[4 * c] = gmul(a0, 2) ^ gmul(a1, 3) ^ a2 ^ a3;
-            st[4 * c + 1] = a0 ^ gmul(a1, 2) ^ gmul(a2, 3) ^ a3;
-            st[4 * c + 2] = a0 ^ a1 ^ gmul(a2, 2) ^ gmul(a3, 3);
-            st[4 * c + 3] = gmul(a0, 3) ^ a1 ^ a2 ^ gmul(a3, 2);
+    function cryptBlock(w, inp, out) {
+      const s = new Uint8Array(16);
+      s.set(inp);
+      for (let i = 0; i < 16; i++) s[i] ^= w[i];                 // AddRoundKey(0)
+      for (let r = 1; r <= 10; r++) {
+        for (let i = 0; i < 16; i++) s[i] = sbox[s[i]];              // SubBytes
+        for (let r0 = 1; r0 < 4; r0++) {                             // ShiftRows (column-major state)
+          const row = [s[r0], s[r0 + 4], s[r0 + 8], s[r0 + 12]];
+          for (let c = 0; c < 4; c++) s[r0 + c * 4] = row[(c + r0) % 4];
+        }
+        if (r < 10) {
+          for (let c = 0; c < 4; c++) {                              // MixColumns
+            const a0 = s[c * 4], a1 = s[c * 4 + 1], a2 = s[c * 4 + 2], a3 = s[c * 4 + 3];
+            s[c * 4] = mul(2, a0) ^ mul(3, a1) ^ a2 ^ a3;
+            s[c * 4 + 1] = a0 ^ mul(2, a1) ^ mul(3, a2) ^ a3;
+            s[c * 4 + 2] = a0 ^ a1 ^ mul(2, a2) ^ mul(3, a3);
+            s[c * 4 + 3] = mul(3, a0) ^ a1 ^ a2 ^ mul(2, a3);
           }
         }
-        // AddRoundKey（在 MixColumns 之后——FIPS-197 轮序：Sub/Shift → Mix → AddKey）
-        for (let i = 0; i < 16; i++) st[i] ^= w[16 * round + i];
+        for (let i = 0; i < 16; i++) s[i] ^= w[r * 16 + i];          // AddRoundKey(r)
       }
-      return st;
+      out.set(s);
     }
-    return {
-      ecbEncrypt(bytes, key) {
-        /* PKCS#7 填充（node crypto aes-128-ecb 默认，eapi 服务端要求） */
-        const pad = 16 - (bytes.length % 16);
-        const buf = new Uint8Array(bytes.length + pad);
-        buf.set(bytes);
-        buf.fill(pad, bytes.length);
-        const w = expandKey(key);
-        const out = new Uint8Array(buf.length);
-        for (let off = 0; off < buf.length; off += 16) {
-          out.set(encryptBlock(w, buf.subarray(off, off + 16)), off);
-        }
-        return out;
-      },
-    };
+    function ecbEncrypt(keyBytes, plain) {
+      const w = expandKey(keyBytes);
+      const pad = 16 - (plain.length % 16);
+      const buf = new Uint8Array(plain.length + pad);
+      buf.set(plain);
+      for (let i = plain.length; i < buf.length; i++) buf[i] = pad;
+      const out = new Uint8Array(buf.length);
+      for (let off = 0; off < buf.length; off += 16) cryptBlock(w, buf.subarray(off, off + 16), out.subarray(off, off + 16));
+      return out;
+    }
+    return { ecbEncrypt };
   })();
+
+  function utf8Bytes(str) {
+    const bin = unescape(encodeURIComponent(str));
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i) & 0xff;
+    return out;
+  }
+  function hexUpper(bytes) {
+    let s = "";
+    for (let i = 0; i < bytes.length; i++) s += (bytes[i] >> 4).toString(16) + (bytes[i] & 15).toString(16);
+    return s.toUpperCase();
+  }
+
   const EAPI_KEY = utf8Bytes("e82ckenh8dichen8");
-  function eapiParams(apiPath, payloadObj) {
-    const text = JSON.stringify(payloadObj);
-    const digest = md5Bytes(utf8Bytes(`nobody${apiPath}use${text}md5forencrypt`));
-    const data = `${apiPath}-36cd479b6b5-${text}-36cd479b6b5-${digest}`;
-    return bytesToHexUpper(AES.ecbEncrypt(utf8Bytes(data), EAPI_KEY));
+  function eapiParams(apiPath, payload) {
+    const text = JSON.stringify(payload);
+    const secret = "nobody" + apiPath + "use" + text + "md5forencrypt";
+    const digest = md5Hex(utf8Bytes(secret));
+    const data = apiPath + "-36cd479b6b5-" + text + "-36cd479b6b5-" + digest;
+    return hexUpper(AES.ecbEncrypt(EAPI_KEY, utf8Bytes(data)));
   }
-  /*__EAPI_CRYPTO_END__*/
 
-  /* ---------- 配置 ----------
-   * bridgePort = 「初始SMTC桥」插件所管理桥进程的监听端口（两端必须一致；
-   * 桥进程的启动/端口由「初始SMTC桥」插件负责，本插件只作推送目标） */
-  let bridgePort = 20754;
+  /* ---- klyric (JSON karaoke) -> yrc-shaped text (fallback) ---- */
+  function klyricToYrcText(ktext) {
+    try {
+      const j = JSON.parse(ktext);
+      const lines = Array.isArray(j) ? j : (j.lines || j.lrc || []);
+      const out = [];
+      for (const ln of lines) {
+        if (!ln || !Array.isArray(ln.c) || !ln.c.length) continue;
+        const start = ln.t || 0;
+        let cur = 0;
+        let body = "";
+        const times = [];
+        for (const w of ln.c) {
+          times.push(w.t != null ? w.t : start + cur);
+          const tx = String(w.tx || "");
+          cur += tx.length * 90;
+          body += tx;
+        }
+        if (!body.trim()) continue;
+        let yrc = "";
+        for (let i = 0; i < ln.c.length; i++) {
+          const ws = times[i];
+          const we = i + 1 < times.length ? times[i + 1] : start + Math.max(cur, 900);
+          yrc += "(" + ws + "," + Math.max(60, we - ws) + ",0)" + String(ln.c[i].tx || "");
+        }
+        out.push("[" + start + "," + Math.max(cur, 900) + "]" + yrc);
+      }
+      return out.join("\n");
+    } catch (e) { return ""; }
+  }
+
+  const lyricCache = new Map();
+  const LYRIC_LS = "chushi-musicapi-lyric-v4";
   try {
-    const p = parseInt(plugin.getConfig("port", 20754), 10);
-    if (p >= 1024 && p <= 65535) bridgePort = p;
-  } catch (e) { /* 默认端口 */ }
-  const BRIDGE = `http://127.0.0.1:${bridgePort}`;
-
-  /* 快命令通道（v1.3.0）：300ms 轮询 /api/plugin/cmd，seek 延迟 ≤300ms
-     （旧版靠心跳指带最多延迟 1s）；空轮询成本可忽略（本机回环） */
-  setInterval(async () => {
-    if (disposed) return;
-    try {
-      const ctl = new AbortController();
-      const t = setTimeout(() => ctl.abort(), 1200);
-      const r = await fetch(BRIDGE + "/api/plugin/cmd", { signal: ctl.signal });
-      clearTimeout(t);
-      if (!r || !r.ok) return;
-      const j = await r.json().catch(() => null);
-      if (j && j.cmd) applyBridgeCmd(j, buildSnapshot());
-    } catch (e) { /* 桥不在线，静默 */ }
-  }, 300);
-
-  /* ---------- 运行时句柄 ---------- */
-  let store = null;
-  let getPlayingSong = null;
-  let lastPlaying = false;
-  let lastPlayingAt = 0;
-  let lastProgressMs = 0;
-  let lastProgressAt = 0;
-  let lastSeekAt = 0;
-  let lastSongId = 0;
-  /* v1.5.0 真值仲裁新增：元素身份锁定 + 上拍上报记忆 + store 播放态矛盾计时 */
-  let elLock = null;            /* 身份锁定的媒体元素（同歌内不换人） */
-  let elLockStreak = 0;         /* 连续对齐拍数（≥2 才锁定） */
-  let elLockMiss = 0;           /* 锁定后连续脱钩拍数（≥3 解锁） */
-  let lastReportedPosMs = -1;   /* 上拍实际上报的位置（倒退熔断基准） */
-  let lastReportedAt = 0;
-  let lastReportedPlaying = false;
-  let storeDisagreeSince = 0;   /* store.paused 与 lastPlaying 矛盾起点（0=无矛盾） */
-  let lastEvAt = 0;            /* 最近一次原生进度事件时刻——seek 验证的独立证据 */
-  let seekPending = null;      /* v1.5.1 进行中的 seek {id,posMs,songId,at,displayUntil,preTruthMs,dispatchDone,writeDone,verdict} */
-  let seekHistory = [];        /* v1.5.1 最近 seek 裁决（诊断用，保留 8 条） */
-  let disposed = false;
-  const installedAt = Date.now();
-  log("加载中 v" + PLUGIN_VERSION, "→ 桥", BRIDGE);
-
-  for (let i = 0; i < 100 && !window.legacyNativeCmder; i++) await sleep(200);
-  if (!window.legacyNativeCmder) warn("legacyNativeCmder 未出现，事件源降级");
-  try {
-    if (window.betterncm && window.betterncm.ncm && window.betterncm.ncm.getPlayingSong) {
-      getPlayingSong = window.betterncm.ncm.getPlayingSong.bind(window.betterncm.ncm);
-    }
-  } catch (e) { /* 兜底不可用则跳过 */ }
-
-  /* ---------- 媒体真值（v1.4.0 熔断重构）----------
-   * 主源 = legacyNativeCmder 原生事件（网易云自家引擎直出，不可能被
-   * 流浪 video / 预加载元素污染）：PlayState→lastPlaying(At)、
-   * PlayProgress→lastProgressMs(At)。
-   * 媒体元素降级为「对齐校验」：与原生期望位置差 ≤1.5s 才采信其
-   * currentTime（补亚秒精度）；原生事件缺失（老客户端无 cmder）时才用
-   * 评分制选元素兑底（对齐分优先，平分 DOM 靠前者胜——主播放器在 DOM
-   * 首位是 v2.2.0 真机实证基线）。
-   * v1.3.0 的「粘滞 + 首中即选」会粘住预加载/流浪元素，真机报出
-   * paused+0 → 宿主绝对锚定把面板钉死 0:00 / 播放态概率反转，废除。 */
-  function nativeExpectMs(nowMs) {
-    if (!lastProgressAt) return -1;
-    const drift = lastPlaying && lastPlayingAt ? Math.min(2000, Math.max(0, nowMs - Math.max(lastProgressAt, lastPlayingAt))) : 0;
-    return lastProgressMs + drift;
-  }
-  /* v1.5.0 元素身份锁定：v1.4.0 的「每拍重新评分」在 DOM 波动（切歌/换源/
-   * 预加载进场）时会换人——换到错误元素的那一刻，playing=el.paused 与
-   * positionMs=el.currentTime 同时被污染（真机第 9 轮：状态反向 + 进度
-   * 0.5x 爬行 + 倒退，就是「评分偶尔选走流浪元素」的锯齿形态）。
-   * 锁定规则：某元素与原生期望连续对齐 ≥2 拍 → 同歌内锁死；仅当
-   * detached / 连续脱钩 ≥3 拍才解锁重新评分。锁定期间其余元素无视。 */
-  function pickMediaEl(nowMs) {
-    try {
-      const expectMs = nativeExpectMs(nowMs);
-      if (elLock) {
-        const alive = elLock.isConnected !== false;
-        let aligned = false;
-        if (alive && expectMs >= 0 && isFinite(elLock.currentTime)) {
-          aligned = Math.abs(elLock.currentTime * 1000 - expectMs) < 1500;
-        }
-        if (!alive) { elLock = null; elLockStreak = 0; elLockMiss = 0; }
-        else if (aligned) { elLockMiss = 0; return elLock; }
-        else {
-          elLockMiss++;
-          if (elLockMiss >= 3) { elLock = null; elLockStreak = 0; elLockMiss = 0; }
-          else return elLock; /* 锁定期内短脱钩仍信锁定元素（缓冲过场不换人） */
-        }
-      }
-      const els = Array.from(document.querySelectorAll("video,audio"));
-      if (!els.length) return null;
-      let best = null, bestS = -1e9;
-      for (const e of els) {
-        if (!e) continue;
-        let s = 0;
-        if (e.duration > 0 && isFinite(e.duration)) s += 2;
-        if (e.paused === false) s += 4;
-        if ((e.currentTime || 0) > 0.2) s += 1;
-        if (expectMs >= 0 && isFinite(e.currentTime)) {
-          const diff = Math.abs(e.currentTime * 1000 - expectMs);
-          if (diff < 1500) s += 12 - Math.min(8, diff / 200);
-          else s -= Math.min(10, diff / 1000);
-        }
-        if (s > bestS) { bestS = s; best = e; } /* 平分时 DOM 靠前者胜出 */
-      }
-      /* 候选与原生对齐 → 连击 +1；连击满 2 上锁 */
-      if (best && expectMs >= 0 && isFinite(best.currentTime) &&
-          Math.abs(best.currentTime * 1000 - expectMs) < 1500) {
-        elLockStreak++;
-        if (elLockStreak >= 2) { elLock = best; elLockMiss = 0; }
-      } else if (best !== elLock) {
-        elLockStreak = 0;
-      }
-      return best;
-    } catch (e) { return null; }
-  }
-  function httpsUp(u) {
-    if (!u || typeof u !== "string") return "";
-    let s = u.replace(/^http:\/\//i, "https://");
-    if (s.indexOf("param=") === -1 && /music\.126\.net/.test(s)) {
-      s += (s.indexOf("?") === -1 ? "?" : "&") + "param=500y500";
-    }
-    return s;
-  }
-  /* 状态快照（v1.5.0 单一真值仲裁）：
-   *   playing = 原生 PlayState「最后事件」语义——状态事件不是遥测流，最后
-   *     一次说的就是现状，不存在「过期」；仅从未收到过事件（lastPlayingAt
-   *     =0）才降级元素/store。v1.4.0 的 5s 过期降级 el.paused 是真机状态
-   *     反向的直接根因：暂停 5s 后必降级，此时评分选错元素 → 报反状态。
-   *     新增 store.paused 交叉自愈：矛盾持续 >3s 以 store 纠正（事件丢失
-   *     兜底，dva playing store 的 paused 是网易云自家 UI 同源）。
-   *   positionMs = 原生期望位置为主；元素值仅身份锁定对齐时补亚秒；
-   *     原生进度死（expectMs<0）时元素须过「时长身份验证」才可信；
-   *   倒退熔断：同歌 + 无本端 seek + playing 未变，pos 较上拍倒退 >2.5s
-   *     → 丢弃，沿用上拍上报值（真机 0:09→0:08 倒退直接根因）。
-   *   durationMs = store curTrack（歌锚定）优先，锁定元素时长只作兑底。 */
-  function buildSnapshot() {
-    const nowMs = Date.now();
-    const el = pickMediaEl(nowMs);
-    const expectMs = nativeExpectMs(nowMs);
-    let playing;
-    if (lastPlayingAt) {
-      playing = lastPlaying;
-      /* store 交叉自愈：dva playing.paused 与原生事件矛盾持续 >3s → 纠正
-         （PlayState 事件丢失/漏发的兜底；一致或 store 不可用时不干预） */
-      try {
-        if (store) {
-          const pp = store.getState().playing || {};
-          if (typeof pp.paused === "boolean") {
-            const storePlaying = !pp.paused;
-            if (storePlaying !== playing) {
-              if (!storeDisagreeSince) storeDisagreeSince = nowMs;
-              if (nowMs - storeDisagreeSince > 3000) { playing = storePlaying; lastPlaying = storePlaying; lastPlayingAt = nowMs; }
-            } else storeDisagreeSince = 0;
-          }
-        }
-      } catch (e) { /* store 降级不影响主源 */ }
-    } else if (el) playing = el.paused === false;
-    else playing = lastPlaying;
-    /* ---------- 歌身份与时长（须在位置计算前就绪：元素身份验证/换歌重置/
-       倒退熔断都要用） ---------- */
-    let song = null;
-    let durMs = 0;
-    try {
-      if (store) {
-        const p = store.getState().playing || {};
-        const id = p.resourceTrackId || p.onlineResourceId || null;
-        if (id) {
-          song = {
-            id: Number(id) || id,
-            name: p.resourceName || "未知歌名",
-            artists: (p.resourceArtists || []).map((a) => a && a.name).filter(Boolean),
-            album: (p.curTrack && p.curTrack.album && (p.curTrack.album.albumName || p.curTrack.album.name)) || "",
-            cover: httpsUp(p.resourceCoverUrl || (p.curTrack && p.curTrack.album && p.curTrack.album.picUrl) || ""),
-          };
-          if (p.curTrack && p.curTrack.duration > 0) durMs = Math.floor(p.curTrack.duration);
-        }
-      }
-      if (!song && getPlayingSong) {
-        const d = (getPlayingSong() || {}).data;
-        if (d && d.id) {
-          song = {
-            id: Number(d.id) || d.id,
-            name: d.name || "未知歌名",
-            artists: (d.artists || []).map((a) => a && a.name).filter(Boolean),
-            album: (d.album && (d.album.name || d.album.albumName)) || "",
-            cover: httpsUp((d.album && d.album.picUrl) || ""),
-          };
-          if (d.duration > 0) durMs = Math.floor(d.duration);
-        }
-      }
-    } catch (e) { /* 状态降级 */ }
-    /* 换歌检测：重置元素锁定与上拍上报记忆（新歌开头 0 起步绝不能被上首
-       歌的倒退熔断误杀，也不能沿用旧元素的锁定身份） */
-    const songIdNow = song && song.id ? Number(song.id) || 0 : 0;
-    if (songIdNow && songIdNow !== lastSongId) {
-      elLock = null; elLockStreak = 0; elLockMiss = 0;
-      lastReportedPosMs = -1; lastReportedAt = 0; storeDisagreeSince = 0;
-      lastSongId = songIdNow;
-    }
-    let posMs = 0, posAligned = false;
-    if (el && isFinite(el.currentTime)) {
-      if (expectMs >= 0) {
-        if (Math.abs(el.currentTime * 1000 - expectMs) < 1500 && el === elLock) { posMs = Math.floor(el.currentTime * 1000); posAligned = true; }
-        else posMs = expectMs; /* 未锁定对齐（评分新脸/脱钩）：一律用原生期望 */
-      } else {
-        /* 原生进度死（从未收到 PlayProgress）：元素须过身份验证（时长与
-           store 时长一致且播放态与快照 playing 一致）才可信；元素也不可信
-           时用 dva playing.position 兑底（v3.0.1：它是网易云自家进度条同源
-           真值，单位秒——比冻死在 lastProgressMs 旧值/0 强。单位闸 (0,36000)
-           防字段形态漂移，时长闸防越界） */
-        const elOkDur = durMs > 0 && el.duration > 0 && isFinite(el.duration) && Math.abs(el.duration * 1000 - durMs) < 1500;
-        const elOkPlay = (el.paused === false) === playing;
-        if (elOkDur && elOkPlay) { posMs = Math.floor(el.currentTime * 1000); posAligned = true; }
-        else {
-          posMs = lastProgressMs;
-          try {
-            if (store) {
-              const sp = Number(store.getState().playing && store.getState().playing.position);
-              if (isFinite(sp) && sp > 0 && sp < 36000 && (!durMs || sp * 1000 <= durMs + 800)) {
-                posMs = Math.floor(sp * 1000);
-              }
-            }
-          } catch (e) { /* store 兑底失败不拦主流程 */ }
-        }
-      }
-    } else if (expectMs >= 0) posMs = expectMs;
-    /* 垃圾零值熔断：对齐样本突报 ≈0（错误元素/缓冲过场）而原生进度深在
-       前方、5s 内无本端 seek → 丢弃该读数，沿用原生进度（真机「播放时间
-       显示 0 + 进度/歌词冻死」的直接根因就在这条路径上） */
-    if (posMs < 800 && lastProgressMs > 3000 && nowMs - lastSeekAt > 5000) {
-      posMs = Math.max(expectMs, lastProgressMs);
-      posAligned = false;
-    }
-    /* v1.5.0 倒退熔断：同歌 + playing 未变 + 无本端 seek，较上拍上报值
-       倒退 >2.5s → 丢弃（流浪元素陈旧 currentTime 的锯齿形态），沿用
-       上拍上报值按播放态外推（真机 0:09→0:08 倒退直接根因）。
-       song 身份不明（songIdNow=0）时不熔断——宁可放过一次倒退显示，
-       也不能把真实的新歌开头钉死在上一首的位置（误杀比跳帧更糟）。 */
-    if (
-      lastReportedPosMs >= 0 && posMs < lastReportedPosMs - 2500 &&
-      nowMs - lastSeekAt > 5000 && playing === lastReportedPlaying &&
-      songIdNow && songIdNow === lastSongId
-    ) {
-      posMs = lastReportedPosMs + (playing ? Math.min(4000, nowMs - lastReportedAt) : 0);
-      posAligned = false;
-    }
-    if (durMs <= 0 && posAligned && el && el.duration > 0 && isFinite(el.duration)) {
-      /* 仅对齐元素（=确认是当前歌的元素）的时长才可作兑底 */
-      durMs = Math.floor(el.duration * 1000);
-    }
-    /* v3.0.1 物理自愈：进度在推进 = 在播放。PlayState 原生事件丢失/store
-       未就绪/元素评分失真时 playing 可能报反（宿主锚点 playing=false 插值
-       恒 0 → 面板进度/时间/逐字歌词全冻结 + 显示暂停实际在响——真机「状态
-       没有同步」形态）。以物理事实修正输出：真值位置较上拍上报推进
-       >800ms 且无本端 seek/换歌 → playing=true（事件语义时间戳一并前移，
-       store 交叉自愈仍可在真暂停时 3s 内纠回）。每拍独立判定，无累积误判。 */
-    if (
-      !playing && lastReportedPosMs >= 0 && posMs - lastReportedPosMs > 800 &&
-      nowMs - lastSeekAt > 5000 && (!songIdNow || songIdNow === lastSongId)
-    ) {
-      playing = true;
-      lastPlaying = true;
-      lastPlayingAt = nowMs;
-    }
-    return {
-      song,
-      playing,
-      positionMs: Math.max(0, Math.floor(posMs)),
-      durationMs: Math.max(0, durMs),
-      ts: nowMs,
-    };
-  }
-
-  /* ---------- 推送到桥 ---------- */
-  let bridgeAlive = false;
-  async function post(path, body) {
-    try {
-      const ctl = new AbortController();
-      const t = setTimeout(() => ctl.abort(), 2500);
-      const r = await fetch(BRIDGE + path, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: ctl.signal,
-      });
-      clearTimeout(t);
-      return r && r.ok;
-    } catch (e) { return false; }
-  }
-  /* v1.1.0：带应答体的 POST（心跳命令通道用；其余路径行为同 post） */
-  async function postJson(path, body) {
-    try {
-      const ctl = new AbortController();
-      const t = setTimeout(() => ctl.abort(), 2500);
-      const r = await fetch(BRIDGE + path, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: ctl.signal,
-      });
-      clearTimeout(t);
-      if (!r || !r.ok) return null;
-      return await r.json().catch(() => null);
-    } catch (e) { return null; }
-  }
-  let lastStateSig = "";
-  async function pushState(force) {
-    if (disposed) return;
-    const snap = buildSnapshot();
-    lastPlaying = snap.playing;
-    if (snap.durationMs > 0 && snap.positionMs > snap.durationMs) snap.positionMs = snap.durationMs;
-    /* v1.5.1 seek 显示语义：命令等待验证期间（≤2.5s，同曲目）对外发布乐观目标位置，
-       进度条即时到位不闪跳；lastReportedPosMs（倒退熔断基准）与 seekAck 只认真值——
-       乐观值绝不写进熔断基准，验证失败弹回真值时不会被倒退熔断误杀。 */
-    let optPublish = false;
-    const pend = seekPending;
-    if (pend && !pend.verdict && Date.now() < pend.displayUntil && snap.song && Number(snap.song.id) === pend.songId) {
-      snap.positionMs = pend.posMs;
-      optPublish = true;
-    }
-    const sig = JSON.stringify([snap.song && snap.song.id, snap.playing, snap.positionMs, snap.durationMs]);
-    if (!force && sig === lastStateSig) return;
-    lastStateSig = sig;
-    if (!optPublish) {
-      /* 上拍上报记忆（倒退熔断基准）：只记「真的发出去」的真值 */
-      lastReportedPosMs = snap.positionMs;
-      lastReportedAt = Date.now();
-      lastReportedPlaying = snap.playing;
-    }
-    /* v1.2.0：心跳捎带插件版本（宿主/面板可诊断插件在场与版本）与最近一次
-       seek 执行结果（seekAck）——桥透传给宿主做 seek 快速确认 */
-    /* v3.0.0：心跳携带 role:"ncm" —— 桥 2.0.0 据此认定 ne 通道主人（10s 内
-       压制旧一体化插件的 role-less 心跳，双插件并存不再互打）；v = 本插件版本 */
-    const body = Object.assign({}, snap, { v: PLUGIN_VERSION, role: "ncm", seekAck: lastSeekAck });
-    const resp = await postJson("/api/plugin/state", body);
-    const ok = !!resp;
-    if (ok && resp && resp.cmd) applyBridgeCmd(resp, snap);
-    /* v1.4.0 歌词自愈：桥重启后会丢掉内存里的歌词，心跳应答带
-       needLyric=<songId>；插件有缓存则补推，无缓存则触发拉取 */
-    if (ok && resp && resp.needLyric) rePushLyric(Number(resp.needLyric));
-    if (ok && !bridgeAlive) { bridgeAlive = true; log("桥已连通"); }
-  }
-  /* ---------- 桥下发命令（v1.1.0 心跳应答 / v1.2.0 dispatch / v1.3.0 三级阶梯）----------
-     A0 正门：channel.call("audioplayer.seek", cb, [songId, tag, 秒]) ——
-             网易云自家进度条拖动走的就是这条原生 RPC（refined-now-playing
-             劫持 channel.call 实证），参数 [songId, "songId|seek|rand", 秒]；
-     A1 兑底：store.dispatch("playing/setPlayingPosition" payload 秒)；
-     B  末级：el.currentTime 直写。
-     每级 420ms 后用 el.currentTime 实测校验；全部未生效则 seekAck ok:false
-     如实回报（宿主弹回进度条并提示，绝不假装已跳转）。 */
-  let lastSeekAck = null; // {id, ok, pos, at} —— 随心跳上报，宿主据此快速确认
-  /* v1.4.0：channel 路线健康闸——真机若 audioplayer.seek 参数形态在本版客户端上会
-     打断播放（seek 后 2s 内播放态翻停），本会话永久禁用 channel 路线并持久化 */
-  let channelDisabled = false;
-  let channelSeekAt = 0;
-  let channelPlayingBefore = false;
-  try { channelDisabled = localStorage.getItem("chushi-channel-seek-disabled") === "1"; } catch (e) {}
-  function normTitle(s) {
-    return String(s || "").toLowerCase().replace(/[\s\-_·・()（）\[\]【】「」『』,，。、!！?？~～'"＂]/g, "");
-  }
-  /* v1.5.1 channel 回调捕获：NCM channel 异步应答经回调返回——旧版直接丢弃，
-     既无法得知原生拒绝原因，也无法在真机上核对参数契约。现在记日志并在
-     __seekDebug 暴露（对应 AI-HANDOFF 任务 A：实抓 audioplayer.seek 真实参数形态）。 */
-  function channelSeek(songId, pos) {
-    try {
-      if (!songId || !window.channel || typeof window.channel.call !== "function") return false;
-      if (channelDisabled) return false;
-      channelSeekAt = Date.now();
-      channelPlayingBefore = lastPlaying;
-      const tag = songId + "|seek|" + Math.random().toString(36).substring(6);
-      window.channel.call(
-        "audioplayer.seek",
-        function (err, res) {
-          if (err) warn("channel seek 应答 err:", err && (err.message || err));
-          else if (res && typeof res === "object" && res.ok === false) warn("channel seek 应答 rejected:", res);
-          else if (res !== undefined && res !== null) log("channel seek 应答 ok", res);
-        },
-        [songId, tag, pos]
-      );
-      return true;
-    } catch (e) { warn("channel seek 调用异常", e); return false; }
-  }
-  function channelDispatch(posSec) {
-    /* v1.5.1：dispatch payload 改回数值秒（与动作注释一致）。旧版传 {duration: pos}
-       对象——若 NCM reducer 期望数值秒，store.playing.position 会被写坏，网易云自家
-       （store 驱动）进度条可能冻结/错乱，即「本体进度条不动」的宿敌路径之一。 */
-    try {
-      if (!store) return false;
-      store.dispatch({ type: "playing/setPlayingPosition", payload: Number(posSec) });
-      return true;
-    } catch (e) { warn("dispatch 失败", e); return false; }
-  }
-  /* v1.5.1 seek 真值监听（根治「拖动无效却假确认 → 时间/歌词错乱」）：
-   *   旧病根：发起 seek 后立即 lastProgressMs=目标 → nativeExpectMs 随之等于目标，
-   *   buildSnapshot 在元素未对齐时采信原生期望 → 验证永远「成功」（self-fulfilling）。
-   *   真实播放器没动时 seekAck ok:true 照样上报 → 宿主假确认 → 显示时间锚在假位置，
-   *   下一拍真事件回落后时间「跳变」、逐字歌词按假位置对齐、回弹真值还被倒退熔断
-   *   当垃圾丢弃。
-   *   新实现：lastProgressMs/At 只由原生事件（PlayProgress/Seek）或元素真值更新；
-   *   seek 的乐观展示位单独存在 seekPending（pushState 发布，≤2.5s）；验证只看
-   *   「发起 seek 之后到来的独立证据」：
-   *     a) 原生进度事件把真值带到目标附近（channel/dispatch 生效的直接证据）；
-   *     b) 元素 currentTime 到达目标（直写生效 / 播放器实际跟随）。
-   *   2s 内无任何证据 → ack ok:false + 以真值推拍（宿主诚实弹回 + 「拖动未生效」芯片）。 */
-  function startSeekWatch(seekId, posSec, targetMs) {
-    const began = Date.now();
-    function step() {
-      const pend = seekPending;
-      if (!pend || pend.id !== seekId || pend.verdict) return;
-      const nowMs = Date.now();
-      let ev = false;
-      if (lastEvAt >= pend.at && lastProgressMs >= 0) {
-        ev = Math.abs(lastProgressMs - targetMs) <= 1200;
-      }
-      let elNow = null;
-      let elHit = false;
-      try {
-        elNow = elLock || pickMediaEl(nowMs);
-        if (elNow && elNow.isConnected !== false && isFinite(elNow.currentTime)) {
-          elHit = Math.abs(elNow.currentTime * 1000 - targetMs) <= 1200;
-        }
-      } catch (e) { elHit = false; }
-      if (ev || elHit) {
-        if (elHit && !ev && lastProgressMs !== targetMs) {
-          lastProgressMs = targetMs; lastProgressAt = nowMs; /* 元素真值 = 播放器实际位置 */
-        }
-        /* v2.2.0 身份捕获：被直写且真实生效的元素 = 主播放器，立即上锁
-           （此后真值读取锁定同人，不再依赖评分漂移） */
-        if (elHit && !elLock && elNow && elNow.isConnected !== false) {
-          elLock = elNow; elLockStreak = 2; elLockMiss = 0;
-          log("seek 身份捕获 -> 锁定主播放器元素");
-        }
-        log("seek 生效（" + (ev ? "native 事件" : "元素真值") + "）-> " + posSec.toFixed(1) + "s");
-        ackSeek(seekId, true, targetMs);
-        return;
-      }
-      const elapsed = nowMs - began;
-      if (!pend.dispatchDone && elapsed >= 420) {
-        pend.dispatchDone = true;
-        if (channelDispatch(posSec)) log("seek 降级 dispatch -> " + posSec.toFixed(1) + "s");
-      }
-      if (!pend.writeDone && elapsed >= 900) {
-        pend.writeDone = true;
-        try {
-          const w = elLock || pickMediaEl(Date.now());
-          if (w && w.isConnected !== false && isFinite(w.currentTime)) {
-            w.currentTime = posSec;
-            log("seek 降级元素直写 -> " + posSec.toFixed(1) + "s");
-          }
-        } catch (e) { warn("元素直写失败", e); }
-      }
-      /* v2.2.0 末级重写：本体可能在直写后立刻用自身状态重置元素 currentTime
-         （真机「拖了没反应」的末级路径）。证据仍缺时 1600ms 二次直写。 */
-      if (!pend.rewriteDone && elapsed >= 1600) {
-        pend.rewriteDone = true;
-        try {
-          const w2 = elLock || pickMediaEl(Date.now());
-          if (w2 && w2.isConnected !== false && isFinite(w2.currentTime) && Math.abs(w2.currentTime * 1000 - targetMs) > 1200) {
-            w2.currentTime = posSec;
-            log("seek 末级重写 -> " + posSec.toFixed(1) + "s");
-          }
-        } catch (e) { /* 重写失败不影响裁决 */ }
-      }
-      if (elapsed >= 2000) { ackSeek(seekId, false, targetMs); return; }
-      setTimeout(step, 200);
-    }
-    setTimeout(step, 200);
-  }
-  function ackSeek(seekId, ok, targetMs) {
-    const pend = seekPending;
-    if (!pend || pend.id !== seekId) return;
-    lastSeekAck = { id: seekId, ok: !!ok, pos: targetMs / 1000, at: Date.now() };
-    if (ok && Math.abs(lastProgressMs - targetMs) > 1200) {
-      lastProgressMs = targetMs; lastProgressAt = Date.now(); /* 证据已确认，兜底校准真值 */
-    }
-    seekHistory.push({ at: Date.now(), ok: !!ok, posMs: targetMs, songId: pend.songId });
-    if (seekHistory.length > 8) seekHistory.shift();
-    pend.verdict = true;
-    seekPending = null;
-    if (!ok) warn("seek 未生效 pos=" + (targetMs / 1000).toFixed(1) + "（已如实回报，宿主将弹回真实进度）");
-    pushState(true).catch(function () {});
-  }
-  /* ---------- v2.2.0 页内控制执行器（满血 SMTC 控制回路的插件侧） ----------
-   * play/pause：锁定元素（本体的 audio 引擎）play()/pause() —— 与引擎自身
-   * 语义同源，store/UI 跟随元素事件；验证 paused 真实翻转后失败才兑底页脚
-   * 按钮（多候选可见性点击，不押注单一选择器）。
-   * next/prev：页脚可见按钮一条页内路径（元素无切歌语义）。 */
-  function clickVisibleBtn(cands) {
-    for (let i = 0; i < cands.length; i++) {
-      try {
-        const els = document.querySelectorAll(cands[i]);
-        for (let j = 0; j < els.length; j++) {
-          const b = els[j];
-          if (b && b.offsetParent !== null) { b.click(); return true; }
-        }
-      } catch (e) { /* 下一候选 */ }
-    }
-    return false;
-  }
-  function ctrlPlayPause(target) {
-    try {
-      const el = elLock || pickMediaEl(Date.now());
-      if (el && el.isConnected !== false && typeof el.play === "function") {
-        const before = el.paused;
-        if (target === "play" && before) { const p = el.play(); if (p && p.catch) p.catch(function () {}); return true; }
-        if (target === "pause" && !before) { el.pause(); return true; }
-        /* 元素状态已与目标一致：视为已生效（防双路径重复执行） */
-        if ((target === "play") === !before) return true;
-      }
-    } catch (e) { /* 元素路径失败兑底按钮 */ }
-    if (target === "play") return clickVisibleBtn(["#btn-play", ".btn-play", "#btn-pause", ".btn-pause"]);
-    return clickVisibleBtn(["#btn-pause", ".btn-pause", "#btn-play", ".btn-play"]);
-  }
-  function ctrlNextPrev(dir) {
-    if (dir === "next") return clickVisibleBtn(["#btn-next", ".btn-next"]);
-    return clickVisibleBtn(["#btn-previous", "#btn-prev", ".btn-previous", ".btn-prev"]);
-  }
-  function applyBridgeCmd(resp, snap) {
-    try {
-      const cmd = String(resp.cmd || "");
-      /* v2.2.0 满血 SMTC 控制回路：系统媒体键/悬浮窗按钮 → 桥 Try*Async 直控
-         网易云会话，失败时才到本插件页内执行；桥无会话（虚拟曲目场景）时
-         面板按钮也走这里。play/pause 用锁定元素（本体的 audio 引擎）优先，
-         页脚可见按钮兑底；next/prev 只有页脚按钮一条页内路径。 */
-      if (cmd === "play" || cmd === "pause" || cmd === "toggle") {
-        let target = cmd;
-        if (cmd === "toggle") target = (snap && snap.playing) ? "pause" : "play";
-        const ok = ctrlPlayPause(target);
-        log("bridge 命令 " + cmd + " -> 页内" + (ok ? "已执行" : "无可用路径"));
-        return;
-      }
-      if (cmd === "next" || cmd === "prev") {
-        const ok = ctrlNextPrev(cmd);
-        log("bridge 命令 " + cmd + " -> " + (ok ? "页脚点击" : "无可用路径"));
-        return;
-      }
-      if (cmd !== "seek") return;
-      const pos = Number(resp.position);
-      if (!isFinite(pos) || pos < 0) return;
-      const seekId = String(resp.id || "").slice(0, 40);
-      if (resp.title) {
-        const cur = (snap && snap.song && snap.song.name) || "";
-        const a = normTitle(cur), b = normTitle(resp.title);
-        if (a && b && !(a.includes(b) || b.includes(a))) return; // 已切歌，丢弃旧命令
-      }
-      const songId = (snap && snap.song && Number(snap.song.id)) || lastSongId || 0;
-      /* 时长闸用快照时长（歌锚定）——错误元素/下一首时长不再误杀合法 seek */
-      if (snap && snap.durationMs > 0 && pos * 1000 > snap.durationMs + 500) return;
-      const targetMs = Math.floor(pos * 1000);
-      /* 目标即当前位置（点到了当前位置）：直接确认，不折腾播放器 */
-      if (lastProgressMs >= 0 && Math.abs(lastProgressMs - targetMs) <= 1200) {
-        lastSeekAck = { id: seekId, ok: true, pos: pos, at: Date.now() };
-        pushState(true).catch(function () {});
-        return;
-      }
-      lastSeekAt = Date.now();
-      seekPending = {
-        id: seekId, posMs: targetMs, songId: songId, at: Date.now(),
-        displayUntil: Date.now() + 2500, preTruthMs: lastProgressMs,
-        dispatchDone: false, writeDone: false, rewriteDone: false, verdict: false,
-      };
-      const viaChannel = channelSeek(songId, pos);
-      if (!viaChannel) { channelDispatch(pos); seekPending.dispatchDone = true; }
-      pushState(true).catch(function () {});
-      startSeekWatch(seekId, pos, targetMs);
-      log("桥命令 seek -> " + pos.toFixed(1) + "s（" + (viaChannel ? "channel" : "dispatch") + " 路线，真值验证中）");
-    } catch (e) { warn("applyBridgeCmd 异常", e); }
-  }
-  /* 心跳：播放 1s / 暂停 3.5s（桥侧 5s 新鲜度窗口，暂停也必须保活） */
-  setInterval(() => { pushState(true).catch(() => {}); }, 1000);
-  setInterval(() => { if (!lastPlaying) pushState(true).catch(() => {}); }, 3500);
-
-  /* ---------- NCM 原生事件（播放态/进度兜底） ---------- */
-  try {
-    const cmder = window.legacyNativeCmder;
-    if (cmder && cmder.appendRegisterCall) {
-      cmder.appendRegisterCall("PlayState", "audioplayer", function (playId, idStr, state) {
-        lastPlaying = state === 1;
-        lastPlayingAt = Date.now();
-        /* v1.4.0 channel 健康闸：seek 后 2s 内播放态意外翻停 = channel 路线
-           打断了播放 → 本会话禁用并持久化 */
-        if (!lastPlaying && channelSeekAt && Date.now() - channelSeekAt < 2000 && channelPlayingBefore) {
-          channelDisabled = true;
-          channelSeekAt = 0;
-          try { localStorage.setItem("chushi-channel-seek-disabled", "1"); } catch (e) {}
-          warn("channel seek 后播放中断：本会话禁用 channel 路线");
-        }
-        pushState(true).catch(() => {});
-      });
-      cmder.appendRegisterCall("PlayProgress", "audioplayer", function (playId, sec) {
-        lastEvAt = Date.now();
-        if (typeof sec === "number" && sec >= 0) { lastProgressMs = Math.floor(sec * 1000); lastProgressAt = Date.now(); }
-      });
-      cmder.appendRegisterCall("Seek", "audioplayer", function (playId, seekId, code, pos) {
-        lastEvAt = Date.now();
-        if (typeof pos === "number" && pos >= 0) {
-          lastProgressMs = Math.floor(pos * 1000);
-          lastProgressAt = Date.now();
-          lastSeekAt = Date.now();
-          pushState(true).catch(() => {});
-        }
-      });
-      log("原生事件已注册（PlayState/PlayProgress/Seek）");
-      /* v1.5.0 PlayProgress 存活自检：注册后 10s 一条进度事件都没有 →
-         事件流可能未生效（客户端版本差异/注册时机），重注册一次；
-         仍死则原生进度路径废（快照自动落到元素身份验证/store 兑底，
-         不再产生「信错元素」的静默污染——因为 expectMs=-1 路径已有
-         身份验证闸）。只 warn 不弹任何窗。 */
-      setTimeout(function () {
-        if (disposed || lastProgressAt) return;
-        warn("PlayProgress 事件 10s 未触发，尝试重注册");
-        try {
-          cmder.appendRegisterCall("PlayProgress", "audioplayer", function (playId, sec) {
-            lastEvAt = Date.now();
-            if (typeof sec === "number" && sec >= 0) { lastProgressMs = Math.floor(sec * 1000); lastProgressAt = Date.now(); }
-          });
-        } catch (e) { warn("重注册失败", e); }
-        setTimeout(function () {
-          if (!disposed && !lastProgressAt) warn("PlayProgress 仍无事件：原生进度不可用，已用真值仲裁兑底");
-        }, 8000);
-      }, 10000);
-    }
-  } catch (e) { warn("注册原生事件失败", e); }
-
-  /* ---------- Redux store 发现（NCM 3.x dva；webpack4/5 双兼容） ---------- */
-  function captureWebpackRequire() {
-    return new Promise((resolve) => {
-      try {
-        const gp = window.webpackJsonp;
-        if (gp && typeof gp.push === "function") {
-          const id = "__chushi_lyric_" + Date.now() + "_" + Math.floor(Math.random() * 1e6);
-          const chunk = {};
-          chunk[id] = function (module, exports, require) {
-            try { resolve(typeof require === "function" ? require : null); } catch (e) { resolve(null); }
-          };
-          if (Array.isArray(gp[0])) gp.push([[id], chunk, [[id]]]);
-          else gp.push([[id], chunk]);
-          setTimeout(() => resolve(null), 3000);
-          return;
-        }
-      } catch (e) { /* 落入 webpack5 尝试 */ }
-      try {
-        for (const k in window) {
-          if (k.indexOf("webpackChunk") === 0 && window[k] && typeof window[k].push === "function") {
-            let req = null;
-            window[k].push([
-              ["__chushi_lyric_" + Date.now()],
-              {},
-              function (r0, r1) {
-                if (typeof r0 === "function") req = r0;
-                else if (typeof r1 === "function") req = r1;
-              },
-            ]);
-            resolve(req);
-            return;
-          }
-        }
-      } catch (e) { /* 忽略 */ }
-      resolve(null);
-    });
-  }
-  function findModule(req, filter) {
-    try {
-      const cache = req && req.c;
-      if (!cache) return null;
-      for (const id in cache) {
-        const mod = cache[id];
-        const ex = mod && mod.exports;
-        if (!ex) continue;
-        const target = ex && ex.default ? ex.default : ex;
-        try { if (filter(target)) return target; } catch (e) { /* 继续 */ }
-      }
-    } catch (e) { /* 忽略 */ }
-    return null;
-  }
-  (async function findStore() {
-    for (let i = 0; i < 50 && !disposed; i++) {
-      const req = await captureWebpackRequire();
-      if (req) {
-        const dva = findModule(req, (ex) =>
-          ex && typeof ex === "object" && ex.a && typeof ex.a.getStore === "function"
-        );
-        if (dva && dva.a && dva.a.inited && dva.a.app && dva.a.app._store) {
-          store = dva.a.app._store;
-          log("dva Redux store 已获取");
-          /* v1.5.0 初始态对齐：插件加载前网易云可能已在播放——PlayState 只在
-             下一次状态变化时才触发，初始化前不主动对齐的话，这段时间
-             playing 会落在元素降级分支（评分选错元素即反向）。以 store
-             为准（paused 是网易云自家 UI 同源）预热主源。 */
-          try {
-            const p0 = (store.getState().playing || {});
-            if (typeof p0.paused === "boolean") {
-              lastPlaying = !p0.paused;
-              lastPlayingAt = Date.now();
-              log("初始播放态对齐 ->", lastPlaying ? "playing" : "paused");
-            }
-          } catch (e) { /* 初始对齐失败不影响后续 */ }
-          /* 切歌即触发歌词流程 */
-          try {
-            let lastTrackId = null;
-            store.subscribe(function () {
-              try {
-                const p = store.getState().playing || {};
-                const tid = p.resourceTrackId || p.onlineResourceId || null;
-                if (tid !== lastTrackId) {
-                  lastTrackId = tid;
-                  lastProgressMs = 0;
-                  pushState(true).catch(() => {});
-                  ensureLyric();
-                }
-              } catch (e) { /* 忽略 */ }
-            });
-          } catch (e) { /* 忽略 */ }
-          break;
-        }
-      }
-      await sleep(400);
-    }
-    if (!store) warn("未找到 Redux store，运行于媒体元素降级模式（无 songId 时歌词不可用）");
-  })();
-
-  /* ---------- 歌词 ---------- */
-  const lyricCache = new Map();   // songId -> payload
-  let curLyricSongId = 0;
-  let lyricInflight = false;
-  const CACHE_LS_KEY = "chushi-lyric-cache";
-  try {
-    const saved = JSON.parse(localStorage.getItem(CACHE_LS_KEY) || "[]");
+    const saved = JSON.parse(localStorage.getItem(LYRIC_LS) || "[]");
     if (Array.isArray(saved)) for (const [k, v] of saved) lyricCache.set(k, v);
-  } catch (e) { /* 缓存坏则重建 */ }
-  function saveCache() {
+  } catch (e) { }
+  function saveLyricCache() {
     try {
       while (lyricCache.size > 8) lyricCache.delete(lyricCache.keys().next().value);
-      localStorage.setItem(CACHE_LS_KEY, JSON.stringify(Array.from(lyricCache.entries()).slice(-8)));
-    } catch (e) { /* 忽略 */ }
-  }
-
-  /* klyric JSON → yrc 同构文本：[start,dur](s,d,0)字(s,d,0)字… */
-  function klyricToYrcText(klyricStr) {
-    try {
-      const k = JSON.parse(klyricStr);
-      const lines = (k && k.lyric) || [];
-      return lines.map((ln) => {
-        const parts = (ln.c || []).map((w) => {
-          const tx = String(w.tx || "");
-          const ws = Math.round((ln.t || 0));
-          return tx ? `(${ws},${Math.max(1, ln.d || 1)},0)${tx}` : "";
-        }).join("");
-        return `[${Math.round(ln.t || 0)},${Math.max(1, ln.d || 1)}]` + parts;
-      }).join("\n");
-    } catch (e) { return ""; }
+      localStorage.setItem(LYRIC_LS, JSON.stringify(Array.from(lyricCache.entries()).slice(-8)));
+    } catch (e) { }
   }
 
   async function fetchLyricEapi(songId) {
     const apiPath = "/api/song/lyric/v1";
     const attempt = async (yv) => {
-      const params = eapiParams(apiPath, {
-        id: String(songId), cp: false, radio: false,
-        cv: 0, kv: 0, tv: 0, lv: 0, rv: 0, st: 0, yv: yv,
-      });
-      const ctl = new AbortController();
-      const t = setTimeout(() => ctl.abort(), 6000);
       try {
         const r = await fetch("https://interface3.music.163.com/eapi" + apiPath, {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: "params=" + params,
-          signal: ctl.signal,
+          body: "params=" + eapiParams(apiPath, {
+            id: String(songId), cp: false, radio: false,
+            cv: 0, kv: 0, tv: 0, lv: 0, rv: 0, st: 0, yv: yv,
+          }),
         });
-        clearTimeout(t);
         if (!r || !r.ok) return null;
         return await r.json();
-      } catch (e) { clearTimeout(t); return null; }
+      } catch (e) { return null; }
     };
     let j = await attempt(1);
     if (!j || !(j.yrc && j.yrc.lyric)) j = await attempt(-1);
     if (!j) return null;
-    const yrc = (j.yrc && j.yrc.lyric) || "";
+    let yrc = (j.yrc && j.yrc.lyric) || "";
+    let source = "";
+    if (yrc) source = "eapi-yrc";
+    else if (j.klyric && j.klyric.lyric) { yrc = klyricToYrcText(j.klyric.lyric); source = yrc ? "eapi-klyric" : ""; }
+    const lrc = (j.lrc && j.lrc.lyric) || "";
+    const tlyric = (j.tlyric && j.tlyric.lyric) || "";
     const ytlrc = (j.ytlrc && j.ytlrc.lyric) || "";
-    let krc = "";
-    if (!yrc && j.klyric && j.klyric.lyric) krc = klyricToYrcText(j.klyric.lyric);
-    return {
-      yrc, ytlrc,
-      lrc: (j.lrc && j.lrc.lyric) || "",
-      tlyric: (j.tlyric && j.tlyric.lyric) || "",
-      source: yrc ? "eapi-yrc" : krc ? "eapi-klyric" : "eapi-lrc",
-      _krcText: krc,
-    };
+    if (!yrc && !lrc) return null;
+    return { yrc, ytlrc, lrc, tlyric, source: source || "eapi-lrc" };
   }
 
-  function channelCallLyric(songId) {
+  function channelLyric(songId) {
     return new Promise((resolve) => {
       try {
         if (!window.channel || typeof window.channel.call !== "function") return resolve(null);
         window.channel.call("track.lyric.getinfo", function (err, res) {
           try {
-            if (err || !res) return resolve(null);
+            if (err || !res || !res.lyric) return resolve(null);
             resolve({
               yrc: "", ytlrc: "",
-              lrc: (res.lrc && res.lrc.lyric) || "",
-              tlyric: (res.tlyric && res.tlyric.lyric) || "",
+              lrc: String((res.lyric && res.lyric.lyric) || ""),
+              tlyric: String((res.transLyric && res.transLyric.lyric) || ""),
               source: "channel-lrc",
-              _krcText: "",
             });
           } catch (e) { resolve(null); }
-        }, { id: String(songId), tv: -1, lv: -1, rv: -1, kv: -1 });
-        setTimeout(() => resolve(null), 6000);
+        }, [String(songId)]);
       } catch (e) { resolve(null); }
     });
   }
 
-  async function fetchLyricPlain(songId) {
+  async function fetchLyricDirect(songId) {
     try {
-      const r = await fetch(`https://music.163.com/api/song/lyric?os=pc&id=${songId}&lv=-1&kv=-1&tv=-1`, { method: "GET" });
+      const r = await fetch(`https://music.163.com/api/song/lyric?os=pc&id=${songId}&lv=-1&kv=-1&tv=-1`);
       if (!r || !r.ok) return null;
       const j = await r.json();
-      if (!j) return null;
-      return {
-        yrc: "", ytlrc: "",
-        lrc: (j.lrc && j.lrc.lyric) || "",
-        tlyric: (j.tlyric && j.tlyric.lyric) || "",
-        source: "plain-lrc",
-        _krcText: "",
-      };
+      const lrc = (j.lrc && j.lrc.lyric) || "";
+      const tlyric = (j.tlyric && j.tlyric.lyric) || "";
+      if (!lrc) return null;
+      return { yrc: "", ytlrc: "", lrc, tlyric, source: "direct-lrc" };
     } catch (e) { return null; }
   }
 
-  async function ensureLyric() {
-    if (lyricInflight || disposed) return;
-    const snap = buildSnapshot();
-    const song = snap.song;
-    if (!song || !song.id) return;
-    const songId = song.id;
-    if (songId === curLyricSongId) return;
-    lyricInflight = true;
-    curLyricSongId = songId;
-    try {
-      let payload = lyricCache.get(songId) || null;
-      if (!payload) {
-        payload = await fetchLyricEapi(songId);
-        const wordOk = payload && (payload.yrc || payload._krcText);
-        if (!wordOk) {
-          const c2 = await channelCallLyric(songId);
-          if (c2 && (c2.lrc || c2.tlyric)) payload = c2;
-          else {
-            const c3 = await fetchLyricPlain(songId);
-            if (c3 && (c3.lrc || c3.tlyric)) payload = c3;
-            else if (payload && (payload.lrc || payload.tlyric)) payload = payload;
-            else payload = null;
-          }
-        }
-      }
-      if (!payload) { warn("歌词获取失败 songId=", songId); return; }
-      const finalPayload = {
-        songId, title: song.name || "", artist: (song.artists || []).join("/"),
-        yrc: payload.yrc || payload._krcText || "",
-        ytlrc: payload.ytlrc || "",
-        lrc: payload.lrc || "",
-        tlyric: payload.tlyric || "",
-        source: payload.source || "",
-      };
-      if (!finalPayload.yrc && !finalPayload.lrc) { log("该曲目无歌词", songId); return; }
-      lyricCache.set(songId, finalPayload);
-      saveCache();
-      const ok = await post("/api/plugin/lyric", finalPayload);
-      log("歌词已推送", songId, finalPayload.source, ok ? "" : "(桥不可达，稍后随心跳重试)");
-      if (!ok) lyricRetryPayload = finalPayload;
-    } finally {
-      lyricInflight = false;
-    }
-  }
-  /* 桥暂时不可达时暂存，心跳恢复后补推 */
-  let lyricRetryPayload = null;
-  setInterval(async () => {
-    if (lyricRetryPayload && !disposed) {
-      const ok = await post("/api/plugin/lyric", lyricRetryPayload);
-      if (ok) { lyricRetryPayload = null; }
-    }
-  }, 5000);
-  /* v1.4.0 歌词自愈：桥心跳应答 needLyric=<songId>（桥重启丢词）时补推。
-     有缓存直接补推；缓存也没有（极端：刚清库）则交给 ensureLyric 拉取。
-     curLyricSongId 相同的早退不拦这里——补推走的是独立通道。 */
-  function rePushLyric(songId) {
-    try {
-      if (!songId || disposed || lyricInflight) return;
-      const payload = lyricCache.get(songId) || null;
-      if (payload) {
-        post("/api/plugin/lyric", payload).then((ok) => { if (ok) log("桥缺词已补推", songId); }).catch(() => {});
-      } else {
-        ensureLyric().catch(() => {});
-      }
-    } catch (e) { /* 忽略 */ }
+  function lyricRevOf(p) {
+    return `${p.songId}-${p.source || "none"}-${(p.yrc || p.lrc || "").length}`;
   }
 
-  /* ---------- 配置面（NCM 插件管理器） ---------- */
+  async function pushLyric(entry) {
+    const payload = {
+      songId: entry.songId, title: entry.title || "", artist: entry.artist || "",
+      rev: entry.rev, yrc: entry.yrc || "", ytlrc: entry.ytlrc || "",
+      lrc: entry.lrc || "", tlyric: entry.tlyric || "", source: entry.source || "",
+    };
+    await httpJson("/api/lyric", "POST", payload, 4000);
+  }
+
+  let curLyricKey = "";
+  (async function lyricLoop() {
+    while (!disposed) {
+      try {
+        const meta = getMeta();
+        const key = String(meta.id || 0);
+        if (key && key !== curLyricKey && key !== "0") {
+          curLyricKey = key;
+          let entry = lyricCache.get(key) || null;
+          if (!entry) {
+            const got =
+              await fetchLyricEapi(meta.id) ||
+              (await channelLyric(meta.id)) ||
+              (await fetchLyricDirect(meta.id)) ||
+              null;
+            if (got) {
+              entry = {
+                songId: meta.id, title: meta.title, artist: meta.artist,
+                yrc: got.yrc || "", ytlrc: got.ytlrc || "",
+                lrc: got.lrc || "", tlyric: got.tlyric || "",
+                source: got.source || "",
+              };
+              entry.rev = lyricRevOf(entry);
+              lyricCache.set(key, entry);
+              saveLyricCache();
+            }
+          }
+          if (entry) await pushLyric(entry);
+        }
+      } catch (e) { }
+      await sleep(700);
+    }
+  })();
+
+  /* ============================================================
+   * 9) Config panel (English; honest status + port + conflict hint)
+   * ============================================================ */
   try {
     plugin.onConfig(function (tools) {
       const wrap = document.createElement("div");
       wrap.style.cssText = "font-size:12px;line-height:1.8;";
       const info = document.createElement("div");
-      info.innerText = `初始网易云API ${PLUGIN_VERSION} — 网易云真值唯一生产者（精确进度/逐字歌词/seek），供「初始」SMTC 音乐面板使用；桥进程由「初始SMTC桥」插件管理，两端端口须一致`;
-      /* v3.0.0 并存冲突检测：旧一体化「初始歌词源」仍在运行时它会与本品
-         同时向桥推状态（桥已用 role 仲裁压制旧心跳，但旧插件仍在空转）；
-         提醒用户卸载旧版，彻底消除双心跳与版本混淆 */
-      let conflict = null;
+      info.innerText = `ChuShi Music API ${PLUGIN_VERSION} -- playback truth producer (exact progress, word-level lyrics, element-level control). The Windows SMTC card is handled by the ChuShi SMTC Manager plugin + engine. NetEase's built-in SMTC switch is NOT required. Same port as the manager plugin.`;
       try {
         if (window.__chushiLyricSourceActive || window.__chushiLyricSource) {
-          conflict = document.createElement("div");
+          const conflict = document.createElement("div");
           conflict.style.cssText = "color:#b91c1c;font-weight:600;margin-top:6px;";
-          conflict.innerText = "⚠ 检测到旧版「初始歌词源」仍在运行：请到 BetterNCM 插件管理卸载它，只保留「初始SMTC桥」+「初始网易云API」两个新插件，重启网易云。";
+          conflict.innerText = "Old all-in-one lyric plugin is still active: uninstall it in the BetterNCM plugin manager, keep only ChuShi SMTC Manager + ChuShi Music API, then restart NetEase.";
+          wrap.appendChild(conflict);
         }
-      } catch (e) { /* 检测失败不影响面板 */ }
+      } catch (e) { }
       const row = document.createElement("div");
+      row.style.cssText = "margin-top:6px;";
       const label = document.createElement("span");
-      label.innerText = "桥端口（与「初始SMTC桥」插件保持一致，重启网易云生效，默认 20754）: ";
-      const input = tools.makeInput(String(plugin.getConfig("port", 20754)), { type: "number" });
-      const btn = tools.makeBtn("保存", function () {
+      label.innerText = "Engine port (must match ChuShi SMTC Manager; default 26801): ";
+      const input = tools.makeInput(String(PORT), { type: "number" });
+      const btn = tools.makeBtn("Save", function () {
         const p = parseInt(input.value, 10);
-        if (!p || p < 1024 || p > 65535) { alert("端口需在 1024-65535 之间"); return; }
+        if (!p || p < 1024 || p > 65535) { alert("Port must be 1024-65535"); return; }
         plugin.setConfig("port", p);
-        alert("已保存，重启网易云音乐后生效");
+        alert("Saved. Restart NetEase Cloud Music to apply.");
       });
-      row.appendChild(label);
-      row.appendChild(input);
-      row.appendChild(btn);
-      wrap.appendChild(info);
-      if (conflict) wrap.appendChild(conflict);
-      wrap.appendChild(row);
+      row.appendChild(label); row.appendChild(input); row.appendChild(btn);
+      wrap.appendChild(info); wrap.appendChild(row);
       return wrap;
     });
-  } catch (e) { /* 配置面非关键 */ }
+  } catch (e) { /* optional */ }
 
-  /* ---------- 启动 ---------- */
-  log("网易云API就绪 v" + PLUGIN_VERSION + "（→ 桥 " + BRIDGE + "，role=ncm）");
-  await pushState(true).catch(() => {});
-  await ensureLyric().catch(() => {});
-  setInterval(() => { ensureLyric().catch(() => {}); }, 4000);
-
-  try {
-    window.__chushiNcmApi = {
-      version: PLUGIN_VERSION,
-      hasStore: () => !!store,
-      snapshot: buildSnapshot,
-      currentLyricSongId: () => curLyricSongId,
-      lastSeekAck: () => lastSeekAck,
-      bridgeReachable: () => bridgeAlive,
-      __seekDebug: function () {
-        return {
-          pluginVersion: PLUGIN_VERSION,
-          channelDisabled: channelDisabled,
-          lastProgressMs: lastProgressMs,
-          lastProgressAgeMs: lastProgressAt ? Date.now() - lastProgressAt : -1,
-          lastNativeEvAgeMs: lastEvAt ? Date.now() - lastEvAt : -1,
-          lastSeekAtAgeMs: lastSeekAt ? Date.now() - lastSeekAt : -1,
-          seekPending: seekPending ? { posMs: seekPending.posMs, songId: seekPending.songId, verdict: seekPending.verdict, preTruthMs: seekPending.preTruthMs } : null,
-          seekHistory: seekHistory,
-          elLocked: elLock ? (elLock.tagName + " connected=" + (elLock.isConnected !== false)) : null,
-          lastReportedPosMs: lastReportedPosMs,
-          songId: lastSongId,
-        };
-      },
-    };
-  } catch (e) { /* 忽略 */ }
+  log(`ChuShi Music API v${PLUGIN_VERSION} ready -> engine ${BASE}`);
 })();

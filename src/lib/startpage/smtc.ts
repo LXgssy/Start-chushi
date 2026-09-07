@@ -1,103 +1,88 @@
-/* 「初始」SMTC 媒体作用面（v3.1.0）—— 单主仲裁媒体引擎
+/* 「初始」音乐作用面（v4.0.0）—— 单真值直显引擎（v4 代，从零重写）
  *
- * v3.0.0 双插件架构（根治多层真值互打的结构性冲突）：
- *   [本模块] 唯一仲裁层：NCM API 插件在场 → 网易云真值独占（进度/时长/播放态/
- *            元数据全部取自插件心跳，一次性年龄补偿，零混合零守卫）；
- *            否则 SMTC-only（harmonize 守卫链只服务这条路径）。
- *   [PS1 桥 v3.0.0] 传输 + 满血自有 SMTC 会话：桥以 MediaPlayer 手动驱动一个真实
- *            系统媒体会话（时间线 1Hz 墙钟推进/可拖动/媒体键回灌网易云），
- *            网易云自带的残疾 SMTC 从此不承担任何角色（v3.1.0 用户指令）
- *   [初始SMTC桥 插件] 桥进程生命周期唯一管理者（部署/杀旧/拉起/监督/注册上报）
- *   [初始网易云API 插件] 网易云真值唯一生产者（原生事件+锁定元素+seek 阶梯）
- * 旧版三层各自修正（插件 buildSnapshot → 桥 ne-anchoring → 宿主 harmonize/零值
- * 守卫/绝对锚定）互相打架，是状态反转/0.5x 爬行/冻死 0:00 的结构性根源——v3.0.0
- * 每数据单主：插件产真值，桥只传输，宿主只仲裁（在场判定+单次补偿）；harmonize/
- * 零值守卫只在 SMTC-only 兜底路径存在。网易云会话身份用桥 app 字段判定
- * （AUMID 归一为 "NetEase Music"，比标题模糊匹配可靠），标题匹配只作旧桥兜底。
+ * v4 架构（用户指令：不许复用老代码 / 不依赖网易云自带 SMTC / 插件全英文）：
+ *   [引擎 chushi-smtc-engine.ps1]（bridge/engine/，Windows PowerShell + WinRT）
+ *     - 自有「满血」SMTC 会话（媒体键/悬浮窗卡片/可拖进度/锁屏），AUMID ChuShi.SmtcEngine
+ *     - 绝不读取任何外部 SMTC 会话——网易云设置里的 SMTC 开关开或关都不影响
+ *     - 本机 127.0.0.1:26801 暴露 HTTP（全部端点带 CORS）：
+ *         GET  /api/state              → {ok,ver,mgr,ne?,smtc}
+ *         GET  /api/lyric?songId=      → {ok,rev,lyric}
+ *         POST /api/cmd                → {cmd,position?}（本模块唯一控制入口）
+ *     - ne = 网易云API 插件 1Hz 推送的真值（songId/秒制 position/duration/playing/
+ *       元数据/封面 https URL/seekAck），6s 断供即视为离线
+ *   [ChuShi SMTC Manager 插件] 部署/监督引擎（SHA-256 读回校验 + 杀旧 + 退避）
+ *   [ChuShi Music API 插件]   网易云内只读观察 + 元素级控制 + 全量歌词
  *
- * 对端：初始 SMTC 桥（bridge/smtc/，Windows PowerShell + WinRT 零依赖脚本，
- * 由「初始SMTC桥」插件自动部署/拉起/监督，也可双击 启动SMTC桥.bat 手动启动）。
- * 桥在本机 127.0.0.1:20754 暴露 HTTP：
- *   GET  /api/state              → {ok,name,version,track?,ne?,plugins?}
- *                                   （plugins.smtc = 管理插件自报版本，活体注册）
- *   GET  /api/cover?v=<coverRev> → 图片二进制（桥按 coverRev 内存缓存）
- *   POST /api/control            → {cmd: play|pause|toggle|next|prev|seek,
- *                                   position?} → {ok}（seek 转发网易云插件队列）
- *   GET  /api/lyric?v=<rev>      → 歌词载荷（网易云插件经桥中转）
- * 本模块 = 宿主内唯一消费方：1s 轮询 + 本地时钟插值出平滑进度；关键签名
- * （连接态/桥版本/管理插件版本/标题/歌手/专辑/播放态/来源/时长/封面版本/歌词版本）
- * 变化才广播完整快照；position 不进签名——每拍另发轻量锚点（onTick）供消费方
- * 校正插值基准（v1.9.0 tick 锚点律，seek 后新位置必达）。
- *
- * SMTC 是 Windows 系统级媒体会话（System Media Transport Controls）——
- * 网易云/QQ 音乐/Spotify/浏览器视频等任何注册 SMTC 的播放器都会出现；
- * 桥按「网易云优先 → 正在播放的会话 → 第一个会话」选择当前曲。
+ * 本模块职责：轮询 /api/state，把 ne 原样转成面板曲目（一次性年龄补偿后交给
+ * fetchedAt 插值）——零仲裁零守卫零混合。真值只有一个来源（插件），引擎只搬运，
+ * 本模块只显示。任何"再加一层修正"都是 v2.x 三层互打复辟，禁止。
  *
  * 消费方（两通道同款 chushi.music / chushi.smtc API）：
  *   - 沙箱脚本通道：sandbox.ts 路由 → sandbox.js makeChushi()
  *   - 角落小部件通道：PresetWidgets.tsx 路由 → sandbox.js widgetShim()
- * 端口/协议变更需同步 bridge/smtc/ 与文档（PRESET_DEV.md §12、README）。
+ * 协议变更需同步 bridge/engine/ 与文档（PRESET_DEV.md、README）。
  */
 
-export const SMTC_PORT = 20754;
+export const SMTC_PORT = 26801;
 const BASE = `http://127.0.0.1:${SMTC_PORT}`;
 const POLL_MS = 1000;
 const RETRY_MS = 2600;
 const TIMEOUT_MS = 1500;
+const ENGINE_NAME = "chushi-smtc-engine";
+const ENGINE_VER_MIN = "4.0.0";
+const PLUGIN_VER_MIN = "3.0.0";
+const NE_STALE_MS = 6000;
 
-/** 单条媒体会话快照（宿主对桥 JSON 的白名单归一化产物） */
+/** 单条媒体会话快照（宿主对引擎 ne 真值的白名单产物） */
 export interface SmtcTrack {
-  /** 来源应用（桥从 AUMID 提取的显示名，如 "CloudMusic"） */
+  /** 来源应用（v4 固定为网易云插件真值源） */
   app: string;
   title: string;
   artist: string;
   album: string;
   playing: boolean;
-  /** 桥采样时刻的播放位置（秒） */
+  /** 引擎采样时刻的播放位置（秒，含年龄补偿） */
   position: number;
-  /** 曲目总时长（秒；0 = 会话未提供） */
+  /** 曲目总时长（秒；0 = 未知） */
   duration: number;
   /** 播放速率（插值用；≤0 视作 1） */
   rate: number;
-  /** 封面版本（桥按封面内容哈希生成；空串 = 无封面） */
+  /** 兼容字段：v4 无二进制封面，恒空串 */
   coverRev: string;
   /** 宿主收到快照的时刻（插值基准） */
   fetchedAt: number;
 }
 
 export interface SmtcState {
-  /** 本地 SMTC 桥可达 */
+  /** 本地 SMTC 引擎可达 */
   connected: boolean;
-  /** 桥版本（如 "1.0.0"） */
+  /** 引擎版本（如 "4.0.0"） */
   version: string;
-  /** 当前媒体会话（null = 桥在线但系统无会话 / 未连接） */
+  /** 当前曲目（null = 引擎在线但无真值 / 未连接） */
   track: SmtcTrack | null;
-  /** 封面 data URL（按 coverRev 缓存；null = 无/未就绪/拉取失败） */
+  /** 兼容字段：v4 恒 null（封面直接用 coverUrl） */
   cover: string | null;
-  /** 封面备用 https URL（网易云插件提供，cover 为空时消费方使用） */
+  /** 封面 https URL（网易云插件提供） */
   coverUrl: string | null;
-  /** 当前曲目歌词（v1.9.0；null = 无歌词源/未就绪） */
+  /** 当前曲目歌词（null = 无歌词源/未就绪） */
   lyric: SmtcLyric | null;
-  /** 歌词版本（桥生成，变化即重拉） */
+  /** 歌词版本（引擎生成，变化即重拉） */
   lyricRev: string;
-  /** 网易云 API 插件版本（v3.0.0 语义：初始网易云API 插件；空串 = 心跳不在场） */
+  /** 网易云API 插件版本（ne.v 心跳；空串 = 插件不在场） */
   pluginVer: string;
-  /** v3.0.0：初始SMTC桥（管理插件）自报版本，桥 /api/state.plugins.smtc 活体注册；
-   *  空串 = 管理插件未装/未注册（手动桥）或旧桥（无注册表） */
+  /** SMTC Manager 插件自报版本（引擎 /api/state.mgr 活体上报）；空串 = 未注册 */
   smtcVer: string;
-  /** seek 结果提示（v2.2.0；空串 = 无；「拖动未生效…」≈3.8s 后自动消失） */
+  /** seek 结果提示（空串 = 无；「拖动未生效…」≈3.8s 后自动消失） */
   seekNote: string;
-  /** v3.0.0 组件不齐（面板显示升级芯片）：needsPlugin || needsBridge */
+  /** 组件不齐（面板显示升级芯片）：needsPlugin || needsBridge */
   needsUpdate: boolean;
-  /** v3.0.0 诚实归因：网易云API 插件缺失/损坏旧版/旧一体化待迁移
-   *  （芯片文案由部件分叉：缺失→装新插件；<1.4.0→更新；1.4.0–1.5.1 旧一体化→迁移双插件） */
+  /** 网易云API 插件缺失/版本过旧（装/更新 .plugin 即修） */
   needsPlugin: boolean;
-  /** v3.0.0 诚实归因：桥不可达（装「初始SMTC桥」插件自动管理 或 手动 启动桥.bat）
-   *  或「管理插件已注册但桥版本旧」= 旧桥进程杀不死（策略拦截）→ 手动指引 */
+  /** 引擎不可达（装 Manager 插件自动管理 或 手动启动引擎） */
   needsBridge: boolean;
 }
 
-/** 歌词载荷（桥 /api/lyric 白名单产物；文本字段已截断） */
+/** 歌词载荷（引擎 /api/lyric 白名单产物；文本字段已截断） */
 export interface SmtcLyric {
   songId: number;
   title: string;
@@ -110,7 +95,7 @@ export interface SmtcLyric {
   lrc: string;
   /** 行级翻译（tlyric；空 = 无） */
   tlyric: string;
-  /** 来源标记（eapi-yrc / eapi-klyric / eapi-lrc / channel-lrc / plain-lrc） */
+  /** 来源标记（eapi-yrc / eapi-klyric / eapi-lrc / channel-lrc / direct-lrc） */
   source: string;
 }
 
@@ -124,7 +109,7 @@ export const SMTC_COMMANDS: ReadonlySet<string> = new Set([
   "seek",
 ]);
 
-/** 播放位置插值：桥快照 position + 本地流逝时间 × 速率（clamp 到时长内） */
+/** 播放位置插值：快照 position + 本地流逝时间 × 速率（clamp 到时长内） */
 export function smtcPositionNow(t: SmtcTrack | null, now = Date.now()): number {
   if (!t) return 0;
   const rate = t.rate > 0 ? t.rate : 1;
@@ -134,134 +119,50 @@ export function smtcPositionNow(t: SmtcTrack | null, now = Date.now()): number {
   return Math.max(0, p);
 }
 
-/** 桥 JSON track → SmtcTrack（字段白名单 + 数值夹紧；非法输入返回 null） */
-function normalizeTrack(raw: unknown): SmtcTrack | null {
-  if (typeof raw !== "object" || raw == null) return null;
-  const o = raw as Record<string, unknown>;
-  const num = (v: unknown): number =>
-    typeof v === "number" && Number.isFinite(v) ? Math.max(0, v) : 0;
-  const str = (v: unknown): string => (typeof v === "string" ? v.slice(0, 200) : "");
-  const title = str(o.title);
-  // 无标题也无歌手的会话没有展示价值，视作无效
-  if (!title && !str(o.artist)) return null;
-  return {
-    app: str(o.app) || "媒体应用",
-    title,
-    artist: str(o.artist),
-    album: str(o.album),
-    playing: o.playing === true,
-    position: num(o.position),
-    duration: num(o.duration),
-    rate: typeof o.rate === "number" && Number.isFinite(o.rate) ? o.rate : 1,
-    coverRev: str(o.coverRev).slice(0, 64),
-    fetchedAt: Date.now(),
-  };
-}
-
-/** 桥 JSON ne 字段 → 白名单对象（歌词源插件经桥中转的网易云精确状态） */
-interface NeState {
+/** 引擎 JSON ne 字段 → 白名单对象（网易云插件经引擎透传的真值） */
+interface NeTruth {
   songId: number;
   title: string;
   artist: string;
   album: string;
   pic: string;
-  positionMs: number;
-  durationMs: number;
+  /** 秒（插件采样时刻的精确位置） */
+  position: number;
+  /** 秒 */
+  duration: number;
   playing: boolean;
-  /** 桥侧歌词版本（非空 = 桥有当前曲歌词可拉） */
-  lyricRev: string;
-  /** 插件采样时刻（插件 Date.now()，同机时钟；v1.2.0 起携带，缺失 = 旧插件） */
   ts: number;
-  /** 插件版本（v1.2.0 起携带；空 = 旧插件） */
   v: string;
-  /** 最近一次 seek 执行结果（插件 v1.2.0 API 阶梯实测校验产物；桥 v1.6.0 透传） */
   seekAckId: string;
   seekAckOk: boolean;
-  seekAckPos: number;
   seekAckAt: number;
 }
-function normalizeNe(raw: unknown): NeState | null {
+
+function normalizeNe(raw: unknown): NeTruth | null {
   if (typeof raw !== "object" || raw == null) return null;
   const o = raw as Record<string, unknown>;
   const num = (v: unknown): number =>
     typeof v === "number" && Number.isFinite(v) ? Math.max(0, v) : 0;
-  const title = typeof o.title === "string" ? o.title.slice(0, 200) : "";
-  if (!title) return null;
+  const str = (v: unknown, max: number): string =>
+    typeof v === "string" ? v.slice(0, max) : "";
+  const title = str(o.title, 200);
+  const hasPosition = typeof o.position === "number";
+  if (!title && !hasPosition) return null;
   return {
     songId: num(o.songId),
     title,
-    artist: typeof o.artist === "string" ? o.artist.slice(0, 200) : "",
-    album: typeof o.album === "string" ? o.album.slice(0, 200) : "",
+    artist: str(o.artist, 200),
+    album: str(o.album, 200),
     pic: typeof o.pic === "string" && /^https:\/\//.test(o.pic) ? o.pic.slice(0, 500) : "",
-    positionMs: num(o.positionMs),
-    durationMs: num(o.durationMs),
+    position: num(o.position),
+    duration: num(o.duration),
     playing: o.playing === true,
-    lyricRev: typeof o.lyricRev === "string" ? o.lyricRev.slice(0, 64) : "",
     ts: num(o.ts),
-    v: typeof o.v === "string" ? o.v.slice(0, 16) : "",
-    seekAckId: typeof o.seekAckId === "string" ? o.seekAckId.slice(0, 40) : "",
+    v: str(o.v, 16),
+    seekAckId: str(o.seekAckId, 40),
     seekAckOk: o.seekAckOk === true,
-    seekAckPos: num(o.seekAckPos),
     seekAckAt: num(o.seekAckAt),
   };
-}
-
-/** 标题归一化：去空白/常见全半角标点——SMTC 与插件源标题修饰差异的容错 */
-function normTitle(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[\s\-_·・()（）\[\]【】「」『』,，。、!！?？~～'\"＂]+/g, "");
-}
-
-/** v3.0.0：桥 /api/state.plugins 注册表（管理插件活体自报） */
-interface BridgePlugins {
-  smtc: string;
-}
-function normalizePlugins(raw: unknown): BridgePlugins | null {
-  if (typeof raw !== "object" || raw == null) return null;
-  const o = raw as Record<string, unknown>;
-  const smtc = typeof o.smtc === "string" ? o.smtc.slice(0, 16) : "";
-  if (!smtc) return null;
-  return { smtc };
-}
-
-/** 曲目与网易云插件状态是否指同一首歌（标题双向包含即认；SMTC 标题常带修饰）。
- *  v2.1.0：归一化后再比一轮（全半角标点/空格差异）；仍不中且双方时长已知且
- *  贴合（±2s）时接受歌手首段重合——SMTC 标题被本地化/加后缀时的概率性不匹配
- *  正是「切歌后歌词概率加载不出」的隐性分支。 */
-function trackMatchesNe(t: SmtcTrack, ne: NeState): boolean {
-  const a = t.title.trim().toLowerCase();
-  const b = ne.title.trim().toLowerCase();
-  if (!a || !b) return false;
-  if (a === b || a.includes(b) || b.includes(a)) return true;
-  const a2 = normTitle(a);
-  const b2 = normTitle(b);
-  if (a2 && b2 && (a2.includes(b2) || b2.includes(a2))) return true;
-  const dGap = t.duration > 0 && ne.durationMs > 0 ? Math.abs(t.duration - ne.durationMs / 1000) : 999;
-  const arA = t.artist.split(/[/,、]/)[0].trim().toLowerCase();
-  const arB = ne.artist.split(/[/,、]/)[0].trim().toLowerCase();
-  if (
-    dGap <= 2 &&
-    arA && arB &&
-    (arA === arB || arA.includes(arB) || arB.includes(arA))
-  )
-    return true;
-  return false;
-}
-
-/** 关键签名：变化才广播（position/fetchedAt 不参与——插值属消费方职责） */
-function stateSig(s: {
-  connected: boolean;
-  version: string;
-  smtcVer: string;
-  track: SmtcTrack | null;
-  lyricRev: string;
-}): string {
-  const t = s.track;
-  const tpart = t
-    ? [t.app, t.title, t.artist, t.album, t.playing ? 1 : 0, t.duration, t.coverRev].join("|")
-    : "none";
-  return `${s.connected ? 1 : 0}|${s.version}|${s.smtcVer}|${tpart}|${s.lyricRev}`;
 }
 
 /** 语义版本比较（仅 major.minor.patch 数字段） */
@@ -274,6 +175,35 @@ function verLt(a: string, b: string): boolean {
     if (x !== y) return x < y;
   }
   return false;
+}
+
+/** 关键签名：变化才广播（position/fetchedAt 不参与——插值属消费方职责） */
+function stateSig(s: {
+  connected: boolean;
+  version: string;
+  smtcVer: string;
+  track: SmtcTrack | null;
+  lyricRev: string;
+  pluginVer: string;
+  seekNote: string;
+  needsPlugin: boolean;
+  needsBridge: boolean;
+}): string {
+  const t = s.track;
+  const tpart = t
+    ? [t.title, t.artist, t.album, t.playing ? 1 : 0, t.duration, t.coverUrl || ""].join("|")
+    : "none";
+  return [
+    s.connected ? 1 : 0,
+    s.version,
+    s.smtcVer,
+    tpart,
+    s.lyricRev,
+    s.pluginVer,
+    s.seekNote,
+    s.needsPlugin ? 1 : 0,
+    s.needsBridge ? 1 : 0,
+  ].join("|");
 }
 
 class SmtcClient {
@@ -293,33 +223,19 @@ class SmtcClient {
     needsBridge: false,
   };
   private subs = new Set<() => void>();
+  private tickSubs = new Set<() => void>();
   private timer: ReturnType<typeof setTimeout> | null = null;
   private started = false;
   private failStreak = 0;
-  private lastSig = "0||none|";
-  /** 已成功取到封面的 coverRev（同版不重拉） */
-  private coverRevDone = "";
-  private coverTries = 0;
-  /** 已拉取的歌词 rev（同版不重拉）；拉取中标记 + latest-wins 链（v2.1.0） */
+  private lastSig = "";
+  /** 已拉取的歌词 rev（同版不重拉） */
   private lyricRevDone = "";
   private lyricInflight = false;
   private lyricTries = 0;
-  /** 最新期望的歌词 rev：inflight 期间变化，完成后由 finally 链式补拉
-   *  （v2.1.0 根治：切歌瞬间旧拉取仍 inflight → 新 rev 拉取被静默跳过且永不重试
-   *   —— 真机「自动切歌后歌词概率加载不出来」的主因） */
   private lyricWanted = "";
-  /** v2.0.1 旧桥伪影守卫状态：上一拍 reported-expected 偏移（delta 一致性记忆） */
-  private lastDelta = 0;
-  /** v2.0.1 本端发起的 seek（成功后信自己这条线直到验证落定——v2.2.0 起由
-   *  插件真值/seekAck 快速确认，2.5s 未跟上即诚实弹回，不再盲目信任 4s） */
-  private seekHold: { pos: number; at: number } | null = null;
-  /** v2.2.0 seek 结果提示（3.8s 自动消失） */
+  /** seek 结果提示（3.8s 自动消失） */
   private seekNote = "";
   private seekNoteAt = 0;
-  /** v2.3.3 SMTC-only 诚实 seek：reported 连续未跟上 seek 线的拍数（≥2 → 放弃信任窗） */
-  private smtcSeekMiss = 0;
-  /* v3.0.0：ne 零值两击守卫已删除——单主律下插件真值零修正直纳
-   * （插件自身已有零值/倒退/身份锁全套熔断，宿主再叠守卫就是旧版三层互打复辟） */
 
   getSnapshot(): SmtcState {
     return this.state;
@@ -346,16 +262,15 @@ class SmtcClient {
   }
 
   /**
-   * 每拍锚点订阅（v1.9.0）：轮询成功后必发（无论签名是否变化）。
+   * 每拍锚点订阅：轮询成功后必发（无论签名是否变化）。
    * 消费方转发轻量 tick {position,duration,playing,rate,fetchedAt} 给部件——
-   * seek 后的新位置、插值漂移校正都靠它到达（完整快照只在签名变化时发）。 */
+   * seek 后的新位置、插值漂移校正都靠它到达。 */
   onTick(cb: () => void): () => void {
     this.tickSubs.add(cb);
     return () => {
       this.tickSubs.delete(cb);
     };
   }
-  private tickSubs = new Set<() => void>();
   private notifyTick(): void {
     for (const cb of this.tickSubs) {
       try {
@@ -367,14 +282,13 @@ class SmtcClient {
   }
 
   /** 媒体控制（cmd 须已在 SMTC_COMMANDS 白名单内；seek 附 position 秒）。
-   *  v2.0.1：成功后 80ms 内补一拍（按钮图标/播放态最迟零点几秒内翻转，
-   *  不再等下一轮询——真机「暂停/播放按钮反应太慢」的主因）；seek 成功记
-   *  seekHold（4s 内信自己这条线，旧桥不重锚也不把乐观位置拽回） */
+   *  控制流：宿主 → 引擎 /api/cmd → 队列 → 插件元素级执行 → 真值回推确认。
+   *  成功后 80ms 内补一拍（按钮图标最迟零点几秒内翻转）。 */
   async control(cmd: string, position?: number): Promise<boolean> {
     try {
       const ctrl = new AbortController();
       const t = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
-      const r = await fetch(`${BASE}/api/control`, {
+      const r = await fetch(`${BASE}/api/cmd`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(position == null ? { cmd } : { cmd, position }),
@@ -385,9 +299,6 @@ class SmtcClient {
       const ok = j?.ok === true;
       if (ok) {
         if (cmd === "seek" && typeof position === "number") {
-          this.seekHold = { pos: Math.max(0, position), at: Date.now() };
-          this.smtcSeekMiss = 0;
-          /* 新 seek 发起：清上一条未生效提示（验证结果以本次为准） */
           this.seekNote = "";
           this.state = { ...this.state, seekNote: "" };
         }
@@ -410,393 +321,133 @@ class SmtcClient {
     let next = POLL_MS;
     try {
       const j = await this.fetchJson(`${BASE}/api/state`);
-      if (!j || j.ok !== true || j.name !== "chushi-smtc-bridge") {
-        throw new Error("not-chushi-smtc-bridge");
+      if (!j || j.ok !== true || j.name !== ENGINE_NAME) {
+        throw new Error("not-chushi-smtc-engine");
       }
       this.failStreak = 0;
-      const prev = this.state.track;
-      const track = normalizeTrack(j.track);
       const ne = normalizeNe(j.ne);
-      const plugins = normalizePlugins(j.plugins);
-      /* v3.0.0 单主仲裁（唯一判定点）：网易云API 插件心跳在场 → 网易云真值独占；
-       * 否则 SMTC-only（harmonize/锚点保持只服务这条路径）。
-       * 会话身份优先用桥 app 字段（AUMID 归一 "NetEase Music"，权威）；
-       * 标题匹配只作旧桥 app 名不可靠时的兜底。 */
-      const ncmOwns = this.judgeNcmOwns(track, ne);
-      if (track && prev && !ncmOwns) this.harmonize(track, prev);
-      else if (!track || !prev) {
-        this.lastDelta = 0;
+      const ver = typeof j.version === "string" ? j.version.slice(0, 16) : "";
+      const mgr = typeof j.mgr === "string" ? j.mgr.slice(0, 16) : "";
+      /* ne 一次性年龄补偿：插件采样时刻 → 此刻；之后由 fetchedAt 插值接管 */
+      let track: SmtcTrack | null = null;
+      if (ne && ne.title) {
+        const now = Date.now();
+        const age = ne.ts > 0 ? Math.max(0, Math.min(NE_STALE_MS / 1000, (now - ne.ts) / 1000)) : 0;
+        let posSec = ne.position + (ne.playing ? age : 0);
+        if (ne.duration > 0 && posSec > ne.duration) posSec = ne.duration;
+        track = {
+          app: "NetEase Music",
+          title: ne.title,
+          artist: ne.artist,
+          album: ne.album,
+          playing: ne.playing,
+          position: Math.max(0, posSec),
+          duration: ne.duration,
+          rate: 1,
+          coverRev: "",
+          fetchedAt: now,
+        };
       }
-      /* 锚点保持（v2.0.0，SMTC-only 专属）：SMTC 的 Position 只在播放器主动上报时
-       * 刷新（桥已在源头做时钟补偿；此处兜底旧桥）：若曲目/播放态/速率/位置全部
-       * 未变，则保留上一拍锚点，本地插值得以持续前进；任一变化才重锚。 */
+      /* seekAck 诚实提示：插件实测未生效 → 醒目提示（3.8s 自动消失） */
       if (
-        !ncmOwns &&
-        track &&
-        prev &&
-        track.title === prev.title &&
-        track.app === prev.app &&
-        track.playing === prev.playing &&
-        track.rate === prev.rate &&
-        Math.abs(track.position - prev.position) < 0.001
+        ne &&
+        ne.seekAckId &&
+        ne.seekAckAt > 0 &&
+        Date.now() - ne.seekAckAt < 3200 &&
+        ne.seekAckOk === false
       ) {
-        track.position = prev.position;
-        track.fetchedAt = prev.fetchedAt;
+        this.seekNote = "拖动未生效：网易云未响应";
+        this.seekNoteAt = Date.now();
       }
-      /* v2.2.0 seekNote 过期清理（3.8s） */
       if (this.seekNote && Date.now() - this.seekNoteAt > 3800) {
         this.seekNote = "";
-        this.state = { ...this.state, seekNote: "" };
+      }
+      const pluginVerNow = ne ? ne.v : "";
+      const needsPluginNow = !pluginVerNow || verLt(pluginVerNow, PLUGIN_VER_MIN);
+      const needsBridgeNow = false; // 引擎可达才走到这里；不可达在 catch 分支置位
+      const needsUpdateNow = needsPluginNow || needsBridgeNow;
+      const sig = stateSig({
+        connected: true,
+        version: ver,
+        smtcVer: mgr,
+        track,
+        lyricRev: ne && ne.title ? `${ne.songId}` : "",
+        pluginVer: pluginVerNow,
+        seekNote: this.seekNote,
+        needsPlugin: needsPluginNow,
+        needsBridge: needsBridgeNow,
+      });
+      const prevLyric = this.state.lyric;
+      this.state = {
+        connected: true,
+        version: ver,
+        smtcVer: mgr,
+        track,
+        cover: null,
+        coverUrl: ne && ne.pic ? ne.pic : null,
+        lyric: prevLyric,
+        lyricRev: ne ? `${ne.songId}` : "",
+        pluginVer: pluginVerNow,
+        seekNote: this.seekNote,
+        needsUpdate: needsUpdateNow,
+        needsPlugin: needsPluginNow,
+        needsBridge: needsBridgeNow,
+      };
+      /* 歌词生命周期：songId 变化即重拉；无真值则清空 */
+      const wanted = ne && ne.title ? `${ne.songId}` : "";
+      if (wanted !== this.lyricRevDone) {
+        this.lyricRevDone = wanted;
+        this.lyricWanted = wanted;
+        this.lyricTries = 0;
+        if (wanted) {
+          void this.fetchLyric(wanted, ne);
+        } else if (prevLyric) {
+          this.state = { ...this.state, lyric: null };
+        }
+      }
+      if (sig !== this.lastSig) {
+        this.lastSig = sig;
         this.notify();
       }
-      this.apply(
-        {
-          connected: true,
-          version: typeof j.version === "string" ? j.version.slice(0, 16) : "",
-          track,
-        },
-        ne,
-        plugins,
-        ncmOwns,
-      );
-      /* v2.2.0 seek 诚实验证：真值/seekAck 跟上→确认；未跟上→弹回+提示 */
-      if (this.seekHold) this.verifySeek(ncmOwns, ne);
       this.notifyTick(); // 每拍轻量锚点（seek/漂移校正，与签名无关）
     } catch {
       this.failStreak++;
-      // 连续 2 次失败才判定桥离线（避免单次网络抖动把 UI 打成离线态）
+      // 连续 2 次失败才判定引擎离线（避免单次网络抖动把 UI 打成离线态）
       if (this.failStreak >= 2 && (this.state.connected || this.state.track)) {
-        this.apply({ connected: false, version: "", track: null }, null, null, false);
+        this.state = {
+          ...this.state,
+          connected: false,
+          version: "",
+          smtcVer: "",
+          track: null,
+          coverUrl: null,
+          lyric: null,
+          lyricRev: "",
+          pluginVer: "",
+          needsUpdate: true,
+          needsPlugin: false,
+          needsBridge: true,
+        };
+        this.lyricRevDone = "";
+        this.lastSig = "";
+        this.notify();
       }
       next = RETRY_MS;
     }
     this.schedule(next);
   };
 
-  /** v3.0.0 单主判定（唯一仲裁点）：网易云API 插件心跳是否独占本次快照。
-   *  在场 = 心跳新鲜（ts ≤3s，缺 ts 的旧插件视作新鲜）且有歌名。
-   *  身份：桥选中网易云会话（app==="NetEase Music"，AUMID 归一，权威）→ 独占；
-   *  app 名不可靠（旧桥）时退化到标题匹配；NCM 正在播放时无条件独占
-   *  （用户听到的是网易云——修「面板显示其它应用/暂停态而网易云在响」的反转）。
-   *  v3.0.1：桥无会话（track=null）时 ne 新鲜即独占——网易云开着（心跳新鲜）
-   *  是比「桥抓没抓到 SMTC 会话」更硬的事实；apply 端以 ne 构造虚拟曲目
-   *  （旧版此处 return ne.playing 而 apply 只认 t 非空 → 真值被判独占却无人
-   *  消费 → 回退 SMTC-only → 网易云 SMTC position 冻结 → 进度/时间/逐字歌词
-   *  全冻结的四症状形态）。 */
-  private judgeNcmOwns(t: SmtcTrack | null, ne: NeState | null): boolean {
-    if (!ne || !ne.title) return false;
-    const fresh = ne.ts > 0 ? Math.abs(Date.now() - ne.ts) <= 3000 : true;
-    if (!fresh) return false;
-    if (!t) return true;
-    if (t.app === "NetEase Music") return true;
-    return trackMatchesNe(t, ne) || ne.playing;
-  }
-
-  /** v2.0.1 旧桥伪影守卫：同曲目前提下，抵御四类已知时序伪影，
-   *  让 v1.2.x–v1.3.x 旧桥（暂停归零/恢复从头/seek 不重锚）也能表现正确：
-   *  a) 本端 seek 保持：4s 内信 seek 目标这条线（旧桥不重锚时拖动不被拽回）；
-   *  b) 暂停冻结：playing 翻 false 时 reported 大幅回退 → 冻结在本端插值处
-   *     （合法暂停永远不会让进度倒退）；
-   *  c) 恢复续接：playing 翻 true 且 reported≈0 而本端进度 >5s → 旧桥从 0 重数，
-   *     续接冻结值；
-   *  d) 持续偏移保持：reported 与本端时钟持续同偏移（旧桥整段旧基準）→ 保本端。
-   *  真实时间线变化（外部 seek/切歌后首个拍）delta 突跳 → 放行接受。 */
-  private harmonize(track: SmtcTrack, prev: SmtcTrack): void {
-    const sameTrack = track.title === prev.title && track.app === prev.app;
-    if (!sameTrack) {
-      this.lastDelta = 0;
-      this.seekHold = null;
-      this.smtcSeekMiss = 0;
-      return;
-    }
-    const now = Date.now();
-    const expected = smtcPositionNow(prev, now); // 本端时钟的当前进度
-    const rdelta = track.position - expected; // reported 相对本端时钟的偏移
-    /* a) 本端 seek 保持（v2.3.3：诚实判定——reported 连续 ≥2 拍未跟上 seek 线
-       即视为播放器未响应：停止覆盖 reported、退出信任窗、提示「拖动未生效」
-       （旧版 4s 内无条件钉住假线，SMTC 真没跳时进度条假跳 4s 才被放行回跳且无提示
-       =「面板能拖但实际没动」的 SMTC-only 侧根因） */
-    if (this.seekHold) {
-      const rate = track.rate > 0 ? track.rate : 1;
-      const exp2 = this.seekHold.pos + (track.playing ? ((now - this.seekHold.at) / 1000) * rate : 0);
-      if (now - this.seekHold.at >= 4000 || Math.abs(track.position - exp2) <= 2.5) {
-        this.seekHold = null; // 跟上 seek 线 / 信任窗到期：守卫退役
-        this.smtcSeekMiss = 0;
-      } else if (Math.abs(track.position - exp2) > 2.5) {
-        this.smtcSeekMiss++;
-        if (this.smtcSeekMiss >= 2) {
-          this.seekHold = null; // 播放器未响应：放行真实位置（apply 已按 reported 锚定）
-          this.smtcSeekMiss = 0;
-          this.lastDelta = 0; // 防 (d) 持续偏移守卫把假线重新钉回
-          this.setSeekNote(now); // 诚实提示「拖动未生效」
-        } else {
-          track.position = exp2; // 首拍仍钉乐观线（给播放器一拍反应时间）
-          track.fetchedAt = now;
-          this.lastDelta = rdelta;
-          return;
-        }
-      }
-    }
-    /* b) 暂停冻结 */
-    if (prev.playing && !track.playing) {
-      if (track.position < expected - 3) {
-        track.position = expected;
-        track.fetchedAt = now;
-      }
-      this.lastDelta = rdelta;
-      return;
-    }
-    /* c) 恢复续接 */
-    if (!prev.playing && track.playing) {
-      if (track.position < 2 && expected > 5) {
-        track.position = expected;
-        track.fetchedAt = now;
-        this.lastDelta = rdelta;
-        return;
-      }
-      this.lastDelta = 0;
-      return;
-    }
-    /* d) 持续偏移保持 */
-    if (Math.abs(rdelta) > 3 && Math.abs(rdelta - this.lastDelta) <= 1.5) {
-      track.position = expected;
-      track.fetchedAt = now;
-      return; // lastDelta 不动（持续同偏移才算伪影）
-    }
-    this.lastDelta = rdelta;
-  }
-
-  /** v2.2.0 seek 诚实验证（真机「面板能拖但本体不动」的根治点：
-   *  旧版盲目信任本端 seek 线 4s，插件直写未生效时进度条假跳再回跳，
-   *  且 harmonize (d) 可能无限期钉住假线）。真值路径：插件心跳新鲜时对比
-   *  el.currentTime 真值与 seek 线——跟上（≤2.5s）→确认；未跟上→弹回+提示；
-   *  seekAck 快路径：插件 v1.2.0 实测校验结果直答（比宿主更权威、更快）；
-   *  SMTC-only（无插件）：保留原 4s 信任窗（harmonize (a) 内消费）。 */
-  private verifySeek(neLive: boolean, ne: NeState | null): void {
-    const hold = this.seekHold;
-    if (!hold) return;
-    const now = Date.now();
-    if (!neLive || !ne) {
-      /* SMTC-only：诚实判定由 harmonize(a) 接管（连续 2 拍未跟上 → 弹回+提示），
-         这里只兜底信任窗到期 */
-      if (now - hold.at >= 4000) { this.seekHold = null; this.smtcSeekMiss = 0; }
-      return;
-    }
-    const t = this.state.track;
-    const rate = t && t.rate > 0 ? t.rate : 1;
-    const playing = t ? t.playing : true;
-    const line = hold.pos + (playing ? ((now - hold.at) / 1000) * rate : 0);
-    /* seekAck 快路径（插件双级实测校验直答） */
-    if (
-      ne.seekAckId &&
-      ne.seekAckAt > 0 &&
-      now - ne.seekAckAt < 3200 &&
-      ne.seekAckAt >= hold.at - 600
-    ) {
-      if (ne.seekAckOk) {
-        this.seekHold = null;
-        return;
-      }
-      this.seekHold = null;
-      this.setSeekNote(now);
-      return;
-    }
-    /* 真值路径：插件心跳新鲜度补偿后的当前位置 */
-    const age = ne.ts > 0 ? Math.max(0, Math.min(3, (now - ne.ts) / 1000)) : 0;
-    const truth = ne.positionMs / 1000 + (ne.playing ? age * rate : 0);
-    if (Math.abs(truth - line) <= 2.5) {
-      this.seekHold = null; // 真值已跟上 seek 线
-      return;
-    }
-    if (now - hold.at >= 2500) {
-      /* 真值未跟上 → 下一拍 apply 已用真值锚定，进度条诚实弹回 */
-      this.seekHold = null;
-      this.setSeekNote(now);
-    }
-  }
-
-  private setSeekNote(now: number): void {
-    this.seekNote = "拖动未生效：播放器未响应";
-    this.seekNoteAt = now;
-    this.state = { ...this.state, seekNote: this.seekNote };
-    this.notify();
-  }
-
-  /**
-   * 应用新快照（v3.0.0 单主合并——每数据单主，零混合）。
-   * ncmOwns=true（tick 已判定）：进度/时长/播放态/元数据全部取自插件心跳，
-   *   仅做一次性年龄补偿（插件采样时刻 → 此刻，之后由 fetchedAt 插值接管）；
-   *   无任何守卫/降级/零值猜测——插件真值原样即唯一事实。
-   * ncmOwns=false：SMTC-only 路径，track 保持 harmonize 后的值原样生效。
-   * 封面：SMTC 封面缺失时插件 picUrl 写入 coverUrl（两条路径一致）。
-   */
-  private apply(
-    next: { connected: boolean; version: string; track: SmtcTrack | null },
-    ne: NeState | null,
-    plugins: BridgePlugins | null,
-    ncmOwns: boolean,
-  ): void {
-    const now = Date.now();
-    let neUsable = false;
-    if (ncmOwns && ne) {
-      neUsable = true;
-      /* v3.0.1 虚拟曲目兜底：桥未抓到网易云 SMTC 会话（HasSession=false，
-       * 真机常见——网易云新版 SMTC 注册/会话抢占）时以插件B 真值构造面板
-       * 曲目，绝不因 SMTC 会话缺失而弃用有效真值（旧版此处整块跳过 →
-       * 面板回退 SMTC-only → 网易云 SMTC position 冻结 → 进度/时间/逐字
-       * 歌词全冻结 + 播放态漂移的四症状形态）。 */
-      const t: SmtcTrack = next.track ?? {
-        app: "NetEase Music",
-        title: "",
-        artist: "",
-        album: "",
-        playing: false,
-        position: 0,
-        duration: 0,
-        rate: 1,
-        coverRev: "",
-        fetchedAt: now,
-      };
-      /* 网易云真值独占：元数据/时长/位置/播放态全部来自插件（单源，零混合） */
-      t.title = ne.title;
-      t.artist = ne.artist;
-      if (ne.album) t.album = ne.album;
-      if (ne.durationMs > 0) t.duration = ne.durationMs / 1000;
-      const rate = t.rate > 0 ? t.rate : 1;
-      const age = Math.max(0, Math.min(3, ne.ts > 0 ? (now - ne.ts) / 1000 : 0));
-      let posSec = ne.positionMs / 1000 + (ne.playing ? age * rate : 0);
-      if (t.duration > 0 && posSec > t.duration) posSec = t.duration;
-      t.position = Math.max(0, posSec);
-      t.fetchedAt = now;
-      t.playing = ne.playing;
-      t.app = "NetEase Music"; /* 虚拟/旧桥 app 名统一归一 */
-      next.track = t;
-    }
-    const lyricRevNow = neUsable && ne!.lyricRev ? ne!.lyricRev : "";
-    const prevCover = this.state.cover;
-    const prevLyric = this.state.lyric;
-    const coverRevNow = next.track?.coverRev ?? "";
-    /* pluginVer 不要求曲目匹配（插件在场即报）；smtcVer = 管理插件活体注册；
-     * seekNote/needsUpdate 变化也进签名（提示出现/消失都要广播）。 */
-    const pluginVerNow = ne ? ne.v : "";
-    const smtcVerNow = plugins ? plugins.smtc : "";
-    const seekNoteNow = this.seekNote;
-    /* v3.0.0 诚实归因（每个标志都有一一对应的可行操作，绝不空喊）：
-     * needsPlugin：网易云API 插件缺失（装新插件即有逐字歌词/精确进度/seek）；
-     *   版本 <2.2.0（旧版：缺满血 SMTC 控制执行器/seek 身份捕获，更新修复）。
-     * needsBridge：桥不可达（装「初始SMTC桥」自动管理 或 手动 启动桥.bat）；
-     *   或「管理插件已注册但桥版本旧」= 旧桥进程杀不死（策略拦截实锤）→
-     *   给手动指引，绝不喊无效的「更新 .plugin」（v2.3.2 教训延续）。
-     *   v3.1.0：桥 ≥3.0.0（满血自有 SMTC 会话），旧桥由插件A 自动升级。 */
-    const needsPluginNow =
-      next.connected &&
-      (!pluginVerNow || verLt(pluginVerNow, "1.4.0") || verLt(pluginVerNow, "2.2.0"));
-    const needsBridgeNow =
-      !next.connected || (!!smtcVerNow && verLt(next.version, "3.0.0"));
-    const needsUpdateNow = needsPluginNow || needsBridgeNow;
-    const sig =
-      stateSig({
-        connected: next.connected,
-        version: next.version,
-        smtcVer: smtcVerNow,
-        track: next.track,
-        lyricRev: lyricRevNow,
-      }) + `|${pluginVerNow}|${smtcVerNow}|${seekNoteNow}|${needsPluginNow ? 1 : 0}|${needsBridgeNow ? 1 : 0}`;
-    this.state = {
-      ...next,
-      cover: prevCover,
-      coverUrl: neUsable && ne!.pic ? ne!.pic : null,
-      lyric: prevLyric,
-      lyricRev: lyricRevNow,
-      pluginVer: pluginVerNow,
-      smtcVer: smtcVerNow,
-      seekNote: seekNoteNow,
-      needsUpdate: needsUpdateNow,
-      needsPlugin: needsPluginNow,
-      needsBridge: needsBridgeNow,
-    };
-    // 封面失效场景：曲变（coverRev 换了）/ 会话消失 / 会话无封面
-    if (!coverRevNow) {
-      if (prevCover) {
-        this.state = { ...this.state, cover: null };
-        this.coverRevDone = "";
-        this.coverTries = 0;
-      }
-    } else if (coverRevNow !== this.coverRevDone) {
-      this.state = { ...this.state, cover: null };
-      this.coverTries = 0;
-      void this.fetchCover(coverRevNow);
-    }
-    // 歌词生命周期：rev 变化即重拉；无源（插件离线/曲目不匹配）则清空。
-    // v2.1.0：同步维护 lyricWanted（重试/链式补拉的最新期望）
-    if (lyricRevNow !== this.lyricRevDone) {
-      this.lyricRevDone = lyricRevNow;
-      this.lyricWanted = lyricRevNow;
-      this.lyricTries = 0;
-      if (lyricRevNow) {
-        void this.fetchLyric(lyricRevNow);
-      } else if (prevLyric) {
-        this.state = { ...this.state, lyric: null };
-      }
-    }
-    if (sig !== this.lastSig) {
-      this.lastSig = sig;
-      this.notify();
-    } else if (prevCover !== this.state.cover) {
-      // 封面异步到位也广播（签名未变）
-      this.notify();
-    }
-  }
-
-  private async fetchCover(rev: string): Promise<void> {
-    try {
-      const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 4000);
-      const r = await fetch(`${BASE}/api/cover?v=${encodeURIComponent(rev)}`, {
-        signal: ctrl.signal,
-      });
-      clearTimeout(t);
-      if (!r.ok) throw new Error(`HTTP ${r.status}`);
-      const blob = await r.blob();
-      const url = await new Promise<string>((resolve, reject) => {
-        const fr = new FileReader();
-        fr.onload = () => resolve(String(fr.result));
-        fr.onerror = () => reject(fr.error ?? new Error("read-error"));
-        fr.readAsDataURL(blob);
-      });
-      this.coverRevDone = rev;
-      this.coverTries = 0;
-      if (this.state.track?.coverRev === rev) {
-        this.state = { ...this.state, cover: url };
-        this.notify();
-      }
-    } catch {
-      this.coverTries++;
-      if (this.coverTries <= 3) {
-        const revNow = this.state.track?.coverRev ?? "";
-        if (revNow === rev) {
-          setTimeout(() => {
-            if (this.state.track?.coverRev === rev) void this.fetchCover(rev);
-          }, 1200 * this.coverTries);
-        }
-      }
-    }
-  }
-
-  /** 拉取歌词（rev 变化时调用；latest-wins 链式重试，曲目已变则丢弃）。
-   *  v2.1.0：① inflight 期间 wanted 变化不再被静默跳过（finally 链式补拉）；
-   *  ② 校验桥返回 rev——桥还是旧歌歌词时作失败重试，等待新词到位
-   *  （旧桥无 rev 字段时跳过校验保持兼容）。 */
-  private async fetchLyric(rev: string): Promise<void> {
-    this.lyricWanted = rev;
+  /** 拉取歌词（songId 变化时调用；latest-wins 链式重试，曲目已变则丢弃） */
+  private async fetchLyric(songKey: string, ne: NeTruth): Promise<void> {
+    this.lyricWanted = songKey;
     if (this.lyricInflight) return; // inflight 完成后会链到最新 wanted
     this.lyricInflight = true;
     try {
-      const j = await this.fetchJson(`${BASE}/api/lyric?v=${encodeURIComponent(rev)}`);
+      const j = await this.fetchJson(
+        `${BASE}/api/lyric?songId=${encodeURIComponent(songKey)}`,
+      );
       if (!j || j.ok !== true) throw new Error("no-lyric");
-      if (this.state.lyricRev !== rev) return; // 曲目已变，丢弃（finally 链到最新）
-      const jrev = typeof j.rev === "string" ? j.rev.slice(0, 64) : "";
-      if (jrev && jrev !== rev) throw new Error("stale-lyric"); // 桥还是旧歌歌词，重试等新词
+      if (this.state.lyricRev !== songKey) return; // 曲目已变，丢弃
       const l = j.lyric as Record<string, unknown> | null;
       if (!l) throw new Error("bad-lyric");
       const str = (v: unknown, max: number): string => (typeof v === "string" ? v.slice(0, max) : "");
@@ -820,20 +471,15 @@ class SmtcClient {
       this.lyricTries++;
       if (this.lyricTries <= 5) {
         setTimeout(() => {
-          /* v2.1.0：不再要求 state.lyric == null——切歌快照常保留上一曲歌词
-             （rev 直变无清空步骤），旧条件会让「桥回旧词」的重试被永久抑制
-             （真机「切歌后歌词概率加载不出来」的宿主侧最后一块拼图）；
-             wanted/lyricRev 双守卫已足够：更新 rev 出现即由生命周期块接管 */
-          if (this.lyricWanted === rev && this.state.lyricRev === rev) {
-            void this.fetchLyric(rev);
+          if (this.lyricWanted === songKey && this.state.lyricRev === songKey) {
+            void this.fetchLyric(songKey, ne);
           }
         }, 1200 * this.lyricTries);
       }
     } finally {
       this.lyricInflight = false;
-      // latest-wins：inflight 期间期望 rev 又变了 → 立刻拉最新（旧桥静默跳过缺陷的根治点）
       const wanted = this.lyricWanted;
-      if (wanted && wanted !== rev) void this.fetchLyric(wanted);
+      if (wanted && wanted !== songKey) void this.fetchLyric(wanted, ne);
     }
   }
 

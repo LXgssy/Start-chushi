@@ -1,10 +1,10 @@
 {
   "manifest_version": 1,
-  "name": "初始SMTC桥",
+  "name": "ChuShi SMTC Manager",
   "slug": "cc.chushi.smtcbridge",
-  "version": "2.1.0",
+  "version": "3.0.0",
   "author": "ChuShi",
-  "description": "「初始」SMTC 音乐面板的桥进程生命周期唯一管理者（双插件架构，纯管理无状态）：内嵌 SMTC 桥 v3.0.0（纯 ASCII ps1+vbs base64）——桥自带满血版自有 SMTC 会话（MediaPlayer 手动驱动：真实时间线 1Hz 推进 + 可拖动进度 + 媒体键/悬浮窗按钮/拖动 seek 全部回灌网易云），自动部署（写后读回校验）→ 直启 powershell 拉起 → 20s 监督（杀旧双路径，失败退避，策略拦截则 bridgeBlocked 诚实置位）→ Run 键自启。向桥 /api/plugin/register 上报版本。本插件不生产任何网易云状态：真值由「初始网易云API」插件提供。安装：卸载旧「初始歌词源」，把本 .plugin 与「初始网易云API」.plugin 一起放入 BetterNCM plugins 文件夹，重启网易云。",
+  "description": "ChuShi SMTC Manager (ASCII-only build): deploys and supervises the full-power SMTC engine (chushi-smtc-engine.ps1 v4.0.0, embedded base64, SHA-256 verified read-back). The engine owns ONE complete Windows media session (media keys / overlay card / draggable progress) driven purely by truth pushed from the ChuShi Music API plugin. It NEVER reads NetEase's own SMTC session -- the NetEase SMTC switch is NOT required, ON or OFF. Kill-stale is image-guarded (powershell only), spawn failures back off honestly (20/40/80/160 s) and surface as a blocked flag. Zero playback state is produced here. Pair with the ChuShi Music API plugin (same port).",
   "ncm3-compatible": true,
   "ncm-version-req": "> 2.10.2",
   "betterncm_version": ">=1.0.0",

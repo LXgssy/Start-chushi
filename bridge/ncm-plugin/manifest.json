@@ -1,10 +1,10 @@
 {
   "manifest_version": 1,
-  "name": "初始网易云API",
+  "name": "ChuShi Music API",
   "slug": "cc.chushi.ncmapi",
-  "version": "2.2.0",
+  "version": "3.0.0",
   "author": "ChuShi",
-  "description": "「初始」SMTC 音乐面板的网易云真值唯一生产者（双插件架构，纯 API 无 UI）：推送精确播放状态（songId/positionMs/durationMs/playing/封面）与逐字歌词（yrc 全量 eapi），执行 seek 阶梯（channel.seek → store dispatch → el.currentTime 直写，逐级实测校验 + 1600ms 末级重写 + seekAck 诚实回传），并执行桥转发的系统媒体控制（play/pause/toggle/next/prev——满血 SMTC 控制回路的插件侧执行器）。心跳携带 role=ncm。v2.2.0 新增：页内控制执行器（锁定元素 play/pause 优先 + 页脚可见按钮多候选兑底）+ seek 身份捕获（直写生效的元素立即上锁为主播放器）。本插件零桥进程管理：桥的部署/拉起/监督由「初始SMTC桥」插件负责。安装：卸载旧「初始歌词源」，把本 .plugin 与「初始SMTC桥」.plugin 一起放入 BetterNCM plugins 文件夹，重启网易云。",
+  "description": "ChuShi Music API (ASCII-only build): the single producer of playback truth for the ChuShi SMTC stack. Pure observation -- native engine events (PlayState/PlayProgress/Seek) + read-only dva store access + validated media element reads. NEVER patches prototypes, NEVER dispatches store actions, NEVER rewrites currentTime in loops (NetEase's own progress bar stays untouched and healthy). Pushes 1 Hz truth (songId/position/duration/playing/metadata) and full lyrics (eapi word-level yrc with self-contained fresh MD5+AES-128-ECB crypto, klyric/channel/direct fallbacks) to the SMTC engine. Executes overlay and page controls at the element level (play/pause/seek) or via NetEase's own visible buttons (next/prev), with honest seek verification acks. Works whether NetEase's built-in SMTC switch is ON or OFF. Pair with ChuShi SMTC Manager (same port).",
   "ncm3-compatible": true,
   "ncm-version-req": "> 2.10.2",
   "betterncm_version": ">=1.0.0",
