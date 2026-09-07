@@ -813,3 +813,22 @@ Stage Summary:
 - 用户三条硬指令全部落为构建门（机器强制而非口头承诺）：零复用=老符号零残留断言、无 SMTC 读取=reader-side 类封禁、全 ASCII=逐字符断言；「装插件弄坏网易云本体」结构性根治=只读律+单次控制执行律（currentTime 全文件唯一写点）
 - 新律：①重写类指令的验收=构建门断言老符号不存在，不是「我保证没抄」；②自实现密码学必须向量门先行（本代 MD5 真错被 FIPS 抓出）；③E2E 必须断言渲染产物文案而非「无报错」（catch 吞异常让静态 DOM 假活）；④显示伪影与文件真相分离：codepoint 断言定真相，显示层吃字符序列时严禁目视诊断
 - 待办：用户真机复测（卸旧装双新 .plugin+重启网易云+Ctrl+F5+重导 .cshz；网易云 SMTC 开关关闭状态验满血卡片/可拖进度/媒体键；确认网易云自家进度条不受影响；暂停 30s 恢复读词零漂移）；任务 B=seek 元素级真机成功率；Edge 商店材料仍未动
+
+---
+Task ID: 90
+Agent: Super Z (main)
+Task: 会话接续——v5.0.0 全量重写收尾：e2e 跑绿三重根因修复 + 交付链路全通（Release/文叔叔/gh-pages/文档）
+
+Work Log:
+- 【现场核实】丢失会话已完成 v5.0.0 五层全量重写并提交（558d60d：插件A/B 5.0.0 + 引擎 ps1 + 预设包 music-widget/music-commands + 沙盒核心 + 宿主 smtc.ts + PresetWidgets），但验证未跑、交付未做、worklog 无记录；.pkgtmp/gh-token 完好在位
+- 【⚠显示伪影险情再实录】music-widget.html 231 行「Hode]」疑似语法错误——Edit 两次匹配失败 + python find 找不到 + codepoint 逐字符 dump 定真相：文件实为 `H[mode]` 完全正常，`[m` 序列被终端回显吃掉（Task 89 坑 4 同类）。教训强化：一切判定以 codepoint/程序化断言为准，目视「看到错误」不可信，目视「没看到错误」更不可信
+- 【e2e 三重根因修复（全非产品 bug）】verify-v5-e2e harness 从未执行部件脚本：①innerHTML 注入的 <script> 按 HTML5 规范永不执行 → 部件停在默认空态浮层拦截一切点击（E3 超时根因）→ 改 iframe srcdoc + mock 定义先于部件脚本；②String.replace 第二参为 JS 源码时 $&/$'/\$` 特殊序列陷阱 → 函数替换器；③sandbox.js 按 location.search 分发 pageMode/widgetMode，srcdoc 无 query 永远进不了 widgetMode（「Unexpected identifier found」= 404 页面文本被当 JS 解析的副证）→ 改生产同形 /sandbox-frame?mode=widget 服务器路径 + sandbox.js 直出；另有 sandbox.js 含字面 </script> 内联需 <\/script> 转义（JS 字符串等价）
+- 【验证】verify-v5 三套（静态 137 + 白盒 24 + e2e 23）= 184 项断言 × 2 轮全绿；e2e 升级为真执行渲染（断言到具体文案/进度推进/seek 到达 269.3*0.5±6/乐观翻转/芯片四态/sandbox 协议 subscribe + pageerror=0）；新增 syntax-gate-v5.mjs 语法门（全部 v5 JS 含 .plugin 内嵌 index.js 回环解析，14/15——sectionD 为构建拼接片段独立不可解析属预期）
+- 【构建】build-v5-plugins.py 门全过重建双 .plugin；build-v5-preset.py 重建 .cshz（7567B）；build-extension.py VERSION/DEST 4.0.0→5.0.0（丢失会话漏改版本号）+ EXTENSION_MODE=1 重建扩展 zip 11.7MB（manifest 5.0.0 + 端口 26801 + sandbox.js 与 public/ 字节一致断言）；新增 build-v5-assets.py 组装交付六件套（内嵌引擎==CRLF 引擎字节断言 + manifest 版本断言 + 合并包内容断言）
+- 【发布】main 8fdefee 推送；gh-pages DEPLOY-OK（sw BUILD 20260907-115358-8fdefee）+ 线上指纹 __chushiMusicCoreV5/whitelist 双命中；Release v5.0.0 id=384054435 五资产直链 SHA-256 ALL OK（⚠本代新坑：token 对 DELETE release asset 端点 404（上传/更新正常）——幂等逻辑不能再依赖「先删后传」，资产已全部在位时直接 SHA-256 校验即收尾）；文叔叔合并包 https://c.wss.ink/f/ktgudphl4sz（complete code=0 success 99%，302→wenshushu.cn 验证有效）
+- 【文档】README v5.0.0 版本段；AI-HANDOFF 更新（v5 宪法补齐指令/拓扑 v5/产线 v5/兼容矩阵 v5 行/坑 13-16/任务 A=v5.0.0 真机验收）；交付包使用说明 v5.0.0 版（五层 0 复用 + 升级三步 + 30 秒自查）
+
+Stage Summary:
+- 用户「全部重写」指令全链闭环：五层（插件A/插件B/引擎/预设包/音乐面板 API+前端）全部从零新写且样式不变，三套验证 184 项×2 轮全绿后交付
+- 新律：①e2e harness 三重根因（innerHTML 不执行脚本/replace $ 序列/sandbox 模式分发）都披着「产品坏了」的外衣——先分层归因再动手；②token 权限缺口可能只影响 DELETE 不影响上传/更新——发布脚本的幂等策略必须容忍「删不掉」并以 SHA-256 校验为最终收口；③显示伪影判定律升级：连「目视发现的 bug」也要先过 codepoint 断言再动手修
+- 待办：用户真机复测（卸旧装双新 .plugin 5.0.0 + 完全重启网易云 + Ctrl+F5 + 重导 .cshz；网易云 SMTC 开关关闭状态验满血卡片/可拖进度/媒体键/暂停恢复零漂移/网易云本体进度条不受影响；页脚 API v5.0.0 · 管理 v5.0.0）；任务 B seek 真机成功率、C 部件高度弹簧、D 工程化欠账（AI-HANDOFF）
