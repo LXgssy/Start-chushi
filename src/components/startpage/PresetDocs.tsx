@@ -653,7 +653,7 @@ chushi.settings.onChange((values) => { /* 整组热更新 */ });`}</Code>
                     ],
                     [
                       <K>chushi.music.snapshot()</K>,
-                      "音乐引擎（v2.0.0，推荐）：预计算快照 {connected, app, title, artist, album, cover, coverUrl, playing, duration, lyricRev, lyric}；lyric={mode:1逐字/2行级, lines}（{s,e,t,tr,w?}，毫秒）——解析与翻译对齐宿主已完成",
+                      "音乐桥数据面（v6.0.0，推荐）：预计算快照 {connected, app, title, artist, album, cover, coverUrl, playing, duration, lyricRev, lyric}；lyric={mode:1逐字/2行级, lines}（{s,e,t,tr,w?}，毫秒）——解析与翻译对齐宿主已完成",
                     ],
                     [
                       <K>chushi.music.now()</K>,

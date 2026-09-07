@@ -1,46 +1,54 @@
 /* ============================================================================
- * 「初始」本地媒体数据面客户端 v5.0.0（第五代，全新实现）
+ * 「初始」音乐面板数据客户端 v6.0.0（第六代，全新实现）
  *
- * 架构律（用户三条硬性指令的宿主侧表达）：
- *   1. 单真值直显——引擎 /api/state 里的 ne（插件B从网易云读到的真值）是唯一
+ * 架构律（用户硬性指令的宿主侧表达）：
+ *   1. 三插件纯插件架构——第六代起不再有任何外部引擎/后台进程：网易云窗口里
+ *      的「ChuShi Music Bridge」插件自建本地数据枢纽（本文件唯一数据源），
+ *      「ChuShi SMTC Manager」用 mediaSession 直接持有系统媒体会话，
+ *      「ChuShi Lyric Source」按需提供完整逐字歌词。
+ *   2. 单真值直显——枢纽 /api/state 里的 ne（桥从网易云读到的真值）是唯一
  *      数据源：一次年龄补偿后原样成曲目，本文件零仲裁、零守卫、零二次加工。
- *   2. 控制只下发——seek/播放控制 POST 给引擎命令队列，由插件B在网易云元素层
- *      单次执行；宿主不碰网易云任何内部状态。
- *   3. 诚实归因——引擎不可达/引擎过旧/插件缺失/版本过旧/拖动未生效，一律以
- *      状态字段如实上报，由面板芯片渲染，绝不静默假装成功。
+ *   3. 控制只下发——seek/播放控制 POST 给枢纽命令队列，由桥在网易云元素层
+ *      单次执行；本文件不碰网易云任何内部状态。
+ *   4. 诚实归因——枢纽不可达/版本过旧/桥插件过旧/拖动未生效，一律以状态字段
+ *      如实上报，由面板芯片渲染，绝不静默假装成功。
  *
- * 公开面（消费方 page.tsx / PresetWidgets / sandbox.ts / 预设脚本依赖）：
+ * 端口发现：桥默认绑 26801；若端口被旧引擎僵尸占用会自动退到 26802。
+ * 本文件按 26801 → 26802 顺序探测，粘住第一个应答 chushi-music-hub 的端口。
+ *
+ * 公开面（消费方 page.tsx / PresetWidgets / sandbox.ts / 预设脚本依赖，
+ * 第六代保持字段级兼容，消费方零改动）：
  *   SMTC_PORT / SmtcTrack / SmtcState / SmtcLyric / SMTC_COMMANDS /
  *   smtcPositionNow / smtc（单例：start/onTick/subscribe/getSnapshot/control）
  * ==========================================================================*/
 
-/** 引擎固定回环端口（插件A/插件B/宿主三方一致，改端口须三处同步） */
+/** 桥枢纽主端口（bridge 插件端口被占时自动退到 FALLBACK_PORT） */
 export const SMTC_PORT = 26801;
+export const SMTC_FALLBACK_PORT = 26802;
 
-const BASE = `http://127.0.0.1:${SMTC_PORT}`;
+const HUB_NAME = "chushi-music-hub";
+const HUB_VER_MIN = "6.0.0";
+const PLUGIN_VER_MIN = "6.0.0";
 const POLL_MS = 1000;
 const RETRY_MS = 2600;
 const TIMEOUT_MS = 1500;
-const ENGINE_NAME = "chushi-smtc-engine";
-const ENGINE_VER_MIN = "5.0.0";
-const PLUGIN_VER_MIN = "5.0.0";
 const TRUTH_STALE_SEC = 6;
 
 /** 单条媒体快照（真值直显产物） */
 export interface SmtcTrack {
-  /** 来源应用（v5 恒为网易云插件真值源） */
+  /** 来源应用（v6 恒为网易云桥插件真值源） */
   app: string;
   title: string;
   artist: string;
   album: string;
   playing: boolean;
-  /** 引擎采样时刻的播放位置（秒，含年龄补偿） */
+  /** 枢纽采样时刻的播放位置（秒，含年龄补偿） */
   position: number;
   /** 曲目总时长（秒；0 = 未知） */
   duration: number;
   /** 播放速率（插值用；≤0 视作 1） */
   rate: number;
-  /** 兼容字段：v5 无二进制封面，恒空串 */
+  /** 兼容字段：v6 无二进制封面，恒空串 */
   coverRev: string;
   /** 宿主收到快照的时刻（插值基准） */
   fetchedAt: number;
@@ -48,23 +56,23 @@ export interface SmtcTrack {
 
 /** 客户端对外状态（公开面，预设脚本经 chushi.music 消费） */
 export interface SmtcState {
-  connected: boolean;      // 本地引擎可达且版本达标
-  version: string;         // 引擎自报版本
+  connected: boolean;      // 本地桥枢纽可达且版本达标
+  version: string;         // 桥枢纽自报版本
   track: SmtcTrack | null; // null = 未连接 / 无真值
   cover: string | null;    // 兼容字段：恒 null（封面走 coverUrl）
-  coverUrl: string | null; // 封面 https URL（插件真值）
+  coverUrl: string | null; // 封面 https URL（桥插件真值）
   lyric: SmtcLyric | null;
   lyricRev: string;        // 歌词版本（变化即重拉）
-  pluginVer: string;       // 网易云API插件版本（ne.v 心跳；空串 = 不在场）
-  smtcVer: string;         // SMTC Manager 插件版本（mgr 心跳；空串 = 未注册）
+  pluginVer: string;       // 音乐桥插件版本（ne.v 心跳；空串 = 不在场）
+  smtcVer: string;         // SMTC Manager 插件版本（状态总线心跳；空串 = 未注册）
   seekNote: string;        // seek 结果提示（自动消失）
   needsUpdate: boolean;    // needsPlugin || needsBridge
-  needsPlugin: boolean;    // 网易云API插件缺失/过旧
-  needsBridge: boolean;    // 引擎不可达或引擎过旧
-  engineOld: boolean;      // 引擎在场但版本低于要求（芯片区分文案）
+  needsPlugin: boolean;    // 音乐桥插件过旧/缺失
+  needsBridge: boolean;    // 枢纽不可达或版本过旧
+  engineOld: boolean;      // 枢纽在场但版本低于要求（兼容字段名，芯片区分文案）
 }
 
-/** 歌词载荷（引擎缓存转发，插件B产物） */
+/** 歌词载荷（桥缓存转发，歌词源插件产物） */
 export interface SmtcLyric {
   songId: number;
   title: string;
@@ -97,7 +105,7 @@ export function smtcPositionNow(t: SmtcTrack | null, now = Date.now()): number {
 }
 
 /* ---------------------------------------------------------------------- */
-/* 内部工具（v5 全新命名与实现）                                            */
+/* 内部工具（v6 全新命名与实现）                                            */
 /* ---------------------------------------------------------------------- */
 
 function semverLt(a: string, b: string): boolean {
@@ -119,7 +127,7 @@ function clipNum(v: unknown): number {
   return typeof v === "number" && Number.isFinite(v) ? Math.max(0, v) : 0;
 }
 
-/** 引擎透传的 ne 字段清洗（白名单 + 截断；无标题且无位置判无效） */
+/** 枢纽透传的 ne 字段清洗（白名单 + 截断；无标题且无位置判无效） */
 function cleanNe(raw: unknown) {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
@@ -168,6 +176,9 @@ class SmtcClient {
 
   private failStreak = 0;
   private lastSig = "";
+
+  /** 端口发现：粘住第一个应答枢纽身份的端口；失败时两端口都重探 */
+  private activePort: number | null = null;
 
   /** 歌词拉取状态：wanted 曲目键 / 进行中标记 / 重试计数 */
   private lyricWanted = "";
@@ -231,8 +242,9 @@ class SmtcClient {
     if (cmd === "seek" && typeof position === "number" && Number.isFinite(position)) {
       body.position = Math.max(0, Math.min(86400, position));
     }
+    const port = this.activePort ?? SMTC_PORT;
     try {
-      const r = await fetch(`${BASE}/api/cmd`, {
+      const r = await fetch(`http://127.0.0.1:${port}/api/cmd`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
@@ -286,6 +298,7 @@ class SmtcClient {
       lyric: null,
       lyricRev: "",
       pluginVer: "",
+      smtcVer: "",
       needsUpdate: true,
       needsBridge: true,
       engineOld: false,
@@ -295,23 +308,42 @@ class SmtcClient {
     this.notify();
   }
 
+  /** 端口发现：主端口优先，粘住；全失败时下一轮双端口重探 */
+  private async discover(): Promise<{
+    j: Record<string, unknown>;
+    port: number;
+  } | null> {
+    const ports = this.activePort
+      ? [this.activePort, this.activePort === SMTC_PORT ? SMTC_FALLBACK_PORT : SMTC_PORT]
+      : [SMTC_PORT, SMTC_FALLBACK_PORT];
+    for (const port of ports) {
+      const j = await getJson(`http://127.0.0.1:${port}/api/state`);
+      if (j && j.ok === true && j.name === HUB_NAME) {
+        this.activePort = port;
+        return { j, port };
+      }
+    }
+    return null;
+  }
+
   private async beat() {
     if (this.busy) return;
     this.busy = true;
     try {
-      const j = await getJson(`${BASE}/api/state`);
-      if (!j || j.ok !== true || j.name !== ENGINE_NAME) throw new Error("engine-not-chushi");
+      const found = await this.discover();
+      if (!found) throw new Error("hub-not-chushi");
+      const j = found.j;
       const version = clipStr(j.version, 16) || "0.0.0";
-      const engineOld = semverLt(version, ENGINE_VER_MIN);
+      const hubOld = semverLt(version, HUB_VER_MIN);
       const ne = cleanNe(j.ne);
-      const mgr = clipStr(j.mgr, 16);
+      const smtcVer = clipStr(j.smtcVer, 16);
 
-      /* 引擎在场但过旧 → needsBridge（插件A会在 15s 内自动升级引擎） */
-      const needsBridge = engineOld;
+      /* 枢纽在场但过旧 → needsBridge（升级 .plugin 后重启网易云即解决） */
+      const needsBridge = hubOld;
       const pluginVerNow = ne ? ne.v : "";
       const needsPlugin = !pluginVerNow || semverLt(pluginVerNow, PLUGIN_VER_MIN);
 
-      /* 真值直显：一次性年龄补偿（插件采样时刻 → 此刻），fetchedAt 接管插值 */
+      /* 真值直显：一次性年龄补偿（桥采样时刻 → 此刻），fetchedAt 接管插值 */
       const now = Date.now();
       let track: SmtcTrack | null = null;
       let coverUrl: string | null = null;
@@ -336,7 +368,7 @@ class SmtcClient {
         coverUrl = ne.pic || null;
       }
 
-      /* seekAck 诚实提示（插件B读回校验失败的回执） */
+      /* seekAck 诚实提示（桥读回校验失败的回执） */
       if (ne && ne.seekAckId && ne.seekAckAt > 0 && now - ne.seekAckAt < 3200 && !ne.seekAckOk) {
         this.seekNote = "拖动未生效：网易云未响应";
         this.seekNoteAt = now;
@@ -344,10 +376,10 @@ class SmtcClient {
       if (this.seekNote && now - this.seekNoteAt > 3800) this.seekNote = "";
 
       const sig = [
-        version, engineOld, track ? track.title : "", track ? track.artist : "",
+        version, hubOld, track ? track.title : "", track ? track.artist : "",
         track ? track.album : "", track ? track.playing : false,
         track ? track.duration : 0, coverUrl || "", this.seekNote,
-        pluginVerNow, mgr, needsPlugin, needsBridge,
+        pluginVerNow, smtcVer, needsPlugin, needsBridge,
       ].join("|");
 
       this.state = {
@@ -359,12 +391,12 @@ class SmtcClient {
         lyric: this.state.lyric,
         lyricRev: this.state.lyricRev,
         pluginVer: pluginVerNow,
-        smtcVer: mgr,
+        smtcVer,
         seekNote: this.seekNote,
         needsUpdate: needsPlugin || needsBridge,
         needsPlugin,
         needsBridge,
-        engineOld,
+        engineOld: hubOld,
       };
 
       if (sig !== this.lastSig) {
@@ -377,6 +409,9 @@ class SmtcClient {
       this.schedule(ne ? POLL_MS : POLL_MS);
     } catch {
       this.failStreak++;
+      if (this.activePort !== null && this.failStreak >= 4) {
+        this.activePort = null; /* 粘住的端口疑似死了，下轮双端口重探 */
+      }
       if (this.failStreak >= 2) this.goOffline();
       this.schedule(RETRY_MS);
     } finally {
@@ -402,8 +437,9 @@ class SmtcClient {
     if (!wanted || this.lyricBusy) return;
     if (this.lyricRevDone === wanted) return;
     this.lyricBusy = true;
+    const port = this.activePort ?? SMTC_PORT;
     const attempt = (): Promise<void> => {
-      return getJson(`${BASE}/api/lyric?songId=${encodeURIComponent(this.lyricWanted)}`)
+      return getJson(`http://127.0.0.1:${port}/api/lyric?songId=${encodeURIComponent(this.lyricWanted)}`)
         .then((j) => {
           this.lyricBusy = false;
           if (this.lyricWanted !== wanted) return; /* 曲目已切走 */
