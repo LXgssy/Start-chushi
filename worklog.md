@@ -722,3 +722,26 @@ Stage Summary:
 - 新律：①「最后事件」语义的值（状态/配置类）永不做时间窗过期——过期降级=换一个更不可信的源；②升级提示的文案必须与真实可行路径一一对应——「更新 A 可修」在根因是 B 时是谎言；③snap/DTO 白名单层是字段失踪的高发地带——新增状态字段必须端到端 grep 透传链；④测试驱动的事件回调 fire 助手必须按真实回调签名分发参数（参数错位的静默丢弃比崩溃更毒）
 - 待办：用户真机复测（.plugin 1.5.0 + 完全重启网易云 + Ctrl+F5 + 重导 .cshz；看芯片是否消失/状态不反/进度 1x 不倒退；若提示手动启动桥则跑备用 bat）；AI-HANDOFF 任务 A（seek 真机参数实抓）为下轮最高优先；任务B 暂停恢复逐字漂移终验；任务C/D/E 排后
 - 【交付落盘】main 5ed4a57 推送；gh-pages DEPLOY-OK 线上实测（sandbox.js needsPlugin ×2 + chunk e9acad6c31bbd078.js needsPlugin 指纹命中）；Release v2.3.2 id 五资产直链 SHA-256 ALL OK（Delivery/LyricSource-1.5.0.plugin/Preset.cshz/NewTab-v2.3.2.zip/AllInOne）；文叔叔合并包 https://c.wss.ink/f/kt8kvm8i9hv（complete code=0 success 99%）
+
+---
+Task ID: 86
+Agent: main (Super Z)
+Task: 用户指认「smtc 和自写的网易云 api 冲突了，重写，smtc 插件和 api 分开写成两个插件，预设包也重写，样式不要变，不要出现播放键位移等 bug」→ v3.0.0 双插件架构重写
+
+Work Log:
+- 【冲突确诊】读尽 v2.3.3 全链源码（插件 1252 行/桥 661 行/宿主 smtc.ts 834 行/部件 383 行）确认用户判断成立：位置真值被三层各自修正互相打架（插件 buildSnapshot 熔断 → 桥 ne-anchoring 再改 → 宿主 harmonize/零值守卫/绝对锚定再改）= 九轮真机故障（反转/0.5x 爬行/冻死 0:00/版本误报）的共同结构根源；一体化插件「既管桥进程又产状态」让版本误报与状态扰动互相伪装
+- 【现场自检】.pkgtmp/gh-token 因环境清理丢失 → 从 git remote URL 程序化重建（不回显，API 200 验证）；本地 main 落后远端 → reset 对齐 45ef16e（v2.3.3 线）
+- 【桥 v2.0.0 纯传输化】删 Update-MediaState 内 ne-anchoring 整块（桥层互打终结，保留时长钳制）；新增 /api/plugin/register（管理插件活体注册，90s 窗口 → /api/state.plugins.smtc）；新增 role 心跳仲裁（role=ncm 在场 10s 压制旧一体化插件 role-less 心跳——并存不互打）；ASCII 纯净 + 全部原协议端点零改动
+- 【插件A 初始SMTC桥 cc.chushi.smtcbridge v2.0.0】bridge/smtc-plugin/：v1.4.0–v1.5.1 桥管理代码原样提取（部署读回校验/直启 powershell 优先/杀旧双路径 netstat+taskkill→Get-NetTCPConnection/冷启动 20-40-80-120s 与升级 30-60-120s 双退避/bridgeBlocked）；新增 registerSelf 活体注册；绝不推 /api/plugin/state（职责单一律进构建断言）
+- 【插件B 初始网易云API cc.chushi.ncmapi v2.0.0】bridge/ncm-plugin/：v1.5.1 真值代码原样保留（原生事件主源/元素身份锁/倒退熔断/零值熔断/channel 健康闸/seek 三级阶梯 420ms 实测/needLyric 自愈/eapi 歌词三层回退）；心跳加 role:"ncm"；删全部桥管理代码；配置面板加旧插件冲突检测（__chushiLyricSourceActive 在场即提醒卸载）
+- 【宿主 smtc.ts v3 单主仲裁】judgeNcmOwns 唯一判定点：会话身份用桥 app 字段（"NetEase Music" AUMID 归一，比标题模糊匹配可靠，标题匹配仅旧桥兜底）+ ne 新鲜（ts≤3s）；NCM 在场→真值独占（元数据/进度/时长/播放态一次性年龄补偿 fetchedAt=now，零守卫零混合）；NCM 播放中无条件独占（修「面板显示其它应用/暂停态而网易云在响」反转）；SMTC-only 才走 harmonize+锚点保持；删宿主 neZeroStreak 零值守卫（插件已有全套熔断，宿主再叠=互打复辟）；版本活源三分（桥 version/ne.v/plugins.smtc），needsPlugin 语义=缺失/<1.4.0 损坏/1.4.0-1.5.1 迁移，needsBridge 新增「管理插件已注册但桥旧」=旧桥杀不死实锤态；SmtcState+sandbox.js 加 smtcVer
+- 【预设包 v4】music-widget.html 样式与 DOM 零改动（双 SVG 同圆心交叉淡切防播放键位移/lyHold 高度迟滞/乐观翻转/拖动失败醒目芯片全保留）；脚本加 verLt 同构分叉：芯片四态（缺件安装/旧一体化迁移/桥未运行/旧桥杀不死手动指引）+ 页脚双版本（API vX · 管理 vY/手动桥）+ 空态双插件指引
+- 【验证】verify-v3.mjs 38/38 × 2 轮：ST16 静态（桥纯传输/双插件职责单一/单主律/防位移保留）+ PB1-3/PA1-5 vm 白盒（role=ncm 心跳/真值快照/零 exec；在场注册零进程操作/冷启动部署+直启）+ e2e（N1-3 单主反转实证：SMTC 修饰名+暂停假象 vs ne 真值播放→面板全取 ne；N4-6 页脚双版本/芯片熄灭/手动桥；N7a-N8c 芯片四态；N9 SMTC-only 兜底；X1 pageerror=0）；扩展冒烟 verify-ext-v3.mjs 5/5（manifest v3.0.0+host_permissions/渲染/导入/单主仲裁/页脚双版本/0 pageerror）——首跑 M3 失败为测试 mock 静态 ts 3s 过期触发 SMTC-only 兜底（恰是 v3 设计行为），mock 改动态新鲜 ts 后全绿
+- 【发布】main 4d8d778 推送；gh-pages 部署 DEPLOY-OK + 线上指纹 judgeNcmOwns 命中（63023df0 chunk）；扩展 build:extension 外置 7 内联脚本 → ChuShi-NewTab-v3.0.0.zip 11.7MB；build-v3-assets.py 双 .plugin 回环断言+交付包全家；Release v3.0.0 五资产直链 SHA-256 ALL OK（含 ChuShi-SmtcBridge-2.0.0.plugin/ChuShi-NcmApi-2.0.0.plugin 直发）；文叔叔合并包 https://c.wss.ink/f/ktcf9jy1ok3；docs/AI-HANDOFF.md 全量重写（单主律宪法/新拓扑/兼容矩阵/10 坑清单/任务 A-E）；README v3.0.0 版本段；package.json 3.0.0
+
+Stage Summary:
+- 架构律（v3.0.0 宪法）：每数据单主——真值只产自插件B，桥只传输（ne-anchoring 已删永不再加），宿主只仲裁（judgeNcmOwns 唯一判定+一次性补偿）；宿主不许再叠零值/倒退守卫（插件B 全套熔断已在内，再叠=三层互打复辟）
+- 版本律：版本只查活源（桥 /api/state.version、API 插件 ne.v 心跳、管理插件 plugins.smtc 注册表），不猜不缓存；needsBridge 新语义「管理插件在场但桥旧」=旧桥进程杀不死实锤，只给手动指引
+- 迁移律：新双插件与旧一体化并存无害（桥 role 仲裁），但面板芯片必须引导卸旧装新（「双插件迁移」文案对应真实可行操作）；插件B 配置面板双保险提醒
+- 交付：Release v3.0.0（id 见 repo）+ 文叔叔 ktcf9jy1ok3（1 天过期）；用户升级三步：卸旧「初始歌词源」→装双新 .plugin→重启网易云
+- 待办：Edge 商店提交材料仍未做；seek 真机有效性（channel.seek 参数形态实抓）= 下一任 AI 最高优先任务（见 AI-HANDOFF 任务 A）
