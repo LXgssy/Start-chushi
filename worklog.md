@@ -893,3 +893,17 @@ Stage Summary:
 - 「三个插件完全坏」统一根因闭环：CEF 无 Node 实锤 → 枢纽住进 DLL、B/C 纯 JS 化；「v6 渲染进程有 Node」的错误结论正式作废并写入 AI-HANDOFF 防止重蹈
 - 新律：①原生能力必须原生 DLL，JS 侧 mediaSession 在 Electron/CEF 不产生系统卡片；②BetterNCM native API 回调=V8 主线程立即返回律；③SDK 头逐槽位对照律（凭记忆写 WinRT vtable 必死）；④Release 资产名单 ASCII 强制（GitHub 静默截断非 ASCII 名）；⑤记忆中的密码学向量不可信——以 node/python 双实现交叉确认为准（本代差点冤杀正确的 MD5）
 - 待办：用户真机复测（删光旧 .plugin→装 v7 三件→完全重启→SMTC 关闭态验系统卡片/可拖/媒体键→面板真值/逐字/seek 回执→页脚 v7.0.0）；若卡片不出按 AI-HANDOFF 任务 B 的 Smtc.info/status/lastHr 三步排障；Edge 商店材料仍未动
+
+---
+Task ID: 94
+Agent: Super Z (main)
+Task: 用户真机崩溃报告「smtc插件导致网易云崩溃了」+ CrashReport 日志（combase.dll RoActivateInstance ← smtc_native.dll+235F BetterNCMPluginMain）→ v7.0.1 崩溃紧急修复
+
+Work Log:
+- 【崩溃定位（反汇编级实锤）】用户日志 backtrace 只有导出符号 → llvm-objdump 反汇编 + 导出表核对：BetterNCMPluginMain RVA=0x1560，崩溃偏移 0x235F 落在非导出函数 smtc_thread（内联 apply_op）里，精确对应源码 pRoActivateInstance(g_hClsTimeline, &IID_SMTCTimelineProperties) 调用点（callq *0x6d89(%rip) 后 testl 即 0x235F）——即 v7.0.0 对 Windows.Media.SystemMediaTransportControlsTimelineProperties 调了 RoActivateInstance
+- 【根因定性】TimelineProperties 是 WinRT **struct（值类型，5×TimeSpan）**，不是 runtime class：无 HSTRING 类名/无激活工厂/无接口，对它激活在网易云进程内必崩（Task 93 曾误判为「接口，RoActivateInstance 后逐 put」并写入坑 27——本代重大纠正）。且崩溃时序解释了两轮现象反差：v7.0.0 会话注册其实成功（否则消息循环不跑、apply_op 不触发），B 推送链路也通；一旦音乐播放（pos>0.35s 阈值）时间线更新即崩 → 「装上后播歌必崩」+ 上轮「系统读不到会话」= 空会话无数据
+- 【权威验证】抓取 microsoft/windows-rs 官方投影源码逐项核对：9 个接口 GUID 全对（SMTC=99FA3FF4 / SMTC2=EA98D2F6 / DisplayUpdater=8ABBC53E / MusicDisplayProperties=6BBF0C59 / MusicProps2=00368462 / Interop=DDB0472D-C911-4A1F-86D9-DC3D71A95F5A 与 MinGW-w64 官方 idl + wine idl 一致；AI 记忆中的「9C67CDCD549A 变体」是错的）、全部 vtable 槽位序与 _Vtbl 结构一致（含 IMusicDisplayProperties 的 Title→AlbumArtist→Artist 序）、两个 handler 特化 IID 与 StreamRef 工厂 IID 均 SDK 头/wine idl 命中；工具链自带 systemmediatransportcontrolsinterop.h 发现备用；BetterNCM ABI 实锤（NanoRocky/BetterNCM v2：NativeAPIType String=3、NCMProcessType Main=0x1/Renderer=0x10、BetterNCMPluginMain 同步调用、x64 加载失败回退 .x64.dll 名）
+- 【v7.0.1 修复四件】①TimelineProperties 改栈上构造 TimelinePropsStruct（5×TimeSpan，position 截到 [0,end]）按 ABI 传指针给 SMTC2.UpdateTimelineProperties（第 12 槽），彻底删除 RoActivateInstance/TimelinePropsVtbl/CLSID_TIMELINE/IID_SMTCTimelineProperties；②新增 native-log.txt 文件日志（GetModuleHandleExW FROM_ADDRESS 取 DLL 同目录，boot/host/smtc/http/upd 全链 + 失败 hr，>1.5MB 自动重建）——用户报障直接发日志不再盲猜；③Host 自愈：SMTC 注册失败自动 Relinquish_Host（释放互斥体让其它进程重选），修正原 ALREADY_EXISTS 分支错误 ReleaseMutex；④HTTP 枢纽每连接一线程（上限 32 过载保护，recv timeout 5s→2.5s），慢客户端不再串行阻塞心跳
+- 【构建与门】llvm-mingw 重编译 76800B；llvm-nm 确认无 RoActivateInstance 引用；反汇编确认 UpdateTimelineProperties(smtc2, &tp) 走 vtable+0x60、struct 在栈上；新打包门 G1-G8（新增 G8=DLL 内 b'RoActivateInstance' 不存在）16/16 全绿；版本同步 manifest/伴生 JS/DLL=7.0.1（B/C/前端零变化，协议兼容，页脚版本门 >=7.0.0 通过）
+- 【文档】AI-HANDOFF：坑 27 重大纠正（struct 事实+崩溃实锤+判断律「凡 struct/enum/delegate 不可激活」）+ 坑 29（CrashReport 符号化陷阱：非导出函数全归最近导出名，必须 RVA 反汇编定位）+ 坑 30（native-log.txt 通道）；任务 A/B 改为 v7.0.1 验收与日志优先排障
+- 【交付】download/v7.0.1/{ChuShi-SMTC-Manager-7.0.1.plugin, SHA256SUMS.txt, 使用说明-崩溃修复v7.0.1.md}；git 推送；Release v7.0.1；文叔叔

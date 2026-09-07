@@ -159,16 +159,35 @@ ChuShi-v7.0.0-AllInOne.zip / SHA256SUMS.txt。
     ISystemMediaTransportControls 是 get_DisplayUpdater 属性 +
     IsRecordEnabled 在列 + Previous 在 Next 之前——**必须按 SDK 头
     实际槽位序**写 vtable，凭记忆写必死（本代逐槽位对照 16299 头文件）。
-27. **（v7 新）TimelineProperties 是接口不是结构体**：
-    RoActivateInstance("Windows.Media.SystemMediaTransportControlsTimelineProperties")
-    后逐属性 put，再 SMTC2.UpdateTimelineProperties。
+27. **（v7.0.1 重大纠正！）TimelineProperties 是 struct 不是接口**：
+    v7.0.0 曾误判为「接口、RoActivateInstance 后逐 put」——**这个结论是错的，
+    且直接导致真机崩溃**（网易云进程 combase!RoActivateInstance AV，栈
+    smtc_native.dll+0x235F 实锤）。事实：
+    `SystemMediaTransportControlsTimelineProperties` 是 WinRT struct（值类型，
+    5×TimeSpan：StartTime/EndTime/MinSeekTime/MaxSeekTime/Position），没有
+    HSTRING 类名、没有激活工厂、没有接口——只能栈上构造后按 ABI 传指针给
+    `ISystemMediaTransportControls2::UpdateTimelineProperties`（第 12 槽，
+    windows-rs 投影已验证）。判断律：凡 metadata 里的 struct/enum/delegate
+    一律不可激活；RoActivateInstance/RoGetActivationFactory 只对 runtime
+    class 合法。
 28. **（v7 新）事件 handler 特化 GUID 必须精确**：
     ITypedEventHandler<SMTC,ButtonPressedArgs> =
     0557e996-7b23-5bae-aa81-ea0d671143a4；
     <SMTC,PlaybackPositionChangeRequested> =
     44e34f15-bdc0-50a7-ace4-39e91fb753f1；QI 必须应答这两个 IID
     + IUnknown + IInspectable；GetRuntimeClassName 返回 E_NOTIMPL（参数化
-    接口无运行时类名）。
+    接口无运行时类名）。v7.0.1 已对照 windows-rs 投影逐项验证全部 9 个
+    IID/vtable 均正确（interop DDB0472D-C911-4A1F-86D9-DC3D71A95F5A 与
+    MinGW-w64 官方 idl 一致；勿信记忆里的「9C67CDCD549A」变体）。
+29. **（v7.0.1 新）真机崩溃日志符号化陷阱**：BetterNCM CrashReport 的
+    BackTrace 只有导出符号，非导出函数全被归到最近导出名
+    （smtc_thread/apply_op 都会显示成 BetterNCMPluginMain）——不要按符号名
+    定位，按 **RVA+offset 反汇编** 定位（llvm-objdump -d 搜偏移）。
+30. **（v7.0.1 新）native-log.txt 日志通道**：native DLL 在
+    plugins_runtime/<slug>/native-log.txt 记录 boot/host/smtc/http/upd 全链
+    （GetModuleHandleExW FROM_ADDRESS 取自身路径，>1.5MB 自动重建）；
+    用户报障直接要这个文件，不再盲猜。Host 选举失败自动让位（Relinquish）
+    也入日志。
 1. **JS 位移移位数按 32 取模**：MD5 长度字节必须算术右移（v4 真踩）。
 2. **自实现 AES 必须先过 FIPS-197 C.1 + node crypto 对照**（v7 向量门在
    scripts/verify-v7-g1.js；注意 MD5("abc") 真值 =
@@ -195,28 +214,35 @@ ChuShi-v7.0.0-AllInOne.zip / SHA256SUMS.txt。
 
 ## 下一步开发任务（按优先级）
 
-### A. v7.0.0 真机验收（最高优先，等用户反馈）
-0. 删光旧 .plugin → 装三个 v7 插件 → **完全重启网易云** → 插件列表
-   三件全可见（仍缺 → disable_list.txt 排查）。
-1. 网易云 SMTC 开关**关闭**：放歌 → Windows 音量弹层/锁屏出现独立卡片，
-   封面/标题正确、进度每秒走、**可拖**、媒体键全响应；拖动后网易云真实
-   跳转。若卡片不出：任务 B.1 排障路径。
-2. 「初始」面板出现曲目/进度推进/逐字歌词扫色；暂停 30s 恢复无漂移；
-   面板拖动 → 网易云真实生效（失败有「拖动未生效」回执）。
-3. 网易云**自家**进度条/按钮与装插件前一致（只读律确认）。
-4. 页脚 `API v7.0.0 · 管理 v7.0.0`；升级芯片熄灭。
+### A. v7.0.1 真机验收（最高优先，等用户反馈；本轮 = 崩溃紧急修复）
+0. 前情：用户真机实锤 v7.0.0 播歌必崩（combase!RoActivateInstance AV，
+   smtc_native.dll+0x235F = apply_op 里对 TimelineProperties struct 的非法
+   激活）。v7.0.1 已修复（栈上构造 struct + 全 GUID/vtable 对照 windows-rs
+   验证 + Host 让位自愈 + native-log.txt 日志）。
+1. 只需换插件A：删旧 ChuShi-SMTC-Manager-7.0.0.plugin → 装入
+   7.0.1（B/C 两个 7.0.0 不动）→ **完全重启网易云**。
+2. 播歌不崩；Windows 音量弹层/锁屏出独立卡片（封面/标题/进度每秒走/可拖/
+   媒体键）；「初始」面板真值/逐字/拖动回执。
+3. 若异常：**直接要 native-log.txt**
+   （C:\betterncm\plugins_runtime\ChuShi-SMTC-Manager\native-log.txt），
+   boot/host/smtc/http 全链日志都在里面，按行定位，不再盲猜。
+4. 页脚仍是 API v7.0.0 · 管理 v7.0.0（本轮未动前端，正常）。
 
-### B. SMTC 原生 DLL 真机排障路径（若卡片不出）
-1. BetterNCM 开发者工具（网易云渲染进程控制台）跑
+### B. SMTC 原生 DLL 真机排障路径（若卡片不出；v7.0.1 首选日志文件）
+1. **native-log.txt 优先**：
+   `C:\betterncm\plugins_runtime\ChuShi-SMTC-Manager\native-log.txt`；
+   正常链 = boot( elected as host ) → smtc( RoInitialize ok → GetForWindow
+   OK ) → http( listening on 26901 ) → upd( timeline applied first time )；
+   断在哪一行就是哪一环（give up host = 让位重选）。
+2. BetterNCM 开发者工具（网易云渲染进程控制台）跑
    `betterncm_native.native_plugin.call('ChuShi.Smtc.info',[''])` →
    应返回 `{"ok":true,...,"host":true/false,"smtcReady":true/false}`。
-2. `host=false`：说明 DLL 在 Main 进程未被加载或互斥体被占（查
+3. `host=false`：说明 DLL 在 Main 进程未被加载或互斥体被占（查
    BetterNCM 版本是否支持 native_plugin）。
-3. `smtcReady=false`：看 `GET http://127.0.0.1:26901/api/smtc/status` 的
-   `lastHr`（WinRT HRESULT）——GetForWindow 失败时 DLL 不再重试，需定位
-   该 hr 码（若为 0x80070490 之类 ElementNotFound → 用户的 Windows 版本
-   对 interop 有限制，回退方案=Renderer 进程 Hosting 或 MediaPlayer 路线）。
-4. 枢纽端口被占：26901/26902/26903 三端口都试；`/api/ping` 无响应 =
+4. `smtcReady=false`：看 `GET http://127.0.0.1:26901/api/smtc/status` 的
+   `lastHr`（WinRT HRESULT）与 native-log 中 GetForWindow 的 hr——v7.0.1
+   失败会自动让位，若所有进程都失败则日志里每进程都有 give up 行。
+5. 枢纽端口被占：26901/26902/26903 三端口都试；`/api/ping` 无响应 =
    DLL HTTP 线程未起（winsock 初始化失败罕见）。
 
 ### C. 预设包/工程化欠账
