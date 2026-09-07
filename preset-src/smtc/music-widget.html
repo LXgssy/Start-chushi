@@ -150,7 +150,7 @@
     <div class="sk" id="sk"><div class="rl"><i id="bar"></i><u id="th"></u></div>
       <div class="chip" id="noteChip"><svg viewBox="0 0 24 24"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg><span id="noteTxt"></span></div>
     </div>
-    <div class="chip warn" id="updChip" style="top:8px"><span id="updTxt">组件过旧 · 更新「初始歌词源」.plugin 后重启网易云即可全自动修复</span></div>
+    <div class="chip warn" id="updChip" style="top:8px"><span id="updTxt">组件待更新 · 见下方指引</span></div>
     <div class="tm"><span id="tC">0:00</span><span id="tD">0:00</span></div>
     <div class="ct">
       <button class="bt" id="pv" aria-label="上一首"><svg viewBox="0 0 24 24"><use href="#i-pv"/></svg></button>
@@ -188,6 +188,9 @@ var card=$("card"),sk=$("sk");
 var E={aF:$("aF"),t1:$("t1"),t2:$("t2"),t3:$("t3"),bar:$("bar"),th:$("th"),
   tC:$("tC"),tD:$("tD"),ap:$("ap"),dt:$("dt"),yI:$("yI"),nI:$("nI"),
   e1:$("e1"),e2:$("e2"),ly:$("ly"),noteChip:$("noteChip"),noteTxt:$("noteTxt"),updChip:$("updChip"),updTxt:$("updTxt")};
+/* v3.0.0 双插件架构版本比较（芯片文案分叉用，与宿主 verLt 同构） */
+function verLt(a,b){var pa=String(a||"").split("."),pb=String(b||"").split(".");
+  for(var i=0;i<3;i++){var x=parseInt(pa[i],10)||0,y=parseInt(pb[i],10)||0;if(x!==y)return x<y}return false}
 var H={fl:248,em:92},LY_H=124;
 var DEF="asset:cover.svg";
 var snap=null,mode="em",lastKey="",drag=false,dragRatio=0;
@@ -239,7 +242,7 @@ function buildLyric(){
 function render(){
   var s=snap;
   if(!s||!s.connected){
-    txt(E.e1,"系统媒体待接入");txt(E.e2,"安装「初始歌词源」.plugin 后播放音乐即自动接入");
+    txt(E.e1,"系统媒体待接入");txt(E.e2,"安装「初始SMTC桥」+「初始网易云API」双插件后播放音乐即自动接入");
     txt(E.ap,"未连接");
     if(mode!=="em")setMode("em");
     return;
@@ -267,21 +270,31 @@ function render(){
   txt(E.t1,s.title||"未知曲目");
   txt(E.t2,s.artist||"未知艺术家");
   txt(E.t3,s.album||"");
-  /* v2.3.0 芯片：seekNote 醒目提示（3.8s 自动消失）；needsUpdate 常驻升级芯片
-     v2.3.2 归因分叉：插件旧 → 更新 .plugin 即可自修；仅桥旧（插件已新版）
-     → 自动升级多半被系统策略拦截，喊「更新 .plugin」是无效指引（真机第 9 轮
-     用户照做了没用、怒气直接来源）——改给手动备用桥诚实指引 */
+  /* v3.0.0 芯片：seekNote 醒目提示（3.8s 自动消失）；needsUpdate 常驻升级芯片。
+     双插件诚实归因——每个文案都对应一个真实可行的操作（零容忍假指引）：
+     · 缺网易云API 插件 → 装新插件（逐字歌词/精确进度/拖动全在里面）
+     · 旧一体化 1.4.x–1.5.x 在用 → 迁移双插件（卸旧装新）
+     · 桥不可达 → 装「初始SMTC桥」自动管理，或双击 启动桥.bat
+     · 管理插件已注册但桥版本旧 = 旧桥进程杀不死（策略拦截实锤）→ 手动指引 */
   var noteOn=!!s.seekNote;
   E.noteChip.classList.toggle("on",noteOn);
   if(noteOn)txt(E.noteTxt,s.seekNote);
   E.updChip.classList.toggle("on",!!s.needsUpdate);
   if(s.needsUpdate){
-    txt(E.updTxt, s.needsPlugin
-      ? "组件过旧 · 更新「初始歌词源」.plugin 后重启网易云即可全自动修复"
-      : "桥组件待升级（自动升级被系统拦截）· 请在「初始歌词源」压缩包内打开「手动启动桥（备用）」文件夹，双击 启动桥.bat");
+    if(s.needsBridge&&s.smtcVer){
+      txt(E.updTxt,"旧桥进程未被自动替换（系统策略拦截）· 请双击交付包内 启动桥.bat 或重启电脑后重试");
+    }else if(s.needsBridge){
+      txt(E.updTxt,"桥未运行 · 安装「初始SMTC桥」.plugin 可自动启动，或双击交付包内 启动桥.bat");
+    }else if(!s.pluginVer){
+      txt(E.updTxt,"未装「初始网易云API」.plugin · 装后重启网易云即有逐字歌词/精确进度/进度条拖动");
+    }else if(verLt(s.pluginVer,"2.0.0")){
+      txt(E.updTxt,"双插件迁移 · 卸载旧「初始歌词源」，装「初始SMTC桥」+「初始网易云API」后重启网易云（见更新说明）");
+    }else{
+      txt(E.updTxt,"组件待更新 · 请按更新说明检查双插件版本");
+    }
   }
-  /* v2.3.0 页脚诊断：插件版本可见 = 插件心跳在场 + 版本漂移一眼可辨 */
-  txt(E.ap, s.seekNote ? s.seekNote : ("已连接 · "+(s.app||"系统媒体")+(s.pluginVer?" · 插件 v"+s.pluginVer:"")));
+  /* v3.0.0 页脚双版本诊断：API 插件版本 + 桥管理插件版本（手动桥如实标注） */
+  txt(E.ap, s.seekNote ? s.seekNote : ("已连接 · "+(s.app||"系统媒体")+(s.pluginVer?" · API v"+s.pluginVer:"")+(s.smtcVer?" · 管理 v"+s.smtcVer:(s.needsBridge?"":" · 手动桥"))));
   cover(E.aF);
   /* 乐观窗口内且真实态未到（s.playing≠optP）沿用乐观值；确认或超时即回真值 */
   var on;

@@ -1,61 +1,39 @@
-/* 「初始」SMTC 媒体作用面（v1.8.0）—— 系统媒体会话客户端
+/* 「初始」SMTC 媒体作用面（v3.0.0）—— 单主仲裁媒体引擎
+ *
+ * v3.0.0 双插件架构（根治多层真值互打的结构性冲突）：
+ *   [本模块] 唯一仲裁层：NCM API 插件在场 → 网易云真值独占（进度/时长/播放态/
+ *            元数据全部取自插件心跳，一次性年龄补偿，零混合零守卫）；
+ *            否则 SMTC-only（harmonize 守卫链只服务这条路径）。
+ *   [PS1 桥 v2.0.0] 纯传输：SMTC 会话 + ne 中转 + 插件注册表，不再修正任何真值
+ *   [初始SMTC桥 插件] 桥进程生命周期唯一管理者（部署/杀旧/拉起/监督/注册上报）
+ *   [初始网易云API 插件] 网易云真值唯一生产者（原生事件+锁定元素+seek 阶梯）
+ * 旧版三层各自修正（插件 buildSnapshot → 桥 ne-anchoring → 宿主 harmonize/零值
+ * 守卫/绝对锚定）互相打架，是状态反转/0.5x 爬行/冻死 0:00 的结构性根源——v3.0.0
+ * 每数据单主：插件产真值，桥只传输，宿主只仲裁（在场判定+单次补偿）；harmonize/
+ * 零值守卫只在 SMTC-only 兜底路径存在。网易云会话身份用桥 app 字段判定
+ * （AUMID 归一为 "NetEase Music"，比标题模糊匹配可靠），标题匹配只作旧桥兜底。
  *
  * 对端：初始 SMTC 桥（bridge/smtc/，Windows PowerShell + WinRT 零依赖脚本，
- * 双击启动，可选开机自启）。桥在本机 127.0.0.1:20754 暴露 HTTP：
- *   GET  /api/state              → {ok,name,version,track?}（轻量 JSON，
- *                                   track.position 为桥采样时刻快照）
+ * 由「初始SMTC桥」插件自动部署/拉起/监督，也可双击 启动SMTC桥.bat 手动启动）。
+ * 桥在本机 127.0.0.1:20754 暴露 HTTP：
+ *   GET  /api/state              → {ok,name,version,track?,ne?,plugins?}
+ *                                   （plugins.smtc = 管理插件自报版本，活体注册）
  *   GET  /api/cover?v=<coverRev> → 图片二进制（桥按 coverRev 内存缓存）
  *   POST /api/control            → {cmd: play|pause|toggle|next|prev|seek,
- *                                   position?} → {ok}
+ *                                   position?} → {ok}（seek 转发网易云插件队列）
+ *   GET  /api/lyric?v=<rev>      → 歌词载荷（网易云插件经桥中转）
  * 本模块 = 宿主内唯一消费方：1s 轮询 + 本地时钟插值出平滑进度；关键签名
- * （连接态/桥版本/标题/歌手/专辑/播放态/来源/时长/封面版本/歌词版本）变化才广播
- * 完整快照；position 不进签名（避免带歌词大载荷的整包每秒重发）——但每拍另发
- * 轻量锚点（onTick：position/duration/playing/rate/fetchedAt），消费方据此校正
- * 插值基准：否则 seek 后新位置永远不会到达部件（签名未变），进度条拖完弹回——
- * v1.8.x 真机「进度条完全是坏的」的根因，v1.9.0 以 tick 锚点修复。
- *
- * 网易云增强（v1.9.0）：桥 /api/state 附带 ne 字段（「初始歌词源」BetterNCM 插件
- * 经桥中转的精确状态）；歌词源可达且曲目匹配时：
- *   - duration/position 为 0 或缺失时用插件值兑底（SMTC 时间轴缺失场景）；
- *   - cover 无 SMTC 封面时用插件 picUrl 兑底（coverUrl）；
- *   - lyricRev 变化时拉 /api/lyric（yrc 逐字/lrc/tlyric），随快照广播。
- * SMTC 仍是会话与控制权威；插件只增强数据，不改变控制链路。
- *
- * v2.2.0（真机第 7 轮反馈：暂停恢复仍累积漂移 / 面板能拖但网易云本体不动）：
- *   ① 插件真值绝对锚定 —— 插件心跳新鲜（ts ≤3s）且曲目匹配时，进度/时长/播放态
- *      一律以插件真值为锚（插件在客户端内直读 el.currentTime，帧级真值）：
- *      暂停/恢复/微 seek 全部在 1s 内绝对重锚，误差不可能累积；
- *      时序守卫链（harmonize）只在 SMTC-only（无插件/非网易云）时启用。
- *   ② seek 诚实验证 —— 拖动提交后 2.5s 内对比插件真值：跟上→确认；未跟上→
- *      进度条诚实弹回真值 + seekNote 提示「拖动未生效」（绝不假装已跳转，
- *      真机「面板能拖但本体不动」的观感根因就是旧版 4s 假信任窗）；
- *      插件 v1.2.0 的 seekAck（内部 dispatch API 执行结果）提供更快确认。
- *   ③ 暴露 pluginVer（插件版本）+ seekNote —— 面板页脚可诊断插件在场与版本，
- *      多组件版本漂移一眼可见。
- *
- * v2.3.1（真机第 8 轮反馈：进度/歌词/时间冻死 0:00、播放态概率反转、WSH 弹窗）：
- *   ① 零值两击守卫 —— 插件深位置后突报 ≈0 的样本延迟一拍再采纳（连续两拍或
- *      本端刚 seek 到开头才信），播放态不在可疑零拍上翻转：单拍垃圾零样本
- *      再也冻不住面板/掀不翻播放态（配合插件 v1.4.0 真值熔断双保险）。
- *   ② needsUpdate 阈值升至桥 1.7.1 / 插件 1.4.0。
- *
- * v2.3.2（真机第 9 轮反馈：插件是新版芯片却常喊旧版、播放态仍反向、进度
- * 0.5x 爬行/倒退）：
- *   ① 升级归因拆分 —— needsPlugin（插件缺失/过旧：更新 .plugin 即可自修）
- *      与 needsBridge（插件新版在场但桥旧：自动升级可能被策略拦截，旧桥
- *      进程占端口杀不掉）分开暴露；部件据此分叉文案，仅桥旧时给「手动
- *      启动备用桥」诚实指引，绝不再喊无效的「更新 .plugin」。
- *   ② needsPlugin 阈值升至插件 1.5.0（插件侧：playing 最后事件语义 +
- *      元素身份锁定 + 倒退熔断 + 杀旧桥通道）；needsBridge 阈值保持
- *      桥 1.7.1（本轮桥零改动——不能给「必须升级桥」再造理由）。
+ * （连接态/桥版本/管理插件版本/标题/歌手/专辑/播放态/来源/时长/封面版本/歌词版本）
+ * 变化才广播完整快照；position 不进签名——每拍另发轻量锚点（onTick）供消费方
+ * 校正插值基准（v1.9.0 tick 锚点律，seek 后新位置必达）。
  *
  * SMTC 是 Windows 系统级媒体会话（System Media Transport Controls）——
  * 网易云/QQ 音乐/Spotify/浏览器视频等任何注册 SMTC 的播放器都会出现；
  * 桥按「网易云优先 → 正在播放的会话 → 第一个会话」选择当前曲。
  *
- * 消费方（两通道同款 chushi.smtc API）：
- *   - 沙箱脚本通道：sandbox.ts 路由 → sandbox.js makeChushi().smtc
- *   - 角落小部件通道：PresetWidgets.tsx 路由 → sandbox.js widgetShim().smtc
+ * 消费方（两通道同款 chushi.music / chushi.smtc API）：
+ *   - 沙箱脚本通道：sandbox.ts 路由 → sandbox.js makeChushi()
+ *   - 角落小部件通道：PresetWidgets.tsx 路由 → sandbox.js widgetShim()
  * 端口/协议变更需同步 bridge/smtc/ 与文档（PRESET_DEV.md §12、README）。
  */
 
@@ -100,18 +78,20 @@ export interface SmtcState {
   lyric: SmtcLyric | null;
   /** 歌词版本（桥生成，变化即重拉） */
   lyricRev: string;
-  /** 网易云歌词源插件版本（v2.2.0；空串 = 插件心跳不在场） */
+  /** 网易云 API 插件版本（v3.0.0 语义：初始网易云API 插件；空串 = 心跳不在场） */
   pluginVer: string;
+  /** v3.0.0：初始SMTC桥（管理插件）自报版本，桥 /api/state.plugins.smtc 活体注册；
+   *  空串 = 管理插件未装/未注册（手动桥）或旧桥（无注册表） */
+  smtcVer: string;
   /** seek 结果提示（v2.2.0；空串 = 无；「拖动未生效…」≈3.8s 后自动消失） */
   seekNote: string;
-  /** v2.3.1 组件过旧：桥 <1.7.1 或插件 <1.4.0 或插件不在场（面板显示升级芯片） */
+  /** v3.0.0 组件不齐（面板显示升级芯片）：needsPlugin || needsBridge */
   needsUpdate: boolean;
-  /** v2.3.2 升级归因拆分：插件缺失/过旧（更新 .plugin 即可全自动修复） */
+  /** v3.0.0 诚实归因：网易云API 插件缺失/损坏旧版/旧一体化待迁移
+   *  （芯片文案由部件分叉：缺失→装新插件；<1.4.0→更新；1.4.0–1.5.1 旧一体化→迁移双插件） */
   needsPlugin: boolean;
-  /** v2.3.2 升级归因拆分：插件在场但桥旧（自动升级可能被策略拦截，
-   *  面板须给「手动启动备用桥」的诚实指引而非无效的「更新 .plugin」——
-   *  真机第 9 轮：插件 1.4.0 在场页脚可见，芯片却永远喊「更新 .plugin」，
-   *  用户照做无效（旧桥进程占端口杀不掉），怒气直接来源） */
+  /** v3.0.0 诚实归因：桥不可达（装「初始SMTC桥」插件自动管理 或 手动 启动桥.bat）
+   *  或「管理插件已注册但桥版本旧」= 旧桥进程杀不死（策略拦截）→ 手动指引 */
   needsBridge: boolean;
 }
 
@@ -231,6 +211,18 @@ function normTitle(s: string): string {
     .replace(/[\s\-_·・()（）\[\]【】「」『』,，。、!！?？~～'\"＂]+/g, "");
 }
 
+/** v3.0.0：桥 /api/state.plugins 注册表（管理插件活体自报） */
+interface BridgePlugins {
+  smtc: string;
+}
+function normalizePlugins(raw: unknown): BridgePlugins | null {
+  if (typeof raw !== "object" || raw == null) return null;
+  const o = raw as Record<string, unknown>;
+  const smtc = typeof o.smtc === "string" ? o.smtc.slice(0, 16) : "";
+  if (!smtc) return null;
+  return { smtc };
+}
+
 /** 曲目与网易云插件状态是否指同一首歌（标题双向包含即认；SMTC 标题常带修饰）。
  *  v2.1.0：归一化后再比一轮（全半角标点/空格差异）；仍不中且双方时长已知且
  *  贴合（±2s）时接受歌手首段重合——SMTC 标题被本地化/加后缀时的概率性不匹配
@@ -259,6 +251,7 @@ function trackMatchesNe(t: SmtcTrack, ne: NeState): boolean {
 function stateSig(s: {
   connected: boolean;
   version: string;
+  smtcVer: string;
   track: SmtcTrack | null;
   lyricRev: string;
 }): string {
@@ -266,7 +259,7 @@ function stateSig(s: {
   const tpart = t
     ? [t.app, t.title, t.artist, t.album, t.playing ? 1 : 0, t.duration, t.coverRev].join("|")
     : "none";
-  return `${s.connected ? 1 : 0}|${s.version}|${tpart}|${s.lyricRev}`;
+  return `${s.connected ? 1 : 0}|${s.version}|${s.smtcVer}|${tpart}|${s.lyricRev}`;
 }
 
 /** 语义版本比较（仅 major.minor.patch 数字段） */
@@ -285,6 +278,7 @@ class SmtcClient {
   private state: SmtcState = {
     connected: false,
     version: "",
+    smtcVer: "",
     track: null,
     cover: null,
     coverUrl: null,
@@ -322,12 +316,8 @@ class SmtcClient {
   private seekNoteAt = 0;
   /** v2.3.3 SMTC-only 诚实 seek：reported 连续未跟上 seek 线的拍数（≥2 → 放弃信任窗） */
   private smtcSeekMiss = 0;
-  /** v2.3.1 零值两击守卫：插件深位置后突报 ≈0 的样本须延迟一拍再采纳
-   *  （真机插件 v1.3.0 曾因错误媒体元素持续报 paused+0，配合绝对锚定把
-   *  面板钉死 0:00 / 播放态概率反转；插件侧已真值熔断，这里是宿主兑底） */
-  private neZeroStreak = 0;
-  private neLastPosSec = -1;
-  private neSongKey = "";
+  /* v3.0.0：ne 零值两击守卫已删除——单主律下插件真值零修正直纳
+   * （插件自身已有零值/倒退/身份锁全套熔断，宿主再叠守卫就是旧版三层互打复辟） */
 
   getSnapshot(): SmtcState {
     return this.state;
@@ -424,21 +414,22 @@ class SmtcClient {
       this.failStreak = 0;
       const prev = this.state.track;
       const track = normalizeTrack(j.track);
-      /* v2.2.0：先判插件真值是否在场——真值每拍绝对重锚，时序伪影不可能累积，
-       * 守卫链（harmonize/锚点保持）只对 SMTC-only（无插件/非网易云）启用 */
       const ne = normalizeNe(j.ne);
-      const neLive = !!(track && ne && trackMatchesNe(track, ne));
-      /* v2.0.1 旧桥伪影守卫（SMTC-only）：暂停冻结/恢复续接/持续偏移保持/本端 seek 保持 */
-      if (track && prev && !neLive) this.harmonize(track, prev);
+      const plugins = normalizePlugins(j.plugins);
+      /* v3.0.0 单主仲裁（唯一判定点）：网易云API 插件心跳在场 → 网易云真值独占；
+       * 否则 SMTC-only（harmonize/锚点保持只服务这条路径）。
+       * 会话身份优先用桥 app 字段（AUMID 归一 "NetEase Music"，权威）；
+       * 标题匹配只作旧桥 app 名不可靠时的兜底。 */
+      const ncmOwns = this.judgeNcmOwns(track, ne);
+      if (track && prev && !ncmOwns) this.harmonize(track, prev);
       else if (!track || !prev) {
         this.lastDelta = 0;
       }
-      /* 锚点保持（v2.0.0，SMTC-only）：SMTC 的 Position 只在播放器主动上报时刷新——网易云实测
-       * 整首歌期间 raw position 钉死（桥 v1.3.0 已在源头做时钟补偿；对旧桥在宿主
-       * 侧兜底）：若曲目/播放态/速率/位置全部未变，则保留上一拍锚点（position+
-       * fetchedAt），本地插值得以持续前进；任一变化（seek/切歌/暂停）才重锚。 */
+      /* 锚点保持（v2.0.0，SMTC-only 专属）：SMTC 的 Position 只在播放器主动上报时
+       * 刷新（桥已在源头做时钟补偿；此处兜底旧桥）：若曲目/播放态/速率/位置全部
+       * 未变，则保留上一拍锚点，本地插值得以持续前进；任一变化才重锚。 */
       if (
-        !neLive &&
+        !ncmOwns &&
         track &&
         prev &&
         track.title === prev.title &&
@@ -456,20 +447,44 @@ class SmtcClient {
         this.state = { ...this.state, seekNote: "" };
         this.notify();
       }
-      this.apply({ connected: true, version: typeof j.version === "string" ? j.version.slice(0, 16) : "", track }, ne);
+      this.apply(
+        {
+          connected: true,
+          version: typeof j.version === "string" ? j.version.slice(0, 16) : "",
+          track,
+        },
+        ne,
+        plugins,
+        ncmOwns,
+      );
       /* v2.2.0 seek 诚实验证：真值/seekAck 跟上→确认；未跟上→弹回+提示 */
-      if (this.seekHold) this.verifySeek(neLive, ne);
+      if (this.seekHold) this.verifySeek(ncmOwns, ne);
       this.notifyTick(); // 每拍轻量锚点（seek/漂移校正，与签名无关）
     } catch {
       this.failStreak++;
       // 连续 2 次失败才判定桥离线（避免单次网络抖动把 UI 打成离线态）
       if (this.failStreak >= 2 && (this.state.connected || this.state.track)) {
-        this.apply({ connected: false, version: "", track: null }, null);
+        this.apply({ connected: false, version: "", track: null }, null, null, false);
       }
       next = RETRY_MS;
     }
     this.schedule(next);
   };
+
+  /** v3.0.0 单主判定（唯一仲裁点）：网易云API 插件心跳是否独占本次快照。
+   *  在场 = 心跳新鲜（ts ≤3s，缺 ts 的旧插件视作新鲜）且有歌名。
+   *  身份：桥选中网易云会话（app==="NetEase Music"，AUMID 归一，权威）→ 独占；
+   *  app 名不可靠（旧桥）时退化到标题匹配；NCM 正在播放时无条件独占
+   *  （用户听到的是网易云——修「面板显示其它应用/暂停态而网易云在响」的反转）。
+   *  NCM 暂停且身份不明时不抢面板（让 SMTC 展示其它正在播的应用）。 */
+  private judgeNcmOwns(t: SmtcTrack | null, ne: NeState | null): boolean {
+    if (!ne || !ne.title) return false;
+    const fresh = ne.ts > 0 ? Math.abs(Date.now() - ne.ts) <= 3000 : true;
+    if (!fresh) return false;
+    if (!t) return ne.playing;
+    if (t.app === "NetEase Music") return true;
+    return trackMatchesNe(t, ne) || ne.playing;
+  }
 
   /** v2.0.1 旧桥伪影守卫：同曲目前提下，抵御四类已知时序伪影，
    *  让 v1.2.x–v1.3.x 旧桥（暂停归零/恢复从头/seek 不重锚）也能表现正确：
@@ -602,79 +617,68 @@ class SmtcClient {
   }
 
   /**
-   * 应用新快照 + 网易云增强合并（v1.9.0 兑底合并 / v2.2.0 真值绝对锚定）。
-   * 合并策略：歌词源可达且曲目匹配时——
-   *   插件心跳新鲜（ts ≤3s，缺 ts 的旧插件视作新鲜）：进度/时长/播放态一律以
-   *   插件真值为锚（el.currentTime 帧级真值，暂停/恢复/微 seek 1s 内绝对重锚）；
-   *   心跳过期：退回 v1.9.0 兑底语义（SMTC 值缺失时才用插件值）；
-   * SMTC 封面缺失时把插件 picUrl 写入 coverUrl（不变）。
+   * 应用新快照（v3.0.0 单主合并——每数据单主，零混合）。
+   * ncmOwns=true（tick 已判定）：进度/时长/播放态/元数据全部取自插件心跳，
+   *   仅做一次性年龄补偿（插件采样时刻 → 此刻，之后由 fetchedAt 插值接管）；
+   *   无任何守卫/降级/零值猜测——插件真值原样即唯一事实。
+   * ncmOwns=false：SMTC-only 路径，track 保持 harmonize 后的值原样生效。
+   * 封面：SMTC 封面缺失时插件 picUrl 写入 coverUrl（两条路径一致）。
    */
   private apply(
     next: { connected: boolean; version: string; track: SmtcTrack | null },
     ne: NeState | null,
+    plugins: BridgePlugins | null,
+    ncmOwns: boolean,
   ): void {
     const t = next.track;
+    const now = Date.now();
     let neUsable = false;
-    if (t && ne && trackMatchesNe(t, ne)) {
+    if (t && ncmOwns && ne) {
       neUsable = true;
-      const neFresh = ne.ts > 0 ? Math.abs(Date.now() - ne.ts) <= 3000 : true;
-      if (neFresh) {
-        /* v2.2.0 插件真值绝对锚定：插件在客户端内直读播放器（帧级真值），
-         * 每秒心跳把锚点重锚到真值——暂停/恢复/微 seek 的插值漂移不可能累积。
-         * v2.3.1 零值两击守卫：深位置后突报 ≈0 的首拍不采纳（延迟一拍），
-         * 连续两拍或本端刚 seek 到开头才信——单拍垃圾零样本再也冻不住面板；
-         * 播放态同样不在可疑零拍上翻转（状态反转观感的宿主侧根因）。 */
-        if (ne.durationMs > 0) t.duration = ne.durationMs / 1000;
-        const songKey = `${t.title}|${t.artist}`;
-        if (songKey !== this.neSongKey) {
-          this.neSongKey = songKey;
-          this.neZeroStreak = 0;
-          this.neLastPosSec = -1;
-        }
-        const posSec = ne.positionMs / 1000;
-        const zeroDrop = posSec < 0.8 && this.neLastPosSec > 3;
-        if (zeroDrop) this.neZeroStreak++; else this.neZeroStreak = 0;
-        const seekToStart =
-          !!this.seekHold && this.seekHold.pos <= 3 && Date.now() - this.seekHold.at < 4000;
-        const trustZero = !zeroDrop || this.neZeroStreak >= 2 || seekToStart;
-        /* v2.3.1：可疑零拍（含「小而非零」如 0.4s）一律不采纳——
-         * posSec>0 的短路会放走非零垃圾样本（verify Z1a 实锤），
-         * 必须 trustZero 或位置足够深（≥0.8s）才写锚 */
-        if (trustZero || posSec >= 0.8) t.position = posSec;
-        if (!zeroDrop || trustZero) t.playing = ne.playing;
-        this.neLastPosSec = posSec;
-      } else {
-        /* 心跳过期：退回 v1.9.0 兑底语义（SMTC 值缺失时才用插件值） */
-        if (t.duration <= 0 && ne.durationMs > 0) t.duration = ne.durationMs / 1000;
-        if (t.position <= 0 && ne.positionMs > 0) t.position = ne.positionMs / 1000;
-      }
+      /* 网易云真值独占：元数据/时长/位置/播放态全部来自插件（单源，零混合） */
+      t.title = ne.title;
+      t.artist = ne.artist;
+      if (ne.album) t.album = ne.album;
+      if (ne.durationMs > 0) t.duration = ne.durationMs / 1000;
+      const rate = t.rate > 0 ? t.rate : 1;
+      const age = Math.max(0, Math.min(3, ne.ts > 0 ? (now - ne.ts) / 1000 : 0));
+      let posSec = ne.positionMs / 1000 + (ne.playing ? age * rate : 0);
+      if (t.duration > 0 && posSec > t.duration) posSec = t.duration;
+      t.position = Math.max(0, posSec);
+      t.fetchedAt = now;
+      t.playing = ne.playing;
+      if (t.app !== "NetEase Music") t.app = "NetEase Music"; /* 旧桥 app 名兜底归一 */
     }
     const lyricRevNow = neUsable && ne!.lyricRev ? ne!.lyricRev : "";
     const prevCover = this.state.cover;
     const prevLyric = this.state.lyric;
     const coverRevNow = next.track?.coverRev ?? "";
-    /* v2.3.0：pluginVer 不要求曲目匹配（插件在场即报——标题失配时页脚仍可诊断）；
-     * seekNote/needsUpdate 变化也进签名（提示出现/消失都要广播）。
-     * needsUpdate：桥 <1.7.1（一体化桥由插件部署）或插件 <1.4.0（真值熔断/
-     * 部署读回校验/拉起退避）或插件不在场 —— 面板直接给「升级插件」芯片，
-     * 版本漂移从症状可见。 */
+    /* pluginVer 不要求曲目匹配（插件在场即报）；smtcVer = 管理插件活体注册；
+     * seekNote/needsUpdate 变化也进签名（提示出现/消失都要广播）。 */
     const pluginVerNow = ne ? ne.v : "";
+    const smtcVerNow = plugins ? plugins.smtc : "";
     const seekNoteNow = this.seekNote;
-    /* v2.3.2 升级归因拆分：needsPlugin = 更新 .plugin 能自修；
-     * needsBridge = 插件新版在场但桥旧（自动升级可能被策略拦，
-     * 提示必须给手动兜底指引，绝不再喊「更新 .plugin」）。 */
+    /* v3.0.0 诚实归因（每个标志都有一一对应的可行操作，绝不空喊）：
+     * needsPlugin：网易云API 插件缺失（装新插件即有逐字歌词/精确进度/seek）；
+     *   版本 <1.4.0（损坏旧版，更新修复）；1.4.0–1.5.1 旧一体化（仍工作但属
+     *   旧架构，芯片给迁移双插件指引）。
+     * needsBridge：桥不可达（装「初始SMTC桥」自动管理 或 手动 启动桥.bat）；
+     *   或「管理插件已注册但桥版本旧」= 旧桥进程杀不死（策略拦截实锤）→
+     *   给手动指引，绝不喊无效的「更新 .plugin」（v2.3.2 教训延续）。 */
     const needsPluginNow =
-      next.connected && (!pluginVerNow || verLt(pluginVerNow, "1.5.1"));
+      next.connected &&
+      (!pluginVerNow || verLt(pluginVerNow, "1.4.0") || verLt(pluginVerNow, "2.0.0"));
     const needsBridgeNow =
-      next.connected && verLt(next.version, "1.7.1");
+      !next.connected || (!!smtcVerNow && verLt(next.version, "2.0.0"));
     const needsUpdateNow = needsPluginNow || needsBridgeNow;
     const sig =
       stateSig({
         connected: next.connected,
         version: next.version,
+        smtcVer: smtcVerNow,
         track: next.track,
         lyricRev: lyricRevNow,
-      }) + `|${pluginVerNow}|${seekNoteNow}|${needsPluginNow ? 1 : 0}|${needsBridgeNow ? 1 : 0}`;
+      }) + `|${pluginVerNow}|${smtcVerNow}|${seekNoteNow}|${needsPluginNow ? 1 : 0}|${needsBridgeNow ? 1 : 0}`;
     this.state = {
       ...next,
       cover: prevCover,
@@ -682,6 +686,7 @@ class SmtcClient {
       lyric: prevLyric,
       lyricRev: lyricRevNow,
       pluginVer: pluginVerNow,
+      smtcVer: smtcVerNow,
       seekNote: seekNoteNow,
       needsUpdate: needsUpdateNow,
       needsPlugin: needsPluginNow,

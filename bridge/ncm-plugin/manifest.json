@@ -1,0 +1,19 @@
+{
+  "manifest_version": 1,
+  "name": "初始网易云API",
+  "slug": "cc.chushi.ncmapi",
+  "version": "2.0.0",
+  "author": "ChuShi",
+  "description": "「初始」SMTC 音乐面板的网易云真值唯一生产者（v3.0.0 双插件架构，纯 API 无 UI）：推送精确播放状态（songId/positionMs/durationMs/playing/封面）与逐字歌词（yrc），执行 seek 三级阶梯（channel.seek → store dispatch → el.currentTime，逐级实测校验 + seekAck 诚实回传）。心跳携带 role=ncm——与旧「初始歌词源」并存时桥会压制旧心跳，不再互打。本插件零桥进程管理：桥的部署/拉起/监督由「初始SMTC桥」插件负责。真值熔断沿袭 v1.5.1 全部修复：原生事件最后语义 + 元素身份锁定 + 倒退熔断 + 零值熔断 + channel 健康闸。安装：卸载旧「初始歌词源」，把本 .plugin 与「初始SMTC桥」.plugin 一起放入 BetterNCM plugins 文件夹，重启网易云。",
+  "ncm3-compatible": true,
+  "ncm-version-req": "> 2.10.2",
+  "betterncm_version": ">=1.0.0",
+  "injects": {
+    "Main": [
+      {
+        "file": "index.js"
+      }
+    ]
+  },
+  "hijacks": {}
+}

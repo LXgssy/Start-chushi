@@ -217,8 +217,10 @@
         duration: t ? +t.duration || 0 : 0,
         lyricRev: rev,
         lyric: st.lines ? { mode: st.lmode, lines: st.lines } : null,
-        /* v2.2.0：诊断透出——插件版本（页脚可见插件在场）与 seek 结果提示 */
+        /* v2.2.0：诊断透出——插件版本（页脚可见插件在场）与 seek 结果提示
+           v3.0.0：smtcVer = 「初始SMTC桥」管理插件活体注册版本（双插件架构） */
         pluginVer: state && typeof state.pluginVer === "string" ? state.pluginVer.slice(0, 16) : "",
+        smtcVer: state && typeof state.smtcVer === "string" ? state.smtcVer.slice(0, 16) : "",
         seekNote: state && typeof state.seekNote === "string" ? state.seekNote.slice(0, 40) : "",
         /* v2.3.0：组件过旧（桥/插件版本不齐）→ 面板升级芯片
            v2.3.2：归因拆分——needsPlugin（更新 .plugin 可自修）与

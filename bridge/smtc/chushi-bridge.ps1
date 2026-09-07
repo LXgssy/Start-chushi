@@ -1,20 +1,38 @@
-# ChuShi SMTC Bridge v1.7.1 (embedded edition, ASCII-only)
+# ChuShi SMTC Bridge v2.0.0 (embedded edition, ASCII-only)
 # ============================================================
 # IMPORTANT: this file MUST stay pure ASCII (no CJK) so encoding can never
-# break it. It is embedded (base64) inside the ChuShi Lyric Source BetterNCM
-# plugin, which deploys + starts + supervises it automatically.
+# break it. It is embedded (base64) inside the ChuShi SMTC Bridge BetterNCM
+# plugin (cc.chushi.smtcbridge), which deploys + starts + supervises it.
+#
+# v3.0.0 architecture rule: THIS BRIDGE IS TRANSPORT ONLY.
+# It relays the Windows SMTC session and the NetEase plugin truth (ne) as-is.
+# It NEVER blends/corrects one with the other (the v1.7.x ne-anchoring of the
+# SMTC position is REMOVED - the host now owns all arbitration, one layer).
 #
 # Exposes the Windows system media session (SMTC) on http://127.0.0.1:20754:
-#   GET  /api/state          snapshot (position is wall-clock compensated)
+#   GET  /api/state          snapshot + plugins registry (smtc plugin version)
 #   GET  /api/cover?v=rev    cover bytes (cached)
 #   POST /api/control        {cmd: play|pause|toggle|next|prev|seek, position?}
 #   GET  /api/lyric?v=rev    lyric payload pushed by the NetEase plugin
 #   POST /api/plugin/state   plugin heartbeat (state in / cmd out via resp)
+#   POST /api/plugin/register {role:'smtc', v} - supervisor plugin self-report
 #   GET  /api/plugin/cmd     plugin fast command poll (seek latency <= 300ms)
 #   GET  /api/ping           liveness probe {ok,name,version}
 #
+# v2.0.0 changes (two-plugin split, transport-only):
+#   + /api/plugin/register: the SMTC supervisor plugin reports {role:'smtc',
+#     v}; registry surfaced in /api/state as plugins.smtc (fresh <= 90s) so
+#     the host can see the supervisor live instead of guessing versions.
+#   + heartbeat role arbitration: state POSTs carrying role='ncm' (the new
+#     NetEase API plugin) mark the ne channel owner for 10s; role-less
+#     heartbeats (legacy integrated plugin still installed alongside) are
+#     IGNORED while the ncm owner is alive - two producers can no longer
+#     fight over the same channel (last-writer-wins alternation bug).
+#   - REMOVED: ne-anchoring of the SMTC position inside Update-MediaState
+#     (the three-layer correction war was the structural root of inverted
+#     states / 0.5x crawling progress / frozen panels).
 # v1.7.1 changes:
-#   + /api/plugin/state heartbeat response now carries needLyric = <songId>
+#   + /api/plugin/state heartbeat response carries needLyric = <songId>
 #     when the current song has no lyric in this bridge's memory (bridge was
 #     restarted mid-song) - the plugin re-pushes its cached lyric on sight,
 #     so the panel never loses lyrics to a bridge restart.
@@ -26,7 +44,7 @@
 #     it, so the bridge follows the plugin version with zero manual steps)
 #   + removes the legacy 'ChuShiSmtcBridge' manual-autostart key semantics by
 #     simply overwriting it with the deployed path
-#   carried over from v1.5.0/v1.6.0: plugin truth anchoring, seek via SMTC +
+#   carried over from v1.5.0/v1.6.0: seek via SMTC +
 #     plugin passthrough (with id), lyric rev check, pause half-window
 #     compensation.
 param(
@@ -37,7 +55,7 @@ param(
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-$BRIDGE_VERSION = '1.7.1'
+$BRIDGE_VERSION = '2.0.0'
 
 # ---------- WinRT projection (Windows PowerShell 5.1 only) ----------
 if ($PSVersionTable.PSVersion.Major -ge 6) {
@@ -78,6 +96,11 @@ $script:NeLyric = $null
 $script:NeLyricRev = ''
 $script:NeStateAt = [DateTime]::MinValue
 $script:NeLyricAt = [DateTime]::MinValue
+# v2.0.0 two-plugin split: ne channel owner + supervisor plugin registry
+$script:NeOwner = 'legacy'          # 'legacy' (role-less heartbeat) | 'ncm' (role=ncm)
+$script:NeNcmAt = [DateTime]::MinValue
+$script:SmtcPluginVer = ''          # supervisor plugin self-reported version
+$script:SmtcPluginAt = [DateTime]::MinValue
 
 $script:PosAnchor = @{
   Key = ''; Base = 0.0; At = [DateTime]::UtcNow
@@ -108,6 +131,17 @@ function S-Num($Obj, [string]$Key) {
 
 function Update-NeState($Obj) {
   if ($null -eq $Obj) { return }
+  # v2.0.0 owner arbitration: role='ncm' heartbeat claims the channel for 10s;
+  # role-less (legacy integrated plugin) heartbeats are dropped while an ncm
+  # owner is alive so two producers can never interleave on the same channel.
+  $role = S-Str $Obj 'role' 8
+  if ($role -eq 'ncm') {
+    $script:NeOwner = 'ncm'
+    $script:NeNcmAt = Get-Date
+  } else {
+    if ($script:NeOwner -eq 'ncm' -and ((Get-Date) - $script:NeNcmAt).TotalSeconds -le 10) { return }
+    $script:NeOwner = 'legacy'
+  }
   $song = $Obj.song
   $st = @{
     songId = 0; title = ''; artist = ''; album = ''; pic = ''
@@ -296,23 +330,10 @@ function Update-MediaState {
       $el = ([DateTime]::UtcNow - $script:PosAnchor.At).TotalSeconds
       if ($el -gt 0 -and $el -lt 21600) { $posSec = $script:PosAnchor.Base + $el * $script:State.Rate }
     }
-    # ---------- plugin truth anchoring ----------
-    if ($null -ne $script:NeState -and (Test-TitleMatch $script:State.Title $script:NeState.title) -and `
-        [double]$script:NeState.positionMs -gt 0 -and `
-        ((Get-Date) - $script:NeStateAt).TotalSeconds -le 5) {
-      $neSec = [double]$script:NeState.positionMs / 1000.0
-      $neAge = ((Get-Date) - $script:NeStateAt).TotalSeconds
-      if ($neAge -lt 0) { $neAge = 0 }
-      if ($script:NeState.playing) {
-        $r3 = $script:State.Rate; if ($r3 -le 0) { $r3 = 1.0 }
-        $neSec = $neSec + $neAge * $r3
-      }
-      $neDur = [double]$script:NeState.durationMs / 1000.0
-      if ($neDur -le 0) { $neDur = $script:State.Duration }
-      if ($neDur -gt 0 -and $neSec -gt $neDur) { $neSec = $neDur }
-      if ($neSec -lt 0) { $neSec = 0.0 }
-      $posSec = $neSec
-    }
+    # v2.0.0: NO ne-anchoring here. The bridge is transport only - the SMTC
+    # position is compensated by wall-clock (above) and relayed as-is. The
+    # NetEase plugin truth (ne) reaches the host untouched; the HOST owns the
+    # single arbitration layer (three-layer correction war removed).
     if ($script:State.Duration -gt 0 -and $posSec -gt $script:State.Duration) { $posSec = $script:State.Duration }
     if ($posSec -lt 0) { $posSec = 0.0 }
     $script:CurPos = $posSec
@@ -527,9 +548,29 @@ while ($true) {
       continue
     }
 
+    if ($path -eq '/api/plugin/register' -and $req.HttpMethod -eq 'POST') {
+      # v2.0.0: supervisor plugin self-report {role:'smtc', v:'x.y.z'}
+      $j = Read-BodyJson $req
+      if ($null -ne $j) {
+        $r = S-Str $j 'role' 8
+        $v = S-Str $j 'v' 16
+        if ($r -eq 'smtc' -and $v) {
+          $script:SmtcPluginVer = $v
+          $script:SmtcPluginAt = Get-Date
+        }
+      }
+      Send-Json $res @{ ok = $true }
+      continue
+    }
+
     if ($path -eq '/api/state') {
       Ensure-Fresh
       $s = $script:State
+      # v2.0.0: plugins registry (supervisor plugin self-report, fresh <= 90s)
+      $plugins = $null
+      if ($script:SmtcPluginVer -and ((Get-Date) - $script:SmtcPluginAt).TotalSeconds -le 90) {
+        $plugins = @{ smtc = [string]$script:SmtcPluginVer }
+      }
       if ($s.HasSession) {
         Send-Json $res @{
           ok = $true; name = 'chushi-smtc-bridge'; version = $BRIDGE_VERSION
@@ -542,9 +583,10 @@ while ($true) {
             coverRev = $s.CoverRev
           }
           ne = (Get-NeFresh)
+          plugins = $plugins
         }
       } else {
-        Send-Json $res @{ ok = $true; name = 'chushi-smtc-bridge'; version = $BRIDGE_VERSION; track = $null }
+        Send-Json $res @{ ok = $true; name = 'chushi-smtc-bridge'; version = $BRIDGE_VERSION; track = $null; plugins = $plugins }
       }
       continue
     }
