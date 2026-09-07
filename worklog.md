@@ -791,3 +791,25 @@ Stage Summary:
 - 逐字歌词按用户三段思路闭环：全量歌词（既有 eapi 链）→真值时间轴对齐+slew 吸收→暂停按词时间计算淡入淡出；冻结感/扫色抖动/累积漂移三形态分别有渲染层/显示层/真值层对策
 - 新律：①选型前一手文档逐段实读（manual-control 模式+Min/MaxSeekTime 门槛都是文档里读出来的，搜索摘要给不了）；②被平台「保护」的 API 必有替代正门（interop 受保护→MediaPlayer 自动集成就是门）；③真语法门优于一切静态断言——70MB 的 pwsh 换 11 版桥脚本首次 SYNTAX OK，值
 - 待办：用户真机复测（扩展 3.1.0 + 双插件 2.1.0/2.2.0 + 重启网易云 + Ctrl+F5；看悬浮窗卡片可拖进度/媒体键/面板拖动/暂停淡入淡出）；任务 B 剩余=audioplayer.seek 参数实抓；Edge 商店材料仍未动
+
+---
+Task ID: 89
+Agent: main (Super Z)
+Task: 用户第 11 轮指令「重写=删光老代码从头写，不许复用；现在问题一个没解决，装插件还弄坏网易云本体进度条；不再需要网易云自带 smtc 开关，直接靠插件；插件不能是中文否则读取不了」→ v4.0.0 音乐链路四层全量重写
+
+Work Log:
+- 【三条宪法落门】①零复用：插件A/B index.js、引擎 ps1、宿主 smtc.ts(862→439 行，judgeNcmOwns/harmonize/seekHold/trackMatchesNe/lastDelta 全删)、sandbox 音乐核心、部件脚本五层全部从零新写，构建门断言老符号零残留；②不依赖网易云自带 SMTC：引擎零读取外部会话（GlobalSystemMediaTransportControls*/GetSessions/TryPlayAsync/TryPauseAsync/GetForCurrentView 构建门封禁），网易云 SMTC 开关开或关都不影响；③插件全英文：双 .plugin 文件名/manifest/代码逐字符 ASCII 断言（test-crypto-v4 + build-v4-plugins 双门）
+- 【引擎 chushi-smtc-engine.ps1 v4.0.0 新写】自有满血会话（MediaPlayer+CommandManager 禁用官方 manual-control 模式+AUMID ChuShi.SmtcEngine+内存静音 WAV 不落盘+Min/MaxSeekTime 必设+IsPlaybackPositionEnabled 可拖+Register-ObjectEvent 同步队列事件）；HTTP 枢纽 127.0.0.1:26801（新端口隔离旧僵尸桥）：/api/ping|state|ne|lyric|cmd|mgr 全 CORS；HTTP 跑独立 runspace 只碰同步集合、WinRT 留主线程；ne 断供 6s → 会话 Closed；命令队列（SMTC 事件+宿主 POST 同槽，5s 过期 cap8）
+- 【插件B ChuShi Music API v3.0.0 新写】只读律：原生事件（PlayState state===1/PlayProgress/Seek）+dva store 只读（绝不 dispatch）+元素粘滞校验（时长锚定 ±1.5s，无评分轮盘）；位置=元素对齐原生时取元素亚秒钟→原生→store.position 三级调和；控制单次执行律：play/pause=元素方法、next/prev=网易云自家可见按钮、seek=currentTime 直写一次+420ms/1s 双读回校验+seekAck 诚实上报（构建门断言 currentTime 写入点唯一）；全量歌词：eapi /api/song/lyric/v1（自实现 MD5 RFC1321+AES-128-ECB 运行时 S-box）+klyric 转换+channel+直连三级回退，缓存 8 首
+- 【密码学向量门抓出真 bug】MD5 位长度字节被 JS 位移 mod-32 陷阱写坏（bitLen>>>32===bitLen>>>0 → m[60] 污染），FIPS-197 C.1+Node aes-128-ecb 对照双门抓住；修复=算术右移；AES 网上公开向量逐字节通过；此坑写入 AI-HANDOFF 坑 1
+- 【宿主 smtc.ts v4 单真值直显】轮询 /api/state → ne 原样成曲目（一次性年龄补偿+fetchedAt 插值），零仲裁零守卫零混合；歌词按 songId 拉取 /api/lyric；needsPlugin(ne.v<3.0.0)/needsBridge(引擎不可达) 诚实归因；seekAck false → 3.8s 醒目提示「拖动未生效：网易云未响应」；公开面（smtc 单例/SMTC_COMMANDS/smtcPositionNow/类型）不变，消费方零改动
+- 【沙盒核心+部件】__chushiMusicCore 从零重写（同契约 feed/tick/now/subscribe/seek；slew 0.35s 吸收+暂停按当前词剩余算 fadeMs 120-420ms——用户指定防漂移管线）；music-widget.html DOM/CSS 字节不动（防位移双 SVG 交叉淡切/lyHold 迟滞全保留）仅换 script（芯片文案分叉：缺件安装/引擎未运行/插件过旧）
+- 【⚠本代新坑三件】①JS 位移 mod-32（坑1）；②strict 部件脚本漏 var lyActive → ReferenceError 被 feed catch 吞 → 面板停在静态 DOM（E2E 文案级断言抓出——「渲染必须断言到具体文案」）；③终端显示吃 `[h` 序列：文件里 [hashtable] 回显成 ashtable]（python codepoint 断言定真相），且 "ashtable]" 是 "[hashtable]" 子串、盲 replace 会造双括号——文件字节从未坏，全是显示伪影
+- 【验证】test-crypto-v4 全过（MD5 RFC 向量/AES FIPS-197/Node 多块对照/ASCII 门）+ verify-v4 141/141 × 2 轮：S1-S10 静态（含 S2 引擎零 SMTC 读取逐符号、S4 插件 B 单写点、S6 宿主老符号零残留、S9 内嵌引擎逐字节回环）+ PSX 真语法门（pwsh 7.4.6 ParseFile——修复 [hashtable] 前报 Unexpected token 实锤显示伪影真相）+ V1-V5 插件白盒（vm 跑真 index.js：真值调和/seek 读回 ack/按钮路由/歌词 eapi 全链）+ M1-M4 音乐核心单测 + E1-E11 e2e（mock 引擎 26801：导入/等待态/真值显示/双版本页脚/进度推进/seek 到达引擎/旧版芯片）+ X1 pageerror=0
+- 【构建/交付】双 .plugin（ChuShi-SMTC-Manager-3.0.0/ChuShi-Music-API-3.0.0）+ 扩展 4.0.0 zip 11.7MB + .cshz + 手动兜底包（Start-Engine.bat ASCII+CRLF + 引擎 ps1 CRLF）+ 合并交付包 + SHA256SUMS.txt + 使用说明重写（用户每条症状对应新架构解法 + 三步升级 + 30 秒自查）；旧代 .plugin 产物 git rm
+- 【文档】AI-HANDOFF 全量重写（v4 宪法三条/新拓扑图/数据律四条/歌词管线/产线 9 步/兼容矩阵/14 坑/任务 A-D）；README v4.0.0 段；package.json 4.0.0
+
+Stage Summary:
+- 用户三条硬指令全部落为构建门（机器强制而非口头承诺）：零复用=老符号零残留断言、无 SMTC 读取=reader-side 类封禁、全 ASCII=逐字符断言；「装插件弄坏网易云本体」结构性根治=只读律+单次控制执行律（currentTime 全文件唯一写点）
+- 新律：①重写类指令的验收=构建门断言老符号不存在，不是「我保证没抄」；②自实现密码学必须向量门先行（本代 MD5 真错被 FIPS 抓出）；③E2E 必须断言渲染产物文案而非「无报错」（catch 吞异常让静态 DOM 假活）；④显示伪影与文件真相分离：codepoint 断言定真相，显示层吃字符序列时严禁目视诊断
+- 待办：用户真机复测（卸旧装双新 .plugin+重启网易云+Ctrl+F5+重导 .cshz；网易云 SMTC 开关关闭状态验满血卡片/可拖进度/媒体键；确认网易云自家进度条不受影响；暂停 30s 恢复读词零漂移）；任务 B=seek 元素级真机成功率；Edge 商店材料仍未动

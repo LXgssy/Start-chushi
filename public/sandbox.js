@@ -116,36 +116,63 @@
    *   play/pause/toggle/next/prev。旧 chushi.smtc 保持原样兼容。
    * ============================================================ */
   function __chushiMusicCore(hooks) {
+    /* ============================================================
+     * ChuShi music core (v4 generation, rewritten from scratch).
+     * Data plane of the built-in music engine. The plugin produces the
+     * truth; the engine relays it; THIS layer renders it:
+     *   - parse word-level (yrc) / line-level (lrc) lyrics + translations;
+     *   - anchor = {position, fetchedAt, playing, rate, duration}: local
+     *     clock interpolation between 1 Hz engine snapshots;
+     *   - slew window: while playing, re-anchor only when the fresh truth
+     *     drifted >= LY_SLEW_SEC from the interpolated clock (kills the
+     *     per-poll arrival jitter that made karaoke sweep visibly twitch);
+     *   - pause fade: on playing->paused compute fadeMs from the CURRENT
+     *     word's remaining time (user pipeline: full lyrics -> truth
+     *     timestamps -> pause-time fade -> zero cumulative drift);
+     *   - now(): precomputed realtime state {position, progress,
+     *     lineIndex, wordIndex, wordProgress, fadeMs...} for rAF renderers.
+     * Contract (unchanged): feed/tick bridged by both channels;
+     * snapshot()/now()/lyrics()/subscribe(cb)/seek(sec)/play/pause/
+     * toggle/next/prev.
+     * ============================================================ */
     var st = { cbs: [], snap: null, anchor: null, lines: null, lmode: 0, lrev: "\u0000none", parsedRef: null, fadeMs: 0 };
+    var LY_SLEW_SEC = 0.35;
 
     function clamp01(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+    function bisectLine(ms) {
+      var L = st.lines, lo = 0, hi = L.length - 1;
+      while (lo <= hi) { var mid = (lo + hi) >> 1; if (L[mid].s <= ms) lo = mid + 1; else hi = mid - 1; }
+      return hi;
+    }
 
-    /* yrc：[start,dur](s,d,0)词(s,d,0)词… （毫秒）→ 词级行（行文本 t = 词串连接，
-       供 lineText / gap 行回退展示） */
+    /* yrc: "[start,dur](s,d,0)word(s,d,0)word..." (ms) -> line objects */
     function parseYrc(text) {
-      var out = [], lines = String(text).split(/\r?\n/);
-      for (var i = 0; i < lines.length; i++) {
-        var m = lines[i].match(/^\[(\d+),(\d+)\](.*)$/);
+      var out = [], rows = String(text).split(/\r?\n/);
+      for (var i = 0; i < rows.length; i++) {
+        var m = rows[i].match(/^\[(\d+),(\d+)\](.*)$/);
         if (!m) continue;
         var s0 = +m[1], dur = Math.max(1, +m[2]), rest = m[3] || "";
-        var words = [], re = /\((\d+),(\d+),\d+\)([^(]*)/g, wm, all = "";
-        while ((wm = re.exec(rest))) { if (wm[3] !== "") { words.push({ s: +wm[1], d: Math.max(1, +wm[2]), t: wm[3] }); all += wm[3]; } }
-        out.push({ s: s0, e: s0 + dur, t: all, tr: "", w: words });
+        var words = [], re = /\((\d+),(\d+),\d+\)([^(]*)/g, wm, joined = "";
+        while ((wm = re.exec(rest))) {
+          if (wm[3] !== "") { words.push({ s: +wm[1], d: Math.max(1, +wm[2]), t: wm[3] }); joined += wm[3]; }
+        }
+        out.push({ s: s0, e: s0 + dur, t: joined, tr: "", w: words });
       }
       out.sort(function (a, b) { return a.s - b.s; });
       return out;
     }
-    /* lrc：[mm:ss.xx]文本 → 行级（行尾 = 下一行起点） */
+
+    /* lrc: "[mm:ss.xx]text" -> line objects (line end = next line start) */
     function parseLrc(text) {
-      var out = [], lines = String(text).split(/\r?\n/);
-      for (var i = 0; i < lines.length; i++) {
-        var ts = lines[i].match(/\[(\d+):(\d+)(?:[.:](\d+))?\]/g);
-        if (!ts) continue;
-        var t = lines[i].replace(/\[[^\]]*\]/g, "").trim();
-        for (var j = 0; j < ts.length; j++) {
-          var m = ts[j].match(/\[(\d+):(\d+)(?:[.:](\d+))?\]/);
+      var out = [], rows = String(text).split(/\r?\n/);
+      for (var i = 0; i < rows.length; i++) {
+        var stamps = rows[i].match(/\[(\d+):(\d+)(?:[.:](\d+))?\]/g);
+        if (!stamps) continue;
+        var body = rows[i].replace(/\[[^\]]*\]/g, "").trim();
+        for (var j = 0; j < stamps.length; j++) {
+          var m = stamps[j].match(/\[(\d+):(\d+)(?:[.:](\d+))?\]/);
           var sec = (+m[1]) * 60 + (+m[2]) + (m[3] ? +("0." + m[3]) : 0);
-          out.push({ s: Math.round(sec * 1000), e: 0, t: t, tr: "" });
+          out.push({ s: Math.round(sec * 1000), e: 0, t: body, tr: "", w: null });
         }
       }
       out.sort(function (a, b) { return a.s - b.s; });
@@ -153,12 +180,16 @@
       for (var q = 0; q < out.length; q++) out[q].e = q + 1 < out.length ? out[q + 1].s : out[q].s + 8000;
       return out;
     }
-    /* 翻译按行首时间就近贴（winMs 容差） */
+
+    /* snap translations onto lines by nearest line start (winMs tolerance) */
     function attachTr(lines, trLines, winMs) {
       if (!trLines || !trLines.length || !lines) return;
       for (var i = 0; i < lines.length; i++) {
         var best = null, bd = winMs;
-        for (var j = 0; j < trLines.length; j++) { var d = Math.abs(trLines[j].s - lines[i].s); if (d <= bd) { bd = d; best = trLines[j]; } }
+        for (var j = 0; j < trLines.length; j++) {
+          var d = Math.abs(trLines[j].s - lines[i].s);
+          if (d <= bd) { bd = d; best = trLines[j]; }
+        }
         if (best) {
           var tt = best.t || "";
           if (best.w && best.w.length) { tt = ""; for (var x = 0; x < best.w.length; x++) tt += best.w[x].t; }
@@ -166,25 +197,20 @@
         }
       }
     }
+
     function parseAll(ly) {
       if (ly.yrc) {
         var p = parseYrc(ly.yrc);
-        if (p.length) {
-          attachTr(p, ly.ytlrc ? parseYrc(ly.ytlrc) : null, 800);
-          return { mode: 1, lines: p };
-        }
+        if (p.length) { attachTr(p, ly.ytlrc ? parseYrc(ly.ytlrc) : null, 800); return { mode: 1, lines: p }; }
       }
       if (ly.lrc) {
         var q = parseLrc(ly.lrc);
-        if (q.length) {
-          attachTr(q, ly.tlyric ? parseLrc(ly.tlyric) : null, 600);
-          return { mode: 2, lines: q };
-        }
+        if (q.length) { attachTr(q, ly.tlyric ? parseLrc(ly.tlyric) : null, 600); return { mode: 2, lines: q }; }
       }
       return null;
     }
 
-    /* 快照到达（离散变化才到）：重锚 + 按需解析歌词 + 推送公开快照 */
+    /* Discrete snapshot arrival: re-anchor + parse lyrics on demand */
     function feed(state) {
       var t = state && state.track ? state.track : null;
       st.anchor = t
@@ -193,11 +219,9 @@
       var rev = state ? String(state.lyricRev || "") : "";
       if (rev !== st.lrev) { st.lrev = rev; st.lines = null; st.lmode = 0; st.parsedRef = null; }
       var ly = state && state.lyric;
-      /* v2.1.0 按载荷对象引用判重（原按 parsed 布尔标志）：
-         切歌快照常捎带上一曲的旧词载荷（宿主新词尚未拉回）——旧逻辑此刻把
-         parsed 置真，随后宿主拉到的新词载荷被永久跳过＝「切歌后歌词概率
-         加载不出来」的沙箱层孪生根因。新逻辑：载荷对象引用变了就重解析，
-         同一对象重复推送不重复解析。 */
+      /* re-parse only when the payload object reference changed (a stale
+         payload riding along a song-change snapshot must never mark the
+         NEW payload as already-parsed) */
       if (ly && st.parsedRef !== ly) {
         var p = (ly.yrc || ly.lrc) ? parseAll(ly) : null;
         st.lmode = p ? p.mode : 0;
@@ -217,15 +241,9 @@
         duration: t ? +t.duration || 0 : 0,
         lyricRev: rev,
         lyric: st.lines ? { mode: st.lmode, lines: st.lines } : null,
-        /* v2.2.0：诊断透出——插件版本（页脚可见插件在场）与 seek 结果提示
-           v3.0.0：smtcVer = 「初始SMTC桥」管理插件活体注册版本（双插件架构） */
         pluginVer: state && typeof state.pluginVer === "string" ? state.pluginVer.slice(0, 16) : "",
         smtcVer: state && typeof state.smtcVer === "string" ? state.smtcVer.slice(0, 16) : "",
         seekNote: state && typeof state.seekNote === "string" ? state.seekNote.slice(0, 40) : "",
-        /* v2.3.0：组件过旧（桥/插件版本不齐）→ 面板升级芯片
-           v2.3.2：归因拆分——needsPlugin（更新 .plugin 可自修）与
-           needsBridge（插件已新但桥旧：自动升级可能被策略拦截，
-           部件据此给「手动启动备用桥」诚实指引而非无效的更新提示） */
         needsUpdate: !!(state && state.needsUpdate === true),
         needsPlugin: !!(state && state.needsPlugin === true),
         needsBridge: !!(state && state.needsBridge === true),
@@ -234,21 +252,40 @@
       for (var i = st.cbs.length - 1; i >= 0; i--) { try { st.cbs[i](snap); } catch (e) { } }
     }
 
-    /* 每拍锚点（每秒必达）。
-     * v3.1.0 逐字歌词防抖/防漂移（用户指令的渲染层落地）：
-     * ① slew 微抖吸收：真值每秒重锚会带入 ±(事件到达抖动) 的微小跳变，
-     *    逐字扫色肉眼可见地「抖」。播放中真值漂移 ≤0.35s 的拍不重锚
-     *    （position/fetchedAt 都不动——只改其一等于倒退）；累计漂移超闸、
-     *    播放态翻转、seek/切歌大跳立即重锚。显示层平滑，不修改真值。 */
-    var LY_SLEW_SEC = 0.35;
+    function posNow() {
+      var a = st.anchor;
+      if (!a) return 0;
+      var p = a.position + (a.playing ? (Date.now() - a.fetchedAt) / 1000 * a.rate : 0);
+      return a.duration > 0 ? Math.min(a.duration, Math.max(0, p)) : Math.max(0, p);
+    }
+
+    /* fade duration = clamp(120..420ms, remaining time of the word in
+       progress at the pause instant); fallback: line tail, then 260ms. */
+    function calcFadeMs(ms) {
+      var L = st.lines;
+      if (!L || !L.length) return 260;
+      var li = bisectLine(ms);
+      if (li < 0) return 260;
+      var ln = L[li];
+      if (ln.w && ln.w.length) {
+        var lo = 0, hi = ln.w.length - 1, wi = -1;
+        while (lo <= hi) { var m2 = (lo + hi) >> 1; if (ln.w[m2].s <= ms) { wi = m2; lo = m2 + 1; } else hi = m2 - 1; }
+        if (wi >= 0) return Math.max(120, Math.min(420, (ln.w[wi].s + ln.w[wi].d) - ms));
+      }
+      return Math.max(120, Math.min(420, ln.e - ms));
+    }
+
+    /* Per-second anchor tick. Slew: while playing, absorb truth drifts
+       < LY_SLEW_SEC (display smoothing; the truth itself is untouched);
+       big jumps / playing flips / seeks re-anchor immediately. Pause fade:
+       compute once on the playing->paused edge, reuse for the fade-in. */
     function tick(tk) {
       var a = st.anchor;
       if (!tk || !a) return;
       var prevPlaying = a.playing;
       var expected = posNow();
-      var reanchor = true;
       if (typeof tk.position === "number") {
-        reanchor = prevPlaying !== !!tk.playing || !a.playing || Math.abs(tk.position - expected) >= LY_SLEW_SEC;
+        var reanchor = prevPlaying !== !!tk.playing || !a.playing || Math.abs(tk.position - expected) >= LY_SLEW_SEC;
         if (reanchor) {
           a.position = tk.position;
           a.fetchedAt = typeof tk.fetchedAt === "number" ? tk.fetchedAt : Date.now();
@@ -259,55 +296,25 @@
       if (typeof tk.duration === "number") a.duration = tk.duration;
       if (typeof tk.playing === "boolean") a.playing = tk.playing;
       if (typeof tk.rate === "number" && tk.rate > 0) a.rate = tk.rate;
-      /* ② 暂停淡出计时（用户指令：暂停时按歌词时间轴计算淡入淡出时长）：
-         播放→暂停翻转时算一次 fadeMs，恢复时沿用该值做淡入。 */
       if (prevPlaying === true && a.playing === false) st.fadeMs = calcFadeMs(posNow());
     }
-    /* 淡入淡出时长 = clamp(120..420ms, 当前词剩余时长)，无词在唱时用行尾剩余，
-       兜底 260ms。按词时间算而非固定值：暂停瞬间的视觉收敛永远落在正确的词
-       边界内，恢复后从冻结位置继续扫色，不产生累积漂移。 */
-    function calcFadeMs(ms) {
-      var L = st.lines;
-      if (!L || !L.length) return 260;
-      var lo = 0, hi = L.length - 1;
-      while (lo <= hi) { var mid = (lo + hi) >> 1; if (L[mid].s <= ms) lo = mid + 1; else hi = mid - 1; }
-      var li = hi;
-      if (li < 0) return 260;
-      var ln = L[li];
-      if (ln.w && ln.w.length) {
-        var lo2 = 0, hi2 = ln.w.length - 1, wi = -1;
-        while (lo2 <= hi2) { var m2 = (lo2 + hi2) >> 1; if (ln.w[m2].s <= ms) { wi = m2; lo2 = m2 + 1; } else hi2 = m2 - 1; }
-        if (wi >= 0) return Math.max(120, Math.min(420, (ln.w[wi].s + ln.w[wi].d) - ms));
-      }
-      return Math.max(120, Math.min(420, ln.e - ms));
-    }
 
-    function posNow() {
-      var a = st.anchor;
-      if (!a) return 0;
-      var p = a.position + (a.playing ? (Date.now() - a.fetchedAt) / 1000 * a.rate : 0);
-      return a.duration > 0 ? Math.min(a.duration, Math.max(0, p)) : Math.max(0, p);
-    }
-
-    /* 时间戳对齐：二分定位当前行/词，词内进度线性（0-1）——预设零计算 */
+    /* Timestamp alignment: binary search current line/word (0-1 progress) */
     function align(ms) {
       var L = st.lines;
       if (!L || !L.length) return null;
-      var lo = 0, hi = L.length - 1;
-      while (lo <= hi) { var mid = (lo + hi) >> 1; if (L[mid].s <= ms) lo = mid + 1; else hi = mid - 1; }
-      var li = hi;
+      var li = bisectLine(ms);
       if (li < 0) return { lineIndex: -1, wordIndex: -1, wordProgress: 0, lineProgress: 0 };
       var ln = L[li];
       var lp = clamp01((ms - ln.s) / Math.max(1, ln.e - ln.s));
       if (!ln.w || !ln.w.length) return { lineIndex: li, wordIndex: -1, wordProgress: 0, lineProgress: lp };
-      lo = 0; hi = ln.w.length - 1;
-      while (lo <= hi) { var m2 = (lo + hi) >> 1; if (ln.w[m2].s <= ms) lo = m2 + 1; else hi = m2 - 1; }
-      var wi = hi, wp = 0;
-      if (wi >= 0) wp = clamp01((ms - ln.w[wi].s) / Math.max(1, ln.w[wi].d));
+      var lo = 0, hi = ln.w.length - 1, wi = -1;
+      while (lo <= hi) { var m2 = (lo + hi) >> 1; if (ln.w[m2].s <= ms) { wi = m2; lo = m2 + 1; } else hi = m2 - 1; }
+      var wp = wi >= 0 ? clamp01((ms - ln.w[wi].s) / Math.max(1, ln.w[wi].d)) : 0;
       return { lineIndex: li, wordIndex: wi, wordProgress: wp, lineProgress: lp };
     }
 
-    /* 实时态（rAF 每帧调用）：插值 + 对齐一次算好，卡拉 OK 扫色直接用 wordProgress */
+    /* Realtime state (called every rAF frame by renderers) */
     function now() {
       var p = posNow(), a = st.anchor;
       var d = a ? a.duration : 0;
@@ -319,7 +326,6 @@
         duration: d,
         progress: d > 0 ? clamp01(p / d) : 0,
         playing: a ? a.playing : false,
-        /* v3.1.0 暂停淡入淡出时长（按词时间轴算，部件直接消费） */
         fadeMs: st.fadeMs || 0,
         lineIndex: al ? al.lineIndex : -1,
         wordIndex: al ? al.wordIndex : -1,
@@ -342,7 +348,8 @@
       return function () { var i = st.cbs.indexOf(cb); if (i >= 0) st.cbs.splice(i, 1); };
     }
 
-    /* seek：提交成功即乐观重锚（拖完立即生效，不等下一拍 tick） */
+    /* seek: optimistic re-anchor on success (instant feedback; the next
+       truth tick corrects or confirms) */
     function seek(sec) {
       var s = typeof sec === "number" && isFinite(sec) ? Math.max(0, sec) : 0;
       return Promise.resolve(hooks.control("seek", s)).then(function (ok) {

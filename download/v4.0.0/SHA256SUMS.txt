@@ -1,0 +1,5 @@
+b715c88642322943a6de05bd38545afe0a5ea8f4d4a9ab8dc3748f09873e8fdd  ChuShi-NewTab-v4.0.0.zip
+847c5e364e13ad6bf091a38f638ff9e010411f20a756212860acf2b298a655bd  ChuShi-SMTC-Manager-3.0.0.plugin
+aced6dd188fc47b02f45338b7260a912b90cd6c046c55cedfaccbaf6a0920d51  ChuShi-Music-API-3.0.0.plugin
+f0fe72045ff83484a08d762b6b673fbb6afe036cb2392de9b802bd4322e99167  ChuShi-SMTC音乐-交付包.zip
+8567a7e0edd592fe36188197099f50bd44abbd7619ad1f536fb1a625c5e7c9aa  ChuShi-v4.0.0-合并交付包.zip

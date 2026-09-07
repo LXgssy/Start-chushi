@@ -176,30 +176,30 @@
 "use strict";
 var $=function(id){return document.getElementById(id)};
 /* ============================================================
- * v3.1.0 音乐面板 —— 只写样式与渲染，零计算。
- * 数据面 = 宿主「初始」内建引擎 chushi.music：
- *   snapshot()/subscribe(cb) → 离散快照（封面/歌名/解析好的歌词结构/时长）
- *   now()                    → 实时态（position/progress/lineIndex/wordIndex/
- *                              wordProgress/fadeMs 均由宿主按真值时间轴预对齐）
- *   seek(s)/toggle/next/prev → 控制（seek 成功宿主自动乐观重锚）
- * v3.1.0 逐字歌词防漂移（用户指令）：暂停时按宿主计算的词时间轴时长淡出、
- *   恢复时淡入（opacity 过渡，样式/布局零改动）；扫色微抖已由宿主 slew 吸收。
- * 本文件不包含任何 yrc/lrc 解析、时钟插值或锚点运算。
+ * v4 generation music panel -- styles & rendering only, zero math.
+ * Data plane = host engine chushi.music:
+ *   snapshot()/subscribe(cb) -> discrete snapshots (cover, titles,
+ *                              parsed lyric structure, duration)
+ *   now()                    -> realtime {position, progress, lineIndex,
+ *                              wordIndex, wordProgress, fadeMs} aligned
+ *                              against plugin truth by the host core
+ *   seek(s)/toggle/next/prev -> controls (host re-anchors optimistically)
+ * Pause fade (user pipeline): fadeMs is computed by the host core from
+ * the current word's timeline at the pause instant; this layer only
+ * consumes it (opacity transition, zero layout impact).
  * ============================================================ */
 var card=$("card"),sk=$("sk");
 var E={aF:$("aF"),t1:$("t1"),t2:$("t2"),t3:$("t3"),bar:$("bar"),th:$("th"),
   tC:$("tC"),tD:$("tD"),ap:$("ap"),dt:$("dt"),yI:$("yI"),nI:$("nI"),
   e1:$("e1"),e2:$("e2"),ly:$("ly"),noteChip:$("noteChip"),noteTxt:$("noteTxt"),updChip:$("updChip"),updTxt:$("updTxt")};
-/* v3.0.0 双插件架构版本比较（芯片文案分叉用，与宿主 verLt 同构） */
 function verLt(a,b){var pa=String(a||"").split("."),pb=String(b||"").split(".");
   for(var i=0;i<3;i++){var x=parseInt(pa[i],10)||0,y=parseInt(pb[i],10)||0;if(x!==y)return x<y}return false}
 var H={fl:248,em:92},LY_H=124;
 var DEF="asset:cover.svg";
 var snap=null,mode="em",lastKey="",drag=false,dragRatio=0;
-var lyHold=false; /* v2.3.1 歌词高度迟滞：同曲歌词暂时消失（桥重启丢词/重拉）
-   时面板高度不塌 124px —— 真机：歌词到位/消失反复横跳时面板 px 弹簧把
-   播放/暂停按钮大幅上下位移；只有换曲才重算 lyHold */
-var lyBox=E.ly,lyInr=null,lyEls=null,lyActive=-1,lyWords=null,lyMode=0,lyKey="__none__",lyRef=null,lyPrevOn=null;
+var lyHold=false; /* lyric height hysteresis: a temporarily missing lyric
+   must not collapse the panel (button would visibly jump) */
+var lyBox=E.ly,lyInr=null,lyEls=null,lyWords=null,lyActive=-1,lyMode=0,lyKey="__none__",lyRef=null,lyPrevOn=null;
 var mus=window.chushi&&window.chushi.music?window.chushi.music:null;
 function txt(el,v){if(el.textContent!==v)el.textContent=v}
 function fmt(s){s=Math.max(0,Math.floor(s));return Math.floor(s/60)+":"+(s%60<10?"0":"")+s%60}
@@ -215,12 +215,12 @@ function cover(img){
   if(img.__s!==src){img.src=src;img.__s=src}
   img.classList.add("on");
 }
-/* 歌词 DOM：直接消费宿主解析好的行/词结构（t=文本 tr=翻译 w=词[{s,d,t}]） */
+/* Lyric DOM: consumes host-parsed lines (t=text tr=translation w=[{s,d,t}]) */
 function buildLyric(){
   lyBox.innerHTML="";lyEls=[];lyWords=[];lyActive=-1;lyInr=null;lyPrevOn=null;
   if(!hasLyric()){lyBox.classList.add("hd");lyMode=0;return}
   var lines=snap.lyric.lines;lyMode=snap.lyric.mode;
-  lyBox.classList.remove("hd");lyHold=true; /* 歌词在场 → 高度迟滞锚定 */
+  lyBox.classList.remove("hd");lyHold=true;
   lyInr=document.createElement("div");lyInr.className="lyin";lyBox.appendChild(lyInr);
   for(var i=0;i<lines.length;i++){
     var L=lines[i],ln=document.createElement("div");
@@ -240,74 +240,62 @@ function buildLyric(){
     lyEls.push(ln);lyWords.push(ws);
   }
 }
-/* 离散快照：曲目/封面/歌词/连接态变化才到（宿主签名广播） */
+/* Discrete snapshot render */
 function render(){
   var s=snap;
   if(!s||!s.connected){
-    txt(E.e1,"系统媒体待接入");txt(E.e2,"安装「初始SMTC桥」+「初始网易云API」双插件后播放音乐即自动接入");
+    txt(E.e1,"系统媒体待接入");txt(E.e2,"安装 ChuShi SMTC Manager + ChuShi Music API 双插件并播放音乐即自动接入");
     txt(E.ap,"未连接");
     if(mode!=="em")setMode("em");
     return;
   }
   if(!s.title){
-    txt(E.e1,"等待媒体会话");txt(E.e2,"在网易云等播放器放首歌即会亮起");
+    txt(E.e1,"等待播放");txt(E.e2,"在网易云放首歌即会亮起（无需开启网易云自带 SMTC）");
     if(mode!=="em")setMode("em");
     return;
   }
-  /* 歌词键 = rev + 存在性 + 行数组引用（v2.1.0 加引用维）：
-     切歌快照常携旧词载荷（宿主新词未到）——rev+存在性两维在「同 rev 下
-     旧词→新词」时键不变，真词到位不再重建（真机「切歌后歌词概率加载
-     不出来」的部件层孪生根因）；行数组引用只在宿主重解析后变化，作第三维。 */
+  /* lyric key = rev + presence + lines array reference */
   var lk=(s.lyricRev||"")+(s.lyric?"#1":"#0");
   var lr=s.lyric?s.lyric.lines:null;
-  if(lk!==lyKey||lr!==lyRef){lyKey=lk;lyRef=lr;buildLyric();if(mode!=="em")setMode(mode)} /* 歌词到位/失效/换内容 → 重报高度 */
+  if(lk!==lyKey||lr!==lyRef){lyKey=lk;lyRef=lr;buildLyric();if(mode!=="em")setMode(mode)}
   var key=[s.title,s.artist,s.album,s.app].join("|");
   if(key!==lastKey){
     lastKey=key;
-    lyHold=hasLyric(); /* v2.3.1：换曲才重算高度迟滞（同曲丢词不塌高度） */
-    if(mode!=="em")setMode(mode); /* 重算迟滞后必须重报高度（lyHold 变了 hFor 才生效） */
+    lyHold=hasLyric();
+    if(mode!=="em")setMode(mode);
     var els=[E.t1,E.t2,E.t3];
     for(var i=0;i<els.length;i++){els[i].classList.remove("sw");void els[i].offsetWidth;els[i].classList.add("sw")}
   }
   txt(E.t1,s.title||"未知曲目");
   txt(E.t2,s.artist||"未知艺术家");
   txt(E.t3,s.album||"");
-  /* v3.0.0 芯片：seekNote 醒目提示（3.8s 自动消失）；needsUpdate 常驻升级芯片。
-     双插件诚实归因——每个文案都对应一个真实可行的操作（零容忍假指引）：
-     · 缺网易云API 插件 → 装新插件（逐字歌词/精确进度/拖动全在里面）
-     · 旧一体化 1.4.x–1.5.x 在用 → 迁移双插件（卸旧装新）
-     · 桥不可达 → 装「初始SMTC桥」自动管理，或双击 启动桥.bat
-     · 管理插件已注册但桥版本旧 = 旧桥进程杀不死（策略拦截实锤）→ 手动指引 */
+  /* chips: seekNote + honest update attribution (every text maps to a real
+     action -- zero tolerance for dead guidance):
+     - engine unreachable -> install Manager plugin (auto-manages engine)
+     - Music API plugin missing -> install it (progress/lyrics/seek live there)
+     - plugin too old -> update both .plugin files */
   var noteOn=!!s.seekNote;
   E.noteChip.classList.toggle("on",noteOn);
   if(noteOn)txt(E.noteTxt,s.seekNote);
   E.updChip.classList.toggle("on",!!s.needsUpdate);
   if(s.needsUpdate){
-    if(s.needsBridge&&s.smtcVer){
-      txt(E.updTxt,"旧桥进程未被自动替换（系统策略拦截）· 请双击交付包内 启动桥.bat 或重启电脑后重试");
-    }else if(s.needsBridge){
-      txt(E.updTxt,"桥未运行 · 安装「初始SMTC桥」.plugin 可自动启动，或双击交付包内 启动桥.bat");
+    if(s.needsBridge){
+      txt(E.updTxt,"引擎未运行 · 安装 ChuShi SMTC Manager 插件自动管理，或双击交付包内 Start-Engine.bat");
     }else if(!s.pluginVer){
-      txt(E.updTxt,"未装「初始网易云API」.plugin · 装后重启网易云即有逐字歌词/精确进度/进度条拖动");
-    }else if(verLt(s.pluginVer,"2.0.0")){
-      txt(E.updTxt,"双插件迁移 · 卸载旧「初始歌词源」，装「初始SMTC桥」+「初始网易云API」后重启网易云（见更新说明）");
+      txt(E.updTxt,"未装 ChuShi Music API 插件 · 装后重启网易云即有逐字歌词/精确进度/进度条拖动");
     }else{
-      txt(E.updTxt,"组件待更新 · 请按更新说明检查双插件版本");
+      txt(E.updTxt,"组件待更新 · 请更新两个 .plugin 至最新版并重启网易云");
     }
   }
-  /* v3.0.0 页脚双版本诊断：API 插件版本 + 桥管理插件版本（手动桥如实标注） */
-  txt(E.ap, s.seekNote ? s.seekNote : ("已连接 · "+(s.app||"系统媒体")+(s.pluginVer?" · API v"+s.pluginVer:"")+(s.smtcVer?" · 管理 v"+s.smtcVer:(s.needsBridge?"":" · 手动桥"))));
+  txt(E.ap, s.seekNote ? s.seekNote : ("已连接 · "+(s.pluginVer?"API v"+s.pluginVer:"")+(s.smtcVer?" · 管理 v"+s.smtcVer:"")));
   cover(E.aF);
-  /* 乐观窗口内且真实态未到（s.playing≠optP）沿用乐观值；确认或超时即回真值 */
   var on;
   if(optAt&&Date.now()-optAt<2500&&s.playing!==optP){on=optP}
   else{on=!!s.playing;optAt=0}
   playVisual(on);
   if(mode==="em")setMode("fl");
 }
-/* 实时态：rAF 逐帧取宿主预计算结果（进度/时间/逐字高亮），本层零运算。
-   v2.0.1：拖动中改渲染 dragRatio 预览——否则本循环每帧会用 now() 覆写进度条，
-   拖动预览 16ms 内就被冲掉（真机「拖动没反应」的直接观感） */
+/* rAF loop: pure consumption of host-precomputed state */
 function tick(){
   if(snap&&snap.connected&&snap.title&&mode!=="em"){
     if(drag){
@@ -342,13 +330,10 @@ function lyricFrame(n){
     var ws=lyWords[lyActive];
     for(var wI=0;wI<ws.length;wI++){
       var p=wI===n.wordIndex?n.wordProgress:(wI<n.wordIndex?1:0);
-      /* v2.0.1：只写 --p 一个变量（clip-path 裁剪显色），无 class 摘挂无 background-clip */
       ws[wI].style.setProperty("--p",(p*100).toFixed(1)+"%");
     }
   }
-  /* v3.1.0 暂停淡出/恢复淡入：时长由宿主按词时间轴计算（fadeMs），
-     暂停时高亮行淡出收敛在本词边界内，恢复时从冻结位置淡入——
-     视觉上不再有「冻结的字」与「跳回」，累积漂移感知归零。 */
+  /* pause fade-out / resume fade-in (fadeMs from host word timeline) */
   var on2=!!n.playing;
   if(on2!==lyPrevOn&&lyInr){
     var fd=Math.max(120,Math.min(420,n.fadeMs||260));
@@ -358,12 +343,9 @@ function lyricFrame(n){
   }
 }
 requestAnimationFrame(tick);
-/* 控制：v2.0.1 播放/暂停乐观翻转——真翻转最迟零点几秒后由快照确认/纠正，
-   不再等下一轮询才变图标（真机「按钮反应太慢」） */
+/* controls: optimistic play/pause flip (confirmed by next snapshot) */
 var optP=false,optAt=0;
 function playVisual(on){
-  /* v2.1.0：.off 交叉淡切（不再用 .hd 硬 display 切换——过渡中两图标同在，
-     质量连续无跳变） */
   E.yI.classList.toggle("off",on);E.nI.classList.toggle("off",!on);
   E.dt.classList.toggle("pz",!on);card.classList.toggle("pl",on);
   E.aF.classList.toggle("pz",!on);
@@ -376,7 +358,7 @@ $("pB").addEventListener("click",function(){
 $("nx").addEventListener("click",function(){try{mus.next()}catch(e){}});
 $("pv").addEventListener("click",function(){try{mus.prev()}catch(e){}});
 $("cxB").addEventListener("click",function(){try{chushi.close()}catch(e){}});
-/* seek：按住拖动（拖动预览按比例显示），松手提交——宿主 seek 成功自动乐观重锚 */
+/* seek: drag preview by ratio, commit on release */
 function ratio(e){
   var r=sk.getBoundingClientRect();
   return Math.min(1,Math.max(0,(e.clientX-r.left)/Math.max(1,r.width)));
@@ -396,7 +378,7 @@ sk.addEventListener("pointerup",function(){
   if(!drag)return;drag=false;
   if(snap&&snap.duration>0){try{mus.seek(dragRatio*snap.duration)}catch(e){}}
 });
-/* 订阅离散快照（订阅即回推当前值） */
+/* subscribe (immediate push of current snapshot) */
 if(mus){
   try{mus.subscribe(function(s){snap=s;render()})}catch(e){}
 }else{
