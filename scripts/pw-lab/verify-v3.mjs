@@ -102,6 +102,13 @@ function check(name, ok, detail = "") {
     whtml.includes("双插件迁移") && whtml.includes("未装「初始网易云API」") &&
     whtml.includes("旧桥进程未被自动替换") && whtml.includes("手动桥") &&
     whtml.includes("初始SMTC桥」+「初始网易云API"));
+  check("ST17 v3.0.1 虚拟曲目：桥无 SMTC 会话时 ne 真值不被弃用（judgeNcmOwns !t→true + apply 构造）",
+    smtc.includes("if (!t) return true;") && smtc.includes("next.track ??") &&
+    smtc.includes("虚拟曲目兜底"), "v3.0.1 四症状根治点一");
+  check("ST18 v3.0.1 插件B 物理自愈 + store 次级真值在位",
+    pb.includes("物理自愈：进度在推进 = 在播放") && pb.includes("posMs - lastReportedPosMs > 800") &&
+    pb.includes("store.getState().playing && store.getState().playing.position"),
+    "v3.0.1 四症状根治点二");
 }
 
 /* ---------- vm 白盒公共设施 ---------- */
@@ -131,6 +138,7 @@ function runPlugin(src, sandbox) {
 }
 
 const src_smtc_plugin = readFileSync("/home/z/my-project/bridge/smtc-plugin/index.js", "utf8");
+const akeEl = (o) => [{ currentTime: o.t, paused: o.paused !== false, duration: o.dur, isConnected: true }];
 
 /* ---------- PB 插件B vm 白盒 ---------- */
 {
@@ -183,14 +191,13 @@ const src_smtc_plugin = readFileSync("/home/z/my-project/bridge/smtc-plugin/inde
 
   // 等待原生事件等待循环结束（最多 100*200ms → 直接 fire）
   await new Promise((r) => setTimeout(r, 300));
-  const akeEl = (o) => [{ currentTime: o.t, paused: o.paused !== false, duration: o.dur, isConnected: true }];
   fire("PlayState", "1", "1", 1);
   fire("PlayProgress", "1", 125.4);
   domEls = akeEl({ t: 125.4, paused: false, dur: 269 });
   await new Promise((r) => setTimeout(r, 1200)); // 等 1s 心跳拍
 
-  check("PB1 心跳携带 role=ncm + v=2.0.0（桥 owner 仲裁依赖）",
-    heartbeats.some((h) => h.role === "ncm" && h.v === "2.0.0"),
+  check("PB1 心跳携带 role=ncm + v=2.1.0（桥 owner 仲裁依赖）",
+    heartbeats.some((h) => h.role === "ncm" && h.v === "2.1.0"),
     heartbeats.length ? `${heartbeats.length} 拍` : "无心跳");
   const hb = heartbeats[heartbeats.length - 1];
   check("PB2 真值快照随心跳上报（原生事件主源 positionMs≈125400）",
@@ -198,6 +205,140 @@ const src_smtc_plugin = readFileSync("/home/z/my-project/bridge/smtc-plugin/inde
     hb ? `pos=${hb.positionMs} playing=${hb.playing}` : "无心跳");
   check("PB3 零桥管理调用（exec 一次都不触发——职责单一律）", execCalls.length === 0,
     `execCalls=${execCalls.length}`);
+}
+
+/* ---------- PB4/PB5 v3.0.1 四症状根治白盒 ---------- */
+{
+  const src = readFileSync("/home/z/my-project/bridge/ncm-plugin/index.js", "utf8");
+
+  /* PB4 物理自愈：PlayState 报暂停（事件丢失/失真形态）但 PlayProgress 持续推进
+     （网易云实际在播）→ 快照必须输出 playing=true（进度推进=在播放），
+     面板进度/时间/逐字歌词不再因锚点 playing=false 插值恒 0 而全冻结 */
+  {
+    const heartbeats = [];
+    const regCalls = {};
+    let domEls = [];
+    const fire = (name, ...args) => {
+      const cbs = regCalls[name] || [];
+      for (const cb of cbs) cb(...args);
+    };
+    const sandbox = makeVmSandbox({
+      window: {
+        __chushiNcmApiActive: false,
+        legacyNativeCmder: {
+          appendRegisterCall: (name, _ch, cb) => { (regCalls[name] ||= []).push(cb); },
+        },
+        betterncm: {
+          app: { exec: async () => true, getDataPath: async () => "C:\\mock" },
+          fs: { mkdir: async () => {}, readFileText: async () => null, writeFileText: async () => {} },
+          ncm: {},
+        },
+        document: {
+          querySelectorAll: () => domEls,
+          createElement: () => ({ style: {}, classList: { toggle() {}, add() {} }, appendChild() {}, innerText: "" }),
+        },
+        channel: undefined,
+      },
+      plugin: { getConfig: (_k, d) => d, setConfig: () => {}, onConfig: (_fn) => {} },
+      fetch: async (url, opts) => {
+        const u = String(url);
+        if (u.includes("/api/plugin/state")) {
+          heartbeats.push(JSON.parse(opts?.body || "{}"));
+          return { ok: true, json: async () => ({ ok: true }) };
+        }
+        return { ok: false, json: async () => ({}) };
+      },
+    });
+    sandbox.document = sandbox.window.document;
+    runPlugin(src, sandbox);
+    await new Promise((r) => setTimeout(r, 300));
+    // 拍0：事件说暂停，进度 125.4s（启动拍已上报 pos=0 → 125.4s 突跳会自愈一拍，
+    //       本拍让 lastReportedPosMs 基准就位到 125.4s）
+    fire("PlayState", "1", "1", 2);
+    fire("PlayProgress", "1", 125.4);
+    domEls = akeEl({ t: 125.4, paused: true, dur: 269 });
+    await new Promise((r) => setTimeout(r, 1200));
+    // 拍1：重新置暂停事件（拍0 的突跳自愈已写回 lastPlaying=true——事件语义；
+    //      这里重置后单独测自愈闸），推进 0.2s（<800ms）→ 自愈不得触发
+    fire("PlayState", "1", "1", 2);
+    fire("PlayProgress", "1", 125.6);
+    domEls = akeEl({ t: 125.6, paused: true, dur: 269 });
+    await new Promise((r) => setTimeout(r, 1200));
+    const first = heartbeats[heartbeats.length - 1];
+    // 拍2：再置暂停事件，推进 1.6s（>800ms）→ 物理自愈必须生效
+    fire("PlayState", "1", "1", 2);
+    fire("PlayProgress", "1", 127.2);
+    domEls = akeEl({ t: 127.2, paused: true, dur: 269 });
+    await new Promise((r) => setTimeout(r, 1200));
+    const healed = heartbeats[heartbeats.length - 1];
+    check("PB4 物理自愈：推进<800ms 不误判，推进>800ms/拍而事件报暂停 → playing=true",
+      first && healed && first.playing === false && healed.playing === true,
+      `拍1(推进0.2s) playing=${first && first.playing} → 拍2(推进1.6s) playing=${healed && healed.playing} pos=${healed && healed.positionMs}`);
+  }
+
+  /* PB5 store 次级真值：原生 PlayProgress 从未触发（事件死）+ 元素身份不符
+     （防流浪元素）→ 用 dva playing.position（网易云自家进度条同源，秒）兜底，
+     不再冻死 0/旧值 */
+  {
+    const heartbeats = [];
+    const mockStore = {
+      _subs: [],
+      getState() {
+        return {
+          playing: {
+            paused: true, position: 120, resourceTrackId: 111,
+            resourceName: "晴天", resourceArtists: [{ name: "周杰伦" }],
+            curTrack: { duration: 269300 },
+          },
+        };
+      },
+      subscribe(fn) { this._subs.push(fn); },
+    };
+    const sandbox = makeVmSandbox({
+      window: {
+        __chushiNcmApiActive: false,
+        legacyNativeCmder: { appendRegisterCall: () => {} },
+        betterncm: {
+          app: { exec: async () => true, getDataPath: async () => "C:\\mock" },
+          fs: { mkdir: async () => {}, readFileText: async () => null, writeFileText: async () => {} },
+          ncm: {},
+        },
+        document: {
+          querySelectorAll: () => [{ currentTime: 999, paused: true, duration: 3, isConnected: true }],
+          createElement: () => ({ style: {}, classList: { toggle() {}, add() {} }, appendChild() {}, innerText: "" }),
+        },
+        channel: undefined,
+        webpackJsonp: {
+          0: [],
+          push(arr) {
+            const map = arr[1];
+            for (const k in map) {
+              // webpack require 的模块缓存挂在 require 函数对象的 .c 上（真机同构）
+              const req = function () {};
+              req.c = { dva1: { exports: { a: { getStore: () => ({}), inited: true, app: { _store: mockStore } } } } };
+              map[k]({}, {}, req);
+            }
+          },
+        },
+      },
+      plugin: { getConfig: (_k, d) => d, setConfig: () => {}, onConfig: (_fn) => {} },
+      fetch: async (url, opts) => {
+        const u = String(url);
+        if (u.includes("/api/plugin/state")) {
+          heartbeats.push(JSON.parse(opts?.body || "{}"));
+          return { ok: true, json: async () => ({ ok: true }) };
+        }
+        return { ok: false, json: async () => ({}) };
+      },
+    });
+    sandbox.document = sandbox.window.document;
+    runPlugin(src, sandbox);
+    await new Promise((r) => setTimeout(r, 1500)); // findStore(≤3s) + 至少一拍心跳
+    const hb = heartbeats[heartbeats.length - 1];
+    check("PB5 store 次级真值：原生死+元素不可信 → positionMs≈120000（不冻死 0）",
+      hb && Math.abs(hb.positionMs - 120000) < 2500,
+      hb ? `pos=${hb.positionMs} songId=${hb.song && hb.song.id}` : "无心跳");
+  }
 }
 
 /* ---------- PA 插件A vm 白盒 ---------- */
@@ -283,7 +424,7 @@ function defaultNe() {
     durationMs: Math.round(DUR * 1000),
     playing: mockTruth.playing,
     lyricRev: neLyricRev,
-    ts: now - 60, v: "2.0.0",
+    ts: now - 60, v: "2.1.0",
     seekAckId: mockSeekAck ? mockSeekAck.id : "",
     seekAckOk: mockSeekAck ? mockSeekAck.ok === true : false,
     seekAckPos: mockSeekAck ? mockSeekAck.pos : 0,
@@ -414,8 +555,8 @@ check("N2 单主进度：进度条按 ne 真值（≈88.4s→33%）而非 SMTC �
   Math.abs(bw1 - (88.4 / DUR) * 100) < 6, `bar=${bw1.toFixed(1)}%`);
 check("N3 单主播放态：面板为播放中（SMTC 说暂停、ne 说播放 → ne 赢）",
   (await playIconOff()) === true);
-check("N4 页脚双版本：API v2.0.0 + 管理 v2.0.0（注册表活体）",
-  (await apTxt()).includes("API v2.0.0") && (await apTxt()).includes("管理 v2.0.0"),
+check("N4 页脚双版本：API v2.1.0 + 管理 v2.0.0（注册表活体）",
+  (await apTxt()).includes("API v2.1.0") && (await apTxt()).includes("管理 v2.0.0"),
   await apTxt());
 
 /* N5 芯片熄灭：全新组件（桥 2.0.0 + 管理插件注册 + API 插件 2.0.0）→ 升级芯片不亮 */
@@ -478,6 +619,22 @@ await page.waitForTimeout(2400);
 check("N9 SMTC-only 兜底：显示 Spotify 曲目（NCM 不在场不抢面板）",
   (await t1Txt()) === "Fake Love" && (await apTxt()).includes("Spotify"),
   `${await t1Txt()} / ${await apTxt()}`);
+
+/* N10 v3.0.1 虚拟曲目：桥 HasSession=false（track=null，真机常见——网易云新版
+   SMTC 注册/会话抢占）但 ne 心跳有效播放 → 旧版回退 SMTC-only → 网易云 SMTC
+   position 冻结 → 进度/时间/逐字歌词全冻结；新版 judgeNcmOwns !t→true +
+   apply 构造虚拟曲目 → 面板必须显示网易云真值且进度持续推进 */
+mockState = { ...mockState, track: null, ne: null };
+mockTruth = { pos: 60, playing: true, t0: Date.now() };
+await page.waitForTimeout(2600);
+check("N10 虚拟曲目：桥无 SMTC 会话时 ne 真值独占面板",
+  (await t1Txt()) === "晴天" && (await apTxt()).includes("NetEase Music"),
+  `${await t1Txt()} / ${await apTxt()}`);
+const bwA = await barW();
+await page.waitForTimeout(2200);
+const bwB = await barW();
+check("N10b 虚拟曲目进度推进（bar 前进 ≥0.5%）", bwB > bwA + 0.5, `${bwA.toFixed(1)}%→${bwB.toFixed(1)}%`);
+mockTruth = null;
 
 check("X1 pageerror = 0", errors.length === 0, errors.slice(0, 2).join(" | "));
 
