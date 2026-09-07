@@ -83,6 +83,20 @@
 
 > v2.3.0–v2.3.1 起（**一体化插件 + 真值熔断批**）：①**一体化插件（用户指认思路落地）**：抛弃独立 SMTC 桥文件，桥 ps1/vbs 以 base64 内嵌进「初始歌词源」.plugin——自动部署到 BetterNCM 数据目录 / app.exec 静默拉起 / 20s 监督自愈 / Run 键自装 / 端口版本仲裁，Windows 侧只装一个 .plugin，版本漂移结构性消灭；seek 走网易云自家原生 RPC `audioplayer.seek`（自家进度条同源，refined-now-playing 劫持实证）→ setPlayingPosition dispatch → 元素直写三级阶梯，逐级 420ms 实测，全败诚实弹回 + 进度条上方醒目芯片提示；桥 v1.7.0 加 /api/plugin/cmd 300ms 快命令通道。②**v2.3.1 真机四联修复（第 8 轮反馈）**：(a) **WSH 弹窗根除**——部分机器策略/杀软拦截 wscript→powershell 进程创建（0x80070312 模态框，监督无退避每 20s 弹一次），VBS 顶层 On Error Resume Next 物理静默 + 插件直启 powershell 优先 + 部署读回校验（内容一致跳过重写，读回不一致绝不拉起）+ 拉起失败 20/40/80/120s 指数退避；(b) **进度/歌词/时间冻死 0:00 根治**——插件 v1.4.0 真值熔断重构：原生事件（PlayState/PlayProgress，网易云自家引擎直出）为播放态/进度主源，媒体元素降级为对齐校验（与原生期望差 ≤1.5s 才采信）+ 评分制选元素（废除 v1.3.0 粘滞首中选元——曾被预加载/流浪元素污染报 paused+0）+ 垃圾零值熔断（深位置突 ≈0 且 5s 内无 seek 弃样本）+ 时长闸用快照歌锚定时长；(c) **播放态反转根治**——同源修复 + 宿主零值两击守卫（可疑零拍延迟采纳、播放态不翻转）；(d) **播放/暂停按钮位移根治**——部件歌词高度迟滞（同曲丢词不塌 124px，换曲才重算）；(e) 歌词 needLyric 自愈（桥重启丢词后心跳应答捎带 needLyric，插件自动补推缓存）+ channel seek 健康闸（打断播放即本会话禁用并持久化）。**升级**：插件换 初始歌词源-1.4.0.plugin + Ctrl+F5/扩展 2.3.1 + 删除重导 .cshz。
 
+> v7.0.0（**原生 SMTC + 纯 JS 三插件**）：真机确诊 v6 两个致命误判——
+> BetterNCM v2 是 CEF 环境渲染进程**没有 Node**（`require("http")` 枢纽在真机必然失效），
+> `navigator.mediaSession` 不产生 Windows 系统媒体卡片（「连 Windows 都读取不了」）。
+> 本代翻案：①**ChuShi SMTC Manager 变为真正的原生插件**（x64 DLL，llvm-mingw 交叉编译，
+> 手工映射 WinRT ABI），用自有隐藏窗口经 `ISystemMediaTransportControlsInterop::GetForWindow`
+> 注册**独立的 Windows 系统媒体会话**——悬浮窗卡片/锁屏封面/媒体键/可拖进度全真实可用，
+> 网易云自带 SMTC 开关保持关闭即可；②**本机数据枢纽住进 DLL**（127.0.0.1:26901，
+> 占用退 26902/26903，全 CORS+PNA 头）；③Music Bridge / Lyric Source 改纯 JS 零 Node
+> （audio 元素粘滞锁 + dva store 只读探针；eapi 纯 JS 自实现 MD5+AES-128-ECB 向量级验证，
+> 三层回退）；④页面音乐 API smtc.ts v7 三端口发现 + 诚实归因芯片，公开面字段级兼容。
+> 验证：密码学向量门 + 插件结构门（含 BetterNCM 过滤链模拟器）+ mock 原生枢纽 e2e
+> 共 84 项 × 2 轮全绿。**升级三步**：删光所有旧 .plugin → 装 v7 三插件并完全重启网易云
+> → Ctrl+F5/扩展重载 + 重导 初始SMTC音乐预设.cshz。
+>
 > v6.0.0 起（**三插件纯插件架构：外部引擎整体退役**）：用户指令「算了还是把桥单独写成一个插件吧，分成三个插件」+「初始的页面还是不会显示音乐」——本代把音乐链路收敛为**三个 BetterNCM 插件**，全部住在网易云窗口里，零外部进程：①**ChuShi SMTC Manager**（`navigator.mediaSession` 直接注册独立系统媒体会话——悬浮窗/锁屏/媒体键/可拖进度全由插件提供，网易云自带 SMTC 开关保持关闭即可，卸载插件即完全移除）；②**ChuShi Music Bridge**（独立桥：只读真值三级调和 + 渲染进程内 Node http **自建本地枢纽** 127.0.0.1:26801[被占自动退 26802] + 单次执行控制带回执）——**「页面不显示音乐」根治**：旧架构页面数据要过外部引擎，引擎没跑页面就空；v6 枢纽住在桥插件里，插件活着页面就有数据；③**ChuShi Lyric Source**（独立歌词源：eapi 逐字 yrc→klyric 转换→lrc 三级回退）。页面音乐 API（smtc.ts v6）同步重写：双端口发现、公开面字段级兼容（消费方零改动）。验证：静态门 112 + 白盒 46 + eapi 公网实测 3/3 + e2e 32（含全页 .cshz 导入 + mock 枢纽真轮询链路）× 2 轮全绿。**升级三步**：删光 plugins 文件夹所有旧 .plugin → 装三个新 .plugin 并完全重启网易云 → Ctrl+F5/扩展重载 + 重导 初始SMTC音乐预设.cshz。
 
 > v5.0.1 起（**插件列表消失修复，只动两个插件包**）：真机反馈「ChuShi-SMTC-Manager-5.0.0.plugin 安装了但插件列表不显示」——从 BetterNCM v2 源码实锤根因：网易云 3.x 下 PluginManager 静默丢弃 manifest 缺 `ncm3-compatible:true` 的插件（不解压/不加载/不显示/不报错），v5.0.0 重写时 SMTC Manager 丢了该字段（老版 2.1.0 有），Music API 带着字段所以显示正常——症状不对称正是定位线索。本代：①双插件 manifest 补回字段并新增**构建门强制**（缺字段直接构建失败，永不复发）；②按用户规则调整文案：插件**名称保持英文、介绍改回中文**（.plugin 文件名与代码仍纯 ASCII——中文文件名在 zip_open 按 ANSI(GBK) 码页解析确实读不了，用户判断源码级证实）；③使用说明新增排障节：删光旧 .plugin（同 slug 反向覆盖）、disable_list.txt 同 slug 连坐检查。扩展/预设/引擎零改动，升级只换两个 .plugin。源码级同坑记录进 AI-HANDOFF 坑 17。
