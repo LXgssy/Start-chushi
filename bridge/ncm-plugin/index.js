@@ -2,6 +2,8 @@
  * 初始网易云API (ChuShi NetEase API) — BetterNCMII / chromatic 插件（纯 API，无 UI）
  * v3.0.0 双插件架构：本插件 = 网易云真值的唯一生产者（零桥进程管理）。
  * 桥进程的部署/拉起/监督由「初始SMTC桥」插件（cc.chushi.smtcbridge）负责。
+ * v2.1.0：播放态物理自愈（进度推进 = 在播放——修面板状态不同步/全冻结）
+ *         + dva store.position 次级真值（原生进度事件死时不再冻死）。
  *
  * 职责（每数据单主——位置/时长/播放态/元数据/歌词的真值只出自这里）：
  *   ① 精确播放状态（songId/positionMs/durationMs/playing/封面 URL）——帧级真值
@@ -39,7 +41,7 @@
   const log = (...a) => console.log(TAG, ...a);
   const warn = (...a) => console.warn(TAG, ...a);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const PLUGIN_VERSION = "2.0.0";
+  const PLUGIN_VERSION = "2.1.0";
 
   /*__EAPI_CRYPTO_START__*/
   // —— eapi 加密（与 NetEaseCloudMusicApi 同构：nobody{url}use{text}md5forencrypt
@@ -421,11 +423,24 @@
         else posMs = expectMs; /* 未锁定对齐（评分新脸/脱钩）：一律用原生期望 */
       } else {
         /* 原生进度死（从未收到 PlayProgress）：元素须过身份验证（时长与
-           store 时长一致且播放态与快照 playing 一致）才可信，否则宁报 0 */
+           store 时长一致且播放态与快照 playing 一致）才可信；元素也不可信
+           时用 dva playing.position 兑底（v3.0.1：它是网易云自家进度条同源
+           真值，单位秒——比冻死在 lastProgressMs 旧值/0 强。单位闸 (0,36000)
+           防字段形态漂移，时长闸防越界） */
         const elOkDur = durMs > 0 && el.duration > 0 && isFinite(el.duration) && Math.abs(el.duration * 1000 - durMs) < 1500;
         const elOkPlay = (el.paused === false) === playing;
         if (elOkDur && elOkPlay) { posMs = Math.floor(el.currentTime * 1000); posAligned = true; }
-        else posMs = lastProgressMs;
+        else {
+          posMs = lastProgressMs;
+          try {
+            if (store) {
+              const sp = Number(store.getState().playing && store.getState().playing.position);
+              if (isFinite(sp) && sp > 0 && sp < 36000 && (!durMs || sp * 1000 <= durMs + 800)) {
+                posMs = Math.floor(sp * 1000);
+              }
+            }
+          } catch (e) { /* store 兑底失败不拦主流程 */ }
+        }
       }
     } else if (expectMs >= 0) posMs = expectMs;
     /* 垃圾零值熔断：对齐样本突报 ≈0（错误元素/缓冲过场）而原生进度深在
@@ -451,6 +466,20 @@
     if (durMs <= 0 && posAligned && el && el.duration > 0 && isFinite(el.duration)) {
       /* 仅对齐元素（=确认是当前歌的元素）的时长才可作兑底 */
       durMs = Math.floor(el.duration * 1000);
+    }
+    /* v3.0.1 物理自愈：进度在推进 = 在播放。PlayState 原生事件丢失/store
+       未就绪/元素评分失真时 playing 可能报反（宿主锚点 playing=false 插值
+       恒 0 → 面板进度/时间/逐字歌词全冻结 + 显示暂停实际在响——真机「状态
+       没有同步」形态）。以物理事实修正输出：真值位置较上拍上报推进
+       >800ms 且无本端 seek/换歌 → playing=true（事件语义时间戳一并前移，
+       store 交叉自愈仍可在真暂停时 3s 内纠回）。每拍独立判定，无累积误判。 */
+    if (
+      !playing && lastReportedPosMs >= 0 && posMs - lastReportedPosMs > 800 &&
+      nowMs - lastSeekAt > 5000 && (!songIdNow || songIdNow === lastSongId)
+    ) {
+      playing = true;
+      lastPlaying = true;
+      lastPlayingAt = nowMs;
     }
     return {
       song,

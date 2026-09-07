@@ -745,3 +745,24 @@ Stage Summary:
 - 迁移律：新双插件与旧一体化并存无害（桥 role 仲裁），但面板芯片必须引导卸旧装新（「双插件迁移」文案对应真实可行操作）；插件B 配置面板双保险提醒
 - 交付：Release v3.0.0（id 见 repo）+ 文叔叔 ktcf9jy1ok3（1 天过期）；用户升级三步：卸旧「初始歌词源」→装双新 .plugin→重启网易云
 - 待办：Edge 商店提交材料仍未做；seek 真机有效性（channel.seek 参数形态实抓）= 下一任 AI 最高优先任务（见 AI-HANDOFF 任务 A）
+
+---
+Task ID: 87
+Agent: main (Super Z)
+Task: 用户真机第 10 轮反馈「逐字歌词是坏的，播放状态没有同步网易云音乐，进度条也不会动，数字时间也没有变化」→ v3.0.1 四症状定点根治
+
+Work Log:
+- 【链路通读】v3.0.0 双插件全链源码重读（插件B 1084 行/插件A 271 行/桥 v2.0.0 仲裁/宿主 smtc.ts 839 行/sandbox.js music core/部件 music-widget.html/PresetWidgets 部件通道 tick 路由）；verify-v3 基线 38/38 全绿 → 四症状是真机环境特有断点，非 mock 可测的回归
+- 【根因判定】四症状最短共同路径 = ne 真值断供/失真 → 宿主回退 SMTC-only → 网易云桌面版 SMTC TimelineProperties position 基本不更新（当初自写网易云 API 的原因）→ 进度/时间/逐字歌词全冻结 + 播放态漂移。锁定三个确凿缺陷：①judgeNcmOwns 与 apply 不对称（!t 时 return ne.playing 判独占，apply 只认 t 非空 → 桥抓不到网易云 SMTC 会话时真值被判独占却无人消费）②插件B playing 无物理自愈（PlayState 事件丢失/store 迟到 → 报暂停 → 宿主锚点 playing=false 插值恒 0 → 四症状全现，正是「状态没有同步」形态）③原生死 + 元素不可信时无兜底 → positionMs 冻死
+- 【修复一：宿主虚拟曲目】judgeNcmOwns !t → return true（ne 新鲜 = 网易云开着，比「桥抓没抓到会话」更硬）；apply 在 ncmOwns 且 next.track=null 时以 ne 构造虚拟曲目（app="NetEase Music"，真值独占填充，coverRev 空 → 封面走 ne.pic）
+- 【修复二：插件B 物理自愈】buildSnapshot 末尾：!playing && lastReportedPosMs>=0 && posMs-lastReportedPosMs>800 && 无本端 seek(5s) && (!songIdNow || 同歌) → playing=true + lastPlaying/lastPlayingAt 写回（事件语义接管；<800ms 闸防暂停微抖误判；真暂停时 store 交叉自愈 3s 纠回；每拍独立判定无累积误判；songId 不明也生效——换歌首拍已被 lastReportedPosMs>=0 重置闸排除）
+- 【修复三：插件B store 次级真值】expectMs<0 且元素身份不符分支：dva playing.position 兜底（网易云自家进度条同源，秒；单位闸 (0,36000) 防字段形态漂移 + 时长闸防越界）
+- 【版本】插件B 2.0.0→2.1.0（manifest+PLUGIN_VERSION+描述）；宿主 package.json 3.0.1；插件A/桥 2.0.0 零改动（needsBridge 链不动）
+- 【验证升级】verify-v3 38→44 项 ×2 轮全绿：新增 ST17（虚拟曲目静态）/ST18（物理自愈+store 兜底静态）/PB4（物理自愈三拍白盒：拍0 突跳自愈就位基准→拍1 推进 0.2s 不误判→拍2 推进 1.6s 必自愈；⚠拍间须重 fire PlayState(2) 隔离 lastPlaying 写回残留）/PB5（store 兜底白盒：⚠webpack require 的 .c 模块缓存必须挂在 require 函数对象上——纯箭头函数 mock 是 findStore 失败根因）/N10（e2e：track=null+ne 播放 → 面板显示网易云）/N10b（进度推进 0.8%/2.2s）
+- 【构建】build-ncm-plugin/build-v3-assets/build-extension 断言同步 2.1.0/3.0.1；全产线重建：双 .plugin + 扩展 zip 11.7MB + SMTC 交付包 + v3.0.1 合并交付包 + 使用说明重写（四症状根因白话 + 两步升级 + 30 秒自查：页脚只显「管理 v2.0.0」无「API v2.1.0」= 插件B 未加载即装包/重启问题非代码问题）
+- 【文档】AI-HANDOFF 更新（v3.0.1 单主律第 3 条补虚拟曲目、坑 11「SMTC-only 是冻结区」、坑 12「物理自愈是输出修正不是状态改写」、任务 B 改四症状验收 + 页脚排障法）；README v3.0.1 段
+
+Stage Summary:
+- 三症状根因全闭环且有针对性回归实证：虚拟曲目（N10/N10b e2e 实证桥无会话时真值独占+进度推进）、物理自愈（PB4 三拍实证 <800ms 不误判/>800ms 必自愈）、store 兜底（PB5 实证原生死+元素不可信时 pos=120000 不冻死）
+- 新律：①「判独占」与「消费独占」必须同拍同条件落地——仲裁层判定 true 而消费端不接 = 真值黑洞；②物理自愈（进度推进=在播放）是播放态事件丢失的终极兜底，闸必须是每拍独立判定 + <800ms 窗，写回事件语义让下拍接管；③测试 mock 外部系统必须同构到隐藏协议面（webpack require.c），差一个属性整个链路静默失败
+- 待办：用户真机复测（扩展 3.0.1 + 插件B 2.1.0 替换 + 重启网易云 + Ctrl+F5；看进度/时间/逐字歌词跟手、页脚 API v2.1.0 在场）；任务 A（seek 真机参数实抓）仍为下轮最高优先

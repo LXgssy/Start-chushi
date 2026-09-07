@@ -1,6 +1,6 @@
 # AI-HANDOFF — 给下一个读这个仓库的 AI / 开发者
 
-> 最后更新：v3.0.0（2026-09-07）。写给你的：无论你是人类贡献者还是 AI 助手，
+> 最后更新：v3.0.1（2026-09-07）。写给你的：无论你是人类贡献者还是 AI 助手，
 > 这一页是项目的「当前状态 + 下一步该干什么」的单一事实来源。
 > 动手前请先读完本页和 `README.md` 的版本历史段，不要凭想象改架构。
 
@@ -21,7 +21,7 @@
         │  ⚠ 绝不修正任何真值——v1.7.x 的 ne-anchoring 已删除，别加回来）
         ▲ /api/plugin/register(管理插件) ▲ /api/plugin/state(1s) + /api/plugin/cmd(300ms)
         │
-[插件A 初始SMTC桥 cc.chushi.smtcbridge v2.0.0]   [插件B 初始网易云API cc.chushi.ncmapi v2.0.0]
+[插件A 初始SMTC桥 cc.chushi.smtcbridge v2.0.0]   [插件B 初始网易云API cc.chushi.ncmapi v2.1.0]
  bridge/lyric-plugin 的桥管理段原样提取          bridge/lyric-plugin 的真值段原样提取
  只管桥进程：部署/杀旧/拉起/监督/注册            只产真值：原生事件+锁定元素+seek 阶梯+歌词
  产出零网易云状态                                进程管理零调用
@@ -33,6 +33,8 @@
 3. 宿主只仲裁：`judgeNcmOwns()` 唯一判定点——桥 app 字段（"NetEase Music"，
    AUMID 归一，权威）或标题兜底匹配 + ne 新鲜（ts≤3s）→ **插件真值独占**
    （一次性年龄补偿后零守卫零混合）；否则 SMTC-only（harmonize 只活在这条路径）。
+   **v3.0.1：桥无 SMTC 会话（track=null）时 ne 新鲜即独占**，apply 以 ne 构造
+   虚拟曲目——绝不因 SMTC 会话缺失弃用有效真值（四症状根治点一）。
 4. **不要在宿主重新叠加零值/倒退守卫**——插件B 已有全套熔断（身份锁/倒退熔断/
    零值熔断/channel 健康闸），宿主再叠一层 = v2.x 三层互打复辟（九轮真机故障根源）。
 
@@ -42,8 +44,8 @@
 3. `bun run build:export` → out/（gh-pages/网页用）⚠ `next build` standalone 不写 out/
 4. `python3 scripts/build-extension.py` → 扩展 zip（⚠ 会覆盖 out/，Pages 部署必须在其前）
 5. `python3 scripts/build-smtc-preset.py` → examples/初始SMTC音乐预设.cshz
-6. `python3 scripts/build-v3-assets.py` → download/v3.0.0/ 交付包全家
-7. `node scripts/pw-lab/verify-v3.mjs` → 必须 38/38（两轮）
+6. `python3 scripts/build-v3-assets.py` → download/v3.0.1/ 交付包全家
+7. `node scripts/pw-lab/verify-v3.mjs` → 必须 44/44（两轮）
 8. `bash scripts/deploy-pages.sh` → gh-pages（工作树必须干净）→ 线上 grep 指纹验证
 9. Release + 文叔叔交付（py 版 wss-send.py；mjs 版登录接口 1003 已坏）
 
@@ -51,6 +53,7 @@
 
 | 宿主 | 要求桥 ≥ | 要求API插件 ≥ | 需要管理插件 | 说明 |
 |------|---------|--------------|-------------|------|
+| v3.0.1 | 2.0.0 | 2.1.0 | 建议（无也可手动 bat） | 四症状定点根治（虚拟曲目/物理自愈/store 兑底） |
 | v3.0.0 | 2.0.0 | 2.0.0 | 建议（无也可手动 bat） | 全新双插件架构 |
 
 - **needsPlugin**（插件缺失 / <1.4.0 / 1.4.0–1.5.1 旧一体化）→ 部件分叉三种文案：
@@ -82,6 +85,13 @@
 8. **显示层啃蚀**：关键判定用 od / 程序化断言，不信目视。
 9. **sw.js 缓存**：gh-pages 部署后用户需 Ctrl+F5。每次改宿主行为都要提醒。
 10. **build:extension 覆盖 out/**：Pages 部署必须紧随 build:export，与扩展构建强隔离。
+11. **SMTC-only 是冻结区**（v3.0.1 实锤）：网易云桌面版 SMTC 的 TimelineProperties
+    position 基本不更新——只要宿主回退 SMTC-only，面板进度/时间/逐字歌词就会冻结。
+    「四症状全现」= ne 真值断供的第一嫌疑。排查顺序：插件B 是否加载（页脚 API vX）
+    → 桥 /api/state 是否有 ne → judgeNcmOwns 是否判 false。
+12. **物理自愈是输出修正不是状态改写**（v3.0.1）：插件B buildSnapshot 末尾
+    「推进>800ms/拍 → playing=true」每拍独立判定，写回 lastPlaying 后由事件语义
+    接管；真暂停时 store 交叉自愈 3s 内纠回。别改成持续状态或删掉 <800ms 闸。
 
 ## 用户机器的已知约束（真机实证）
 
@@ -104,10 +114,13 @@
   4. 验证 `playing/setPlayingPosition` dispatch 的 payload 形态（v1.5.1 已改回数值秒，
      但真机若仍无效需再核实 reducer 期望）。
 
-### B. 双插件架构真机验收（本版刚交付，等用户反馈）
-- 迁移三步走是否顺畅（卸旧装双新件重启）；
-- 状态反转/进度爬行/冻死是否随三层互打终结而消失（理论上必然，需真机确认）；
-- 版本芯片四态是否如实（尤其「旧桥杀不死」实锤态的手动指引）。
+### B. v3.0.1 四症状真机验收（本版刚交付，等用户反馈）
+- 用户本轮四症状：逐字歌词坏/播放状态不同步/进度条不动/数字时间不变。
+- 三个根治点：①虚拟曲目（桥无 SMTC 会话时 ne 真值不弃用）②物理自愈
+  （播放态事件丢失时进度推进=在播放）③store 次级真值（原生死时不冻死）。
+- 验收：页脚 `API v2.1.0` 在场 + 进度/时间/逐字歌词跟手；若仍冻结，
+  让用户截图面板页脚——只显示 `管理 v2.0.0` 无 `API v2.1.0` = 插件B 未加载
+  （装包/重启问题，不是代码问题）。
 
 ### C. 暂停→恢复逐字歌词漂移的最终确认（用户持续报告的遗留项）
 - 真值绝对锚定理论上已结构性归零漂移。任务：真机暂停 30s → 恢复，录屏对比歌词

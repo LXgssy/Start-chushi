@@ -8,17 +8,17 @@
 #   2. download/v3.0.0/初始网易云API-2.0.0.plugin（role=ncm 真值生产，零桥管理）
 #   3. download/v3.0.0/ChuShi-SMTC音乐-交付包.zip
 #      （双 .plugin + 预设 .cshz + 使用说明 + 手动启动桥（备用）/）
-#   4. download/v3.0.0/ChuShi-v3.0.0-合并交付包.zip（扩展 zip + SMTC 交付包 zip）
+#   4. download/v3.0.0/ChuShi-v3.0.1-合并交付包.zip（扩展 zip + SMTC 交付包 zip）
 import shutil, pathlib, zipfile, json, base64, re
 
 ROOT = pathlib.Path("/home/z/my-project")
-VER = "v3.0.0"
+VER = "v3.0.1"
 OUT = ROOT / "download" / VER
 PLUGIN_A_SRC = ROOT / "bridge" / "smtc-plugin" / "初始SMTC桥-2.0.0.plugin"
-PLUGIN_B_SRC = ROOT / "bridge" / "ncm-plugin" / "初始网易云API-2.0.0.plugin"
+PLUGIN_B_SRC = ROOT / "bridge" / "ncm-plugin" / "初始网易云API-2.1.0.plugin"
 ZIP = OUT / "ChuShi-SMTC音乐-交付包.zip"
-MERGED = OUT / "ChuShi-v3.0.0-合并交付包.zip"
-EXT = OUT / "ChuShi-NewTab-v3.0.0.zip"
+MERGED = OUT / "ChuShi-v3.0.1-合并交付包.zip"
+EXT = OUT / "ChuShi-NewTab-v3.0.1.zip"
 PRESET = ROOT / "examples" / "初始SMTC音乐预设.cshz"
 GUIDE = OUT / "使用说明-SMTC音乐.md"
 BRIDGE_PS1 = ROOT / "bridge" / "smtc" / "chushi-bridge.ps1"
@@ -57,12 +57,14 @@ shutil.copy2(PLUGIN_B_SRC, OUT / PLUGIN_B_SRC.name)
 with zipfile.ZipFile(OUT / PLUGIN_B_SRC.name) as z:
     assert set(z.namelist()) == {"manifest.json", "index.js"}
     pm = json.loads(z.read("manifest.json"))
-    assert pm["slug"] == "cc.chushi.ncmapi" and pm["version"] == "2.0.0"
+    assert pm["slug"] == "cc.chushi.ncmapi" and pm["version"] == "2.1.0"
     idx = z.read("index.js")
     for needle in (b'role: "ncm"', b"audioplayer.seek", b"/api/plugin/cmd",
                    b"nativeExpectMs", b"pickMediaEl", b"needLyric", b"rePushLyric",
                    b"chushi-channel-seek-disabled", b"elLock", b"lastReportedPosMs",
-                   b"e82ckenh8dichen8"):
+                   b"e82ckenh8dichen8",
+                   "物理自愈：进度在推进 = 在播放".encode(),
+                   b"posMs - lastReportedPosMs > 800"):
         assert needle in idx, f"插件B 缺标记 {needle}"
     for forbidden in (b"EMBEDDED_BRIDGE", b"deployBridge", b"superviseBridge", b"chushi-bridge.ps1"):
         assert forbidden not in idx, f"插件B 不得含桥管理代码 {forbidden}"

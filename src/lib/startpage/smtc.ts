@@ -1,4 +1,4 @@
-/* 「初始」SMTC 媒体作用面（v3.0.0）—— 单主仲裁媒体引擎
+/* 「初始」SMTC 媒体作用面（v3.0.1）—— 单主仲裁媒体引擎
  *
  * v3.0.0 双插件架构（根治多层真值互打的结构性冲突）：
  *   [本模块] 唯一仲裁层：NCM API 插件在场 → 网易云真值独占（进度/时长/播放态/
@@ -476,12 +476,16 @@ class SmtcClient {
    *  身份：桥选中网易云会话（app==="NetEase Music"，AUMID 归一，权威）→ 独占；
    *  app 名不可靠（旧桥）时退化到标题匹配；NCM 正在播放时无条件独占
    *  （用户听到的是网易云——修「面板显示其它应用/暂停态而网易云在响」的反转）。
-   *  NCM 暂停且身份不明时不抢面板（让 SMTC 展示其它正在播的应用）。 */
+   *  v3.0.1：桥无会话（track=null）时 ne 新鲜即独占——网易云开着（心跳新鲜）
+   *  是比「桥抓没抓到 SMTC 会话」更硬的事实；apply 端以 ne 构造虚拟曲目
+   *  （旧版此处 return ne.playing 而 apply 只认 t 非空 → 真值被判独占却无人
+   *  消费 → 回退 SMTC-only → 网易云 SMTC position 冻结 → 进度/时间/逐字歌词
+   *  全冻结的四症状形态）。 */
   private judgeNcmOwns(t: SmtcTrack | null, ne: NeState | null): boolean {
     if (!ne || !ne.title) return false;
     const fresh = ne.ts > 0 ? Math.abs(Date.now() - ne.ts) <= 3000 : true;
     if (!fresh) return false;
-    if (!t) return ne.playing;
+    if (!t) return true;
     if (t.app === "NetEase Music") return true;
     return trackMatchesNe(t, ne) || ne.playing;
   }
@@ -630,11 +634,27 @@ class SmtcClient {
     plugins: BridgePlugins | null,
     ncmOwns: boolean,
   ): void {
-    const t = next.track;
     const now = Date.now();
     let neUsable = false;
-    if (t && ncmOwns && ne) {
+    if (ncmOwns && ne) {
       neUsable = true;
+      /* v3.0.1 虚拟曲目兜底：桥未抓到网易云 SMTC 会话（HasSession=false，
+       * 真机常见——网易云新版 SMTC 注册/会话抢占）时以插件B 真值构造面板
+       * 曲目，绝不因 SMTC 会话缺失而弃用有效真值（旧版此处整块跳过 →
+       * 面板回退 SMTC-only → 网易云 SMTC position 冻结 → 进度/时间/逐字
+       * 歌词全冻结 + 播放态漂移的四症状形态）。 */
+      const t: SmtcTrack = next.track ?? {
+        app: "NetEase Music",
+        title: "",
+        artist: "",
+        album: "",
+        playing: false,
+        position: 0,
+        duration: 0,
+        rate: 1,
+        coverRev: "",
+        fetchedAt: now,
+      };
       /* 网易云真值独占：元数据/时长/位置/播放态全部来自插件（单源，零混合） */
       t.title = ne.title;
       t.artist = ne.artist;
@@ -647,7 +667,8 @@ class SmtcClient {
       t.position = Math.max(0, posSec);
       t.fetchedAt = now;
       t.playing = ne.playing;
-      if (t.app !== "NetEase Music") t.app = "NetEase Music"; /* 旧桥 app 名兜底归一 */
+      t.app = "NetEase Music"; /* 虚拟/旧桥 app 名统一归一 */
+      next.track = t;
     }
     const lyricRevNow = neUsable && ne!.lyricRev ? ne!.lyricRev : "";
     const prevCover = this.state.cover;
