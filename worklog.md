@@ -832,3 +832,20 @@ Stage Summary:
 - 用户「全部重写」指令全链闭环：五层（插件A/插件B/引擎/预设包/音乐面板 API+前端）全部从零新写且样式不变，三套验证 184 项×2 轮全绿后交付
 - 新律：①e2e harness 三重根因（innerHTML 不执行脚本/replace $ 序列/sandbox 模式分发）都披着「产品坏了」的外衣——先分层归因再动手；②token 权限缺口可能只影响 DELETE 不影响上传/更新——发布脚本的幂等策略必须容忍「删不掉」并以 SHA-256 校验为最终收口；③显示伪影判定律升级：连「目视发现的 bug」也要先过 codepoint 断言再动手修
 - 待办：用户真机复测（卸旧装双新 .plugin 5.0.0 + 完全重启网易云 + Ctrl+F5 + 重导 .cshz；网易云 SMTC 开关关闭状态验满血卡片/可拖进度/媒体键/暂停恢复零漂移/网易云本体进度条不受影响；页脚 API v5.0.0 · 管理 v5.0.0）；任务 B seek 真机成功率、C 部件高度弹簧、D 工程化欠账（AI-HANDOFF）
+
+---
+Task ID: 91
+Agent: Super Z (main)
+Task: 用户反馈「ChuShi-SMTC-Manager-5.0.0.plugin 安装了无法在插件列表显示出来」+「插件名称要改成英文，不是介绍之类的也改成英文」——v5.0.1 修复
+
+Work Log:
+- 【源码级根因】拉 BetterNCM v2 源码（本体已改名 std-microblock/chromatic，v2 冻结源码从 fork NanoRocky/BetterNCM 取）读 PluginManager.cpp extractPackedPlugins 过滤链：`isNCM3 && !manifest.ncm3Compatible → continue`——网易云 3.x 静默丢弃 manifest 缺 ncm3-compatible:true 的插件（不解压/不加载/列表不显示/不报错）；v5.0.0 重写时 SMTC Manager 丢了该字段（老版 2.1.0 有），Music API 5.0.0 带着字段——「只有一个插件看不到」症状不对称即定位实锤；同源实锤两条：①中文 .plugin 文件名经 zip_open 按 ANSI(GBK) 码页解析→打不开→用户「中文读不了」判断正确（ASCII 文件名门保留）；②同 slug 插件解压到同一目录 plugins_runtime/<slug>，plugins 文件夹旧 .plugin 不删会启动时反向覆盖（中文名 ASCII 序在后=旧覆盖新）；另有 disable_list.txt 同 slug 连坐风险
+- 【修复】双插件 manifest 补 ncm3-compatible:true；按用户规则文案调整：name 保持英文（ChuShi SMTC Manager / ChuShi Music API）、description 改回中文；.plugin 文件名与 index.js/engine 仍纯 ASCII；双插件 PLUGIN_VERSION → 5.0.1（宿主 PLUGIN_VER_MIN=5.0.0 semverLt 门兼容）；引擎零改动（$EngineVersion 5.0.0 与 ENGINE_VER_REQUIRED 一致）
+- 【构建门升级】build-v5-plugins.py：manifest 从 raw-ASCII 门改结构门（JSON 解析+manifest_version==1+slug+版本+name 纯 ASCII+description 必含 CJK+ncm3-compatible 必须 true+injects Main→index.js+hijacks）——本坑机器锁死永不复发；OUT 路径版本化 f-string；BetterNCM 过滤链模拟器（zip 布局/manifest_version/ncm3 门/版本 req/extract 目标）双插件 WOULD LOAD AND LIST 全过；syntax-gate-v5 13+1（sectionD 预期）
+- 【交付】download/v5.0.1/ 六件套（扩展保持 ChuShi-NewTab-v5.0.0.zip 诚实命名零改动+双 .plugin 5.0.1+交付包+合并包+SHA256SUMS+使用说明 5.0.1 版新增「装完列表里还是没有」排障节）；main 8dc364b 推送；Release v5.0.1 id=384081046 六资产直链 SHA-256 ALL OK（⚠又踩：/releases/assets 顶层列表端点不存在 404→改 /releases/tags/{TAG} 自带 assets 校验）；文叔叔合并包 https://c.wss.ink/f/kth6ggzedzh（200→wenshushu.cn 验证有效）
+- 【文档】AI-HANDOFF 坑 17（BetterNCM ncm3 静默过滤全链+中文文件名 ANSI 实锤+同 slug 覆盖+disable_list 连坐+chromatic 改名/源码 fork 考古路径）+ 任务 A 升 v5.0.1 验收（第 0 项=双插件列表可见）；README v5.0.1 版本段
+
+Stage Summary:
+- 「装了不显示」不是玄学：BetterNCM 对网易云 3.x 有静默白名单字段 ncm3-compatible，缺失=无声消失；修复+构建门锁死+排障文档三件套闭环
+- 新律：①「插件列表不显示」类问题第一步查 BetterNCM 过滤链（disable_list/ncm3/version-req/manifest_version），不是查 zip；②插件 manifest 的 name（英文）/description（中文）/文件名（ASCII）三者的语言规则是三条独立用户规则，构建门分别断言；③升级说明必须写「删掉所有旧 .plugin」——同 slug 解压目录覆盖方向由文件名排序决定，不可赌
+- 待办：用户真机复测（删光旧 .plugin→装 5.0.1 双插件→完全重启→列表双可见→SMTC 关闭态满血卡片/可拖/媒体键→页脚 API v5.0.1 · 管理 v5.0.1）；若列表仍缺→disable_list.txt 排查（使用说明有步骤）；任务 B/C/D 沿 AI-HANDOFF
