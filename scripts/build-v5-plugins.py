@@ -1,17 +1,28 @@
 #!/usr/bin/env python3
 """v5 plugin packager + constitution gates.
 
-Constitution (user's three hard rules, machine-enforced):
+Constitution (user's hard rules, machine-enforced):
   1. zero old-code reuse  -> ban-gate: v3/v4 symbol residue must be ZERO
   2. no NetEase SMTC need -> ban-gate: no external-session reader APIs in engine
-  3. ASCII plugin files   -> byte gate: every byte of every shipped source < 0x80
+  3. ASCII plugin files   -> byte gate: index.js + engine every byte < 0x80;
+                             .plugin FILENAME must be pure ASCII (BetterNCM
+                             zip_open reads paths in ANSI codepage, non-ASCII
+                             filenames never open -> plugin silently skipped)
+  4. ncm3-compatible:true -> BetterNCM on NCM 3.x silently DROPS any plugin
+                             whose manifest lacks this flag (PluginManager.cpp
+                             filters `isNCM3 && !manifest.ncm3Compatible`);
+                             v5.0.0 manager missed it and vanished from the
+                             plugin list. Gate 8 below locks it forever.
+  5. English name / Chinese description -> user rule: plugin NAME in English,
+                             intro/description must stay Chinese
 
 Outputs:
-  bridge/smtc-plugin/ChuShi-SMTC-Manager-5.0.0.plugin
-  bridge/ncm-plugin/ChuShi-Music-API-5.0.0.plugin
+  bridge/smtc-plugin/ChuShi-SMTC-Manager-<VERSION>.plugin
+  bridge/ncm-plugin/ChuShi-Music-API-<VERSION>.plugin
 """
 import base64
 import hashlib
+import json
 import re
 import sys
 import zipfile
@@ -23,12 +34,11 @@ MGR_JS = ROOT / "bridge/smtc-plugin/index.js"
 MGR_MAN = ROOT / "bridge/smtc-plugin/manifest.json"
 API_JS = ROOT / "bridge/ncm-plugin/index.js"
 API_MAN = ROOT / "bridge/ncm-plugin/manifest.json"
-OUT_MGR = ROOT / "bridge/smtc-plugin/ChuShi-SMTC-Manager-5.0.0.plugin"
-OUT_API = ROOT / "bridge/ncm-plugin/ChuShi-Music-API-5.0.0.plugin"
-
-VERSION = "5.0.0"
+VERSION = "5.0.1"
 ENGINE_VER = "5.0.0"
 PORT = "26801"
+OUT_MGR = ROOT / f"bridge/smtc-plugin/ChuShi-SMTC-Manager-{VERSION}.plugin"
+OUT_API = ROOT / f"bridge/ncm-plugin/ChuShi-Music-API-{VERSION}.plugin"
 
 
 def fail(msg: str):
@@ -71,8 +81,10 @@ def main():
     gate_ascii(engine_crlf, "engine (payload)", allow_cr=True)
     gate_ascii(mgr_js, "manager index.js")
     gate_ascii(api_js, "music api index.js")
-    gate_ascii(mgr_man, "manager manifest")
-    gate_ascii(api_man, "music api manifest")
+    # manifest: NOT raw-ASCII (description is Chinese on purpose); structural gate below
+    for p in (OUT_MGR, OUT_API):
+        if not p.name.isascii() or not p.name.endswith(".plugin"):
+            fail(f"plugin filename must be pure ASCII .plugin: {p.name}")
 
     # ---------------- zero old-code reuse (v3+v4 generations) ----------------
     gate_ban(mgr_js, [
@@ -130,15 +142,33 @@ def main():
     if PORT not in engine_crlf:
         fail("engine: port missing")
 
-    # ---------------- manifests ----------------
-    for man, name, slug in ((mgr_man, "ChuShi SMTC Manager", "cc.chushi.smtcbridge"),
-                            (api_man, "ChuShi Music API", "cc.chushi.ncmapi")):
-        if f'"version": "{VERSION}"' not in man:
-            fail(f"manifest version mismatch in {name}")
-        if slug not in man:
-            fail(f"manifest slug mismatch in {name}")
-        if "injects" not in man:
-            fail(f"manifest injects missing in {name}")
+    # ---------------- manifests (structural gate) ----------------
+    for man_text, name, slug in ((mgr_man, "ChuShi SMTC Manager", "cc.chushi.smtcbridge"),
+                                 (api_man, "ChuShi Music API", "cc.chushi.ncmapi")):
+        try:
+            m = json.loads(man_text)
+        except Exception as e:
+            fail(f"manifest {name}: invalid JSON: {e}")
+        if m.get("manifest_version") != 1:
+            fail(f"manifest {name}: manifest_version != 1")
+        if m.get("slug") != slug:
+            fail(f"manifest {name}: slug mismatch")
+        if m.get("version") != VERSION:
+            fail(f"manifest {name}: version mismatch (want {VERSION})")
+        n = m.get("name", "")
+        if not n or not n.isascii() or not n.isprintable():
+            fail(f"manifest {name}: plugin NAME must be pure ASCII English")
+        desc = m.get("description", "")
+        if not any('\u4e00' <= c <= '\u9fff' for c in desc):
+            fail(f"manifest {name}: description must stay Chinese (user rule)")
+        # THE v5.0.1 fix: BetterNCM silently drops plugins on NCM 3.x without this flag
+        if m.get("ncm3-compatible") is not True:
+            fail(f"manifest {name}: ncm3-compatible must be true (else plugin vanishes on NCM 3.x)")
+        inj = m.get("injects", {}).get("Main", [])
+        if not inj or inj[0].get("file") != "index.js":
+            fail(f"manifest {name}: injects Main -> index.js missing")
+        if "hijacks" not in m:
+            fail(f"manifest {name}: hijacks missing")
 
     # ---------------- payload injection ----------------
     payload = engine_crlf.encode("utf-8")

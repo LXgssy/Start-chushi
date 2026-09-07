@@ -47,8 +47,8 @@ blocks.forEach((b, i) => ok(`widget inline script #${i + 1} (${b.length}B)`, par
 
 console.log("G3 built .plugin artifacts contain parseable index.js");
 const plugins = [
-  "bridge/ncm-plugin/ChuShi-Music-API-5.0.0.plugin",
-  "bridge/smtc-plugin/ChuShi-SMTC-Manager-5.0.0.plugin",
+  "bridge/ncm-plugin/ChuShi-Music-API-5.0.1.plugin",
+  "bridge/smtc-plugin/ChuShi-SMTC-Manager-5.0.1.plugin",
 ];
 /* minimal zip reader: locate index.js entry (stored or deflate via zlib) */
 import zlib from "node:zlib";

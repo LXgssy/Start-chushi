@@ -1,25 +1,30 @@
-# build-v5-assets.py -- assemble the v5.0.0 delivery set under download/v5.0.0/
-#   ChuShi-NewTab-v5.0.0.zip          (extension, built by build-extension.py)
-#   ChuShi-SMTC-Manager-5.0.0.plugin  (plugin A: engine lifecycle manager)
-#   ChuShi-Music-API-5.0.0.plugin     (plugin B: netease truth + lyrics + control)
-#   初始SMTC音乐预设.cshz              (music widget preset, rebuilt by build-v5-preset.py)
+# build-v5-assets.py -- assemble the v5.0.1 delivery set under download/v5.0.1/
+#   Plugins-only fix release: NCM 3.x silently drops plugins whose manifest
+#   lacks ncm3-compatible:true (v5.0.0 manager missed it -> invisible in the
+#   BetterNCM plugin list). Extension/preset/engine are UNCHANGED -> the
+#   extension zip keeps its honest v5.0.0 name and is reused from v5.0.0/.
+#   ChuShi-NewTab-v5.0.0.zip          (extension, unchanged since v5.0.0)
+#   ChuShi-SMTC-Manager-5.0.1.plugin  (plugin A: engine lifecycle manager)
+#   ChuShi-Music-API-5.0.1.plugin     (plugin B: netease truth + lyrics + control)
+#   初始SMTC音乐预设.cshz              (music widget preset, unchanged since v5.0.0)
 #   ChuShi-SMTC音乐-交付包.zip         (manual engine fallback: bat + engine ps1)
-#   ChuShi-v5.0.0-合并交付包.zip       (everything merged for wss upload)
+#   ChuShi-v5.0.1-合并交付包.zip       (everything merged for wss upload)
 #   使用说明-SMTC音乐.md
 # Asserts byte-level fingerprints before shipping.
 import base64
 import hashlib
+import json
 import pathlib
 import re
 import zipfile
 
 ROOT = pathlib.Path("/home/z/my-project")
-OUT = ROOT / "download" / "v5.0.0"
+OUT = ROOT / "download" / "v5.0.1"
 OUT.mkdir(parents=True, exist_ok=True)
 
-ext_zip = OUT / "ChuShi-NewTab-v5.0.0.zip"
-mgr_plugin = ROOT / "bridge" / "smtc-plugin" / "ChuShi-SMTC-Manager-5.0.0.plugin"
-api_plugin = ROOT / "bridge" / "ncm-plugin" / "ChuShi-Music-API-5.0.0.plugin"
+ext_zip = ROOT / "download" / "v5.0.0" / "ChuShi-NewTab-v5.0.0.zip"
+mgr_plugin = ROOT / "bridge" / "smtc-plugin" / "ChuShi-SMTC-Manager-5.0.1.plugin"
+api_plugin = ROOT / "bridge" / "ncm-plugin" / "ChuShi-Music-API-5.0.1.plugin"
 preset_cshz = ROOT / "examples" / "初始SMTC音乐预设.cshz"
 engine_ps1 = ROOT / "bridge" / "engine" / "chushi-smtc-engine.ps1"
 
@@ -44,41 +49,47 @@ bat = (
     b"pause\r\n"
 )
 
-readme = """# 「初始」SMTC 音乐 v5.0.0 升级说明（预设包与音乐面板全部代码从零重写）
+readme = """# 「初始」SMTC 音乐 v5.0.1 插件修复说明（SMTC Manager 在插件列表消失）
 
-## 这一代改了什么（对应你的指令：预设包和音乐面板所有相关的 API 全部重写）
+## 这一代只修一件事：SMTC Manager 装了但插件列表里看不到
 
-1. **第四层也归零了**：v4 已重写插件/引擎/宿主仲裁，v5.0.0 把剩下的
-   「预设包音乐部件（music-widget.html + 命令脚本）」「沙盒音乐核心
-   （sandbox.js 音乐引擎）」「新标签页数据面（smtc.ts 单真值客户端）」
-   「部件通道（PresetWidgets）」全部从零重写——至此插件 A、插件 B、
-   引擎、预设包、音乐面板 API/前端**五层 0 复用老代码**。
-2. **样式保持不变**：音乐部件的视觉设计（卡片、歌词、按钮布局、
-   防位移三律）与上一代完全一致，只有实现是新的。
-3. **不再需要网易云自带的 SMTC 开关**（开或关都行）。引擎自己注册
-   满血 Windows 媒体会话，代码 0 读取网易云 SMTC 会话。
-4. **插件全英文**：`ChuShi-SMTC-Manager-5.0.0.plugin` +
-   `ChuShi-Music-API-5.0.0.plugin`，文件名/manifest/代码逐字符 ASCII。
-5. **装插件不影响网易云本体**：插件对网易云只读不写，控制仅在你
-   主动操作时单次执行；拖动失败会诚实提示「拖动未生效：网易云未响应」。
-6. **逐字歌词防漂移管线**（你指定的思路）：API 插件抓全量逐字歌词 →
-   真值时间轴对齐 → 暂停瞬间按当前词剩余时长计算淡入淡出 → 恢复播放
-   零累积漂移。
+1. **根因（BetterNCM 源码实锤）**：网易云 3.x 下，BetterNCM 会**静默丢弃**
+   manifest 里没有 `"ncm3-compatible": true` 字段的插件——不报错、不显示、
+   不解压。v5.0.0 的 SMTC Manager 重写时丢了这个字段（老版 2.1.0 是有的），
+   所以在你的网易云 3.x 上消失；而 Music API 5.0.0 带着这个字段，所以
+   显示正常。这正是「只有一个插件看不到」的原因。
+2. **v5.0.1 修复**：两个插件 manifest 都带上 `ncm3-compatible: true`，
+   并新增构建门：今后任何一代缺这个字段直接构建失败，永不复发。
+3. **文案按你的要求调整**：插件**名称保持英文**（ChuShi SMTC Manager /
+   ChuShi Music API），**介绍改回中文**；.plugin 文件名与代码仍为纯 ASCII
+   （中文文件名在 BetterNCM 里按 ANSI 码页解析，确实读不了，实测实锤）。
+4. **本次只改两个插件包**：扩展、预设包、引擎零改动——无需重装扩展、
+   无需重导预设、无需强刷浏览器。
 
-## 升级三步
+## 升级（只两步）
 
-1. **卸载旧插件**：BetterNCM 插件管理里卸载所有旧版「初始」相关插件
-   （初始歌词源 / 初始SMTC桥 / 初始网易云API / ChuShi SMTC Manager /
-   ChuShi Music API 的旧版本）。
-2. **装新插件**：把 `ChuShi-SMTC-Manager-5.0.0.plugin` 和
-   `ChuShi-Music-API-5.0.0.plugin` 放进 BetterNCM plugins 文件夹。
-3. **完全重启网易云音乐**，浏览器端 `Ctrl+F5` 强刷（sw.js 缓存），
-   「初始」里删除旧音乐部件后重新导入 `初始SMTC音乐预设.cshz`。
+1. **删旧插件**：打开 BetterNCM 数据目录的 `plugins` 文件夹，
+   **删掉里面所有旧版 .plugin 文件**（包括 ChuShi-*-5.0.0.plugin 和
+   任何更早的「初始」插件）。同 slug 的插件会解压到同一目录，
+   旧文件不删会在启动时反向覆盖新插件。
+2. **装新插件**：放入 `ChuShi-SMTC-Manager-5.0.1.plugin` 和
+   `ChuShi-Music-API-5.0.1.plugin`，**完全退出并重启网易云音乐**
+   （插件只在启动时解压加载，热插不生效）。
+
+## 装完列表里还是没有？
+
+- 看看 BetterNCM 数据目录有没有 `disable_list.txt`：里面若有一行
+  `cc.chushi.smtcbridge` 或 `cc.chushi.ncmapi`，删掉那一行再重启
+  网易云（这是「已停用插件」名单，新旧插件共用 slug，会被旧记录连坐）。
+- 确认放对目录：.plugin 文件要放在 BetterNCM 数据目录的 `plugins`
+  文件夹里（不是 plugins_runtime，那个是启动时自动生成的）。
+- 确认网易云是完全重启过的（托盘右键退出，不是只关窗口）。
 
 ## 30 秒自查
 
+- BetterNCM 插件列表同时出现 **ChuShi Music API** 和 **ChuShi SMTC Manager**；
 - 网易云播放任意歌曲 → Windows 悬浮窗/音量面板出现卡片，**进度条每秒走、可拖**；
-- 「初始」面板显示歌名/进度/逐字歌词，页脚 `API v5.0.0 · 管理 v5.0.0`；
+- 「初始」面板显示歌名/进度/逐字歌词，页脚 `API v5.0.1 · 管理 v5.0.1`；
 - 拖动面板进度条 → 网易云真实跳转（失败会明确提示，不再静默无效）；
 - 暂停 30 秒再恢复 → 逐字歌词从暂停处继续，无漂移；
 - 网易云**自己的**界面（进度条/播放按钮）行为与装插件前完全一致。
@@ -107,12 +118,12 @@ with zipfile.ZipFile(manual, "w", zipfile.ZIP_DEFLATED) as z:
                "ASCII + CRLF by contract.\r\n")
 
 # merged package (everything for wss upload)
-merged = OUT / "ChuShi-v5.0.0-合并交付包.zip"
+merged = OUT / "ChuShi-v5.0.1-合并交付包.zip"
 with zipfile.ZipFile(merged, "w", zipfile.ZIP_DEFLATED) as z:
     z.writestr("使用说明-SMTC音乐.md", readme_bytes)
     z.writestr("ChuShi-NewTab-v5.0.0.zip", ext_zip.read_bytes())
-    z.writestr("ChuShi-SMTC-Manager-5.0.0.plugin", mgr_plugin.read_bytes())
-    z.writestr("ChuShi-Music-API-5.0.0.plugin", api_plugin.read_bytes())
+    z.writestr("ChuShi-SMTC-Manager-5.0.1.plugin", mgr_plugin.read_bytes())
+    z.writestr("ChuShi-Music-API-5.0.1.plugin", api_plugin.read_bytes())
     z.writestr("初始SMTC音乐预设.cshz", preset_cshz.read_bytes())
     z.writestr("ChuShi-SMTC音乐-交付包.zip", manual.read_bytes())
 
@@ -121,17 +132,19 @@ with zipfile.ZipFile(merged) as z:
     names = set(z.namelist())
     assert names == {
         "使用说明-SMTC音乐.md", "ChuShi-NewTab-v5.0.0.zip",
-        "ChuShi-SMTC-Manager-5.0.0.plugin", "ChuShi-Music-API-5.0.0.plugin",
+        "ChuShi-SMTC-Manager-5.0.1.plugin", "ChuShi-Music-API-5.0.1.plugin",
         "初始SMTC音乐预设.cshz", "ChuShi-SMTC音乐-交付包.zip",
     }, names
     # embedded manager engine must equal the shipped manual engine (bytes)
     mgr_js = zipfile.ZipFile(mgr_plugin).read("index.js").decode("ascii")
     b64 = re.search(r'var ENGINE_B64 = "([^"]+)"', mgr_js).group(1)
     assert base64.b64decode(b64) == engine_crlf, "embedded engine != shipped engine"
-    # plugin manifests must be 5.0.0 and ascii
-    for plug, ver in ((mgr_plugin, "5.0.0"), (api_plugin, "5.0.0")):
-        mf = zipfile.ZipFile(plug).read("manifest.json").decode("utf-8")
-        assert '"version": "%s"' % ver in mf, f"{plug} version mismatch"
+    # plugin manifests must be 5.0.1 and carry the NCM 3.x compatibility flag
+    for plug, ver in ((mgr_plugin, "5.0.1"), (api_plugin, "5.0.1")):
+        mf = json.loads(zipfile.ZipFile(plug).read("manifest.json").decode("utf-8"))
+        assert mf["version"] == ver, f"{plug} version mismatch"
+        assert mf.get("ncm3-compatible") is True, f"{plug} ncm3-compatible missing (the v5.0.0 regression)"
+        assert any("\u4e00" <= c <= "\u9fff" for c in mf.get("description", "")), f"{plug} description not Chinese"
     # preset cshz contains the v5 widget (hFor guard present) and non-trivial
     cshz = zipfile.ZipFile(preset_cshz)
     cshz_names = cshz.namelist()
