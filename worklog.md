@@ -849,3 +849,25 @@ Stage Summary:
 - 「装了不显示」不是玄学：BetterNCM 对网易云 3.x 有静默白名单字段 ncm3-compatible，缺失=无声消失；修复+构建门锁死+排障文档三件套闭环
 - 新律：①「插件列表不显示」类问题第一步查 BetterNCM 过滤链（disable_list/ncm3/version-req/manifest_version），不是查 zip；②插件 manifest 的 name（英文）/description（中文）/文件名（ASCII）三者的语言规则是三条独立用户规则，构建门分别断言；③升级说明必须写「删掉所有旧 .plugin」——同 slug 解压目录覆盖方向由文件名排序决定，不可赌
 - 待办：用户真机复测（删光旧 .plugin→装 5.0.1 双插件→完全重启→列表双可见→SMTC 关闭态满血卡片/可拖/媒体键→页脚 API v5.0.1 · 管理 v5.0.1）；若列表仍缺→disable_list.txt 排查（使用说明有步骤）；任务 B/C/D 沿 AI-HANDOFF
+---
+Task ID: 92
+Agent: Super Z (main)
+Task: 用户指令「算了还是把桥单独写成一个插件吧，分成三个插件，因为现在初始的页面还是不会显示音乐，要不要把初始的前端音乐API都重写一下」→ v6.0.0 三插件纯插件架构（外部引擎整体退役）
+
+Work Log:
+- 【架构裁决】「桥独立成插件+三个插件」落为 SMTC Manager / Music Bridge / Lyric Source 三 .plugin；「页面不显示音乐」根因定性 = v5 页面数据面必经外部引擎（插件A 5.0.0 曾不可见 → 引擎从未部署 → 枢纽 26801 死 → 页面空），根治 = 枢纽住进桥插件（渲染进程内 require("http").createServer，v5 已实证渲染进程有完整 Node）
+- 【调研实锤】BetterNCM 本体服务器（NanoRocky/BetterNCM v2 App.cpp）httplib 无任何 Access-Control 头 + /api/fs/* 全走 checkApiKey（外部页面拿不到 key）——本体服务器不能当中继（坑 19）；PAT 文件再丢但 git remote 内嵌 token 在位 → 重建 .pkgtmp/gh-token（600，API push 权限核实）
+- 【插件A 6.0.0】纯 JS navigator.mediaSession 满血会话：metadata+artwork(?param=500y500)/playbackState/positionState（1s 重锚+系统侧本地时钟插值）/8 个 action handler（play/pause/prev/next/stop/seekto/seekforward/seekbackward 本地钟）；只转发 cc:smtc-cmd 绝不执行播放控制；零 require/零 child_process/零 fs；mediaSession 缺失 → "unsupported" 诚实上报
+- 【插件B 6.0.0 桥】真值三级调和（元素粘滞时长锚定 → 原生 PlayState/PlayProgress/Seek 新鲜窗 → dva store 只读 webpack 探针）；控制单次执行律（currentTime 全文件唯一写点 + 420ms/1s 双读回 seekAck；play/pause=元素方法、next/prev=可见按钮）；枢纽 127.0.0.1:26801（/api/ping|state|lyric|cmd，CORS * + PNA 预飞行头，EADDRINUSE 自动退 26802 + 页面双端口重探）；window 事件总线（cc:music-state 1s 心跳 / cc:smtc-cmd / cc:lyric-req|res|hello / cc:smtc-ack），三邻居全可选全诚实降级
+- 【插件C 6.0.0】歌词源独立：eapi /api/song/lyric/v1（渲染进程 node crypto，协议常量级实现）→ channel.track.lyric.getinfo → 直连三级回退；klyric→yrc 转换；LRU 8 + localStorage 持久化；reqId 配对应答。eapi 协议公网端到端实测 3/3（verify-v6-eapi：同协议常量 Node 复算 + 真 POST）
+- 【页面音乐 API 重写】smtc.ts v6 全新实现：双端口发现+粘滞（26801→26802，失败 4 轮重开双探）、HUB_NAME/HUB_VER_MIN 门、ne.v<6.0.0 needsPlugin 门；公开面（SmtcTrack/SmtcState/SmtcLyric/SMTC_COMMANDS/smtcPositionNow/smtc 单例）字段级兼容——PresetWidgets/sandbox/page.tsx/预设脚本零改动；引擎引用零残留
+- 【预设包/沙盒/扩展】music-widget 芯片文案换桥语义（音乐桥未连接/版本过旧/未就绪/三插件组件待更新 + 空态三件套文案），DOM/CSS 字节不动（样式不变律）；沙盒音乐核心 __chushiMusicCoreV5→V6 标记升级契约零改；扩展 6.0.0 host_permissions 加 26802
+- 【构建门】build-v6-plugins G1-G11：node --check 语法/manifest 结构/name ASCII/description 必含 CJK/ncm3-compatible true/injects/版本一致/文件名 ASCII/zip 根布局/BetterNCM 过滤链模拟器（WOULD LOAD AND LIST × 3）/slug+防重入键唯一
+- 【验证】两轮全绿：静态 112（宪法/单写点/歌词梯/公开面/文案指纹）+ 白盒 46（桥真值调和/枢纽路由+CORS+PNA/命令队列/seekAck/端口回退；SMTC 应用+动作转发+unsupported；歌词 eapi 参数与参考实现逐字节对照+回退梯+缓存）+ e2e 32（部件芯片矩阵 W6.1-W6.5/进度推进/seek/逐字/空态/沙盒协议 + 全页 .cshz 导入 + mock 枢纽真轮询：E4 真值显示/E5 页脚 v6/E7 逐字/E8 seek 到枢纽/X pageerror=0）+ eapi 实测 3/3
+- 【交付】download/v6.0.0 七件套（扩展 zip+三 .plugin+.cshz+合并包+SHA256SUMS+使用说明 v6 版含「列表还是没有」排障）；main 019b0b6 推送（旧代 bridge/{engine,smtc,ncm-plugin,smtc-plugin,lyric-plugin} 全部 git rm——退役即删码）；gh-pages DEPLOY-OK + 线上指纹（sandbox.js __chushiMusicCoreV6 ×3 + chunk d3219b9e chushi-music-hub）；Release v6.0.0 id=384138990 七资产 digest ALL OK（idempotency：先传 4 资产后 cshz 缺件失败 → 补齐重跑只传缺件）；文叔叔合并包 https://c.wss.ink/f/kthto9s9qxf（302→wenshushu.cn 200 验证有效）
+- 【文档】AI-HANDOFF：v6 宪法三条/拓扑图 v6（数据律 4 条）/产线 10 步/兼容矩阵 v6 行/坑 18（枢纽必须住插件里）坑 19（BetterNCM 本体服务器不能当中继：api_key+CORS 双锁）/任务 A=v6 真机验收（mediaSession unsupported 诊断路径）；README v6.0.0 版本段；package.json 6.0.0
+
+Stage Summary:
+- 用户三条指令闭环：三插件独立（桥单独成插件）、页面音乐 API 重写（传输层换桥枢纽、公开面零破坏）、「初始页面不显示音乐」结构性根治（数据面去引擎化——枢纽住在插件里，插件活着页面就有数据）
+- 新律：①渲染进程 = 完整 Node 运行时，枢纽/服务类需求优先 require("http") 进插件，不再外溢进程；②BetterNCM 本体服务器有 api_key+CORS 双锁，不能当页面中继；③「装了看不见」之后的新三律（结构门/过滤链模拟器/语言三律分立断言）已机器锁死
+- 待办：用户真机复测（删旧装三新 → 重启网易云 → 列表三可见 → SMTC 开关关闭验系统卡片/可拖/媒体键 → 面板真值/逐字/seek 回执 → 本体不受影响确认）；真机 mediaSession 不出卡片时按任务 A.1 诊断路径查 unsupported；Edge 商店材料仍未动

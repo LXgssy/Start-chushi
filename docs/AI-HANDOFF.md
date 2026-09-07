@@ -1,6 +1,6 @@
 # AI-HANDOFF — 给下一个读这个仓库的 AI / 开发者
 
-> 最后更新：v5.0.0（2026-09-07）。写给你的：无论你是人类贡献者还是 AI 助手，
+> 最后更新：v6.0.0（2026-09-07）。写给你的：无论你是人类贡献者还是 AI 助手，
 > 这一页是项目的「当前状态 + 下一步该干什么」的单一事实来源。
 > 动手前请先读完本页，不要凭想象改架构。
 
@@ -8,8 +8,8 @@
 
 「初始 / Start-chushi」：Next.js 15 新标签页（网页 + Edge MV3 扩展双形态），
 其中 SMTC 音乐面板显示网易云播放真值（进度/逐字歌词）并可控播。
-**v5.0.0 = 音乐链路五层全部从零重写完成**（v4 四层 + 用户指认补齐的
-预设包/音乐面板 API/前端层；用户明确指令：删光老代码、零复用）。
+**v6.0.0 = 三插件纯插件架构**（用户指令：桥单独写成一个插件、分成三个插件；
+外部引擎整体退役）。v5 的五层零复用原则延续：三插件/页面音乐 API 全部从零新写。
 
 ## v4.0.0 重写的用户三条硬性指令（宪法级，永远生效）
 
@@ -22,83 +22,98 @@
 
 **v5.0.0 补齐指令（同宪法级）**：用户「预设包和音乐面板所有相关的 API
 也不用重写了？全部重写」——v4 保留字节不动的 music-widget.html、沙盒
-音乐核心、smtc.ts 数据面在 v5 全部从零重写（视觉样式不变）；至此
-插件A/插件B/引擎/预设包/音乐面板 API 与前端**五层 0 复用**。
+音乐核心、smtc.ts 数据面在 v5 全部从零重写（视觉样式不变）。
 
-## 组件拓扑（v5.0.0 — 谁跟谁说话，谁拥有什么）
+**v6.0.0 补齐指令（同宪法级）**：用户「算了还是把桥单独写成一个插件吧，
+分成三个插件」「初始的页面还是不会显示音乐，前端音乐 API 重写」——
+1. **三插件纯插件架构**：SMTC Manager / Music Bridge / Lyric Source 三个
+   独立 .plugin；外部引擎（PS1）整体退役，全栈零 child_process/spawn
+   （构建门断言）。
+2. **满血 SMTC = navigator.mediaSession**：渲染进程内直接注册独立系统
+   媒体会话（metadata/playbackState/positionState/8 个 action handler），
+   网易云自带 SMTC 开关保持关闭即可——「直接就靠插件」的最终形态。
+3. **语言三律分立**（构建门分别断言）：插件 name 英文（ASCII）、介绍/
+   描述/面板文案中文、.plugin 文件名 ASCII。
+
+## 组件拓扑（v6.0.0 — 谁跟谁说话，谁拥有什么）
 
 ```
 [Edge 扩展 / gh-pages 网页] ←同代码双形态→ [Next.js 静态导出 out/]
-        │ postMessage(sandbox iframe / widget shim)
-        │  host: src/lib/startpage/smtc.ts v5（单真值直显，1s 轮询 127.0.0.1:26801）
-        ▼
-[引擎 bridge/engine/chushi-smtc-engine.ps1 v5.0.0]
-        │  自有满血 SMTC 会话（MediaPlayer + CommandManager 禁用 = 官方
-        │  manual-control 模式；AUMID 'ChuShi.SmtcEngine'；内存静音 WAV）：
-        │    时间线 1Hz 墙钟推进 / IsPlaybackPositionEnabled 可拖 /
-        │    Min+MaxSeekTime 必设（否则悬浮窗不抛 PositionChangeRequest）
-        │    媒体键/悬浮窗事件 → Register-ObjectEvent + 同步 ArrayList 出队
-        │  ⚠ 引擎绝不读取任何外部 SMTC 会话（reader-side 类被构建门封禁）
-        │  HTTP 枢纽（runspace，只碰同步哈希表，绝不碰 WinRT 对象）：
-        │    GET  /api/ping   GET /api/state  GET /api/lyric?songId=
-        │    POST /api/ne(插件真值 1Hz)  POST /api/lyric  POST /api/cmd(宿主)
-        │    GET  /api/cmd(插件 300ms 出队)  POST /api/mgr(管理插件心跳)
-        ▲ /api/ne /api/lyric /api/cmd        ▲ /api/ping /api/mgr
-        │                                    │
-[插件B ChuShi Music API cc.chushi.ncmapi v5.0.0]  [插件A ChuShi SMTC Manager cc.chushi.smtcbridge v5.0.0]
- 只读真值生产者 + 控制执行器 + 全量歌词            引擎部署/杀旧/拉起/监督（SHA-256 读回校验）
-
-**v5 换代的四层（全部从零新写，样式不变）**：
-- 预设包部件 preset-src/smtc/music-widget.html v5（防位移三律/lyHold 迟滞/
-  乐观翻转/芯片四态诚实归因全保留，实现全新）+ music-commands.js v5。
-- 沙盒音乐核心 public/sandbox.js `__chushiMusicCoreV5`（Function.toString()
-  双通道同源；whitelist() 宿主态→部件快照扁平化唯一出口）。
-- 数据面 src/lib/startpage/smtc.ts v5（ENGINE_VER_MIN/PLUGIN_VER_MIN=5.0.0）。
-- 部件通道 src/components/startpage/PresetWidgets.tsx v5 路由。
+        │ postMessage（sandbox iframe / widget shim）
+        │  host: src/lib/startpage/smtc.ts v6（单真值直显；双端口发现
+        │  26801→26802 粘住第一个应答 chushi-music-hub 的端口；1s 轮询）
+        ▼ HTTP（CORS * + PNA 预 Flight 由桥应答）
+[插件B ChuShi Music Bridge v6（桥，独立插件）]
+        │  渲染进程内 require("http").createServer 自建枢纽（只绑 127.0.0.1）：
+        │    GET  /api/ping（身份+三插件版本）  GET  /api/state（真值快照）
+        │    GET  /api/lyric?songId=            POST /api/cmd（控制命令队列）
+        │  真值三级调和：媒体元素（时长锚定粘滞）→ 原生事件（PlayState/
+        │  PlayProgress/Seek 新鲜窗）→ dva store 只读（webpack require 探针）
+        │  控制单次执行律：play/pause=元素方法；next/prev=网易云可见按钮；
+        │  seek=currentTime 全文件唯一写点 + 420ms/1s 双读回 seekAck
+        │  端口被占（旧引擎僵尸）→ 自动退 26802，页面双端口重探
+        │  ▲ window 事件总线（同渲染进程）
+        ├── 发 "cc:music-state"（1s 心跳 + 显著变化即发）→ 插件A 消费
+        ├── 收 "cc:smtc-cmd"（系统媒体键/悬浮窗指令）→ 命令队列
+        ├── 发 "cc:lyric-req" / 收 "cc:lyric-res"（歌词编排，reqId 配对）
+        └── 收 "cc:smtc-ack" / "cc:lyric-hello"（邻居健康，/api/state 透传）
+        │
+[插件A ChuShi SMTC Manager v6]  navigator.mediaSession 满血会话：
+        │  metadata+artwork(?param=500y500)/playbackState/positionState
+        │  （1s 重锚，系统侧本地时钟插值）/8 个 action handler → 只转发
+        │  "cc:smtc-cmd"，自己绝不执行任何播放控制、绝不 require 任何 Node 模块
+        │  不支持 mediaSession 的内核 → "unsupported" 诚实上报
+        │
+[插件C ChuShi Lyric Source v6]  纯歌词服务：
+           eapi /api/song/lyric/v1（渲染进程 node crypto；yrc→klyric 转换→
+           lrc）→ channel.call("track.lyric.getinfo") → 直连 music.163.com
+           三级回退；LRU 8 + localStorage 持久化；reqId 配对应答
 ```
 
-**v4 数据律（每数据单主，缺一即复发老 bug）**：
-1. 真值只产自插件B（原生事件 legacyNativeCmder + dva store 只读 + 元素校验）。
-2. 引擎只搬运 + 驱动自己的 SMTC 会话（墙钟推进是它会话自己的数据）。
-3. 宿主只显示（一次性年龄补偿 + fetchedAt 插值）。**宿主没有任何仲裁/
-   守卫/锚定代码**（judgeNcmOwns/harmonize/seekHold 已全部删除，构建门验证）。
-4. 控制只从元素执行：play/pause/seek = 元素方法；next/prev = 网易云自家可见按钮。
-   seek 只写一次 currentTime + 读回校验 + seekAck 诚实上报——**绝不重写循环**
-   （老版 1600ms 末级重写就是"装插件弄坏网易云自家进度条"的元凶）。
-
-**逐字歌词管线（用户指定，已落地）**：
-插件B 抓全量 yrc（eapi /api/song/lyric/v1，自实现 MD5+AES-128-ECB，FIPS-197
-向量验证）→ 引擎存 4 首 LRU → 宿主 sandbox.js 音乐核心解析 + 真值对齐
-（slew 0.35s 微抖吸收）→ 暂停瞬间按当前词剩余时长算 fadeMs（120-420ms）→
-部件淡入淡出。漂移 = 本地积分累计，v4 真值直显 + 插值基准重置，结构性归零。
+**数据律（v6）**：
+1. 页面唯一数据源 = 桥枢纽 `/api/state` 的 `ne` 字段（一次年龄补偿后直显）。
+2. 页面不猜端口：`smtc.ts` 双端口发现 + 粘滞；扩展 host_permissions 双端口齐备。
+3. 三插件互为可选邻居：缺谁 `/api/state` 的对应字段就诚实降级
+   （smtcVer 空 / lyricVer 空 / smtcSession=unknown），面板芯片如实归因。
+4. 「初始页面不显示音乐」的根治 = 枢纽住在桥插件里：插件活着页面就有数据，
+   不再有「引擎没跑起来」这个环节。
 
 ## 构建产线（改完代码必走全）
 
-1. `node scripts/syntax-gate-v5.mjs` — 全部 v5 JS 语法门（含 .plugin 内嵌 index.js 回环解析）
-2. `node scripts/verify-v5.mjs` + `node scripts/verify-v5-whitebox.mjs` +
-   `node scripts/verify-v5-e2e.mjs` — **184 项 × 2 轮**（静态 137 + 白盒 24 + e2e 23）
-3. `python3 scripts/build-v5-plugins.py` — 双 .plugin（引擎 base64 注入 + 门）
-4. `EXTENSION_MODE=1 bun run build:extension` → out/ ⚠ `next build` standalone 不写 out/
-5. `python3 scripts/build-extension.py` → 扩展 zip v5.0.0（⚠ 覆盖 out/，Pages 部署必须在其前）
-6. `python3 scripts/build-v5-preset.py` → examples/初始SMTC音乐预设.cshz
-7. `python3 scripts/build-v5-assets.py` → download/v5.0.0/ 交付六件套 + SHA256SUMS.txt
-8. `bash scripts/deploy-pages.sh` → gh-pages → 线上 grep 指纹验证
-9. Release（token 在 .pkgtmp/gh-token，0600；上传走 uploads.github.com）+ 文叔叔
-   （scripts/pw-lab/wss-send.py；匿名限 2 任务/天，链接 1 天过期）
+```
+1. python3 scripts/build-v6-plugins.py        # 三插件打包 + 结构门/过滤链模拟器（G1-G11）
+2. node scripts/verify-v6.mjs                 # 静态门 112（宪法/单写点/歌词梯/公开面/文案）
+3. node scripts/verify-v6-whitebox.mjs        # vm 白盒 46（真值调和/枢纽路由/命令队列/歌词梯）
+4. node scripts/verify-v6-eapi.mjs            # eapi 协议端到端实测（公网 3 首歌 3/3）
+5. bun run build                              # Next 生产构建（TS 门）
+6. EXTENSION_MODE=1 bun run build:extension && python3 scripts/build-extension.py
+7. python3 scripts/build-v5-preset.py         # .cshz（样式字节不动 + v6 芯片文案断言）
+8. node scripts/verify-v6-e2e.mjs             # e2e 32（部件芯片矩阵/沙盒协议/全页+mock枢纽+.cshz导入）
+9. python3 scripts/build-v6-assets.py         # 交付六件套 + SHA256SUMS + 指纹断言
+10. ②-⑧ 两轮全绿才准发版
+```
+
+发布四件套（照抄）：commit/push main → `bash scripts/deploy-pages.sh`（线上
+grep 指纹：sandbox.js __chushiMusicCoreV6 + chunk "chushi-music-hub"）→
+`python3 scripts/rel-v600.py`（uploads.github.com 直传 + digest 校验；本
+token 删资产端点 404，幂等策略 = 资产在位即校验收口）→ `wss-send.py 合并包`。
 
 ## 版本兼容矩阵
 
-| 宿主 | 要求引擎 | 要求API插件 | 管理插件 | 说明 |
-|------|---------|------------|---------|------|
-| v5.0.0 | 5.0.0（自有满血会话） | 5.0.0（只读+元素控制+歌词） | 5.0.0 | 五层全量重写代 |
-| v4.0.0 | 4.0.0（自有满血会话） | 3.0.0（只读+元素控制+歌词） | 3.0.0 | 四层重写代 |
+| 宿主 | 要求桥插件（枢纽+真值） | SMTC 插件 | 歌词插件 | 说明 |
+|------|------------------------|-----------|----------|------|
+| v6.0.0 | ChuShi Music Bridge 6.0.0（ne.v 门） | ChuShi SMTC Manager 6.0.0（可缺，smtcVer 空=诚实降级） | ChuShi Lyric Source 6.0.0（可缺，lrc 行级无逐字） | 三插件纯插件代，引擎退役 |
+| v5.0.1 | 5.0.1（ne.v 门） | 5.0.1（引擎 5.0.0） | —（歌词并入插件B） | 双插件+引擎代 |
 
-- 引擎不可达 = needsBridge（装 Manager 插件自动管理，或手动 Start-Engine.bat）。
-- ne 心跳缺失/ne.v < 5.0.0 = needsPlugin（装/更新 .plugin）。
-- 版本各查各的活源：引擎版本=/api/state.ver；API 插件=ne.v；管理插件=/api/state.mgr。
-  不猜、不缓存。
-- **迁移**：v5 双插件可直接覆盖 v4 双插件（同名 slug 自动替换）；
-  旧「初始歌词源」应卸载（插件B 配置面板有冲突提醒）。
+- 枢纽不可达/版本 < 6.0.0 = needsBridge（装/更新 Music Bridge 后重启网易云）。
+- ne 心跳缺失/ne.v < 6.0.0 = needsPlugin（同上，插件即枢纽，没有第二个东西）。
+- 版本各查各的活源：枢纽版本=/api/state.version；桥插件=ne.v；
+  SMTC 插件=state.smtcVer（cc:smtc-ack 心跳）。不猜、不缓存。
+- **迁移**：v6 三插件与 v5 双插件是**不同 slug**——必须删光旧 .plugin
+  再装新，旧「ChuShi Music API」「初始歌词源」与 v6 同装会出两份面板。
+- **引擎退役**：chushi-smtc-engine.ps1 / Start-Engine.bat 已从产线与交付
+  包移除；用户机上的旧引擎进程可手动结束（占着 26801 时桥会自动退 26802，
+  页面双端口重探自动跟随，无感）。
 
 ## 已知坑（本代新坑 + 沿用铁律）
 
@@ -155,6 +170,14 @@
     （BetterNCM 本体已改名 std-microblock/chromatic，v2 源码从 fork 找，
     如 NanoRocky/BetterNCM）
 
+**坑 18（v6 新增）——「枢纽必须住在插件里」**：外部引擎时代的所有
+「页面没数据」故障（引擎未部署/被杀软拦截/端口被占/SmartScreen）都源于
+数据面多了一个进程环节。v6 用渲染进程内 require("http") 自建枢纽根治；
+bind 失败自动退端口 + 页面双端口重探是端口鲁棒性的双保险。
+**坑 19（v6 新增）——BetterNCM 本体服务器不能当中继**：/api/fs/* 带
+api_key 鉴权（页面拿不到）且无 CORS 头（httplib 无 Access-Control），
+gh-pages/扩展页面都无法直读；插件自建枢纽（自带 CORS+PNA 头）才是正门。
+
 ## 用户机器的已知约束（真机实证）
 
 - Windows 策略/杀软拦截进程创建——「手动启动引擎」兜底永远留在交付包。
@@ -163,22 +186,28 @@
 
 ## 下一步开发任务（按优先级）
 
-### A. v5.0.1 真机验收（最高优先，等用户反馈）
-0. **插件列表同时出现 ChuShi Music API 与 ChuShi SMTC Manager**（v5.0.1
-   修复项：网易云 3.x 不再静默丢弃；若仍不见 → disable_list.txt 排查，
-   见使用说明）。用户规则：插件名称英文、介绍中文、文件名 ASCII。
-1. 网易云 SMTC 开关**关闭**状态下：放歌 → 悬浮窗/锁屏出现本引擎卡片
-   （进度每秒走、可拖、媒体键全响应）；拖动后网易云真实跳转。
-2. 面板进度/时间/逐字歌词跟手；暂停淡出、恢复淡入；暂停 30s 恢复无漂移。
-3. 网易云**自家**进度条/按钮与装插件前行为一致（"装插件弄坏本体"根治确认）。
-4. 页脚 `API v5.0.1 · 管理 v5.0.1`；升级芯片熄灭。
-5. 若引擎未自启（策略拦截）：交付包手动 Start-Engine.bat 后面板应连上。
+### A. v6.0.0 真机验收（最高优先，等用户反馈）
+0. **删光旧 .plugin** → 装三个新插件 → 完全重启网易云 → 插件列表出现
+   **ChuShi SMTC Manager / ChuShi Music Bridge / ChuShi Lyric Source** 三个
+   （v6 与旧版不同 slug，旧包不删会同装冲突；列表仍缺 → disable_list.txt
+   排查，见使用说明）。语言三律：名称英文、介绍中文、文件名 ASCII。
+1. 网易云 SMTC 开关**关闭**状态：放歌 → 系统（Win+K/音量弹层/锁屏）出现
+   曲目卡片，进度每秒走、可拖、媒体键全响应；拖动后网易云真实跳转。
+   这是 navigator.mediaSession 会话——真机若不出卡片，优先查网易云
+   Electron 版本的 mediaSession 支持（插件B 面板「SMTC 管理器」一行会
+   显示 unsupported）。
+2. 面板（Ctrl+F5 后重新导入 .cshz）出现曲目/进度/逐字歌词；暂停 30s
+   恢复无漂移；seek 拖动到网易云真实生效（失败有「拖动未生效」回执）。
+3. 网易云**自家**进度条/按钮与装插件前一致（严格只读律确认）。
+4. 页脚 `API v6.0.0 · 管理 v6.0.0`；升级芯片熄灭。
+5. 旧引擎残留：可结束旧 powershell 引擎进程；桥占不上 26801 会自动退
+   26802，页面双端口重探自动跟随（面板枢纽一行显示实际端口）。
 
-### B. seek 元素级真机验证
-- 新路径只有一条：el.currentTime 直写一次 + 读回校验。若真机失败率
-  高，用 BetterNCM 开发者工具抓网易云自家进度条拖动的完整调用链
-  （channel.call 劫持日志），把可用的内部 seek 函数作为第二级
-  （注意：仍须一次性调用 + 校验，不许循环重写）。
+### B. seek/SMTC 真机验证
+- mediaSession seekto 的 fastSeek 参数、seekbackward/forward 系统按钮
+  行为真机确认（白盒已测转发正确性）。
+- 若真机拖动失败率高：BetterNCM 开发者工具抓网易云自家进度条拖动调用链，
+  可用内部 seek 函数作为第二级（仍须单次调用 + 校验，不许循环重写）。
 
 ### C. 部件视觉细节（低优先）
 - 逐字「大字居中」↔ 行级模式切换的高度弹簧仍可能跳一次（lyHold 只管
@@ -186,12 +215,12 @@
 
 ### D. 工程化欠账
 - `transfer/`（wss 上传工具源码）移出仓库或 submodule 化。
-- 旧版 bridge/lyric-plugin/、bridge/smtc/（v3 桥脚本）仅作历史参考，
-  不再构建发布。
+- 三插件注入顺序无保证——当前靠 1s 心跳/重试对冲；若未来需要硬顺序，
+  研究插件的 load 钩子或 slug 排序是否稳定。
 
 ## 交付流程备忘（每次发版照抄）
 
-1. 改码 → 全产线重建 → verify-v5 三套全绿（两轮）
+1. 改码 → 全产线重建 → verify-v6 三套全绿（两轮）
 2. commit（`vX.Y.Z: 一句话——①②③`）→ push main
 3. `bash scripts/deploy-pages.sh`（工作树必须干净）→ 线上 grep 指纹
 4. GitHub Release：资产直链 + SHA-256 全输出 ALL OK

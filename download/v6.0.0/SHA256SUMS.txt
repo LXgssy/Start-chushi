@@ -3,4 +3,4 @@ df9f39ea62613bf022c0965ce07dd940139326a0040c3b509ce4b80538e57137  ChuShi-NewTab-
 47efe811eddeb59dd4285d7ad6a9a31aebab86381cbfa6fc6a7b1af9fe8cf1c3  ChuShi-Music-Bridge-6.0.0.plugin
 8c60538c269661edb8aa04f1673f32ffb96f2868d1edede6b20fc6582aece07c  ChuShi-Lyric-Source-6.0.0.plugin
 987d45966bda46f8b17f3c0c7c947c964646760d5f91a1f0b3238d2fea39e542  初始SMTC音乐预设.cshz
-ed613c314d9ab70ebcbd15f476fe594354b74bf5d0d18b2a4717d079bc425f0f  ChuShi-v6.0.0-合并交付包.zip
+262354d343d7bd6ebb947fc6bf6ac1e43530cdf31227da30163a492a06f6fb10  ChuShi-v6.0.0-合并交付包.zip

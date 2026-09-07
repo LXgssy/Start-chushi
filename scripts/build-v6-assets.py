@@ -26,6 +26,10 @@ preset_cshz = ROOT / "examples" / "初始SMTC音乐预设.cshz"
 for p in (ext_zip, smtc_plugin, bridge_plugin, lyric_plugin, preset_cshz):
     assert p.exists(), f"missing {p}"
 
+# loose plugin/preset copies ship alongside the merged package (v5.0.1 layout)
+for src in (smtc_plugin, bridge_plugin, lyric_plugin, preset_cshz):
+    (OUT / src.name).write_bytes(src.read_bytes())
+
 readme = """# 「初始」SMTC 音乐 v6.0.0 使用说明（三插件纯插件架构）
 
 ## 这一代改了什么
