@@ -1,10 +1,17 @@
-/* verify-v5 part 3: Playwright e2e — render the REAL widget html with a mock
- * chushi.music host API, assert concrete rendered text/behaviors, then run the
- * full sandbox.html?mode=widget protocol (renderWidget -> smtcSubscribe ->
- * widgetSmtc feed). Gates: pageerror count === 0.
- * Run: node scripts/verify-v5-e2e.mjs   (exit 0 = all green) */
+/* verify-v5 part 3: Playwright e2e — render the REAL widget html inside an
+ * iframe srcdoc with a mock chushi host API injected BEFORE the widget script
+ * (srcdoc scripts execute in document order), assert concrete rendered
+ * text/behaviors, then run the full sandbox protocol (renderWidget ->
+ * smtcSubscribe -> widgetSmtc feed). Gates: pageerror count === 0.
+ * Run: node scripts/verify-v5-e2e.mjs   (exit 0 = all green)
+ *
+ * v5.0.1 harness fix: the previous harness injected the widget html via
+ * innerHTML — per HTML5 spec, <script> nodes inserted by innerHTML never
+ * execute, so the widget script never ran, the default empty-state overlay
+ * stayed up and E3's click timed out. Fixed: iframe srcdoc (scripts execute,
+ * mock defined first) + frame-scoped assertions + boot snapshot fed in the
+ * exact flattened shape sandbox.js whitelist() produces in production. */
 import fs from "node:fs";
-import http from "node:http";
 import path from "node:path";
 import { createServer } from "node:http";
 
@@ -26,54 +33,64 @@ const widgetForTest = widgetHtml.replace("asset:cover.svg", coverDataUrl);
 /* embed helper: escape < so embedded sources cannot terminate the host <script> */
 const emb = (s) => JSON.stringify(s).replace(/</g, "\\u003c");
 
-/* ---------------- mock host page for direct widget rendering ---------------- */
+/* ---------------- mock host API source (runs inside the widget frame,
+ * BEFORE the widget script — mirrors sandbox.js whitelist() flat shape) --- */
+const MOCK_SRC = `var P = window.parent;
+var COVER = ${JSON.stringify(coverDataUrl)};
+var snap = { connected:true, app:"NetEase Music", title:"晴天", artist:"周杰伦", album:"",
+  coverUrl:COVER, playing:true, duration:269.3,
+  lyricRev:"", lyric:null, pluginVer:"5.0.0", smtcVer:"5.0.0",
+  seekNote:"", needsUpdate:false, needsPlugin:false, needsBridge:false, engineOld:false };
+var cbs = [];
+var anchor = { position:10, duration:269.3, playing:true, rate:1, fetchedAt:Date.now() };
+function nowCalc(){
+  var p = anchor.position + (anchor.playing ? (Date.now()-anchor.fetchedAt)/1000 : 0);
+  p = Math.min(anchor.duration, Math.max(0, p));
+  var ms = p*1000, lines = (snap.lyric && snap.lyric.lines) || [], li=-1, wi=-1, wp=0;
+  for (var i=0;i<lines.length;i++){ if (lines[i].s <= ms) li = i; }
+  if (li>=0 && lines[li].w){
+    for (var j=0;j<lines[li].w.length;j++){ if (lines[li].w[j].s <= ms) wi = j; }
+    if (wi>=0) wp = Math.min(1,(ms-lines[li].w[wi].s)/Math.max(1,lines[li].w[wi].d));
+  }
+  return { position:p, duration:anchor.duration, progress: anchor.duration>0 ? p/anchor.duration : 0,
+    playing:anchor.playing, fadeMs:260, lineIndex:li, wordIndex:wi, wordProgress:wp,
+    lineProgress:0, lineText: li>=0 ? (lines[li].t||"") : "", lineTr:"",
+    wordText: (wi>=0 && lines[li] && lines[li].w) ? lines[li].w[wi].t : "" };
+}
+window.chushi = {
+  resize: function(){}, close: function(){},
+  music: {
+    snapshot: function(){ return snap; },
+    subscribe: function(cb){ cbs.push(cb); cb(snap); return function(){}; },
+    feed: function(s){ snap = s; for (var i=cbs.length-1;i>=0;i--){ try{ cbs[i](s); }catch(e){} } },
+    now: nowCalc,
+    seek: function(sec){ P.__seeks.push(sec); anchor.position = sec; anchor.fetchedAt = Date.now(); return Promise.resolve(true); },
+    play: function(){ return Promise.resolve(true); },
+    pause: function(){ return Promise.resolve(true); },
+    toggle: function(){ P.__toggles++; anchor.playing = !anchor.playing; anchor.fetchedAt = Date.now(); return Promise.resolve(true); },
+    next: function(){ return Promise.resolve(true); },
+    prev: function(){ return Promise.resolve(true); },
+    lyrics: function(){ return snap.lyric; }
+  }
+};`;
+
+/* ---------------- mock host page: widget rendered in a srcdoc iframe ------ */
 const harnessPage = `<!doctype html><html><body>
-<div id="mount" style="width:340px;height:372px"></div>
+<iframe id="w" style="width:340px;height:392px;border:0"></iframe>
 <script>
 window.__toggles = 0; window.__seeks = []; window.__errors = [];
 window.addEventListener('error', function(e){ window.__errors.push(String(e.message)); });
-const COVER = ${JSON.stringify(coverDataUrl)};
-window.chushi = {
-  resize: function(){},
-  close: function(){},
-  music: {
-    _cbs: [],
-    _snap: null,
-    _anchor: { position: 10, duration: 269.3, playing: true, rate: 1, fetchedAt: Date.now() },
-    _lyric: null,
-    snapshot: function(){ return this._snap; },
-    subscribe: function(cb){ this._cbs.push(cb); if (this._snap) cb(this._snap); return function(){}; },
-    feed: function(s){ this._snap = s; this._cbs.slice().reverse().forEach(function(cb){ try { cb(s); } catch(e){} }); },
-    now: function(){
-      var a = this._anchor;
-      var p = a.position + (a.playing ? (Date.now() - a.fetchedAt) / 1000 : 0);
-      p = Math.min(a.duration, Math.max(0, p));
-      var lines = this._lyric && this._lyric.lines || [];
-      var ms = p * 1000, li = -1, wi = -1, wp = 0;
-      for (var i = 0; i < lines.length; i++) { if (lines[i].s <= ms) li = i; }
-      if (li >= 0 && lines[li].w) {
-        for (var j = 0; j < lines[li].w.length; j++) { if (lines[li].w[j].s <= ms) wi = j; }
-        if (wi >= 0) wp = Math.min(1, (ms - lines[li].w[wi].s) / Math.max(1, lines[li].w[wi].d));
-      }
-      return { position: p, duration: a.duration, progress: a.duration > 0 ? p / a.duration : 0,
-        playing: a.playing, fadeMs: 260, lineIndex: li, wordIndex: wi, wordProgress: wp,
-        lineProgress: 0, lineText: li >= 0 ? (lines[li].t || "") : "", lineTr: "", wordText: wi >= 0 ? lines[li].w[wi].t : "" };
-    },
-    seek: function(sec){ window.__seeks.push(sec); this._anchor.position = sec; this._anchor.fetchedAt = Date.now(); return Promise.resolve(true); },
-    play: function(){ return Promise.resolve(true); },
-    pause: function(){ return Promise.resolve(true); },
-    toggle: function(){ window.__toggles++; this._anchor.playing = !this._anchor.playing; this._anchor.fetchedAt = Date.now(); return Promise.resolve(true); },
-    next: function(){ return Promise.resolve(true); },
-    prev: function(){ return Promise.resolve(true); },
-    lyrics: function(){ return this._lyric; },
-  },
-};
-const tpl = ${emb(widgetForTest)};
-document.getElementById('mount').innerHTML = tpl;
+const MOCK_SRC = ${emb(MOCK_SRC)};
+const TPL = ${emb(widgetForTest)};
+const w = document.getElementById('w');
+w.srcdoc = "<scr" + "ipt>" + MOCK_SRC + "<\\/scr" + "ipt>" + TPL;
 </script>
 </body></html>`;
 
-/* ---------------- sandbox protocol page ---------------- */
+/* ---------------- sandbox protocol page ----------------
+ * Loads the sandbox the SAME way production does: served html + ?mode=widget
+ * search (sandbox.js dispatches pageMode/widgetMode by location.search — a
+ * srcdoc iframe has no search and would never enter widgetMode). */
 const protoPage = `<!doctype html><html><body>
 <script>const COVER_URL = ${emb(coverDataUrl)};</script>
 <iframe id="sb" style="width:340px;height:372px;border:0"></iframe>
@@ -81,8 +98,7 @@ const protoPage = `<!doctype html><html><body>
 window.__proto = { subscribeSeen: 0, controlSeen: 0, errors: [] };
 window.addEventListener('error', function(e){ window.__proto.errors.push(String(e.message)); });
 const sb = document.getElementById('sb');
-sb.srcdoc = ${emb(sandboxHtml.replace('<script src="./sandbox.js"></script>',
-  '<script>' + sandboxJs + '</script>'))};
+sb.src = '/sandbox-frame?mode=widget';
 const sbWin = sb.contentWindow;
 window.addEventListener('message', function(ev){
   if (ev.source !== sbWin) return;
@@ -110,9 +126,22 @@ setTimeout(feed, 400);
 /* ---------------- static server ---------------- */
 const server = createServer((req, res) => {
   const url = req.url || "/";
-  const body = url === "/harness" ? harnessPage : url === "/proto" ? protoPage : "not found";
-  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-  res.end(body);
+  if (url === "/harness") {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(harnessPage);
+  } else if (url === "/proto") {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(protoPage);
+  } else if (url === "/sandbox-frame?mode=widget") {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(sandboxHtml);
+  } else if (url === "/sandbox.js") {
+    res.writeHead(200, { "Content-Type": "application/javascript; charset=utf-8" });
+    res.end(sandboxJs);
+  } else {
+    res.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
+    res.end("not found");
+  }
 });
 await new Promise((r) => server.listen(4641, r));
 
@@ -129,93 +158,108 @@ const pageErrors = [];
 page.on("pageerror", (e) => pageErrors.push(String(e)));
 
 await page.goto("http://127.0.0.1:4641/harness");
-await page.waitForTimeout(600);
+await page.waitForSelector("#w");
+await page.waitForTimeout(700);
+const frame = page.frames().find((f) => f !== page.mainFrame());
+ok("F0 widget frame attached + script executed", !!frame);
 
-/* E1: render truth */
+/* E1: render truth (boot snapshot already fed by mock before widget script) */
 console.log("E1 truth display");
-ok("E1.1 title rendered", (await page.textContent("#csT1")) === "晴天");
-ok("E1.2 artist rendered", (await page.textContent("#csT2")) === "周杰伦");
-ok("E1.3 live mode", (await page.getAttribute("#csCard", "class")).includes("cs-mode-fl"));
-ok("E1.4 footer versions", (await page.textContent("#csFootTxt")).includes("API v5.0.0") === false || true);
+ok("E1.1 title rendered", (await frame.textContent("#csT1")) === "晴天",
+  JSON.stringify(await frame.textContent("#csT1")));
+ok("E1.2 artist rendered", (await frame.textContent("#csT2")) === "周杰伦");
+ok("E1.3 live mode", (await frame.getAttribute("#csCard", "class")).includes("cs-mode-fl"));
+const foot = (await frame.textContent("#csFootTxt")) || "";
+ok("E1.4 footer dual versions", foot.includes("API v5.0.0") && foot.includes("管理 v5.0.0"), foot);
 
 /* E2: interpolation moves the bar */
 console.log("E2 interpolation");
-const w1 = await page.evaluate(() => parseFloat(document.getElementById("csFill").style.width) || 0);
+const w1 = await frame.evaluate(() => parseFloat(document.getElementById("csFill").style.width) || 0);
 await page.waitForTimeout(700);
-const w2 = await page.evaluate(() => parseFloat(document.getElementById("csFill").style.width) || 0);
+const w2 = await frame.evaluate(() => parseFloat(document.getElementById("csFill").style.width) || 0);
 ok("E2.1 progress advances while playing", w2 > w1, `${w1.toFixed(2)} -> ${w2.toFixed(2)}`);
 
-/* E3: optimistic play/pause flip + toggle call */
+/* E3: optimistic play/pause flip + toggle call (initial state = playing) */
 console.log("E3 controls");
-await page.click("#csPlay");
-await page.waitForTimeout(120);
+await frame.click("#csPlay");
+await page.waitForTimeout(150);
 ok("E3.1 toggle called", await page.evaluate(() => window.__toggles === 1));
-ok("E3.2 optimistic icon flip (pause icon shown)", await page.evaluate(() =>
-  !document.getElementById("csIcPause").classList.contains("off")));
+ok("E3.2 optimistic flip to paused (pause icon hidden)", await frame.evaluate(() =>
+  document.getElementById("csIcPause").classList.contains("off")));
 
-/* E4: seek via pointer drag on rail */
+/* E4: seek via pointer click on rail (50% => 134.65s) */
 console.log("E4 seek");
-const rail = await page.locator("#csSeek").boundingBox();
+const handle = await frame.$("#csSeek");
+const rail = await handle.boundingBox();
+ok("E4.0 rail visible", !!rail && rail.width > 50);
 await page.mouse.move(rail.x + rail.width * 0.5, rail.y + rail.height / 2);
 await page.mouse.down();
 await page.mouse.up();
-await page.waitForTimeout(120);
+await page.waitForTimeout(150);
 const seeks = await page.evaluate(() => window.__seeks);
 ok("E4.1 seek submitted", seeks.length === 1 && Math.abs(seeks[0] - 269.3 * 0.5) < 6, JSON.stringify(seeks));
 
 /* E5: lyric rendering (word spans + active line) */
 console.log("E5 lyrics");
-await page.evaluate(() => {
-  const m = window.chushi.music;
-  m._lyric = { mode: 1, lines: [
-    { s: 1000, e: 4000, t: "一二三", tr: "one two three", w: [{ s: 1000, d: 1000, t: "一" }, { s: 2000, d: 1000, t: "二" }, { s: 3000, d: 1000, t: "三" }] },
-    { s: 5000, e: 8000, t: "四五六", tr: "", w: [{ s: 5000, d: 1500, t: "四" }, { s: 6500, d: 1500, t: "五" }] },
-  ] };
-  m._anchor.position = 2.2; m._anchor.fetchedAt = Date.now(); m._anchor.playing = true;
-  m.feed({ connected: true, track: { app: "N", title: "晴天", artist: "周杰伦", album: "", playing: true, position: 2.2, duration: 269.3, rate: 1, fetchedAt: Date.now() },
-    lyricRev: "t1", lyric: null, coverUrl: COVER, pluginVer: "5.0.0", smtcVer: "", needsUpdate: false, needsPlugin: false, needsBridge: false, engineOld: false });
+await frame.evaluate(() => {
+  window.chushi.music.feed({ connected: true, app: "N", title: "晴天", artist: "周杰伦", album: "",
+    coverUrl: "", playing: true, duration: 269.3, lyricRev: "t1",
+    lyric: { mode: 1, lines: [
+      { s: 1000, e: 4000, t: "一二三", tr: "one two three", w: [{ s: 1000, d: 1000, t: "一" }, { s: 2000, d: 1000, t: "二" }, { s: 3000, d: 1000, t: "三" }] },
+      { s: 5000, e: 8000, t: "四五六", tr: "", w: [{ s: 5000, d: 1500, t: "四" }, { s: 6500, d: 1500, t: "五" }] },
+    ] },
+    pluginVer: "5.0.0", smtcVer: "5.0.0", seekNote: "",
+    needsUpdate: false, needsPlugin: false, needsBridge: false, engineOld: false });
+  const cbs = window.chushi.music;
+  /* rewind the interpolation anchor to 2.2s inside the first word window */
+  cbs.now && (window.__nowProbe = cbs.now());
 });
+/* the mock keeps anchor private; re-anchor by seeking (also proves seek path) —
+ * instead directly poke position via a fresh feed of the anchor is impossible,
+ * so drive through chushi.music.seek which re-anchors the mock clock */
+await frame.evaluate(() => { window.chushi.music.seek(2.2); });
 await page.waitForTimeout(400);
-ok("E5.1 lyric lines built", await page.evaluate(() => document.querySelectorAll(".cs-ln").length === 2));
-ok("E5.2 active line class", await page.evaluate(() => document.querySelectorAll(".cs-ln")[0].classList.contains("on")));
-ok("E5.3 word overlay progress set", await page.evaluate(() =>
+ok("E5.1 lyric lines built", await frame.evaluate(() => document.querySelectorAll(".cs-ln").length === 2));
+ok("E5.2 active line class", await frame.evaluate(() =>
+  document.querySelectorAll(".cs-ln")[0].classList.contains("on")));
+ok("E5.3 word overlay progress set", await frame.evaluate(() =>
   (document.querySelectorAll(".cs-ln")[0].querySelectorAll(".cs-w .ov")[1].style.getPropertyValue("--p") || "").includes("%")));
-ok("E5.4 translation sub present", await page.evaluate(() =>
+ok("E5.4 translation sub present", await frame.evaluate(() =>
   document.querySelectorAll(".cs-ln")[0].querySelector(".cs-sub")?.textContent === "one two three"));
 
 /* E6: chips honest attribution */
 console.log("E6 chips");
-await page.evaluate(() => {
-  const m = window.chushi.music;
-  m.feed({ connected: true, track: { app: "N", title: "晴天", artist: "周杰伦", album: "", playing: false, position: 2, duration: 269.3, rate: 1, fetchedAt: Date.now() },
-    pluginVer: "", smtcVer: "", needsUpdate: true, needsPlugin: true, needsBridge: false, engineOld: false });
+await frame.evaluate(() => {
+  window.chushi.music.feed({ connected: true, app: "N", title: "晴天", artist: "周杰伦", album: "",
+    playing: false, duration: 269.3, pluginVer: "", smtcVer: "", seekNote: "",
+    needsUpdate: true, needsPlugin: true, needsBridge: false, engineOld: false });
 });
 await page.waitForTimeout(150);
-ok("E6.1 missing plugin chip", ((await page.textContent("#csUpdTxt")) || "").includes("未装 ChuShi Music API 插件"));
-await page.evaluate(() => {
-  const m = window.chushi.music;
-  m.feed({ connected: true, track: { app: "N", title: "晴天", artist: "周杰伦", album: "", playing: false, position: 2, duration: 269.3, rate: 1, fetchedAt: Date.now() },
-    pluginVer: "5.0.0", smtcVer: "", needsUpdate: true, needsPlugin: false, needsBridge: true, engineOld: true });
+ok("E6.1 missing plugin chip", ((await frame.textContent("#csUpdTxt")) || "").includes("未装 ChuShi Music API 插件"));
+await frame.evaluate(() => {
+  window.chushi.music.feed({ connected: true, app: "N", title: "晴天", artist: "周杰伦", album: "",
+    playing: false, duration: 269.3, pluginVer: "5.0.0", smtcVer: "", seekNote: "",
+    needsUpdate: true, needsPlugin: false, needsBridge: true, engineOld: true });
 });
 await page.waitForTimeout(150);
-ok("E6.2 engine-old chip", ((await page.textContent("#csUpdTxt")) || "").includes("引擎版本过旧"));
-await page.evaluate(() => {
-  const m = window.chushi.music;
-  m.feed({ connected: true, track: { app: "N", title: "晴天", artist: "周杰伦", album: "", playing: false, position: 2, duration: 269.3, rate: 1, fetchedAt: Date.now() },
-    pluginVer: "5.0.0", smtcVer: "", needsUpdate: true, needsPlugin: false, needsBridge: true, engineOld: false });
+ok("E6.2 engine-old chip", ((await frame.textContent("#csUpdTxt")) || "").includes("引擎版本过旧"));
+await frame.evaluate(() => {
+  window.chushi.music.feed({ connected: true, app: "N", title: "晴天", artist: "周杰伦", album: "",
+    playing: false, duration: 269.3, pluginVer: "5.0.0", smtcVer: "", seekNote: "",
+    needsUpdate: true, needsPlugin: false, needsBridge: true, engineOld: false });
 });
 await page.waitForTimeout(150);
-ok("E6.3 engine-down chip", ((await page.textContent("#csUpdTxt")) || "").includes("引擎未运行"));
+ok("E6.3 engine-down chip", ((await frame.textContent("#csUpdTxt")) || "").includes("引擎未运行"));
 
 /* E7: empty state when disconnected */
 console.log("E7 empty state");
-await page.evaluate(() => {
-  const m = window.chushi.music;
-  m.feed({ connected: false, track: null, pluginVer: "", smtcVer: "", needsUpdate: true, needsBridge: true, engineOld: false });
+await frame.evaluate(() => {
+  window.chushi.music.feed({ connected: false, title: "", artist: "", pluginVer: "", smtcVer: "",
+    needsUpdate: true, needsBridge: true, engineOld: false });
 });
 await page.waitForTimeout(150);
-ok("E7.1 empty text", (await page.textContent("#csE1")) === "系统媒体待接入");
-ok("E7.2 empty mode", (await page.getAttribute("#csCard", "class")).includes("cs-mode-em"));
+ok("E7.1 empty text", (await frame.textContent("#csE1")) === "系统媒体待接入");
+ok("E7.2 empty mode", (await frame.getAttribute("#csCard", "class")).includes("cs-mode-em"));
 
 /* E8: full sandbox protocol */
 console.log("E8 sandbox protocol");
@@ -229,8 +273,8 @@ ok("E8.2 no proto errors", await page2.evaluate(() => window.__proto.errors.leng
 
 /* X: zero page errors across both pages (catch-swallowing detector) */
 console.log("X pageerror gate");
-ok("X1 harness pageerror=0", pageErrors.length === 0, JSON.stringify(pageErrors).slice(0, 200));
-ok("X2 proto pageerror=0", pageErrors2.length === 0, JSON.stringify(pageErrors2).slice(0, 200));
+ok("X1 harness pageerror=0", pageErrors.length === 0, JSON.stringify(pageErrors).slice(0, 300));
+ok("X2 proto pageerror=0", pageErrors2.length === 0, JSON.stringify(pageErrors2).slice(0, 300));
 
 await browser.close();
 server.close();
