@@ -1,5 +1,5 @@
 /* ============================================================================
- * ChuShi SMTC Manager 7.0.0 — 前端探针（native/chushi_smtc_native.dll 的伴生脚本）
+ * ChuShi SMTC Manager 7.0.1 — 前端探针（native/chushi_smtc_native.dll 的伴生脚本）
  *
  * 职责：
  *   1. 探测本插件原生模块（BetterNCM native_plugin）是否加载成功，
@@ -14,7 +14,7 @@
   'use strict';
   if (window.__chushiSmtcManager) return;
 
-  var VER = '7.0.0';
+  var VER = '7.0.1';
   var state = {
     ver: VER,
     nativeLoaded: false,   // 原生 DLL 是否在渲染进程注册了诊断 API

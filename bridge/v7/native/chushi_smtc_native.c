@@ -1,5 +1,5 @@
 /* =========================================================================
- * ChuShi SMTC Manager — native BetterNCM plugin (v7.0.0)
+ * ChuShi SMTC Manager — native BetterNCM plugin (v7.0.1)
  * 自研 Windows 系统媒体控制（SMTC）原生模块。
  * 设计目标：
  *   1. 创建真正独立的 Windows SMTC 会话（ISystemMediaTransportControlsInterop
@@ -8,11 +8,18 @@
  *      （TimelineProperties 必设 MinSeekTime/MaxSeekTime）。
  *   3. 内置本机回环 HTTP 枢纽（127.0.0.1:26901，备选 26902/26903），
  *      作为「初始」新标签页与网易云插件之间的纯传输中继。
- *   4. 全部 WinRT 调用走 combase 动态加载 + 手工 vtable（与 Windows SDK
- *      10.0.16299.0 MIDL 头逐槽位一致），零第三方依赖。
+ *   4. 全部 WinRT 调用走 combase 动态加载 + 手工 vtable（槽位与 IID 已
+ *      逐项对照 windows-rs 官方投影验证），零第三方依赖。
  * 进程模型：BetterNCM 会在 Main/Renderer/GPU 等每个进程加载本 DLL；
- *   以命名互斥体选举唯一 Host（Main 进程先加载，天然当选），Host 承载
- *   SMTC 会话与 HTTP 枢纽，其余实例静默待命。
+ *   以命名互斥体选举唯一 Host，Host 承载 SMTC 会话与 HTTP 枢纽；
+ *   v7.0.1 起 Host 若 SMTC 注册失败会释放互斥体让位（不再死守）。
+ * v7.0.1 崩溃修复（真机实锤 combase RoActivateInstance AV）：
+ *   SystemMediaTransportControlsTimelineProperties 是 WinRT struct（值
+ *   类型），没有激活工厂，对它调 RoActivateInstance 在网易云进程内必崩。
+ *   现改为栈上直接构造 5×TimeSpan 结构体按 ABI 传指针给
+ *   UpdateTimelineProperties（windows-rs ISystemMediaTransportControls2_
+ *   Vtbl 第 12 槽）。全部 GUID/vtable 已逐项对照 windows-rs 投影源验证。
+ * 新增：DLL 同目录 native-log.txt 文件日志（报障直接发此文件）。
  * ========================================================================= */
 
 #define WIN32_LEAN_AND_MEAN
@@ -24,6 +31,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdarg.h>
 
 #define WIN32_EXTRA_LEAN
 
@@ -31,7 +39,7 @@
 #pragma comment(lib, "kernel32")
 #pragma comment(lib, "ws2_32")
 
-#define PLUGIN_VERSION "7.0.0"
+#define PLUGIN_VERSION "7.0.1"
 #define HUB_NAME       "chushi-smtc-hub"
 #define MUTEX_NAMEW    L"ChuShi.Smtc.v7.Host"
 #define WINDOW_CLASSW  L"ChuShiSmtcHostWnd7"
@@ -61,7 +69,6 @@ DEFINE_GUID_CONST(IID_MusicDisplayProperties,  0x6BBF0C59,0xD0A0,0x4D26,0x92,0xA
 DEFINE_GUID_CONST(IID_MusicDisplayProperties2, 0x00368462,0x97D3,0x44B9,0xB0,0x0F,0x00,0x8A,0xFC,0xEF,0xAF,0x18);
 DEFINE_GUID_CONST(IID_SMTCButtonPressedEventArgs, 0xB7F47116,0xA56F,0x4DC8,0x9E,0x11,0x92,0x03,0x1F,0x4A,0x87,0xC2);
 DEFINE_GUID_CONST(IID_PlaybackPositionChangeRequestedEventArgs, 0xB4493F88,0xEB28,0x4961,0x9C,0x14,0x33,0x5E,0x44,0xF3,0xE1,0x25);
-DEFINE_GUID_CONST(IID_SMTCTimelineProperties, 0x5125316A,0xC3A2,0x475B,0x85,0x07,0x93,0x53,0x4D,0xC8,0x8F,0x15);
 DEFINE_GUID_CONST(IID_SMTCInterop, 0xDDB0472D,0xC911,0x4A1F,0x86,0xD9,0xDC,0x3D,0x71,0xA9,0x5F,0x5A);
 /* 事件特化（参数化接口实例 GUID，取自 SDK 16299 投影头） */
 DEFINE_GUID_CONST(IID_HandlerButtonPressed, 0x0557E996,0x7B23,0x5BAE,0xAA,0x81,0xEA,0x0D,0x67,0x11,0x43,0xA4);
@@ -74,7 +81,10 @@ DEFINE_GUID_CONST(IID_RandomAccessStreamReferenceStatics, 0x857309DC,0x3FBF,0x4E
 static const wchar_t* CLSID_SMTC      = L"Windows.Media.SystemMediaTransportControls";
 static const wchar_t* CLSID_URI       = L"Windows.Foundation.Uri";
 static const wchar_t* CLSID_STREAMREF = L"Windows.Storage.Streams.RandomAccessStreamReference";
-static const wchar_t* CLSID_TIMELINE  = L"Windows.Media.SystemMediaTransportControlsTimelineProperties";
+/* 注意：SystemMediaTransportControlsTimelineProperties 是 WinRT struct（值类型），
+ * 不是 runtime class —— 没有 HSTRING 类名、没有激活工厂，只能栈上构造后按
+ * ABI 传指针给 ISystemMediaTransportControls2::UpdateTimelineProperties。
+ * v7.0.0 对它调 RoActivateInstance 导致网易云崩溃（真机 combase AV 实锤）。 */
 
 /* 枚举（SDK 16299 原值） */
 enum { MediaPlaybackType_Unknown = 0, MediaPlaybackType_Music = 1 };
@@ -88,16 +98,23 @@ enum { SMTCBTN_Play = 0, SMTCBTN_Pause = 1, SMTCBTN_Stop = 2, SMTCBTN_Record = 3
 typedef struct TimeSpan { INT64_ Duration; } TimeSpan; /* 100ns */
 typedef struct EventToken { INT64_ value; } EventToken;
 
+/* TimelineProperties struct（值类型）：字段序 = windows-rs 投影（5×TimeSpan） */
+typedef struct TimelinePropsStruct {
+    TimeSpan startTime;
+    TimeSpan endTime;
+    TimeSpan minSeekTime;
+    TimeSpan maxSeekTime;
+    TimeSpan position;
+} TimelinePropsStruct;
+
 /* combase.dll 动态函数指针 */
 typedef HRESULT (WINAPI *PFN_RoInitialize)(int initType);
 typedef HRESULT (WINAPI *PFN_RoGetActivationFactory)(HSTR classId, const GUID* iid, void** factory);
-typedef HRESULT (WINAPI *PFN_RoActivateInstance)(HSTR classId, const GUID* iid, void** instance);
 typedef HRESULT (WINAPI *PFN_WindowsCreateString)(const wchar_t* src, UINT32 len, HSTR* out);
 typedef HRESULT (WINAPI *PFN_WindowsDeleteString)(HSTR s);
 typedef const wchar_t* (WINAPI *PFN_WindowsGetStringRawBuffer)(HSTR s, UINT32* len);
 static PFN_RoInitialize                 pRoInitialize;
 static PFN_RoGetActivationFactory       pRoGetActivationFactory;
-static PFN_RoActivateInstance           pRoActivateInstance;
 static PFN_WindowsCreateString          pWindowsCreateString;
 static PFN_WindowsDeleteString          pWindowsDeleteString;
 static PFN_WindowsGetStringRawBuffer    pWindowsGetStringRawBuffer;
@@ -217,20 +234,7 @@ typedef struct MusicProps2Vtbl {
     HRESULT (WINAPI *get_Genres)(void*, void** value);
 } MusicProps2Vtbl;
 
-/* ISystemMediaTransportControlsTimelineProperties：10 槽位 */
-typedef struct TimelinePropsVtbl {
-    InspectableVtbl ins;
-    HRESULT (WINAPI *get_StartTime)(void*, TimeSpan* value);
-    HRESULT (WINAPI *put_StartTime)(void*, TimeSpan value);
-    HRESULT (WINAPI *get_EndTime)(void*, TimeSpan* value);
-    HRESULT (WINAPI *put_EndTime)(void*, TimeSpan value);
-    HRESULT (WINAPI *get_MinSeekTime)(void*, TimeSpan* value);
-    HRESULT (WINAPI *put_MinSeekTime)(void*, TimeSpan value);
-    HRESULT (WINAPI *get_MaxSeekTime)(void*, TimeSpan* value);
-    HRESULT (WINAPI *put_MaxSeekTime)(void*, TimeSpan value);
-    HRESULT (WINAPI *get_Position)(void*, TimeSpan* value);
-    HRESULT (WINAPI *put_Position)(void*, TimeSpan value);
-} TimelinePropsVtbl;
+/* （TimelineProperties 的 vtable 已删除：它是 struct 不是接口，栈上直接构造） */
 
 /* 事件参数 */
 typedef struct ButtonPressedArgsVtbl {
@@ -398,6 +402,42 @@ static char* dup_blob(const char* src, SIZE_T len) {
     return p;
 }
 
+/* ------------------------------------------------------------------ */
+/* 文件日志（DLL 同目录 native-log.txt；报障直接发此文件）              */
+/* ------------------------------------------------------------------ */
+
+static HMODULE g_hSelf = NULL; /* 本 DLL 模块句柄（FROM_ADDRESS 取） */
+
+static void logf_line(const char* fmt, ...) {
+    wchar_t path[MAX_PATH];
+    if (!g_hSelf) return;
+    if (!GetModuleFileNameW(g_hSelf, path, MAX_PATH)) return;
+    wchar_t* cut = wcsrchr(path, L'\\');
+    if (!cut) return;
+    wcscpy(cut + 1, L"native-log.txt");
+    /* 超过 1.5MB 重开（防无限增长） */
+    WIN32_FIND_DATAW fd;
+    HANDLE fh = FindFirstFileW(path, &fd);
+    if (fh != INVALID_HANDLE_VALUE) {
+        FindClose(fh);
+        if (fd.nFileSizeHigh == 0 && fd.nFileSizeLow > 1536 * 1024)
+            DeleteFileW(path);
+    }
+    FILE* f = _wfopen(path, L"ab");
+    if (!f) return;
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    fprintf(f, "[%02u-%02u %02u:%02u:%02u.%03u][pid %lu] ",
+        st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond, st.wMilliseconds,
+        (unsigned long)GetCurrentProcessId());
+    va_list ap;
+    va_start(ap, fmt);
+    vfprintf(f, fmt, ap);
+    va_end(ap);
+    fputc('\n', f);
+    fclose(f);
+}
+
 static void replace_blob(char** dst, SIZE_T* dstLen, const char* src, SIZE_T len) {
     if (len > BLOB_MAX) len = BLOB_MAX;
     char* nb = dup_blob(src, len);
@@ -465,7 +505,6 @@ static void Queue_Cmd(const char* json, SIZE_T len) {
     g_cmdTail = next;
     ReleaseSRWLockExclusive(&g_lock);
 }
-
 static void Post_SmtcOp(SmtcOp* op) {
     AcquireSRWLockExclusive(&g_lock);
     g_op = *op;
@@ -478,11 +517,9 @@ static void Post_SmtcOp(SmtcOp* op) {
 /* ------------------------------------------------------------------ */
 
 /* 运行时类名 HSTRING（smtc_thread 开头一次性建立） */
-static HSTR g_hClsSmtc, g_hClsUri, g_hClsStreamRef, g_hClsTimeline;
+static HSTR g_hClsSmtc, g_hClsUri, g_hClsStreamRef;
 #define mk_hstr_once(cls)  \
-    ( (cls) == CLSID_URI ? g_hClsUri : \
-      (cls) == CLSID_STREAMREF ? g_hClsStreamRef : \
-      (cls) == CLSID_TIMELINE ? g_hClsTimeline : g_hClsSmtc )
+    ( (cls) == CLSID_URI ? g_hClsUri : g_hClsStreamRef )
 
 static HSTR mk_hstr(const wchar_t* s) {
     HSTR h = NULL;
@@ -573,81 +610,119 @@ static void apply_op(SmtcOp* op, void* smtc, void* smtc2) {
         }
     }
 
-    /* 3) 时间线（可拖进度条的先决条件：Min/MaxSeekTime 必设） */
+    /* 3) 时间线（可拖进度条的先决条件：Min/MaxSeekTime 必设）。
+     *    TimelineProperties 是 struct（值类型）：栈上构造、按 ABI 传指针。
+     *    v7.0.0 在此调 RoActivateInstance 导致网易云崩溃（真机实锤）。 */
     if (op->hasTimeline && smtc2) {
         static double lastPos = -1, lastDur = -1;
         if (lastPos < 0 || lastDur < 0 ||
             (op->pos - lastPos) > 0.35 || (lastPos - op->pos) > 0.35 ||
             (op->dur - lastDur) > 0.01 || (lastDur - op->dur) > 0.01) {
-            void* tlp = NULL;
-            hr = pRoActivateInstance(mk_hstr_once(CLSID_TIMELINE), &IID_SMTCTimelineProperties, &tlp);
-            if (SUCCEEDED(hr) && tlp) {
-                TimelinePropsVtbl* tv = (TimelinePropsVtbl*)(*(void**)tlp);
-                TimeSpan zero; zero.Duration = 0;
-                TimeSpan end;  end.Duration  = (INT64_)(op->dur * 10000000.0);
-                TimeSpan pos;  pos.Duration  = (INT64_)(op->pos * 10000000.0);
-                if (end.Duration < 0) end.Duration = 0;
-                if (pos.Duration < 0) pos.Duration = 0;
-                tv->put_StartTime(tlp, zero);
-                tv->put_EndTime(tlp, end);
-                tv->put_MinSeekTime(tlp, zero);
-                tv->put_MaxSeekTime(tlp, end);
-                tv->put_Position(tlp, pos);
-                hr = ((SMTC2Vtbl*)(*(void**)smtc2))->UpdateTimelineProperties(smtc2, tlp);
-                if (!SUCCEEDED(hr)) g_lastHr = hr;
-                ((InspectableVtbl*)(*(void**)tlp))->Release(tlp);
+            TimelinePropsStruct tp;
+            memset(&tp, 0, sizeof(tp));
+            tp.endTime.Duration = (INT64_)(op->dur * 10000000.0);
+            tp.position.Duration = (INT64_)(op->pos * 10000000.0);
+            if (tp.endTime.Duration < 0) tp.endTime.Duration = 0;
+            if (tp.position.Duration < 0) tp.position.Duration = 0;
+            if (tp.position.Duration > tp.endTime.Duration)
+                tp.position.Duration = tp.endTime.Duration;
+            tp.minSeekTime.Duration = 0;
+            tp.maxSeekTime.Duration = tp.endTime.Duration;
+            hr = ((SMTC2Vtbl*)(*(void**)smtc2))->UpdateTimelineProperties(smtc2, &tp);
+            if (SUCCEEDED(hr)) {
+                if (lastPos < 0)
+                    logf_line("[upd] timeline applied first time pos=%.2f dur=%.2f", op->pos, op->dur);
                 lastPos = op->pos; lastDur = op->dur;
                 InterlockedIncrement(&g_updApplied);
             } else {
                 g_lastHr = hr;
+                logf_line("[upd] UpdateTimelineProperties hr=0x%08lX", (unsigned long)hr);
             }
         }
     }
+}
+
+static HANDLE g_hostMutex = NULL; /* Host 互斥体：持至进程退出或让位 */
+
+/* SMTC 注册失败时释放互斥体让位，让其它进程有机会当 Host */
+static void Relinquish_Host(void) {
+    if (g_hostMutex) {
+        ReleaseMutex(g_hostMutex);
+        CloseHandle(g_hostMutex);
+        g_hostMutex = NULL;
+    }
+    InterlockedExchange(&g_hostActive, 0);
 }
 
 static DWORD WINAPI smtc_thread(LPVOID param) {
     (void)param;
     HMODULE combase = GetModuleHandleW(L"combase.dll");
     if (!combase) combase = LoadLibraryW(L"combase.dll");
-    if (!combase) return 1;
+    if (!combase) { logf_line("[smtc] combase.dll not found, give up host"); Relinquish_Host(); return 1; }
     pRoInitialize              = (PFN_RoInitialize)(void*)GetProcAddress(combase, "RoInitialize");
     pRoGetActivationFactory    = (PFN_RoGetActivationFactory)(void*)GetProcAddress(combase, "RoGetActivationFactory");
-    pRoActivateInstance        = (PFN_RoActivateInstance)(void*)GetProcAddress(combase, "RoActivateInstance");
     pWindowsCreateString       = (PFN_WindowsCreateString)(void*)GetProcAddress(combase, "WindowsCreateString");
     pWindowsDeleteString       = (PFN_WindowsDeleteString)(void*)GetProcAddress(combase, "WindowsDeleteString");
     pWindowsGetStringRawBuffer = (PFN_WindowsGetStringRawBuffer)(void*)GetProcAddress(combase, "WindowsGetStringRawBuffer");
-    if (!pRoInitialize || !pRoGetActivationFactory || !pRoActivateInstance ||
-        !pWindowsCreateString || !pWindowsDeleteString) return 1;
+    if (!pRoInitialize || !pRoGetActivationFactory ||
+        !pWindowsCreateString || !pWindowsDeleteString) {
+        logf_line("[smtc] combase exports missing, give up host");
+        Relinquish_Host(); return 1;
+    }
 
     HRESULT hr = pRoInitialize(1 /* RO_INIT_MULTITHREADED */);
-    if (FAILED(hr) && hr != (HRESULT)0x80010106L /* RPC_E_CHANGED_MODE */) return 1;
+    if (FAILED(hr) && hr != (HRESULT)0x80010106L /* RPC_E_CHANGED_MODE */) {
+        logf_line("[smtc] RoInitialize hr=0x%08lX, give up host", (unsigned long)hr);
+        Relinquish_Host(); return 1;
+    }
+    logf_line("[smtc] RoInitialize ok (MTA)");
 
     /* 类名 HSTRING 一次性建立 */
     g_hClsSmtc      = mk_hstr(CLSID_SMTC);
     g_hClsUri       = mk_hstr(CLSID_URI);
     g_hClsStreamRef = mk_hstr(CLSID_STREAMREF);
-    g_hClsTimeline  = mk_hstr(CLSID_TIMELINE);
-    if (!g_hClsSmtc || !g_hClsUri || !g_hClsStreamRef || !g_hClsTimeline) return 1;
+    if (!g_hClsSmtc || !g_hClsUri || !g_hClsStreamRef) {
+        logf_line("[smtc] HSTRING create failed, give up host");
+        Relinquish_Host(); return 1;
+    }
 
     /* 隐藏宿主窗口（自有窗口 = 独立会话，绝不触碰网易云自己的窗口） */
     WNDCLASSW wc; memset(&wc, 0, sizeof(wc));
     wc.lpfnWndProc = DefWindowProcW;
     wc.hInstance = GetModuleHandleW(NULL);
     wc.lpszClassName = WINDOW_CLASSW;
-    if (!RegisterClassW(&wc)) return 1;
+    if (!RegisterClassW(&wc)) {
+        logf_line("[smtc] RegisterClass failed %lu, give up host", (unsigned long)GetLastError());
+        Relinquish_Host(); return 1;
+    }
     HWND hwnd = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, WINDOW_CLASSW,
         L"ChuShi SMTC Host", WS_OVERLAPPED, 0, 0, 0, 0, NULL, NULL, wc.hInstance, NULL);
-    if (!hwnd) return 1;
+    if (!hwnd) {
+        logf_line("[smtc] CreateWindow failed %lu, give up host", (unsigned long)GetLastError());
+        Relinquish_Host(); return 1;
+    }
+    logf_line("[smtc] host window created");
 
-    /* SMTC 会话：经互操作接口从自有窗口取会话 */
+    /* SMTC 会话：经互操作接口从自有窗口取会话
+     * （IID_SMTCInterop = DDB0472D-C911-4A1F-86D9-DC3D71A95F5A，已对照
+     *   MinGW-w64 官方 systemmediatransportcontrolsinterop.idl 验证） */
     void* interop = NULL;
     hr = pRoGetActivationFactory(g_hClsSmtc, &IID_SMTCInterop, &interop);
-    if (FAILED(hr) || !interop) { g_lastHr = hr; return 1; }
+    if (FAILED(hr) || !interop) {
+        g_lastHr = hr;
+        logf_line("[smtc] RoGetActivationFactory(Interop) hr=0x%08lX, give up host", (unsigned long)hr);
+        Relinquish_Host(); return 1;
+    }
     InteropVtbl* iv = (InteropVtbl*)(*(void**)interop);
     void* smtc = NULL;
     hr = iv->GetForWindow(interop, hwnd, &IID_SMTC, &smtc);
     ((InspectableVtbl*)(*(void**)interop))->Release(interop);
-    if (FAILED(hr) || !smtc) { g_lastHr = hr; return 1; }
+    if (FAILED(hr) || !smtc) {
+        g_lastHr = hr;
+        logf_line("[smtc] GetForWindow hr=0x%08lX, give up host", (unsigned long)hr);
+        Relinquish_Host(); return 1;
+    }
+    logf_line("[smtc] GetForWindow OK — system media session registered");
 
     SMTCVtbl* sv = (SMTCVtbl*)(*(void**)smtc);
     BOOL08 one = 1;
@@ -667,12 +742,16 @@ static DWORD WINAPI smtc_thread(LPVOID param) {
     if (SUCCEEDED(((InspectableVtbl*)sv)->QueryInterface(smtc, &IID_SMTC2, &smtc2)) && smtc2) {
         SMTC2Vtbl* s2 = (SMTC2Vtbl*)(*(void**)smtc2);
         EventToken tok; tok.value = 0;
-        s2->add_PlaybackPositionChangeRequested(smtc2, &g_handlerPosition, &tok);
+        hr = s2->add_PlaybackPositionChangeRequested(smtc2, &g_handlerPosition, &tok);
+        logf_line("[smtc] add_PlaybackPositionChangeRequested hr=0x%08lX", (unsigned long)hr);
+    } else {
+        logf_line("[smtc] SMTC2 QI failed hr=0x%08lX (拖动请求不可用)", (unsigned long)((HRESULT)0));
     }
     /* 媒体键事件 */
     {
         EventToken tok; tok.value = 0;
-        sv->add_ButtonPressed(smtc, &g_handlerButton, &tok);
+        hr = sv->add_ButtonPressed(smtc, &g_handlerButton, &tok);
+        logf_line("[smtc] add_ButtonPressed hr=0x%08lX", (unsigned long)hr);
     }
 
     InterlockedExchange(&g_smtcReady, 1);
@@ -703,6 +782,9 @@ static DWORD WINAPI smtc_thread(LPVOID param) {
 /* ------------------------------------------------------------------ */
 
 #define RESP_MAX (BLOB_MAX + 4096)
+
+static volatile LONG_ g_activeConns = 0; /* 当前连接数（过载保护） */
+static DWORD WINAPI conn_thread(LPVOID param); /* 前向声明：每连接一线程 */
 
 static void http_send(SOCKET s, const char* code, const char* contentType, const char* body, SIZE_T bodyLen) {
     char head[512];
@@ -982,16 +1064,33 @@ static DWORD WINAPI http_thread(LPVOID param) {
         }
         InterlockedExchange(&g_httpPort, (LONG_)ports[i]);
     }
-    if (lsn == INVALID_SOCKET || listen(lsn, 8) != 0) return 1;
+    if (lsn == INVALID_SOCKET || listen(lsn, 8) != 0) {
+        logf_line("[http] listen failed (all ports busy or no socket)");
+        return 1;
+    }
+    logf_line("[http] hub listening on 127.0.0.1:%lu", (unsigned long)g_httpPort);
+    /* v7.0.1：每连接一线程，避免慢客户端串行阻塞心跳推送 */
     for (;;) {
         SOCKET c = accept(lsn, NULL, NULL);
         if (c == INVALID_SOCKET) continue;
-        DWORD tv = 5000;
+        DWORD tv = 2500;
         setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof(tv));
         setsockopt(c, SOL_SOCKET, SO_SNDTIMEO, (const char*)&tv, sizeof(tv));
-        handle_client(c);
-        shutdown(c, SD_BOTH);
-        closesocket(c);
+        InterlockedIncrement(&g_activeConns);
+        if (g_activeConns > 32) { /* 过载保护：直接拒绝 */
+            InterlockedDecrement(&g_activeConns);
+            shutdown(c, SD_BOTH);
+            closesocket(c);
+            continue;
+        }
+        HANDLE th = CreateThread(NULL, 0, conn_thread, (LPVOID)(intptr_t)c, 0, NULL);
+        if (th) CloseHandle(th);
+        else { /* 线程创建失败：同步处理兑底 */
+            handle_client(c);
+            shutdown(c, SD_BOTH);
+            closesocket(c);
+            InterlockedDecrement(&g_activeConns);
+        }
     }
     return 0;
 }
@@ -1000,7 +1099,8 @@ static DWORD WINAPI http_thread(LPVOID param) {
 /* BetterNCM 原生插件入口                                               */
 /* ------------------------------------------------------------------ */
 
-/* 原生 API：诊断信息（渲染进程注册；参数形态 [String]，1 个） */
+/* 原生 API：诊断信息（渲染进程注册；参数形态 [String]，1 个。
+ * BetterNCM v2 ABI：NativeAPIType{ Int=0, Boolean=1, Double=2, String=3, V8Value=4 }） */
 static char g_infoBuf[256];
 static char* native_info(void** args) {
     (void)args;
@@ -1012,19 +1112,39 @@ static char* native_info(void** args) {
     return g_infoBuf;
 }
 
+/* 每连接工作线程 */
+static DWORD WINAPI conn_thread(LPVOID param) {
+    SOCKET c = (SOCKET)(intptr_t)param;
+    handle_client(c);
+    shutdown(c, SD_BOTH);
+    closesocket(c);
+    InterlockedDecrement(&g_activeConns);
+    return 0;
+}
+
 void WINAPI BetterNCMPluginMain(void* apiPtr) {
-    /* BetterNCMNativePlugin::PluginAPI 布局：
+    /* BetterNCMNativePlugin::PluginAPI 布局（对照 NanoRocky/BetterNCM v2
+       src/BetterNCMNativePlugin.h）：
        [0] addNativeAPI fn  [1] betterncmVersion char*  [2] processType int  [3] ncmVersion ptr */
     void** api = (void**)apiPtr;
+
+    /* 日志需要本 DLL 路径：从函数地址反查模块句柄 */
+    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                       GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                       (LPCWSTR)&BetterNCMPluginMain, &g_hSelf);
+
     if (!api) return;
     typedef int (*AddNativeAPIFn)(int* args, int argsNum, const char* identifier, char* (*fn)(void**));
     AddNativeAPIFn addNativeAPI = (AddNativeAPIFn)api[0];
     LONG_ ptype = (LONG_)(intptr_t)api[2];
     InterlockedExchange(&g_processType, ptype);
 
+    logf_line("[boot] ChuShi SMTC Manager native v%s loaded (ptype=0x%lX)",
+        PLUGIN_VERSION, (unsigned long)ptype);
+
     lock_init_all();
 
-    /* GPU/Utility 进程：完全静默 */
+    /* GPU/Utility 进程：完全静默（NCMProcessType: Main=0x1 Renderer=0x10） */
     if (ptype != 0x1 /*Main*/ && ptype != 0x10 /*Renderer*/) return;
 
     /* 注册诊断 API（仅渲染进程生效，BetterNCM 侧已做门禁） */
@@ -1033,17 +1153,18 @@ void WINAPI BetterNCMPluginMain(void* apiPtr) {
         addNativeAPI(argTypes, 1, "ChuShi.Smtc.info", native_info);
     }
 
-    /* Host 选举：Main 先加载天然当选；同机只允许一个 Host */
+    /* Host 选举：同机只允许一个 Host；SMTC 注册失败时自动让位（v7.0.1） */
     HANDLE mx = CreateMutexW(NULL, TRUE, MUTEX_NAMEW);
-    if (!mx) return;
+    if (!mx) { logf_line("[boot] CreateMutex failed %lu", (unsigned long)GetLastError()); return; }
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
-        /* 非候选（已另有 Host），释放并退出 */
-        ReleaseMutex(mx);
+        /* 已有 Host：不是候选，直接退出 */
         CloseHandle(mx);
+        logf_line("[boot] another host already active, standby");
         return;
     }
+    g_hostMutex = mx; /* 交由 smtc_thread 持有；失败路径 Relinquish_Host 释放 */
     InterlockedExchange(&g_hostActive, 1);
-    /* 持有 g_hostMutex 句柄直至进程退出（不关闭）→ 进程崩溃自动释放 */
+    logf_line("[boot] elected as host, starting smtc + http threads");
 
     HANDLE t1 = CreateThread(NULL, 0, smtc_thread, NULL, 0, NULL);
     HANDLE t2 = CreateThread(NULL, 0, http_thread, NULL, 0, NULL);
