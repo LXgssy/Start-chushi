@@ -1,0 +1,13 @@
+{
+  "manifest_version": 1,
+  "name": "ChuShi Lyric Source",
+  "slug": "cc.chushi.lyricsource",
+  "version": "6.0.0",
+  "author": "ChuShi",
+  "description": "「初始」音乐面板的独立歌词源插件：按需抓取正在播放歌曲的完整歌词，优先逐字歌词（yrc），其次卡拉OK歌词（klyric 自动转换），最后回退行级歌词与翻译，供面板逐字滚动渲染使用。只做歌词服务，不读取播放状态、不执行任何控制，与「ChuShi Music Bridge」插件通过事件总线协作；单独安装时处于待命状态。安装前请删除 plugins 文件夹里的所有旧版 .plugin 文件并重启网易云。",
+  "ncm3-compatible": true,
+  "ncm-version-req": "> 2.10.2",
+  "betterncm_version": ">=1.0.0",
+  "injects": { "Main": [ { "file": "index.js" } ] },
+  "hijacks": {}
+}

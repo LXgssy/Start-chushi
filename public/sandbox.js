@@ -96,7 +96,7 @@
   }
 
   /* ============================================================
-   * 音乐引擎核心（v5.0.0，第五代全新实现）——「初始」内建媒体数据面
+   * 音乐引擎核心（v6.0.0，第六代纯插件架构配套实现）——「初始」内建媒体数据面
    *
    * 职责分工律：插件产真值，引擎只搬运，本层管呈现——
    *   - 解析逐字歌词（yrc 括号时间轴）/行级歌词（lrc）+ 双语翻译对齐；
@@ -114,7 +114,7 @@
    * 契约（chushi.music）：feed/tick/now/snapshot/lyrics/subscribe/seek/
    *   play/pause/toggle/next/prev。
    * ============================================================ */
-  function __chushiMusicCoreV5(hooks) {
+  function __chushiMusicCoreV6(hooks) {
     "use strict";
     var SLEW_SEC = 0.35;
     var anchor = null;        /* {position, duration, playing, rate, fetchedAt} */
@@ -438,7 +438,7 @@
     var coreCbs = [];
     mediaSnapCbs.set(scriptKey, coreCbs);
     /* 音乐引擎核心实例（v5）：喂数由全局 smtcPush/smtcTick 处理器桥接 */
-    var coreApi = __chushiMusicCoreV5({
+    var coreApi = __chushiMusicCoreV6({
       control: function (cmd, position) { return mediaControlRequest(scriptKey, cmd, position); },
       requestSubscribe: function () {
         post({ type: "api", op: "smtcSubscribe", scriptKey: scriptKey });
@@ -731,7 +731,7 @@ function widgetShim(theme, accent, panelMode) {
     ? "document.documentElement.style.setProperty('--w-accent','" + accent + "');"
     : "";
   var musicSrc =
-    "var __music=(" + __chushiMusicCoreV5.toString() + ")({" +
+    "var __music=(" + __chushiMusicCoreV6.toString() + ")({" +
     "control:function(c,p){return new Promise(function(res){var id=++seq;pending[id]={f:res,op:'smtcControl'};" +
     "post({type:'widgetApi',op:'smtcControl',cmd:String(c||'').slice(0,8)," +
     "position:(typeof p==='number'&&isFinite(p))?p:null,reqId:id})})}," +

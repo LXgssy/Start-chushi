@@ -1,0 +1,13 @@
+{
+  "manifest_version": 1,
+  "name": "ChuShi SMTC Manager",
+  "slug": "cc.chushi.smtc",
+  "version": "6.0.0",
+  "author": "ChuShi",
+  "description": "「初始」音乐面板的满血 SMTC 管理器：用标准 mediaSession 接口在网易云窗口内注册完全独立的系统媒体会话，系统悬浮窗、锁屏、媒体键、可拖进度条全由本插件直接提供。全程不需要开启网易云自带的 SMTC 开关，保持关闭即可；也没有任何外部引擎或后台进程，卸载本插件即完全移除。播放真值由「ChuShi Music Bridge」提供，安装前请删除 plugins 文件夹里的所有旧版 .plugin 文件并重启网易云。",
+  "ncm3-compatible": true,
+  "ncm-version-req": "> 2.10.2",
+  "betterncm_version": ">=1.0.0",
+  "injects": { "Main": [ { "file": "index.js" } ] },
+  "hijacks": {}
+}

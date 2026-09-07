@@ -175,7 +175,7 @@ body{
   <section class="cs-empty" id="csEmpty">
     <svg class="cs-eic" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><use href="#cs-i-note"/></svg>
     <div class="cs-e1" id="csE1">系统媒体待接入</div>
-    <div class="cs-e2" id="csE2">安装 ChuShi SMTC Manager + ChuShi Music API 双插件并播放音乐即自动接入</div>
+    <div class="cs-e2" id="csE2">安装初始三插件（SMTC Manager / Music Bridge / Lyric Source）并播放音乐即自动接入</div>
   </section>
 </div>
 
@@ -273,11 +273,11 @@ body{
       chipUpd.classList.add("on");
       updTxt.textContent = s.needsBridge
         ? (s.engineOld
-          ? "引擎版本过旧 · 安装/更新 ChuShi SMTC Manager 插件后自动升级"
-          : "引擎未运行 · 安装 ChuShi SMTC Manager 插件自动管理，或双击交付包内 Start-Engine.bat")
+          ? "音乐桥版本过旧 · 更新 ChuShi Music Bridge 插件并重启网易云"
+          : "音乐桥未连接 · 安装 ChuShi Music Bridge 插件并重启网易云")
         : (!s.pluginVer
-          ? "未装 ChuShi Music API 插件 · 装后重启网易云即有逐字歌词/精确进度/进度条拖动"
-          : "组件待更新 · 请更新两个 .plugin 至最新版并重启网易云");
+          ? "音乐桥未就绪 · 确认 ChuShi Music Bridge 插件在网易云插件列表中已启用"
+          : "组件待更新 · 请更新三个 .plugin 至最新版并重启网易云");
     } else {
       chipUpd.classList.remove("on");
     }
@@ -385,7 +385,7 @@ body{
     var s = snap;
     if (!s || !s.connected) {
       e1.textContent = "系统媒体待接入";
-      e2.textContent = "安装 ChuShi SMTC Manager + ChuShi Music API 双插件并播放音乐即自动接入";
+      e2.textContent = "安装初始三插件（SMTC Manager / Music Bridge / Lyric Source）并播放音乐即自动接入";
       footTxt.textContent = "未连接";
       setMode("em");
       return;

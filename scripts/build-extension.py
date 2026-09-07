@@ -16,8 +16,8 @@ ROOT = pathlib.Path("/home/z/my-project")
 OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
-VERSION = "5.0.0"
-DEST = ROOT / "download/v5.0.0/ChuShi-NewTab-v5.0.0.zip"
+VERSION = "6.0.0"
+DEST = ROOT / "download/v6.0.0/ChuShi-NewTab-v6.0.0.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():
     sys.exit("out/index.html 不存在——先跑 EXTENSION_MODE=1 bun run build:extension")
@@ -55,9 +55,10 @@ manifest = {
     "default_locale": "zh_CN",
     "icons": {"16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png"},
     "chrome_url_overrides": {"newtab": "index.html"},
-    # v5.0.0：本机引擎端口 26801（v1.9-v4 时代曾用旧端口，已废弃）。
-    # 缺了它扩展版所有 127.0.0.1:26801 请求被浏览器拦截，音乐面板在扩展里
-    # 完全离线（web 版靠引擎的 CORS * 响应头，不受影响）。
+    # v6.0.0：三插件纯插件架构——桥插件在网易云窗口内自建枢纽，默认 26801、
+    # 端口被占自动退 26802。host_permissions 同时放行两端口（缺了它扩展版
+    # 所有 127.0.0.1 请求被浏览器拦截，音乐面板在扩展里完全离线；web 版靠
+    # 桥枢纽的 CORS * 响应头，不受影响）。旧外部引擎（PS1）已整体退役。
     "host_permissions": [
         "https://www.baidu.com/*",
         "https://weather.cma.cn/*",
@@ -66,6 +67,7 @@ manifest = {
         "https://api.bigdatacloud.net/*",
         "https://images.unsplash.com/*",
         "http://127.0.0.1:26801/*",
+        "http://127.0.0.1:26802/*",
     ],
     "sandbox": {"pages": ["sandbox.html"]},
     "content_security_policy": {

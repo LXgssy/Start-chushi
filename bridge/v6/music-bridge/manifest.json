@@ -1,0 +1,13 @@
+{
+  "manifest_version": 1,
+  "name": "ChuShi Music Bridge",
+  "slug": "cc.chushi.musicbridge",
+  "version": "6.0.0",
+  "author": "ChuShi",
+  "description": "「初始」音乐面板的独立桥插件：只读采集网易云真实播放状态（曲目、进度、播放态），在网易云窗口内自建本地数据枢纽供「初始」页面读取，并按单次执行律执行页面与系统下发的控制指令（播放/暂停/切歌/拖动进度，带回执校验）。严格只读设计，绝不修改网易云自身界面与进度条；不依赖外部引擎，网易云自带 SMTC 开关保持关闭即可。需与「ChuShi SMTC Manager」搭配，配合「ChuShi Lyric Source」可获得逐字歌词。安装前请删除 plugins 文件夹里的所有旧版 .plugin 文件并重启网易云。",
+  "ncm3-compatible": true,
+  "ncm-version-req": "> 2.10.2",
+  "betterncm_version": ">=1.0.0",
+  "injects": { "Main": [ { "file": "index.js" } ] },
+  "hijacks": {}
+}
