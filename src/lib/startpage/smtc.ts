@@ -1,10 +1,12 @@
-/* 「初始」SMTC 媒体作用面（v3.0.1）—— 单主仲裁媒体引擎
+/* 「初始」SMTC 媒体作用面（v3.1.0）—— 单主仲裁媒体引擎
  *
  * v3.0.0 双插件架构（根治多层真值互打的结构性冲突）：
  *   [本模块] 唯一仲裁层：NCM API 插件在场 → 网易云真值独占（进度/时长/播放态/
  *            元数据全部取自插件心跳，一次性年龄补偿，零混合零守卫）；
  *            否则 SMTC-only（harmonize 守卫链只服务这条路径）。
- *   [PS1 桥 v2.0.0] 纯传输：SMTC 会话 + ne 中转 + 插件注册表，不再修正任何真值
+ *   [PS1 桥 v3.0.0] 传输 + 满血自有 SMTC 会话：桥以 MediaPlayer 手动驱动一个真实
+ *            系统媒体会话（时间线 1Hz 墙钟推进/可拖动/媒体键回灌网易云），
+ *            网易云自带的残疾 SMTC 从此不承担任何角色（v3.1.0 用户指令）
  *   [初始SMTC桥 插件] 桥进程生命周期唯一管理者（部署/杀旧/拉起/监督/注册上报）
  *   [初始网易云API 插件] 网易云真值唯一生产者（原生事件+锁定元素+seek 阶梯）
  * 旧版三层各自修正（插件 buildSnapshot → 桥 ne-anchoring → 宿主 harmonize/零值
@@ -681,16 +683,16 @@ class SmtcClient {
     const seekNoteNow = this.seekNote;
     /* v3.0.0 诚实归因（每个标志都有一一对应的可行操作，绝不空喊）：
      * needsPlugin：网易云API 插件缺失（装新插件即有逐字歌词/精确进度/seek）；
-     *   版本 <1.4.0（损坏旧版，更新修复）；1.4.0–1.5.1 旧一体化（仍工作但属
-     *   旧架构，芯片给迁移双插件指引）。
+     *   版本 <2.2.0（旧版：缺满血 SMTC 控制执行器/seek 身份捕获，更新修复）。
      * needsBridge：桥不可达（装「初始SMTC桥」自动管理 或 手动 启动桥.bat）；
      *   或「管理插件已注册但桥版本旧」= 旧桥进程杀不死（策略拦截实锤）→
-     *   给手动指引，绝不喊无效的「更新 .plugin」（v2.3.2 教训延续）。 */
+     *   给手动指引，绝不喊无效的「更新 .plugin」（v2.3.2 教训延续）。
+     *   v3.1.0：桥 ≥3.0.0（满血自有 SMTC 会话），旧桥由插件A 自动升级。 */
     const needsPluginNow =
       next.connected &&
-      (!pluginVerNow || verLt(pluginVerNow, "1.4.0") || verLt(pluginVerNow, "2.0.0"));
+      (!pluginVerNow || verLt(pluginVerNow, "1.4.0") || verLt(pluginVerNow, "2.2.0"));
     const needsBridgeNow =
-      !next.connected || (!!smtcVerNow && verLt(next.version, "2.0.0"));
+      !next.connected || (!!smtcVerNow && verLt(next.version, "3.0.0"));
     const needsUpdateNow = needsPluginNow || needsBridgeNow;
     const sig =
       stateSig({
