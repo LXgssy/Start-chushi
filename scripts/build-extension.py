@@ -55,9 +55,9 @@ manifest = {
     "default_locale": "zh_CN",
     "icons": {"16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png"},
     "chrome_url_overrides": {"newtab": "index.html"},
-    # v1.9.0 新增 http://127.0.0.1:20754/* ——本机 SMTC 桥。缺了它扩展版所有
-    # 127.0.0.1:20754 请求被浏览器拦截，音乐面板在扩展里完全离线
-    # （web 版靠桥的 CORS * 响应头，不受影响）。
+    # v5.0.0：本机引擎端口 26801（v1.9-v4 时代曾用旧端口，已废弃）。
+    # 缺了它扩展版所有 127.0.0.1:26801 请求被浏览器拦截，音乐面板在扩展里
+    # 完全离线（web 版靠引擎的 CORS * 响应头，不受影响）。
     "host_permissions": [
         "https://www.baidu.com/*",
         "https://weather.cma.cn/*",
@@ -65,7 +65,7 @@ manifest = {
         "https://geocoding-api.open-meteo.com/*",
         "https://api.bigdatacloud.net/*",
         "https://images.unsplash.com/*",
-        "http://127.0.0.1:20754/*",
+        "http://127.0.0.1:26801/*",
     ],
     "sandbox": {"pages": ["sandbox.html"]},
     "content_security_policy": {

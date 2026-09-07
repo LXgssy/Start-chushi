@@ -133,12 +133,12 @@ class SandboxBridge {
   private smtcSubs = new Set<string>();
 
   constructor() {
-    smtc.subscribe(this.broadcastSmtc);
-    smtc.onTick(this.broadcastSmtcTick);
+    smtc.subscribe(this.pushSnapshots);
+    smtc.onTick(this.pushAnchors);
   }
 
-  /** SMTC 快照广播：只推订阅脚本（签名变化才触发，歌词大载荷随包） */
-  private broadcastSmtc = () => {
+  /** 快照通道：签名变化才触发，歌词大载荷随包定向推送订阅脚本 */
+  private pushSnapshots = () => {
     if (this.smtcSubs.size === 0) return;
     const state = smtc.getSnapshot();
     for (const key of this.smtcSubs) {
@@ -146,9 +146,8 @@ class SandboxBridge {
     }
   };
 
-  /** 每拍轻量锚点（v1.9.0）：position/fetchedAt 每拍必达——seek 后的新位置、
-   *  插值漂移校正靠它（完整快照签名不含 position，seek 后永不再广播） */
-  private broadcastSmtcTick = () => {
+  /** 节拍通道：轻量锚点每拍必达——seek 后新位置/插值漂移校正靠它 */
+  private pushAnchors = () => {
     if (this.smtcSubs.size === 0) return;
     const t = smtc.getSnapshot().track;
     if (!t) return;
@@ -444,7 +443,7 @@ class SandboxBridge {
         break;
       }
       case "smtcSubscribe": {
-        /* SMTC 媒体作用面（v1.8.0）：登记定向推送 + 立即回推当前快照 */
+        /* 媒体作用面：登记定向推送，立即回推当前快照 */
         const sk = s(m.scriptKey, 80);
         if (!sk || !this.scripts.some((x) => x.key === sk)) return;
         smtc.start();
@@ -456,30 +455,26 @@ class SandboxBridge {
         smtc.start();
         const gsk = s(m.scriptKey, 80);
         if (!gsk) return;
-        this.post({
-          type: "smtcGetResult",
-          scriptKey: gsk,
-          reqId: typeof m.reqId === "number" ? Math.min(1e9, Math.max(0, m.reqId | 0)) : 0,
-          state: smtc.getSnapshot(),
-        });
+        const gReq = typeof m.reqId === "number" ? Math.min(1e9, Math.max(0, m.reqId | 0)) : 0;
+        this.post({ type: "smtcGetResult", scriptKey: gsk, reqId: gReq, state: smtc.getSnapshot() });
         break;
       }
       case "smtcControl": {
-        /* 控制命令白名单复核后转桥（seek 附 position 秒） */
+        /* 控制命令：白名单复核 → 宿主客户端下发（seek 附 position 秒） */
         const csk = s(m.scriptKey, 80);
         if (!csk || !this.scripts.some((x) => x.key === csk)) return;
         const reqId = typeof m.reqId === "number" ? Math.min(1e9, Math.max(0, m.reqId | 0)) : 0;
         const cmd = s(m.cmd, 8);
-        if (!SMTC_COMMANDS.has(cmd)) {
-          this.post({ type: "smtcControlResult", scriptKey: csk, reqId, ok: false });
-          return;
-        }
         const pos =
           typeof m.position === "number" && Number.isFinite(m.position)
             ? Math.max(0, Math.min(86400, m.position))
             : undefined;
+        if (!SMTC_COMMANDS.has(cmd)) {
+          this.post({ type: "smtcControlResult", scriptKey: csk, reqId, ok: false });
+          return;
+        }
         smtc.start();
-        void smtc.control(cmd, pos).then((ok) => {
+        smtc.control(cmd, pos).then((ok) => {
           this.post({ type: "smtcControlResult", scriptKey: csk, reqId, ok });
         });
         break;

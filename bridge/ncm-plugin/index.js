@@ -1,775 +1,702 @@
-/*
- * ChuShi Music API (cc.chushi.ncmapi) v3.0.0 -- REWRITTEN FROM SCRATCH.
+/* ============================================================================
+ * ChuShi Music API v5.0.0  (generation 5, written from scratch)
  *
- * Single source of playback truth for the ChuShi SMTC stack. Runs inside the
- * NetEase Cloud Music renderer (BetterNCM). This generation is built around
- * three hard rules from the user:
+ * The only component that touches NetEase Music internals. Constitution:
  *
- *   RULE 1 -- OBSERVE, NEVER FIGHT. Reading truth is pure observation:
- *   native engine events (legacyNativeCmder) + dva store reads + audio
- *   element property reads. We never patch prototypes, never wrap channel
- *   calls, never dispatch store actions, never rewrite currentTime in a
- *   loop. (The previous generation fought the player and froze NetEase's
- *   own progress bar; that class of bug is structurally gone here.)
+ *  RULE 1 - READ-ONLY. This plugin observes the player (native callbacks +
+ *           dva store reads + the media element). It never dispatches to the
+ *           store, never binds/overrides NCM's own UI handlers, never
+ *           touches NetEase Music's SMTC. NetEase's own progress bar keeps
+ *           working exactly as before.
+ *  RULE 2 - SINGLE-EXECUTION CONTROLS. Every control command is executed
+ *           exactly once at the element level (play()/pause() on the media
+ *           element, a real click on NCM's own visible transport button,
+ *           or ONE currentTime write for seek) followed by honest read-back
+ *           verification reported as seekAck. currentTime is written at
+ *           exactly ONE place in this file.
+ *  RULE 3 - ZERO SMTC DEPENDENCY. Works with NetEase Music's built-in SMTC
+ *           switch OFF. Truth comes from the element/store, never from any
+ *           OS media session.
  *
- *   RULE 2 -- CONTROL AT THE ELEMENT. Every control command (from the
- *   Windows overlay via the engine, or from the ChuShi page) executes once,
- *   at the media element (play/pause/currentTime) or NetEase's own visible
- *   footer buttons (next/prev). If a seek did not take, we report the
- *   failure honestly (seekAck) instead of fighting the player.
- *
- *   RULE 3 -- NO NETEASE SMTC DEPENDENCY. Everything here works whether the
- *   NetEase SMTC switch in its settings is ON or OFF. We do not read any
- *   SMTC session anywhere.
- *
- * Push model (engine: chushi-smtc-engine.ps1 on 127.0.0.1:<port>):
- *   POST /api/ne    1 Hz playback truth
- *   POST /api/lyric full lyrics on song change (yrc word-level first)
- *   GET  /api/cmd   300 ms command poll
- *
- * Lyrics sources (first hit wins, cached 8 songs):
- *   A. eapi /api/song/lyric/v1 (yv=1, fallback yv=-1) -> yrc + ytlrc
- *      (self-contained fresh crypto: RFC 1321 MD5 + AES-128-ECB with a
- *      runtime-generated S-box; no external dependency)
- *   B. same response klyric (karaoke) -> converted to yrc-shaped text
- *   C. channel "track.lyric.getinfo" -> lrc/tlyric
- *   D. direct https://music.163.com/api/song/lyric -> lrc/tlyric
- *
- * Executed by BetterNCM as AsyncFunction("plugin", code). ASCII-only file.
- */
-(async function () {
-  if (window.__chushiMusicApiV4) return;
-  window.__chushiMusicApiV4 = true;
+ * Data plane: pushes truth to the ChuShi SMTC engine (127.0.0.1), polls its
+ * command queue, and publishes full lyrics (word-level yrc first).
+ * ASCII-only by constitution (build gate asserts every byte).
+ * ==========================================================================*/
+(function () {
+  "use strict";
+  if (window.__chushiMusicApiV5) return;
+  window.__chushiMusicApiV5 = true;
 
-  const PLUGIN_VERSION = "3.0.0";
-  const ENGINE_VER_NEEDED = "4.0.0";
-  const DEFAULT_PORT = 26801;
+  var PLUGIN_VERSION = "5.0.0";
+  var DEFAULT_PORT = 26801;
+  var POLL_MS = 1000;        /* truth push cadence */
+  var CMD_POLL_MS = 300;     /* command queue poll */
+  var LYRIC_CHECK_MS = 700;  /* song change watcher */
+  var EV_PLAY_FRESH = 3000;  /* native PlayState freshness */
+  var EV_POS_FRESH = 5000;   /* native PlayProgress freshness */
 
-  const TAG = "[ChuShiMusicApi]";
-  const log = (...a) => console.log(TAG, ...a);
-  const warn = (...a) => console.warn(TAG, ...a);
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
+  function cfgPort() {
+    try {
+      var p = parseInt(plugin.getConfig("port", DEFAULT_PORT), 10);
+      if (p >= 1024 && p <= 65535) return p;
+    } catch (e) { }
+    return DEFAULT_PORT;
+  }
+  var PORT = cfgPort();
+  var BASE = "http://127.0.0.1:" + PORT;
 
-  const PORT = (parseInt(plugin.getConfig("port", DEFAULT_PORT), 10) || DEFAULT_PORT);
-  const BASE = "http://127.0.0.1:" + PORT;
-
-  /* ============================================================
-   * 1) Native engine events (NetEase's own audio pipeline, direct)
-   * ============================================================ */
-  let evPlaying = false, evPlayingAt = 0;      // last PlayState (state===1 -> playing)
-  let evProgSec = -1, evProgAt = 0;            // last PlayProgress (seconds)
-  let evSongId = 0;                            // last PlayState idStr
-  let disposed = false;
-
-  (async function registerEvents() {
-    for (let i = 0; i < 100 && !window.legacyNativeCmder && !disposed; i++) await sleep(200);
-    const cmder = window.legacyNativeCmder;
-    if (!cmder || typeof cmder.appendRegisterCall !== "function") {
-      warn("legacyNativeCmder unavailable; running on store + element sources only");
-      return;
-    }
-    cmder.appendRegisterCall("PlayState", "audioplayer", function (playId, idStr, state) {
-      evPlaying = state === 1;
-      evPlayingAt = Date.now();
-      const idNum = parseInt(idStr, 10);
-      if (idNum > 0) evSongId = idNum;
-    });
-    cmder.appendRegisterCall("PlayProgress", "audioplayer", function (playId, sec) {
-      if (typeof sec === "number" && sec >= 0 && isFinite(sec)) {
-        evProgSec = sec; evProgAt = Date.now();
-      }
-    });
-    cmder.appendRegisterCall("Seek", "audioplayer", function (playId, seekId, code, pos) {
-      if (typeof pos === "number" && pos >= 0 && isFinite(pos)) {
-        evProgSec = pos; evProgAt = Date.now();
-      }
-    });
-    log("native events registered (PlayState/PlayProgress/Seek)");
-  })();
-
-  /* ============================================================
-   * 2) dva store discovery (read-only: getState() only, NEVER dispatch)
-   * ============================================================ */
-  let store = null;
-
-  function captureWebpackRequire() {
-    return new Promise((resolve) => {
-      try {
-        const gp = window.webpackJsonp;
-        if (gp && typeof gp.push === "function") {
-          const id = "__chushi_mapiv4_" + Date.now() + "_" + Math.floor(Math.random() * 1e6);
-          const chunk = {};
-          chunk[id] = function (module, exports, require) {
-            resolve(typeof require === "function" ? require : null);
-          };
-          if (Array.isArray(gp[0])) gp.push([[id], chunk, [[id]]]);
-          else gp.push([[id], chunk]);
-          setTimeout(() => resolve(null), 3000);
-          return;
-        }
-      } catch (e) { /* fall through to webpack5 shape */ }
-      try {
-        for (const k in window) {
-          if (k.indexOf("webpackChunk") === 0 && window[k] && typeof window[k].push === "function") {
-            let req = null;
-            window[k].push([["__chushi_mapiv4_" + Date.now()], {}, function (a, b) {
-              if (typeof a === "function") req = a;
-              else if (typeof b === "function") req = b;
-            }]);
-            resolve(req);
-            return;
-          }
-        }
-      } catch (e) { /* ignore */ }
-      resolve(null);
-    });
+  function log(m) {
+    try { console.log("[ChuShi Music API " + PLUGIN_VERSION + "] " + m); } catch (e) { }
   }
 
-  (async function findStore() {
-    for (let i = 0; i < 50 && !disposed && !store; i++) {
-      const req = await captureWebpackRequire();
-      if (req) {
-        try {
-          for (const key of Object.keys(req.m || req.c || {})) {
-            let ex = null;
-            try { ex = req(key); } catch (e) { continue; }
-            const dva = ex && typeof ex === "object" && ex.a && typeof ex.a.getStore === "function" ? ex.a : null;
-            if (dva && dva.inited && dva.app && dva.app._store) { store = dva.app._store; break; }
-          }
-        } catch (e) { /* keep scanning next round */ }
-        if (store) { log("dva store acquired (read-only)"); break; }
-      }
-      await sleep(400);
+  /* ======================================================================
+   * Native player callbacks (NetEase platform surface, read-only)
+   * ==================================================================== */
+  var ev = { playing: false, playingAt: 0, songId: 0, songIdAt: 0, posMs: 0, posAt: 0 };
+  try {
+    var native = window.legacyNativeCmder;
+    if (native && typeof native.appendRegisterCall === "function") {
+      native.appendRegisterCall("PlayState", "audioplayer", function () {
+        var id = 0, st = -1;
+        for (var i = 1; i < arguments.length; i++) {
+          var a = arguments[i];
+          if (typeof a === "number" && st === -1 && id !== 0) { st = a; break; }
+          if (typeof a === "number") id = a;
+          if (typeof a === "string") { var ps = parseInt(a, 10); if (ps > 0) id = ps; }
+        }
+        if (st === -1) st = arguments[arguments.length - 1];
+        ev.songId = id > 0 ? id : ev.songId;
+        ev.songIdAt = Date.now();
+        ev.playing = st === 1;
+        ev.playingAt = Date.now();
+      });
+      native.appendRegisterCall("PlayProgress", "audioplayer", function () {
+        var p = arguments[arguments.length - 1];
+        var sec = typeof p === "number" ? p : parseFloat(p);
+        if (isFinite(sec) && sec >= 0) { ev.posMs = sec * 1000; ev.posAt = Date.now(); }
+      });
+      native.appendRegisterCall("Seek", "audioplayer", function () {
+        var p = arguments[arguments.length - 1];
+        var sec = typeof p === "number" ? p : parseFloat(p);
+        if (isFinite(sec) && sec >= 0) { ev.posMs = sec * 1000; ev.posAt = Date.now(); }
+      });
+      log("native callbacks registered");
     }
-    if (!store) warn("dva store not found; element-only mode (lyrics still work via songId from events)");
-  })();
+  } catch (e) {
+    log("native callbacks unavailable: " + (e && e.message));
+  }
 
-  /* ============================================================
-   * 3) Media element: one sticky, validated element. No scoring roulette.
-   * ============================================================ */
-  let mainEl = null;
+  /* ======================================================================
+   * dva store, read-only (webpack require capture -> module cache walk)
+   * ==================================================================== */
+  var storeRef = null;
+
+  function hookRequire(cb) {
+    try {
+      if (Array.isArray(window.webpackJsonp)) {
+        var k1 = "__chushi_probe_" + Date.now();
+        var f1 = {};
+        f1[k1] = function (m, e, r) { cb(r); };
+        window.webpackJsonp.push([[k1], f1, [[k1]]]);
+        return true;
+      }
+      for (var k in window) {
+        if (k.indexOf("webpackChunk") === 0 && Array.isArray(window[k])) {
+          var k2 = "__chushi_probe_" + Date.now();
+          var f2 = {};
+          f2[k2] = function (m, e, r) { cb(r); };
+          window[k].push([[k2], f2]);
+          return true;
+        }
+      }
+    } catch (e) { }
+    return false;
+  }
+
+  function looksLikeStore(s) {
+    return !!(s && typeof s.getState === "function" && typeof s.dispatch === "function" &&
+      s.getState() && typeof s.getState() === "object" && s.getState().playing);
+  }
+
+  hookRequire(function (req) {
+    try {
+      var cache = req && req.c;
+      if (!cache) return;
+      var keys = Object.keys(cache);
+      for (var i = 0; i < keys.length; i++) {
+        var ex = cache[keys[i]] && cache[keys[i]].exports;
+        if (!ex) continue;
+        var app = ex.a && typeof ex.a.getStore === "function" ? ex.a :
+          (typeof ex.getStore === "function" ? ex : null);
+        if (app) {
+          try {
+            var got = app.getStore();
+            var st = got && got._store ? got._store : got;
+            if (looksLikeStore(st)) { storeRef = st; return; }
+          } catch (e) { }
+        }
+        if (looksLikeStore(ex)) { storeRef = ex; return; }
+      }
+    } catch (e) { }
+  });
+  if (!storeRef) {
+    setTimeout(function () { if (!storeRef) log("store not found yet (element truth still works)"); }, 5000);
+  }
+
+  function storePlaying() {
+    try {
+      var s = storeRef && storeRef.getState ? storeRef.getState() : null;
+      return s && s.playing ? s.playing : null;
+    } catch (e) { return null; }
+  }
+
+  /* ======================================================================
+   * Media element truth (sticky, duration-anchored validation)
+   * ==================================================================== */
+  var mainEl = null;
 
   function expectedDurMs() {
+    var p = storePlaying();
+    if (p && p.curTrack && p.curTrack.duration > 0) return Number(p.curTrack.duration);
     try {
-      const p = store ? (store.getState().playing || {}) : {};
-      if (p.curTrack && p.curTrack.duration > 0) return Math.floor(p.curTrack.duration);
-    } catch (e) { }
-    try {
-      const d = (window.betterncm && window.betterncm.ncm && window.betterncm.ncm.getPlayingSong)
-        ? (window.betterncm.ncm.getPlayingSong() || {}).data : null;
-      if (d && d.duration > 0) return Math.floor(d.duration);
+      var g = betterncm && betterncm.ncm && betterncm.ncm.getPlayingSong ?
+        betterncm.ncm.getPlayingSong() : null;
+      if (g && g.data && g.data.duration > 0) return Number(g.data.duration);
     } catch (e) { }
     return 0;
   }
 
-  function elementValid(el) {
-    if (!el || !el.tagName || !/^(audio|video)$/i.test(el.tagName)) return false;
+  function elAcceptable(el, durMs) {
+    if (!el || !el.tagName) return false;
+    var tag = String(el.tagName).toLowerCase();
+    if (tag !== "audio" && tag !== "video") return false;
     if (!el.isConnected) return false;
-    if (!(el.currentTime >= 0) || !isFinite(el.currentTime)) return false;
-    const dur = expectedDurMs();
-    if (dur > 0 && el.duration > 0 && isFinite(el.duration)) {
-      if (Math.abs(el.duration * 1000 - dur) > 1500) return false;
+    if (typeof el.currentTime !== "number" || !isFinite(el.currentTime)) return false;
+    if (durMs > 0) {
+      try {
+        if (el.duration && isFinite(el.duration) &&
+          Math.abs(el.duration * 1000 - durMs) > 1500) return false;
+      } catch (e) { }
     }
     return true;
   }
 
-  function getEl() {
-    if (elementValid(mainEl)) return mainEl;
-    mainEl = null;
-    const list = document.querySelectorAll("audio, video");
-    for (const el of list) {
-      if (elementValid(el)) { mainEl = el; break; }
+  function activeEl() {
+    var durMs = expectedDurMs();
+    if (elAcceptable(mainEl, durMs)) return mainEl;
+    var candidates = [];
+    try { candidates = Array.prototype.slice.call(document.querySelectorAll("audio, video")); } catch (e) { }
+    var fallback = null;
+    for (var i = 0; i < candidates.length; i++) {
+      var el = candidates[i];
+      if (elAcceptable(el, durMs)) { mainEl = el; return el; }
+      if (!fallback && el.isConnected && typeof el.currentTime === "number") fallback = el;
     }
-    if (!mainEl) {
-      // no duration-validated element yet: accept any audio with a live clock
-      for (const el of document.querySelectorAll("audio")) {
-        if (el.isConnected && isFinite(el.currentTime)) { mainEl = el; break; }
+    mainEl = fallback; /* may be null */
+    return fallback;
+  }
+
+  /* ======================================================================
+   * Metadata
+   * ==================================================================== */
+  function pickStr(v, max) {
+    var s = typeof v === "string" ? v : (v == null ? "" : String(v));
+    return s.slice(0, max || 200);
+  }
+
+  function readMeta() {
+    var p = storePlaying();
+    var out = { songId: 0, title: "", artist: "", album: "", pic: "", durMs: 0 };
+    if (p) {
+      out.songId = Number(p.resourceTrackId || p.onlineResourceId || 0) || 0;
+      out.title = pickStr(p.resourceName, 200);
+      try {
+        if (p.resourceArtists && p.resourceArtists.length) {
+          var names = [];
+          for (var i = 0; i < p.resourceArtists.length && i < 5; i++) {
+            if (p.resourceArtists[i] && p.resourceArtists[i].name) names.push(p.resourceArtists[i].name);
+          }
+          out.artist = pickStr(names.join("/"), 200);
+        }
+      } catch (e) { }
+      out.pic = /^https:\/\//.test(String(p.resourceCoverUrl || "")) ? pickStr(p.resourceCoverUrl, 500) : "";
+      if (p.curTrack) {
+        var al = p.curTrack.album || {};
+        out.album = pickStr(al.albumName || al.name || "", 200);
+        if (!out.pic && /^https:\/\//.test(String(al.picUrl || ""))) out.pic = pickStr(al.picUrl, 500);
+        if (p.curTrack.duration > 0) out.durMs = Number(p.curTrack.duration);
       }
     }
-    return mainEl;
+    if (!out.title) {
+      try {
+        var g = betterncm && betterncm.ncm && betterncm.ncm.getPlayingSong ?
+          betterncm.ncm.getPlayingSong() : null;
+        if (g && g.data) {
+          out.title = out.title || pickStr(g.data.name, 200);
+          if (!out.artist && g.data.artists && g.data.artists.length) {
+            var ns = [];
+            for (var j = 0; j < g.data.artists.length && j < 5; j++) {
+              if (g.data.artists[j] && g.data.artists[j].name) ns.push(g.data.artists[j].name);
+            }
+            out.artist = pickStr(ns.join("/"), 200);
+          }
+          if (!out.pic && g.data.album && /^https:\/\//.test(String(g.data.album.picUrl || ""))) {
+            out.pic = pickStr(g.data.album.picUrl, 500);
+          }
+          if (!out.durMs && g.data.duration > 0) out.durMs = Number(g.data.duration);
+        }
+      } catch (e) { }
+    }
+    return out;
   }
 
-  /* ============================================================
-   * 4) Metadata (store first, BetterNCM API second). https-only cover.
-   * ============================================================ */
-  function httpsUp(u) {
-    const s = String(u || "");
-    if (s.indexOf("http://") === 0) return "https://" + s.slice(7);
-    return s;
-  }
+  /* ======================================================================
+   * Truth composition (element clock -> native progress -> store position)
+   * ==================================================================== */
+  function composeSnapshot() {
+    var meta = readMeta();
+    var el = activeEl();
+    var now = Date.now();
 
-  function getMeta() {
-    try {
-      const p = store ? (store.getState().playing || {}) : {};
-      const id = p.resourceTrackId || p.onlineResourceId || evSongId || 0;
-      if (id) {
-        const artists = (p.resourceArtists || []).map((a) => a && a.name).filter(Boolean);
-        return {
-          id: Number(id) || 0,
-          title: String(p.resourceName || ""),
-          artist: artists.join("/"),
-          album: (p.curTrack && p.curTrack.album && (p.curTrack.album.albumName || p.curTrack.album.name)) || "",
-          pic: httpsUp(p.resourceCoverUrl || (p.curTrack && p.curTrack.album && p.curTrack.album.picUrl) || ""),
-          durMs: (p.curTrack && p.curTrack.duration > 0) ? Math.floor(p.curTrack.duration) : 0,
-        };
-      }
-    } catch (e) { }
-    try {
-      const d = (window.betterncm && window.betterncm.ncm && window.betterncm.ncm.getPlayingSong)
-        ? (window.betterncm.ncm.getPlayingSong() || {}).data : null;
-      if (d) {
-        const artists = (d.artists || []).map((a) => a && a.name).filter(Boolean);
-        return {
-          id: evSongId || 0,
-          title: String(d.name || ""),
-          artist: artists.join("/"),
-          album: (d.album && (d.album.name || d.album.albumName)) || "",
-          pic: httpsUp((d.album && d.album.picUrl) || ""),
-          durMs: (d.duration > 0) ? Math.floor(d.duration) : 0,
-        };
-      }
-    } catch (e) { }
-    return { id: evSongId || 0, title: "", artist: "", album: "", pic: "", durMs: 0 };
-  }
+    var evPlayingFresh = (now - ev.playingAt) < EV_PLAY_FRESH;
+    var evPosFresh = (now - ev.posAt) < EV_POS_FRESH;
 
-  /* ============================================================
-   * 5) Truth snapshot (pure read; reconciliation, zero mutation)
-   * ============================================================ */
-  let seekAck = { id: "", ok: true, at: 0 };
-  let seekSeq = 0;
-
-  function buildSnapshot() {
-    const now = Date.now();
-    const el = getEl();
-    const meta = getMeta();
-
-    // playing: last native event wins (fresh window), then store, then element
-    let playing = null;
-    if (evPlayingAt && now - evPlayingAt < 3000) playing = evPlaying;
+    var playing = false;
+    if (evPlayingFresh) playing = ev.playing;
     else {
-      try {
-        const p = store ? (store.getState().playing || {}) : {};
-        if (typeof p.paused === "boolean") playing = !p.paused;
-      } catch (e) { }
+      var p = storePlaying();
+      if (p && typeof p.paused === "boolean") playing = p.paused === false;
+      else if (el) playing = el.paused === false;
     }
-    if (playing === null && el) playing = el.paused === false;
-    if (playing === null) playing = false;
 
-    // position: element fine clock when aligned with native progress;
-    // native progress; store position; bare element; else keep last push
-    const nativeFresh = evProgAt && now - evProgAt < 5000;
-    const nativeSec = nativeFresh ? evProgSec : -1;
-    let posSec = -1;
-    if (el && isFinite(el.currentTime)) {
-      const elSec = el.currentTime;
-      if (nativeSec >= 0 && Math.abs(elSec - nativeSec) <= 1.5) posSec = elSec;
-      else if (nativeSec < 0) posSec = elSec;
+    var durMs = meta.durMs;
+    if (!durMs && el) {
+      try { if (el.duration && isFinite(el.duration)) durMs = el.duration * 1000; } catch (e) { }
     }
-    if (posSec < 0 && nativeSec >= 0) posSec = nativeSec;
-    if (posSec < 0) {
-      try {
-        const sp = store ? Number(store.getState().playing && store.getState().playing.position) : 0;
-        if (sp > 0 && isFinite(sp)) posSec = sp;
-      } catch (e) { }
-    }
-    if (posSec < 0) posSec = 0;
 
-    const durMs = meta.durMs > 0 ? meta.durMs
-      : (el && el.duration > 0 && isFinite(el.duration) ? Math.floor(el.duration * 1000) : 0);
-    if (durMs > 0 && posSec * 1000 > durMs) posSec = durMs / 1000;
+    var posMs = 0;
+    var elPosMs = 0;
+    try { if (el) elPosMs = el.currentTime * 1000; } catch (e) { }
+    var elAligned = el && (elPosMs > 0 || playing) &&
+      (!evPosFresh || Math.abs(elPosMs - ev.posMs) <= 1500);
+    if (elAligned) posMs = elPosMs;
+    else if (evPosFresh) posMs = ev.posMs;
+    else {
+      var sp = storePlaying();
+      if (sp && typeof sp.position === "number" && sp.position > 0 && sp.position < 36000) {
+        posMs = sp.position * 1000;
+      }
+    }
+    if (durMs > 0 && posMs > durMs) posMs = durMs;
+    if (posMs < 0) posMs = 0;
 
     return {
       v: PLUGIN_VERSION,
       ts: now,
-      songId: meta.id || 0,
-      title: meta.title || "",
-      artist: meta.artist || "",
-      album: meta.album || "",
-      pic: meta.pic || "",
-      position: Math.round(posSec * 1000) / 1000,
-      duration: Math.round(durMs / 1000 * 1000) / 1000,
+      songId: meta.songId || (evPlayingFresh ? ev.songId : 0) || 0,
+      title: meta.title,
+      artist: meta.artist,
+      album: meta.album,
+      pic: meta.pic,
+      position: Math.round(posMs) / 1000,
+      duration: Math.round(durMs) / 1000,
       playing: playing === true,
-      seekAckId: seekAck.id || "",
+      seekAckId: seekAck.id,
       seekAckOk: seekAck.ok === true,
-      seekAckAt: seekAck.at || 0,
+      seekAckAt: seekAck.at,
     };
   }
 
-  /* ============================================================
-   * 6) Control executor (one action per command; honest verification)
-   * ============================================================ */
-  function visibleBtn(ids) {
-    for (const sel of ids) {
+  /* ======================================================================
+   * Controls: single execution + honest read-back
+   * ==================================================================== */
+  var seekAck = { id: "", ok: false, at: 0, pending: false, target: 0 };
+
+  function visibleButton(selectors) {
+    for (var i = 0; i < selectors.length; i++) {
       try {
-        const el = document.querySelector(sel);
-        if (el && el.offsetParent !== null) { el.click(); return true; }
+        var b = document.querySelector(selectors[i]);
+        if (b && b.offsetParent !== null) return b;
       } catch (e) { }
     }
+    return null;
+  }
+
+  function applyPlayPause(wantPlaying) {
+    var el = activeEl();
+    try {
+      if (el) {
+        if (wantPlaying && el.paused) { el.play(); return true; }
+        if (!wantPlaying && !el.paused) { el.pause(); return true; }
+        return true; /* already in the target state */
+      }
+    } catch (e) { }
+    var b = visibleButton(wantPlaying
+      ? ["#btn-play", ".btn-play", "#btn-pause", ".btn-pause"]
+      : ["#btn-pause", ".btn-pause", "#btn-play", ".btn-play"]);
+    if (b) { b.click(); return true; }
     return false;
   }
 
-  function ctrlPlayPause(target) {
-    const el = getEl();
-    if (el) {
-      try {
-        if (target === "play" && el.paused) { el.play(); return true; }
-        if (target === "pause" && !el.paused) { el.pause(); return true; }
-        return true; // already in the requested state
-      } catch (e) { /* fall through to buttons */ }
-    }
-    if (target === "play") return visibleBtn(["#btn-play", ".btn-play", "#btn-pause", ".btn-pause"]);
-    return visibleBtn(["#btn-pause", ".btn-pause", "#btn-play", ".btn-play"]);
-  }
-
   function ctrlToggle() {
-    const snap = buildSnapshot();
-    return ctrlPlayPause(snap.playing ? "pause" : "play");
+    var snap = composeSnapshot();
+    return applyPlayPause(!snap.playing);
   }
 
-  function ctrlSkip(dir) {
-    return dir === "next"
-      ? visibleBtn(["#btn-next", ".btn-next"])
-      : visibleBtn(["#btn-previous", "#btn-prev", ".btn-previous", ".btn-prev"]);
+  function applyNextPrev(next) {
+    var b = visibleButton(next
+      ? ["#btn-next", ".btn-next"]
+      : ["#btn-previous", "#btn-prev", ".btn-previous", ".btn-prev"]);
+    if (b) { b.click(); return true; }
+    return false;
   }
 
-  /* Seek: set currentTime ONCE, verify by read-back, never rewrite.
-     The seekAck travels to the host with the next pushes so the page can
-     honestly say "drag did not take" instead of pretending. */
-  function ctrlSeek(sec) {
-    const id = "s" + (++seekSeq) + "t" + Date.now();
-    const el = getEl();
-    if (!el || !(sec >= 0)) {
-      seekAck = { id, ok: false, at: Date.now() };
+  function ctrlSeek(id, targetSec) {
+    var el = activeEl(); /* identity captured BEFORE the single write */
+    if (!el || typeof el.currentTime !== "number") {
+      seekAck = { id: id, ok: false, at: Date.now(), pending: false, target: targetSec };
       return;
     }
-    try {
-      const dur = el.duration > 0 && isFinite(el.duration) ? el.duration : 0;
-      const target = dur > 0 ? clamp(sec, 0, dur) : Math.max(0, sec);
-      el.currentTime = target;
-      const elTag = el;
+    var dur = 0;
+    try { if (el.duration && isFinite(el.duration)) dur = el.duration; } catch (e) { }
+    if (!dur) dur = composeSnapshot().duration;
+    var target = Math.max(0, Math.min(dur > 0 ? dur : 86400, targetSec));
+    /* ================= THE ONLY currentTime WRITE IN THIS FILE ========= */
+    el.currentTime = target;
+    /* ================================================================== */
+    var elAtWrite = el;
+    setTimeout(function () {
+      var ok1 = false;
+      try {
+        ok1 = elAtWrite.isConnected && isFinite(elAtWrite.currentTime) &&
+          Math.abs(elAtWrite.currentTime - target) <= 0.9;
+      } catch (e) { }
+      if (!ok1) {
+        seekAck = { id: id, ok: false, at: Date.now(), pending: false, target: target };
+        log("seek ack false at 420ms (target " + target.toFixed(2) + ")");
+        return;
+      }
       setTimeout(function () {
+        var ok2 = false;
         try {
-          if (elTag !== mainEl) { seekAck = { id, ok: false, at: Date.now() }; return; }
-          const now2 = elTag.currentTime;
-          seekAck = { id, ok: Math.abs(now2 - target) <= 0.9, at: Date.now() };
-        } catch (e) { seekAck = { id, ok: false, at: Date.now() }; }
-      }, 420);
-      setTimeout(function () {
-        try {
-          if (seekAck.id === id && seekAck.ok === false) {
-            // second chance: maybe the first read caught a buffering frame
-            const now3 = elTag.currentTime;
-            const drift = Math.abs(now3 - target);
-            seekAck = { id, ok: drift <= 1.2, at: Date.now() };
-          }
+          ok2 = elAtWrite.isConnected && isFinite(elAtWrite.currentTime) &&
+            Math.abs(elAtWrite.currentTime - target) <= 1.2;
         } catch (e) { }
-      }, 1000);
-    } catch (e) {
-      seekAck = { id, ok: false, at: Date.now() };
-    }
+        seekAck = { id: id, ok: ok2 === true, at: Date.now(), pending: false, target: target };
+        log("seek ack " + (ok2 ? "true" : "false at 1000ms"));
+      }, 580);
+    }, 420);
   }
 
-  function execCmd(c) {
-    if (!c || !c.cmd) return;
-    switch (c.cmd) {
-      case "play": ctrlPlayPause("play"); break;
-      case "pause": ctrlPlayPause("pause"); break;
-      case "toggle": ctrlToggle(); break;
-      case "next": ctrlSkip("next"); break;
-      case "prev": ctrlSkip("prev"); break;
-      case "seek": ctrlSeek(Number(c.position) || 0); break;
-      default: break;
+  function applyCmd(c) {
+    if (!c || typeof c.cmd !== "string") return;
+    var cmd = c.cmd;
+    if (cmd === "play") applyPlayPause(true);
+    else if (cmd === "pause") applyPlayPause(false);
+    else if (cmd === "toggle") ctrlToggle();
+    else if (cmd === "next") applyNextPrev(true);
+    else if (cmd === "prev") applyNextPrev(false);
+    else if (cmd === "seek" && typeof c.position === "number" && isFinite(c.position)) {
+      var id = "s" + (++seekSeq) + "t" + Date.now();
+      seekAck = { id: id, ok: false, at: 0, pending: true, target: c.position };
+      ctrlSeek(id, c.position);
     }
   }
+  var seekSeq = 0;
 
-  /* ============================================================
-   * 7) HTTP: push truth 1 Hz, poll commands 300 ms
-   * ============================================================ */
-  let lastSnap = null;
+  /* ======================================================================
+   * Full lyrics: eapi (word-level yrc) -> channel -> direct
+   * ==================================================================== */
+  var LYR_CACHE_MAX = 8;
+  var LYR_LS_KEY = "chushi-musicapi-lyric-v5";
+  var lyricCache = new Map();
 
-  async function httpJson(path, method, body, timeoutMs) {
-    const ctl = new AbortController();
-    const t = setTimeout(() => { try { ctl.abort(); } catch (e) { } }, timeoutMs || 2500);
+  function cachePut(songId, payload) {
+    lyricCache.delete(songId);
+    lyricCache.set(songId, payload);
+    while (lyricCache.size > LYR_CACHE_MAX) {
+      var oldest = lyricCache.keys().next().value;
+      lyricCache.delete(oldest);
+    }
     try {
-      const r = await fetch(BASE + path, {
-        method: method || "GET",
-        signal: ctl.signal,
-        headers: { "Content-Type": "application/json" },
-        body: body ? JSON.stringify(body) : undefined,
-      });
-      return await r.json();
-    } catch (e) {
-      return null;
-    } finally { clearTimeout(t); }
-  }
-
-  (async function pushLoop() {
-    while (!disposed) {
-      try {
-        const snap = buildSnapshot();
-        lastSnap = snap;
-        await httpJson("/api/ne", "POST", snap, 1800);
-      } catch (e) { }
-      await sleep(1000);
-    }
-  })();
-
-  (async function cmdLoop() {
-    while (!disposed) {
-      try {
-        const j = await httpJson("/api/cmd", "GET", null, 1200);
-        if (j && j.ok === true && Array.isArray(j.cmds)) {
-          for (const c of j.cmds) {
-            try { execCmd(c); } catch (e) { warn("cmd failed:", c && c.cmd, e && e.message); }
-          }
-        }
-      } catch (e) { }
-      await sleep(300);
-    }
-  })();
-
-  /* ============================================================
-   * 8) Lyrics: full word-level lyrics, fresh crypto, cached
-   * ============================================================ */
-
-  /* ---- MD5 (RFC 1321) over bytes -> lowercase hex ---- */
-  function md5Hex(bytes) {
-    const S = [7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
-      5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
-      4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
-      6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21];
-    const K = new Int32Array(64);
-    for (let i = 0; i < 64; i++) K[i] = (Math.abs(Math.sin(i + 1)) * 4294967296) | 0;
-    let a0 = 0x67452301 | 0, b0 = 0xefcdab89 | 0, c0 = 0x98badcfe | 0, d0 = 0x10325476 | 0;
-    const len = bytes.length;
-    const total = (((len + 8) >> 6) + 1) << 6;
-    const m = new Uint8Array(total);
-    m.set(bytes);
-    m[len] = 0x80;
-    const bitLen = len * 8;
-    /* JS shifts mask the count mod 32 (bitLen >>> 32 === bitLen >>> 0), so
-       high length bytes must be computed arithmetically, never via >>> 32+. */
-    const bitLenLo = bitLen >>> 0;
-    const bitLenHi = Math.floor(bitLen / 4294967296);
-    const lenBytes = [
-      bitLenLo & 0xff, (bitLenLo >>> 8) & 0xff, (bitLenLo >>> 16) & 0xff, (bitLenLo >>> 24) & 0xff,
-      bitLenHi & 0xff, (bitLenHi >>> 8) & 0xff, (bitLenHi >>> 16) & 0xff, (bitLenHi >>> 24) & 0xff,
-    ];
-    for (let i = 0; i < 8; i++) m[total - 8 + i] = lenBytes[i];
-    const M = new Int32Array(total / 4);
-    for (let i = 0; i < M.length; i++) {
-      M[i] = (m[i * 4] | (m[i * 4 + 1] << 8) | (m[i * 4 + 2] << 16) | (m[i * 4 + 3] << 24)) | 0;
-    }
-    const rotl = (x, c) => ((x << c) | (x >>> (32 - c))) | 0;
-    for (let off = 0; off < M.length; off += 16) {
-      const X = M.subarray(off, off + 16);
-      let A = a0, B = b0, C = c0, D = d0;
-      for (let i = 0; i < 64; i++) {
-        let F, g;
-        if (i < 16) { F = (B & C) | (~B & D); g = i; }
-        else if (i < 32) { F = (D & B) | (~D & C); g = (5 * i + 1) % 16; }
-        else if (i < 48) { F = B ^ C ^ D; g = (3 * i + 5) % 16; }
-        else { F = C ^ (B | ~D); g = (7 * i) % 16; }
-        F = (F + A + K[i] + X[g]) | 0;
-        A = D; D = C; C = B;
-        B = (B + rotl(F, S[i])) | 0;
-      }
-      a0 = (a0 + A) | 0; b0 = (b0 + B) | 0; c0 = (c0 + C) | 0; d0 = (d0 + D) | 0;
-    }
-    const out = new Uint8Array(16);
-    const regs = [a0, b0, c0, d0];
-    for (let r = 0; r < 4; r++) {
-      for (let i = 0; i < 4; i++) out[r * 4 + i] = (regs[r] >>> (8 * i)) & 0xff;
-    }
-    let s = "";
-    for (let i = 0; i < 16; i++) s += (out[i] >>> 4).toString(16) + (out[i] & 15).toString(16);
-    return s;
-  }
-
-  /* ---- AES-128 ECB encrypt-only, S-box generated at runtime ---- */
-  const AES = (function () {
-    // S-box: multiplicative inverse in GF(2^8) + affine transform
-    const sbox = new Uint8Array(256);
-    const mul = (a, b) => {
-      let p = 0;
-      for (let i = 0; i < 8; i++) {
-        if (b & 1) p ^= a;
-        const hi = a & 0x80;
-        a = (a << 1) & 0xff;
-        if (hi) a ^= 0x1b;
-        b >>= 1;
-      }
-      return p;
-    };
-    for (let i = 0, inv = 0; i < 256; i++) {
-      // find inverse of i in GF(2^8) (0 maps to 0)
-      inv = 0;
-      if (i !== 0) { for (let j = 1; j < 256; j++) { if (mul(i, j) === 1) { inv = j; break; } } }
-      let x = inv, s = x;
-      for (let k = 0; k < 4; k++) { s = ((s << 1) | (s >>> 7)) & 0xff; x ^= s; }
-      sbox[i] = x ^ 0x63;
-    }
-    const rcon = [0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36];
-    function expandKey(key) {
-      const w = new Uint8Array(176);
-      w.set(key);
-      for (let i = 16; i < 176; i += 4) {
-        let t0 = w[i - 4], t1 = w[i - 3], t2 = w[i - 2], t3 = w[i - 1];
-        if (i % 16 === 0) {
-          const tmp = t0;
-          t0 = sbox[t1] ^ rcon[i / 16 - 1];
-          t1 = sbox[t2]; t2 = sbox[t3]; t3 = sbox[tmp];
-        }
-        w[i] = w[i - 16] ^ t0;
-        w[i + 1] = w[i - 15] ^ t1;
-        w[i + 2] = w[i - 14] ^ t2;
-        w[i + 3] = w[i - 13] ^ t3;
-      }
-      return w;
-    }
-    function cryptBlock(w, inp, out) {
-      const s = new Uint8Array(16);
-      s.set(inp);
-      for (let i = 0; i < 16; i++) s[i] ^= w[i];                 // AddRoundKey(0)
-      for (let r = 1; r <= 10; r++) {
-        for (let i = 0; i < 16; i++) s[i] = sbox[s[i]];              // SubBytes
-        for (let r0 = 1; r0 < 4; r0++) {                             // ShiftRows (column-major state)
-          const row = [s[r0], s[r0 + 4], s[r0 + 8], s[r0 + 12]];
-          for (let c = 0; c < 4; c++) s[r0 + c * 4] = row[(c + r0) % 4];
-        }
-        if (r < 10) {
-          for (let c = 0; c < 4; c++) {                              // MixColumns
-            const a0 = s[c * 4], a1 = s[c * 4 + 1], a2 = s[c * 4 + 2], a3 = s[c * 4 + 3];
-            s[c * 4] = mul(2, a0) ^ mul(3, a1) ^ a2 ^ a3;
-            s[c * 4 + 1] = a0 ^ mul(2, a1) ^ mul(3, a2) ^ a3;
-            s[c * 4 + 2] = a0 ^ a1 ^ mul(2, a2) ^ mul(3, a3);
-            s[c * 4 + 3] = mul(3, a0) ^ a1 ^ a2 ^ mul(2, a3);
-          }
-        }
-        for (let i = 0; i < 16; i++) s[i] ^= w[r * 16 + i];          // AddRoundKey(r)
-      }
-      out.set(s);
-    }
-    function ecbEncrypt(keyBytes, plain) {
-      const w = expandKey(keyBytes);
-      const pad = 16 - (plain.length % 16);
-      const buf = new Uint8Array(plain.length + pad);
-      buf.set(plain);
-      for (let i = plain.length; i < buf.length; i++) buf[i] = pad;
-      const out = new Uint8Array(buf.length);
-      for (let off = 0; off < buf.length; off += 16) cryptBlock(w, buf.subarray(off, off + 16), out.subarray(off, off + 16));
-      return out;
-    }
-    return { ecbEncrypt };
-  })();
-
-  function utf8Bytes(str) {
-    const bin = unescape(encodeURIComponent(str));
-    const out = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i) & 0xff;
-    return out;
-  }
-  function hexUpper(bytes) {
-    let s = "";
-    for (let i = 0; i < bytes.length; i++) s += (bytes[i] >> 4).toString(16) + (bytes[i] & 15).toString(16);
-    return s.toUpperCase();
-  }
-
-  const EAPI_KEY = utf8Bytes("e82ckenh8dichen8");
-  function eapiParams(apiPath, payload) {
-    const text = JSON.stringify(payload);
-    const secret = "nobody" + apiPath + "use" + text + "md5forencrypt";
-    const digest = md5Hex(utf8Bytes(secret));
-    const data = apiPath + "-36cd479b6b5-" + text + "-36cd479b6b5-" + digest;
-    return hexUpper(AES.ecbEncrypt(EAPI_KEY, utf8Bytes(data)));
-  }
-
-  /* ---- klyric (JSON karaoke) -> yrc-shaped text (fallback) ---- */
-  function klyricToYrcText(ktext) {
-    try {
-      const j = JSON.parse(ktext);
-      const lines = Array.isArray(j) ? j : (j.lines || j.lrc || []);
-      const out = [];
-      for (const ln of lines) {
-        if (!ln || !Array.isArray(ln.c) || !ln.c.length) continue;
-        const start = ln.t || 0;
-        let cur = 0;
-        let body = "";
-        const times = [];
-        for (const w of ln.c) {
-          times.push(w.t != null ? w.t : start + cur);
-          const tx = String(w.tx || "");
-          cur += tx.length * 90;
-          body += tx;
-        }
-        if (!body.trim()) continue;
-        let yrc = "";
-        for (let i = 0; i < ln.c.length; i++) {
-          const ws = times[i];
-          const we = i + 1 < times.length ? times[i + 1] : start + Math.max(cur, 900);
-          yrc += "(" + ws + "," + Math.max(60, we - ws) + ",0)" + String(ln.c[i].tx || "");
-        }
-        out.push("[" + start + "," + Math.max(cur, 900) + "]" + yrc);
-      }
-      return out.join("\n");
-    } catch (e) { return ""; }
-  }
-
-  const lyricCache = new Map();
-  const LYRIC_LS = "chushi-musicapi-lyric-v4";
-  try {
-    const saved = JSON.parse(localStorage.getItem(LYRIC_LS) || "[]");
-    if (Array.isArray(saved)) for (const [k, v] of saved) lyricCache.set(k, v);
-  } catch (e) { }
-  function saveLyricCache() {
-    try {
-      while (lyricCache.size > 8) lyricCache.delete(lyricCache.keys().next().value);
-      localStorage.setItem(LYRIC_LS, JSON.stringify(Array.from(lyricCache.entries()).slice(-8)));
+      var arr = [];
+      lyricCache.forEach(function (v, k) { arr.push([k, v]); });
+      localStorage.setItem(LYR_LS_KEY, JSON.stringify(arr));
     } catch (e) { }
   }
+  function cacheGet(songId) {
+    if (lyricCache.has(songId)) {
+      var v = lyricCache.get(songId);
+      lyricCache.delete(songId);
+      lyricCache.set(songId, v);
+      return v;
+    }
+    try {
+      var raw = localStorage.getItem(LYR_LS_KEY);
+      if (!raw) return null;
+      var arr = JSON.parse(raw);
+      if (!Array.isArray(arr)) return null;
+      for (var i = 0; i < arr.length; i++) {
+        if (String(arr[i][0]) === String(songId)) {
+          var pl = arr[i][1];
+          cachePut(songId, pl);
+          return pl;
+        }
+      }
+    } catch (e) { }
+    return null;
+  }
 
-  async function fetchLyricEapi(songId) {
-    const apiPath = "/api/song/lyric/v1";
-    const attempt = async (yv) => {
+  function md5hex(text) {
+    var c = require("crypto");
+    return c.createHash("md5").update(text, "utf8").digest("hex");
+  }
+
+  function eapiParams(path, payload) {
+    var c = require("crypto");
+    var json = JSON.stringify(payload);
+    var digest = md5hex("nobody" + path + "use" + json + "md5forencrypt");
+    var text = path + "-36cd479b6b5-" + json + "-36cd479b6b5-" + digest;
+    var cipher = c.createCipheriv("aes-128-ecb", Buffer.from("e82ckenh8dichen8", "utf8"), Buffer.alloc(0));
+    var enc = Buffer.concat([cipher.update(text, "utf8"), cipher.final()]);
+    return enc.toString("hex").toUpperCase();
+  }
+
+  function postForm(url, formBody, timeoutMs) {
+    return new Promise(function (resolve) {
+      var done = false;
+      var timer = setTimeout(function () { if (!done) { done = true; resolve(null); } }, timeoutMs);
       try {
-        const r = await fetch("https://interface3.music.163.com/eapi" + apiPath, {
+        fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: "params=" + eapiParams(apiPath, {
-            id: String(songId), cp: false, radio: false,
-            cv: 0, kv: 0, tv: 0, lv: 0, rv: 0, st: 0, yv: yv,
-          }),
-        });
-        if (!r || !r.ok) return null;
-        return await r.json();
-      } catch (e) { return null; }
+          body: formBody,
+        }).then(function (r) { return r.json(); }).then(function (j) {
+          if (!done) { done = true; clearTimeout(timer); resolve(j); }
+        }).catch(function () { if (!done) { done = true; clearTimeout(timer); resolve(null); } });
+      } catch (e) { if (!done) { done = true; clearTimeout(timer); resolve(null); } }
+    });
+  }
+
+  function klyricToYrc(ktext) {
+    var lines = [];
+    try {
+      var arr = JSON.parse(ktext);
+      if (!Array.isArray(arr)) return "";
+      for (var i = 0; i < arr.length; i++) {
+        var ln = arr[i];
+        if (!ln || typeof ln.t !== "number") continue;
+        var cs = Array.isArray(ln.c) ? ln.c : [];
+        var parts = [];
+        var lineEnd = ln.t;
+        for (var w = 0; w < cs.length; w++) {
+          var item = cs[w];
+          var tx = item && item.tx != null ? String(item.tx) : "";
+          if (!tx) continue;
+          var ws = ln.t + (typeof item.t === "number" ? item.t : 0);
+          var nextOff = (w + 1 < cs.length && typeof cs[w + 1].t === "number") ? cs[w + 1].t : null;
+          var wd = nextOff != null ? (ln.t + nextOff - ws) : (tx.length * 90 + 60);
+          if (wd < 60) wd = 60;
+          parts.push("(" + Math.max(0, Math.round(ws - ln.t)) + "," + Math.round(wd) + ",0)" + tx);
+          lineEnd = ws + wd;
+        }
+        if (!parts.length) continue;
+        var endAbs = (i + 1 < arr.length && typeof arr[i + 1].t === "number") ? arr[i + 1].t : lineEnd;
+        if (endAbs <= ln.t) endAbs = lineEnd;
+        lines.push("[" + Math.round(ln.t) + "," + Math.round(endAbs - ln.t) + "]" + parts.join(""));
+      }
+    } catch (e) { return ""; }
+    return lines.join("\n");
+  }
+
+  function eapiLyric(songId) {
+    /* Live-verified recipe: encrypt with the /api/... path, POST to the
+     * /eapi/... URL, form field "params". Word-level content arrives in
+     * yrc.lyric when the song has it; otherwise lrc/tlyric carry line-level. */
+    var encPath = "/api/song/lyric/v1";
+    var payload = {
+      id: String(songId), cp: false, radio: false, cv: 4747474,
+      kv: -1, tv: -1, lv: -1, rv: -1, st: 0, yv: 1,
     };
-    let j = await attempt(1);
-    if (!j || !(j.yrc && j.yrc.lyric)) j = await attempt(-1);
-    if (!j) return null;
-    let yrc = (j.yrc && j.yrc.lyric) || "";
-    let source = "";
-    if (yrc) source = "eapi-yrc";
-    else if (j.klyric && j.klyric.lyric) { yrc = klyricToYrcText(j.klyric.lyric); source = yrc ? "eapi-klyric" : ""; }
-    const lrc = (j.lrc && j.lrc.lyric) || "";
-    const tlyric = (j.tlyric && j.tlyric.lyric) || "";
-    const ytlrc = (j.ytlrc && j.ytlrc.lyric) || "";
-    if (!yrc && !lrc) return null;
-    return { yrc, ytlrc, lrc, tlyric, source: source || "eapi-lrc" };
+    return postForm("https://interface3.music.163.com/eapi/song/lyric/v1",
+      "params=" + eapiParams(encPath, payload), 4000).then(function (j) {
+        if (!j || (!j.yrc && !j.klyric && !j.lrc)) return null;
+        var out = { yrc: "", ytlrc: "", lrc: "", tlyric: "", source: "" };
+        if (j.yrc && j.yrc.lyric) {
+          out.yrc = String(j.yrc.lyric);
+          out.ytlrc = j.ytlrc && j.ytlrc.lyric ? String(j.ytlrc.lyric) : "";
+          out.source = "eapi-yrc";
+        } else if (j.klyric && j.klyric.lyric) {
+          out.yrc = klyricToYrc(String(j.klyric.lyric));
+          out.source = "eapi-klyric";
+        } else {
+          out.lrc = j.lrc && j.lrc.lyric ? String(j.lrc.lyric) : "";
+          out.tlyric = j.tlyric && j.tlyric.lyric ? String(j.tlyric.lyric) : "";
+          out.ytlrc = j.ytlrc && j.ytlrc.lyric ? String(j.ytlrc.lyric) : "";
+          out.source = "eapi-lrc";
+        }
+        if (!out.yrc && !out.lrc) return null;
+        return out;
+      });
   }
 
   function channelLyric(songId) {
-    return new Promise((resolve) => {
+    return new Promise(function (resolve) {
       try {
-        if (!window.channel || typeof window.channel.call !== "function") return resolve(null);
-        window.channel.call("track.lyric.getinfo", function (err, res) {
+        var ch = window.channel;
+        if (!ch || typeof ch.call !== "function") { resolve(null); return; }
+        var settled = false;
+        var timer = setTimeout(function () { if (!settled) { settled = true; resolve(null); } }, 3500);
+        ch.call("track.lyric.getinfo", function (res) {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
           try {
-            if (err || !res || !res.lyric) return resolve(null);
-            resolve({
-              yrc: "", ytlrc: "",
-              lrc: String((res.lyric && res.lyric.lyric) || ""),
-              tlyric: String((res.transLyric && res.transLyric.lyric) || ""),
-              source: "channel-lrc",
-            });
+            var lrc = res && res.lyric && res.lyric.lyric ? String(res.lyric.lyric) : "";
+            var tr = res && res.transLyric && res.transLyric.lyric ? String(res.transLyric.lyric) : "";
+            if (!lrc) { resolve(null); return; }
+            resolve({ yrc: "", ytlrc: "", lrc: lrc, tlyric: tr, source: "channel-lrc" });
           } catch (e) { resolve(null); }
         }, [String(songId)]);
       } catch (e) { resolve(null); }
     });
   }
 
-  async function fetchLyricDirect(songId) {
-    try {
-      const r = await fetch(`https://music.163.com/api/song/lyric?os=pc&id=${songId}&lv=-1&kv=-1&tv=-1`);
-      if (!r || !r.ok) return null;
-      const j = await r.json();
-      const lrc = (j.lrc && j.lrc.lyric) || "";
-      const tlyric = (j.tlyric && j.tlyric.lyric) || "";
-      if (!lrc) return null;
-      return { yrc: "", ytlrc: "", lrc, tlyric, source: "direct-lrc" };
-    } catch (e) { return null; }
-  }
-
-  function lyricRevOf(p) {
-    return `${p.songId}-${p.source || "none"}-${(p.yrc || p.lrc || "").length}`;
-  }
-
-  async function pushLyric(entry) {
-    const payload = {
-      songId: entry.songId, title: entry.title || "", artist: entry.artist || "",
-      rev: entry.rev, yrc: entry.yrc || "", ytlrc: entry.ytlrc || "",
-      lrc: entry.lrc || "", tlyric: entry.tlyric || "", source: entry.source || "",
-    };
-    await httpJson("/api/lyric", "POST", payload, 4000);
-  }
-
-  let curLyricKey = "";
-  (async function lyricLoop() {
-    while (!disposed) {
+  function directLyric(songId) {
+    return new Promise(function (resolve) {
+      var done = false;
+      var timer = setTimeout(function () { if (!done) { done = true; resolve(null); } }, 3500);
       try {
-        const meta = getMeta();
-        const key = String(meta.id || 0);
-        if (key && key !== curLyricKey && key !== "0") {
-          curLyricKey = key;
-          let entry = lyricCache.get(key) || null;
-          if (!entry) {
-            const got =
-              await fetchLyricEapi(meta.id) ||
-              (await channelLyric(meta.id)) ||
-              (await fetchLyricDirect(meta.id)) ||
-              null;
-            if (got) {
-              entry = {
-                songId: meta.id, title: meta.title, artist: meta.artist,
-                yrc: got.yrc || "", ytlrc: got.ytlrc || "",
-                lrc: got.lrc || "", tlyric: got.tlyric || "",
-                source: got.source || "",
-              };
-              entry.rev = lyricRevOf(entry);
-              lyricCache.set(key, entry);
-              saveLyricCache();
-            }
-          }
-          if (entry) await pushLyric(entry);
-        }
-      } catch (e) { }
-      await sleep(700);
-    }
-  })();
-
-  /* ============================================================
-   * 9) Config panel (English; honest status + port + conflict hint)
-   * ============================================================ */
-  try {
-    plugin.onConfig(function (tools) {
-      const wrap = document.createElement("div");
-      wrap.style.cssText = "font-size:12px;line-height:1.8;";
-      const info = document.createElement("div");
-      info.innerText = `ChuShi Music API ${PLUGIN_VERSION} -- playback truth producer (exact progress, word-level lyrics, element-level control). The Windows SMTC card is handled by the ChuShi SMTC Manager plugin + engine. NetEase's built-in SMTC switch is NOT required. Same port as the manager plugin.`;
-      try {
-        if (window.__chushiLyricSourceActive || window.__chushiLyricSource) {
-          const conflict = document.createElement("div");
-          conflict.style.cssText = "color:#b91c1c;font-weight:600;margin-top:6px;";
-          conflict.innerText = "Old all-in-one lyric plugin is still active: uninstall it in the BetterNCM plugin manager, keep only ChuShi SMTC Manager + ChuShi Music API, then restart NetEase.";
-          wrap.appendChild(conflict);
-        }
-      } catch (e) { }
-      const row = document.createElement("div");
-      row.style.cssText = "margin-top:6px;";
-      const label = document.createElement("span");
-      label.innerText = "Engine port (must match ChuShi SMTC Manager; default 26801): ";
-      const input = tools.makeInput(String(PORT), { type: "number" });
-      const btn = tools.makeBtn("Save", function () {
-        const p = parseInt(input.value, 10);
-        if (!p || p < 1024 || p > 65535) { alert("Port must be 1024-65535"); return; }
-        plugin.setConfig("port", p);
-        alert("Saved. Restart NetEase Cloud Music to apply.");
-      });
-      row.appendChild(label); row.appendChild(input); row.appendChild(btn);
-      wrap.appendChild(info); wrap.appendChild(row);
-      return wrap;
+        fetch("https://music.163.com/api/song/lyric?os=pc&id=" + encodeURIComponent(String(songId)) +
+          "&lv=-1&kv=-1&tv=-1").then(function (r) { return r.json(); }).then(function (j) {
+            if (done) return;
+            done = true; clearTimeout(timer);
+            var lrc = j && j.lrc && j.lrc.lyric ? String(j.lrc.lyric) : "";
+            if (!lrc) { resolve(null); return; }
+            resolve({
+              yrc: "", ytlrc: "",
+              lrc: lrc,
+              tlyric: j.tlyric && j.tlyric.lyric ? String(j.tlyric.lyric) : "",
+              source: "direct-lrc",
+            });
+          }).catch(function () { if (!done) { done = true; clearTimeout(timer); resolve(null); } });
+      } catch (e) { if (!done) { done = true; clearTimeout(timer); resolve(null); } }
     });
-  } catch (e) { /* optional */ }
+  }
 
-  log(`ChuShi Music API v${PLUGIN_VERSION} ready -> engine ${BASE}`);
+  function fetchLyricPayload(songId) {
+    var hit = cacheGet(songId);
+    if (hit) return Promise.resolve(hit);
+    return eapiLyric(songId)
+      .then(function (a) { return a || channelLyric(songId); })
+      .then(function (b) { return b || directLyric(songId); })
+      .then(function (c) {
+        if (!c) return null;
+        var meta = readMeta();
+        var payload = {
+          songId: songId, title: meta.title, artist: meta.artist,
+          rev: songId + "-" + c.source + "-" + (c.yrc || c.lrc || "").length,
+          yrc: c.yrc, ytlrc: c.ytlrc, lrc: c.lrc, tlyric: c.tlyric, source: c.source,
+        };
+        cachePut(songId, payload);
+        return payload;
+      });
+  }
+
+  /* ======================================================================
+   * HTTP data plane
+   * ==================================================================== */
+  function httpJson(method, path, body, timeoutMs) {
+    return new Promise(function (resolve) {
+      var done = false;
+      var timer = setTimeout(function () { if (!done) { done = true; resolve(null); } }, timeoutMs);
+      try {
+        fetch(BASE + path, {
+          method: method,
+          headers: body ? { "Content-Type": "application/json" } : undefined,
+          body: body ? JSON.stringify(body) : undefined,
+        }).then(function (r) { return r.json(); }).then(function (j) {
+          if (!done) { done = true; clearTimeout(timer); resolve(j); }
+        }).catch(function () { if (!done) { done = true; clearTimeout(timer); resolve(null); } });
+      } catch (e) { if (!done) { done = true; clearTimeout(timer); resolve(null); } }
+    });
+  }
+
+  var pushedLyricKey = "";
+
+  function truthPump() {
+    try {
+      var snap = composeSnapshot();
+      httpJson("POST", "/api/ne", snap, 1800);
+    } catch (e) { }
+    setTimeout(truthPump, POLL_MS);
+  }
+
+  function cmdPump() {
+    httpJson("GET", "/api/cmd", null, 1200).then(function (j) {
+      if (j && j.ok === true && Array.isArray(j.cmds)) {
+        for (var i = 0; i < j.cmds.length; i++) {
+          try { applyCmd(j.cmds[i]); } catch (e) { }
+        }
+      }
+      setTimeout(cmdPump, CMD_POLL_MS);
+    }, function () { setTimeout(cmdPump, CMD_POLL_MS); });
+  }
+
+  function lyricPump() {
+    try {
+      var snap = composeSnapshot();
+      var sid = snap.songId;
+      if (sid > 0) {
+        var key = sid + ":" + snap.title;
+        var hit = cacheGet(sid);
+        if (hit && pushedLyricKey !== hit.rev) {
+          pushedLyricKey = hit.rev;
+          httpJson("POST", "/api/lyric", hit, 4000);
+        } else if (!hit && pushedLyricKey !== key) {
+          pushedLyricKey = key;
+          fetchLyricPayload(sid).then(function (pl) {
+            if (pl) httpJson("POST", "/api/lyric", pl, 4000);
+          });
+        }
+      }
+    } catch (e) { }
+    setTimeout(lyricPump, LYRIC_CHECK_MS);
+  }
+
+  setTimeout(truthPump, 1500);
+  setTimeout(cmdPump, 3000);
+  setTimeout(lyricPump, 4000);
+
+  /* ======================================================================
+   * Diagnostics panel (best effort, honest English only)
+   * ==================================================================== */
+  try {
+    if (typeof plugin !== "undefined" && plugin && typeof plugin.onConfig === "function") {
+      plugin.onConfig(function () {
+        var wrap = document.createElement("div");
+        wrap.style.cssText = "font-family:monospace;font-size:12px;line-height:1.7;padding:6px 2px";
+        var line = document.createElement("div");
+        wrap.appendChild(line);
+        var conflict = (window.__chushiLyricSourceActive || window.__chushiLyricSource);
+        if (conflict) {
+          var warn = document.createElement("div");
+          warn.style.cssText = "color:#e06c75;font-weight:bold";
+          warn.textContent = "WARNING: an old all-in-one ChuShi lyric plugin is still " +
+            "installed. Remove it from BetterNCM and restart NetEase Music.";
+          wrap.appendChild(warn);
+        }
+        setInterval(function () {
+          var snap = composeSnapshot();
+          line.textContent = "truth: " + (snap.title ? "\"" + snap.title.slice(0, 30) + "\"" : "no track") +
+            " | playing: " + snap.playing +
+            " | pos: " + snap.position.toFixed(1) + "s / " + snap.duration.toFixed(1) + "s" +
+            " | engine port: " + PORT;
+        }, 2000);
+        return wrap;
+      });
+    }
+  } catch (e) { }
+
+  log("plugin up, engine port " + PORT);
 })();

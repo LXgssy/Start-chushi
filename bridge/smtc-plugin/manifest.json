@@ -2,18 +2,11 @@
   "manifest_version": 1,
   "name": "ChuShi SMTC Manager",
   "slug": "cc.chushi.smtcbridge",
-  "version": "3.0.0",
+  "version": "5.0.0",
   "author": "ChuShi",
-  "description": "ChuShi SMTC Manager (ASCII-only build): deploys and supervises the full-power SMTC engine (chushi-smtc-engine.ps1 v4.0.0, embedded base64, SHA-256 verified read-back). The engine owns ONE complete Windows media session (media keys / overlay card / draggable progress) driven purely by truth pushed from the ChuShi Music API plugin. It NEVER reads NetEase's own SMTC session -- the NetEase SMTC switch is NOT required, ON or OFF. Kill-stale is image-guarded (powershell only), spawn failures back off honestly (20/40/80/160 s) and surface as a blocked flag. Zero playback state is produced here. Pair with the ChuShi Music API plugin (same port).",
-  "ncm3-compatible": true,
+  "description": "Deploys and supervises the ChuShi SMTC engine: a full, standalone System Media Transport Controls session for the ChuShi start page. Does not read or require NetEase Music's own SMTC feature - keep that switch OFF. Provides draggable progress, media keys and flyout controls for the music panel.",
   "ncm-version-req": "> 2.10.2",
   "betterncm_version": ">=1.0.0",
-  "injects": {
-    "Main": [
-      {
-        "file": "index.js"
-      }
-    ]
-  },
+  "injects": { "Main": [ { "file": "index.js" } ] },
   "hijacks": {}
 }

@@ -1,476 +1,542 @@
 # ============================================================================
-# chushi-smtc-engine.ps1 -- ChuShi full-power SMTC engine (v4.0.0)
+# ChuShi SMTC Engine v5.0.0  (generation 5, written from scratch)
 #
-# REWRITTEN FROM SCRATCH (v4 generation). Design contract from the user:
-#   * Owns ONE full-power Windows SMTC session (media keys, overlay card,
-#     draggable progress bar, lock screen) driven entirely by this engine.
-#   * NEVER reads any external SMTC session (the reader-side WinRT manager
-#     class is banned from this file entirely). NetEase Music's built-in
-#     SMTC switch is NOT required (ON or OFF, both fine).
-#   * The single data source is the Music API plugin running inside NetEase
-#     (plugin "cc.chushi.ncmapi"), which pushes playback truth over HTTP.
-#   * All control commands (from Windows media keys / overlay drag / the
-#     ChuShi new tab page) are queued here and executed by the plugin inside
-#     NetEase (element-level play/pause/seek/skip). The engine never tries to
-#     control NetEase's own ( crippled ) SMTC session.
+# A standalone Windows-side media hub for the ChuShi start page:
+#   * owns a FULL, independent System Media Transport Controls session
+#     (MediaPlayer manual-control mode) - it never reads NetEase Music's own
+#     SMTC session, so the "SMTC" switch inside NetEase Music stays OFF;
+#   * relays playback truth (from the ChuShi Music API plugin) to that
+#     session: metadata, cover, play/pause state, real draggable position;
+#   * forwards control requests (media keys / flyout buttons / flyout seek)
+#     into a command queue that the ChuShi Music API plugin consumes;
+#   * serves the local HTTP hub on 127.0.0.1 used by plugin, manager and host.
 #
-# Loopback HTTP hub on 127.0.0.1:<Port> (default 26801):
-#   GET  /api/ping                 -> identity + version
-#   GET  /api/state                -> merged snapshot for the host page
-#   POST /api/ne                   <- plugin 1 Hz playback truth push
-#   POST /api/lyric                <- plugin full-lyrics push (song change)
-#   GET  /api/lyric?songId=<id>    -> lyrics payload for the host page
-#   POST /api/cmd                  <- host control (play/pause/toggle/next/prev/seek)
-#   GET  /api/cmd                  -> plugin pops the outbound command queue
-#   POST /api/mgr                  <- SMTC Manager plugin heartbeat
-#
-# Windows-side technique (documented facts, official manual-control mode):
-#   Windows.Media.Playback.MediaPlayer + CommandManager.IsEnabled = $false
-#   + silent in-memory WAV source (InMemoryRandomAccessStream, never touches
-#   %TEMP%) + IsPlay/Pause/Next/Previous/PlaybackPositionEnabled = $true
-#   + MinSeekTime/MaxSeekTime MUST be set or the overlay never raises
-#   PositionChangeRequest + events captured with Register-ObjectEvent and a
-#   synchronized ArrayList (scriptblock-cast WinRT delegates crash: the
-#   callback thread has no runspace).
-#
-# This file is ASCII-only by contract (the host asserts it in CI).
+# HARD RULES (user constitution, enforced by build gates):
+#   1. This file contains ZERO references to external/observed media sessions
+#      (the OS session-enumerator API family is banned by build gate). Own
+#      session only.
+#   2. This file is ASCII-only, every byte.
+#   3. It must run under Windows PowerShell 5.1 (spawned by the manager).
 # ============================================================================
 
 param([int]$Port = 26801)
 
 $ErrorActionPreference = "Stop"
-$EngineVersion = "4.0.0"
-$NeStaleMs = 6000        # plugin truth older than this -> close the card
-$CmdExpireMs = 5000      # queued command older than this -> drop
-$CmdCap = 8              # outbound queue capacity (drop oldest)
-
-Write-Host "[ChuShiSmtcEngine] starting v$EngineVersion on port $Port"
-
-# ---------------------------------------------------------------------------
-# 1) WinRT projections + WinRT->NET async bridge (AsTask via reflection)
-# ---------------------------------------------------------------------------
-Add-Type -AssemblyName System.Runtime.WindowsRuntime | Out-Null
-
-$null = [Windows.Media.Playback.MediaPlayer, Windows.Media.Playback, ContentType = WindowsRuntime]
-$null = [Windows.Media.Core.MediaSource, Windows.Media.Core, ContentType = WindowsRuntime]
-$null = [Windows.Media.Core.MediaPlaybackItem, Windows.Media.Core, ContentType = WindowsRuntime]
-$null = [Windows.Storage.Streams.InMemoryRandomAccessStream, Windows.Storage.Streams, ContentType = WindowsRuntime]
-$null = [Windows.Storage.Streams.DataWriter, Windows.Storage.Streams, ContentType = WindowsRuntime]
-$null = [Windows.Storage.Streams.RandomAccessStreamReference, Windows.Storage.Streams, ContentType = WindowsRuntime]
-$null = [Windows.Storage.Streams.DataReader, Windows.Storage.Streams, ContentType = WindowsRuntime]
-$null = [Windows.Media.MediaPlaybackStatus, Windows.Media, ContentType = WindowsRuntime]
-$null = [Windows.Media.MediaPlaybackType, Windows.Media, ContentType = WindowsRuntime]
-$null = [Windows.Media.SystemMediaTransportControlsButton, Windows.Media, ContentType = WindowsRuntime]
-$null = [Windows.Media.SystemMediaTransportControlsTimelineProperties, Windows.Media, ContentType = WindowsRuntime]
-$null = [Windows.Media.AudioPlaybackType, Windows.Media, ContentType = WindowsRuntime]
-
-$script:AsTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() |
-  Where-Object {
-    $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and
-    $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1'
-  })[0]
-
-function Await([object]$WinRtTask, [Type]$ResultType) {
-  $netTask = $script:AsTaskGeneric.MakeGenericMethod($ResultType).Invoke($null, @($WinRtTask))
-  $netTask.Wait(-1) | Out-Null
-  return $netTask.Result
-}
+$EngineVersion = "5.0.0"
+$EngineName = "chushi-smtc-engine"
+$AumId = "ChuShi.SmtcEngine"
+$TruthStaleMs = 6000      # no truth heartbeat for this long -> close the session
+$ApplyEveryMs = 900       # timeline refresh cadence (official advice: <= 5s)
+$CmdExpireMs = 5000       # queued commands older than this are dropped
+$CmdCap = 8               # queue capacity (oldest dropped beyond cap)
+$LyricCap = 4             # lyric LRU capacity
+$MgrWindowMs = 90000      # manager heartbeat freshness window
 
 # ---------------------------------------------------------------------------
-# 2) Explicit AUMID so the session is identifiable (and stable across restarts)
+# Logging - every engine that shipped before v5 was debugged blind. Not here.
 # ---------------------------------------------------------------------------
-if (-not ("ChuShi.EngineNative" -as [type])) {
-  Add-Type -TypeDefinition @"
-using System;
-using System.Runtime.InteropServices;
-namespace ChuShi.EngineNative {
-  public static class AppId {
-    [DllImport("shell32.dll", SetLastError = true)]
-    public static extern int SetCurrentProcessExplicitAppUserModelID(
-      [MarshalAs(UnmanagedType.LPWStr)] string AppID);
-  }
-}
-"@
-}
-$null = [ChuShi.EngineNative.AppId]::SetCurrentProcessExplicitAppUserModelID("ChuShi.SmtcEngine")
-
-# ---------------------------------------------------------------------------
-# 3) Shared state (HTTP runspace <-> main WinRT thread), all synchronized
-# ---------------------------------------------------------------------------
-$sync = [hashtable]::Synchronized(@{})
-$sync.Ne = $null                                   # last plugin truth (hashtable) or $null
-$sync.Out = [System.Collections.ArrayList]::Synchronized((New-Object System.Collections.ArrayList))
-$sync.Lyrics = [hashtable]::Synchronized(@{})      # songId -> lyrics payload (cap 4)
-$sync.Mgr = ""                                     # manager plugin version (90 s window)
-$sync.MgrAt = 0
-$sync.CmdSeq = 0
-$sync.Stop = $false
-
-function New-Cmd([string]$type, [object]$position) {
-  $sync.CmdSeq = [int]$sync.CmdSeq + 1
-  $c = @{ id = $sync.CmdSeq; cmd = $type; at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }
-  if ($null -ne $position) { $c.position = [double]$position }
-  return $c
-}
-
-function Push-Cmd([string]$type, [object]$position) {
-  try { $sync.Out.Add((New-Cmd $type $position)) | Out-Null } catch { }
+$LogDir = Join-Path $env:LOCALAPPDATA "ChuShiSmtcEngine"
+$LogFile = Join-Path $LogDir "engine.log"
+function Write-Log([string]$msg) {
   try {
-    while ($sync.Out.Count -gt $CmdCap) { $sync.Out.RemoveAt(0) }
+    if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir -Force | Out-Null }
+    $stamp = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss.fff")
+    [System.IO.File]::AppendAllText($LogFile, "[$stamp] $msg`r`n")
   } catch { }
 }
 
 # ---------------------------------------------------------------------------
-# 4) Own full-power SMTC session (MediaPlayer, manual control mode)
+# Shared synchronized state (HTTP hub runs on a separate runspace)
 # ---------------------------------------------------------------------------
-function New-SilentWavStream {
-  # 1 s of silence, 8000 Hz / 16 bit / mono, built fully in memory.
-  $sampleRate = 8000; $seconds = 1
-  $dataBytes = $sampleRate * 2 * $seconds
-  $ms = New-Object Windows.Storage.Streams.InMemoryRandomAccessStream
-  $dw = New-Object Windows.Storage.Streams.DataWriter($ms.GetOutputStreamAt(0))
-  $dw.ByteOrder = [Windows.Storage.Streams.ByteOrder]::LittleEndian
-  foreach ($ch in [System.Text.Encoding]::ASCII.GetBytes("RIFF")) { $dw.WriteByte($ch) }
-  $dw.WriteUInt32([uint32]($dataBytes + 36))
-  foreach ($ch in [System.Text.Encoding]::ASCII.GetBytes("WAVE")) { $dw.WriteByte($ch) }
-  foreach ($ch in [System.Text.Encoding]::ASCII.GetBytes("fmt ")) { $dw.WriteByte($ch) }
-  $dw.WriteUInt32([uint32]16)
-  $dw.WriteUInt16([uint16]1)              # PCM
-  $dw.WriteUInt16([uint16]1)              # mono
-  $dw.WriteUInt32([uint32]$sampleRate)
-  $dw.WriteUInt32([uint32]($sampleRate * 2))
-  $dw.WriteUInt16([uint16]2)              # block align
-  $dw.WriteUInt16([uint16]16)             # bits
-  foreach ($ch in [System.Text.Encoding]::ASCII.GetBytes("data")) { $dw.WriteByte($ch) }
-  $dw.WriteUInt32([uint32]$dataBytes)
-  $left = $dataBytes
-  while ($left -gt 0) {
-    $n = [Math]::Min(4096, $left)
-    $chunk = New-Object byte[] $n
-    $dw.WriteBytes($chunk)
-    $left -= $n
-  }
-  $null = $dw.StoreAsync()
-  try { $null = Await ($dw.FlushAsync()) ([Boolean]) } catch { }
-  $dw.DetachStream() | Out-Null
-  $ms.Seek(0) | Out-Null
-  return $ms
+$sync = [hashtable]::Synchronized(@{})
+$sync.Ne = $null          # last truth snapshot pushed by the music api plugin
+$sync.NeAt = 0            # truth arrival timestamp (ms)
+$sync.Mgr = ""            # manager plugin version (heartbeat)
+$sync.MgrAt = 0
+$sync.Out = New-Object System.Collections.ArrayList  # command queue (sync via $sync lock)
+$sync.CmdSeq = 0
+$sync.Lyrics = @{}        # songId -> lyric payload hashtable (touched under $sync lock)
+$sync.LyricOrder = New-Object System.Collections.ArrayList
+$sync.SmtcStatus = "closed"
+$sync.InitErr = ""
+$sync.StartedAt = [DateTime]::UtcNow.Ticks
+$sync.HubErr = ""
+
+function Lock-Exec([scriptblock]$body) {
+  # All cross-runspace mutations happen under the synchronized-table monitor.
+  [System.Threading.Monitor]::Enter($sync)
+  try { & $body } finally { [System.Threading.Monitor]::Exit($sync) }
 }
 
-function Initialize-OwnSmtc {
-  $mp = New-Object Windows.Media.Playback.MediaPlayer
-  $mp.AudioCategory = [Windows.Media.AudioPlaybackType]::Media
-  $mp.Volume = 0.0
-  $mp.IsMuted = $true
+function Test-TruthStale {
+  if (-not $sync.Ne) { return $true }
+  $age = [Environment]::TickCount - [int]$sync.NeAt
+  if ($age -lt 0) { $age = $TruthStaleMs + 1 }  # TickCount wraparound guard
+  return ($age -gt $TruthStaleMs)
+}
 
-  $wav = New-SilentWavStream
-  $src = New-Object Windows.Media.Core.MediaPlaybackItem(
-    (New-Object Windows.Media.Core.MediaSource($wav)))
-  $mp.Source = $src
+# ---------------------------------------------------------------------------
+# Single instance guard (the manager may respawn us; never fight a live twin)
+# ---------------------------------------------------------------------------
+$mutex = New-Object System.Threading.Mutex($false, "Local\ChuShi.SmtcEngine.V5")
+$gotMutex = $false
+try { $gotMutex = $mutex.WaitOne(0) } catch { }
+if (-not $gotMutex) {
+  Write-Log "another engine instance is already running, exit 0"
+  exit 0
+}
 
-  $ctl = $mp.SystemMediaTransportControls
-  $ctl.CommandManager.IsEnabled = $false          # manual control mode (official)
+Write-Log "engine v$EngineVersion starting, port $Port, pid $PID"
+
+# ---------------------------------------------------------------------------
+# AUMID: required so Windows shows our own SMTC entry for an unpackaged app
+# ---------------------------------------------------------------------------
+try {
+  Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class ChuShiAumid {
+  [DllImport("shell32.dll", PreserveSig = false)]
+  public static extern void SetCurrentProcessExplicitAppUserModelID(
+    [MarshalAs(UnmanagedType.LPWStr)] string appId);
+}
+"@ -ErrorAction Stop
+  [ChuShiAumid]::SetCurrentProcessExplicitAppUserModelID($AumId)
+  Write-Log "AUMID set: $AumId"
+} catch {
+  $sync.InitErr = "aumid: $($_.Exception.Message)"
+  Write-Log "AUMID FAILED: $($_.Exception.Message)"
+}
+
+# ---------------------------------------------------------------------------
+# WinRT projection (Windows PowerShell 5.1 style type loading)
+# ---------------------------------------------------------------------------
+try {
+  $null = [Windows.Media.Playback.MediaPlayer, Windows.Media.Playback, ContentType = WindowsRuntime]
+  $null = [Windows.Storage.Streams.InMemoryRandomAccessStream, Windows.Storage.Streams, ContentType = WindowsRuntime]
+  $null = [Windows.Storage.Streams.DataWriter, Windows.Storage.Streams, ContentType = WindowsRuntime]
+  $null = [Windows.Storage.Streams.RandomAccessStreamReference, Windows.Storage.Streams, ContentType = WindowsRuntime]
+  $null = [Windows.Media.Playback.MediaPlaybackStatus, Windows.Media.Playback, ContentType = WindowsRuntime]
+  $null = [Windows.Media.Playback.MediaPlaybackType, Windows.Media.Playback, ContentType = WindowsRuntime]
+  $null = [Windows.Media.SystemMediaTransportControlsButton, Windows.Media, ContentType = WindowsRuntime]
+  Write-Log "winrt types projected"
+} catch {
+  $sync.InitErr = "winrt: $($_.Exception.Message)"
+  Write-Log "WINRT PROJECTION FAILED: $($_.Exception.Message)"
+  # keep serving HTTP so diagnostics can observe the failure
+}
+
+function Wait-AsyncOp($op, [string]$what) {
+  $spin = 0
+  while ($op.Status -eq 0 -and $spin -lt 500) {  # 0 = Started
+    Start-Sleep -Milliseconds 10
+    $spin++
+  }
+  if ($op.Status -ne 1) { throw "$what async op status=$($op.Status)" }  # 1 = Completed
+}
+
+# ---------------------------------------------------------------------------
+# Own full SMTC session via MediaPlayer manual-control mode:
+#   * zero-volume silent in-memory wav gives the process a real media pipeline
+#     (never touches disk - CJK/one-drive %TEMP% paths are a known trap);
+#   * CommandManager disabled = official manual control mode, we own metadata,
+#     status and timeline; OS media keys + flyout become OUR commands.
+# ---------------------------------------------------------------------------
+$player = $null
+$ctl = $null
+try {
+  # --- build 1 second of 8kHz 16-bit mono silence in memory ---
+  $stream = New-Object Windows.Storage.Streams.InMemoryRandomAccessStream
+  $writer = New-Object Windows.Storage.Streams.DataWriter($stream)
+  $writer.ByteOrder = [Windows.Storage.Streams.ByteOrder]::LittleEndian
+  $hdr = [byte[]](
+    0x52,0x49,0x46,0x46, 0x24,0x77,0x01,0x00, 0x57,0x41,0x56,0x45,
+    0x66,0x6D,0x74,0x20, 0x10,0x00,0x00,0x00, 0x01,0x00,0x01,0x00,
+    0x40,0x1F,0x00,0x00, 0x80,0x3E,0x00,0x00, 0x02,0x00,0x10,0x00,
+    0x64,0x61,0x74,0x61, 0x00,0x77,0x01,0x00)
+  $writer.WriteBytes($hdr)
+  $silence = New-Object byte[] 8000
+  $writer.WriteBytes($silence)
+  Wait-AsyncOp ($writer.StoreAsync()) "wav-store"
+  Wait-AsyncOp ($writer.FlushAsync()) "wav-flush"
+  $writer.DetachStream()
+  $writer = $null
+  $stream.Seek(0)
+
+  $item = New-Object Windows.Media.Playback.MediaPlaybackItem(
+    [Windows.Media.Playback.MediaSource]::CreateFromStream($stream, "audio/wav"))
+
+  $player = New-Object Windows.Media.Playback.MediaPlayer
+  $player.Volume = 0
+  $player.IsMuted = $true
+
+  # manual control mode: CommandManager must be disabled BEFORE any property
+  $ctl = $player.SystemMediaTransportControls
+  $ctl.CommandManager.IsEnabled = $false
+  $ctl.IsEnabled = $true
   $ctl.IsPlayEnabled = $true
   $ctl.IsPauseEnabled = $true
   $ctl.IsNextEnabled = $true
   $ctl.IsPreviousEnabled = $true
-  $ctl.IsPlaybackPositionEnabled = $true          # overlay progress becomes draggable
+  $ctl.IsPlaybackPositionEnabled = $true   # draggable progress in flyout/lockscreen
 
-  # Events: Register-ObjectEvent with a synchronized queue in MessageData.
-  # (Never cast a PS scriptblock to a WinRT delegate: the callback thread has
-  # no runspace and the process dies.)
-  $null = Register-ObjectEvent -InputObject $ctl -EventName ButtonPressed -MessageData $sync -Action {
-    try {
-      $nowMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+  # Min/MaxSeekTime MUST be set, otherwise the OS never raises
+  # PlaybackPositionChangeRequested (documented manual-control requirement)
+  $tl0 = New-Object Windows.Media.Playback.SystemMediaTransportControlsTimelineProperties
+  $tl0.StartTime = [TimeSpan]::Zero
+  $tl0.EndTime = [TimeSpan]::FromSeconds(1)
+  $tl0.MinSeekTime = [TimeSpan]::Zero
+  $tl0.MaxSeekTime = [TimeSpan]::FromSeconds(1)
+  $tl0.Position = [TimeSpan]::Zero
+  $ctl.UpdateTimelineProperties($tl0)
+
+  $player.Source = $item
+  $player.Play()   # registers the session with the system media flyout
+
+  Write-Log "own smtc session up (MediaPlayer manual-control mode)"
+} catch {
+  $sync.InitErr = "smtc: $($_.Exception.Message)"
+  Write-Log "SMTC SESSION FAILED: $($_.Exception.Message)"
+}
+
+# ---------------------------------------------------------------------------
+# SMTC events -> command queue. Register-ObjectEvent + synchronized
+# ArrayList: a raw scriptblock cast to a WinRT delegate fires on a callback
+# thread with no runspace and kills the process; never do that here.
+# ---------------------------------------------------------------------------
+function Push-Cmd([string]$cmd, $position) {
+  Lock-Exec {
+    if ($sync.Out.Count -ge $CmdCap) { $sync.Out.RemoveAt(0) }
+    $sync.CmdSeq = [int]$sync.CmdSeq + 1
+    $null = $sync.Out.Add(@{
+      id = [int]$sync.CmdSeq; cmd = $cmd; at = [Environment]::TickCount;
+      position = $position })
+  }
+  Write-Log "cmd enqueued: $cmd $(if ($null -ne $position) { "pos=$position" })"
+}
+
+if ($ctl) {
+  try {
+    Register-ObjectEvent -InputObject $ctl -EventName ButtonPressed `
+      -MessageData $sync -Action {
       $b = $Event.SourceEventArgs.Button
-      $type = ""
-      if ($b -eq [Windows.Media.SystemMediaTransportControlsButton]::Play)        { $type = "play" }
-      elseif ($b -eq [Windows.Media.SystemMediaTransportControlsButton]::Pause)   { $type = "pause" }
-      elseif ($b -eq [Windows.Media.SystemMediaTransportControlsButton]::Next)    { $type = "next" }
-      elseif ($b -eq [Windows.Media.SystemMediaTransportControlsButton]::Previous){ $type = "prev" }
-      if ($type) { $Event.MessageData.Out.Add(@{ id = 0; cmd = $type; at = $nowMs }) | Out-Null }
-    } catch { }
+      $c = $null
+      if ($b -eq [Windows.Media.SystemMediaTransportControlsButton]::Play) { $c = "play" }
+      elseif ($b -eq [Windows.Media.SystemMediaTransportControlsButton]::Pause) { $c = "pause" }
+      elseif ($b -eq [Windows.Media.SystemMediaTransportControlsButton]::Next) { $c = "next" }
+      elseif ($b -eq [Windows.Media.SystemMediaTransportControlsButton]::Previous) { $c = "prev" }
+      elseif ($b -eq [Windows.Media.SystemMediaTransportControlsButton]::Stop) { $c = "pause" }
+      if ($c) {
+        [System.Threading.Monitor]::Enter($Event.MessageData)
+        try {
+          if ($Event.MessageData.Out.Count -ge 8) { $Event.MessageData.Out.RemoveAt(0) }
+          $Event.MessageData.CmdSeq = [int]$Event.MessageData.CmdSeq + 1
+          $null = $Event.MessageData.Out.Add(@{
+            id = [int]$Event.MessageData.CmdSeq; cmd = $c; at = [Environment]::TickCount })
+        } finally { [System.Threading.Monitor]::Exit($Event.MessageData) }
+      }
+    } | Out-Null
+    Register-ObjectEvent -InputObject $ctl -EventName PlaybackPositionChangeRequested `
+      -MessageData $sync -Action {
+      $p = $Event.SourceEventArgs.RequestedPosition
+      [System.Threading.Monitor]::Enter($Event.MessageData)
+      try {
+        if ($Event.MessageData.Out.Count -ge 8) { $Event.MessageData.Out.RemoveAt(0) }
+        $Event.MessageData.CmdSeq = [int]$Event.MessageData.CmdSeq + 1
+        $null = $Event.MessageData.Out.Add(@{
+          id = [int]$Event.MessageData.CmdSeq; cmd = "seek"; at = [Environment]::TickCount;
+          position = [Math]::Round($p.TotalSeconds, 3) })
+      } finally { [System.Threading.Monitor]::Exit($Event.MessageData) }
+    } | Out-Null
+    Write-Log "smtc event subscriptions registered"
+  } catch {
+    $sync.InitErr = "events: $($_.Exception.Message)"
+    Write-Log "EVENT SUBSCRIPTION FAILED: $($_.Exception.Message)"
   }
-  $null = Register-ObjectEvent -InputObject $ctl -EventName PlaybackPositionChangeRequested -MessageData $sync -Action {
-    try {
-      $ts = $Event.SourceEventArgs.RequestedPlaybackPosition
-      $sec = [Math]::Max(0.0, $ts.TotalSeconds)
-      $nowMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-      $Event.MessageData.Out.Add(@{ id = 0; cmd = "seek"; position = $sec; at = $nowMs }) | Out-Null
-    } catch { }
-  }
-
-  $mp.Play()   # registering the session: the card exists from now on
-
-  $script:SmtcPlayer = $mp
-  $script:SmtcCtl = $ctl
-  $script:SmtcMeta = ""       # signature of metadata currently on the card
-  $script:SmtcOpen = $false   # card currently has a track (not Closed)
-  Write-Host "[ChuShiSmtcEngine] own full-power SMTC session initialized (AUMID ChuShi.SmtcEngine)"
 }
 
-function Set-SmtcClosed {
-  if (-not $script:SmtcOpen) { return }
-  try { $script:SmtcCtl.PlaybackStatus = [Windows.Media.MediaPlaybackStatus]::Closed } catch { }
-  $script:SmtcOpen = $false
-  $script:SmtcMeta = ""
+# ---------------------------------------------------------------------------
+# HTTP hub (separate runspace; touches ONLY $sync - never WinRT objects)
+# ---------------------------------------------------------------------------
+$hubScript = {
+  param($sync, $Port, $EngineVersion, $EngineName, $CmdExpireMs, $CmdCap, $LyricCap, $MgrWindowMs)
+
+  function Resp($ctx, [int]$code, $obj) {
+    $bytes = [Text.Encoding]::UTF8.GetBytes(($obj | ConvertTo-Json -Compress -Depth 6))
+    $ctx.Response.StatusCode = $code
+    $ctx.Response.ContentType = "application/json; charset=utf-8"
+    $ctx.Response.Headers["Access-Control-Allow-Origin"] = "*"
+    $ctx.Response.Headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    $ctx.Response.Headers["Access-Control-Allow-Headers"] = "Content-Type"
+    $ctx.Response.Headers["Cache-Control"] = "no-store"
+    $ctx.Response.ContentLength64 = $bytes.Length
+    $ctx.Response.OutputStream.Write($bytes, 0, $bytes.Length)
+    $ctx.Response.OutputStream.Close()
+  }
+
+  function Enqueue($sync, $item, $cap) {
+    if ($sync.Out.Count -ge $cap) { $sync.Out.RemoveAt(0) }
+    $sync.CmdSeq = [int]$sync.CmdSeq + 1
+    $item.id = [int]$sync.CmdSeq
+    $null = $sync.Out.Add($item)
+  }
+
+  $listener = New-Object System.Net.HttpListener
+  $listener.Prefixes.Add("http://127.0.0.1:$Port/")
+  try {
+    $listener.Start()
+  } catch {
+    $sync.HubErr = "bind: $($_.Exception.Message)"
+    return
+  }
+  while ($listener.IsListening) {
+    $ctx = $null
+    try { $ctx = $listener.GetContext() } catch { break }
+    try {
+      $req = $ctx.Request
+      $path = $req.Url.AbsolutePath
+      $verb = $req.HttpMethod
+
+      if ($verb -eq "OPTIONS") {
+        $ctx.Response.StatusCode = 204
+        $ctx.Response.Headers["Access-Control-Allow-Origin"] = "*"
+        $ctx.Response.Headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        $ctx.Response.Headers["Access-Control-Allow-Headers"] = "Content-Type"
+        $ctx.Response.Headers["Access-Control-Max-Age"] = "600"
+        $ctx.Response.OutputStream.Close()
+        continue
+      }
+
+      # ---- GET /api/ping --------------------------------------------------
+      if ($path -eq "/api/ping" -and $verb -eq "GET") {
+        Resp $ctx 200 @{ ok = $true; name = $EngineName; ver = $EngineVersion }
+        continue
+      }
+
+      # ---- GET /api/state -------------------------------------------------
+      if ($path -eq "/api/state" -and $verb -eq "GET") {
+        $mgr = ""
+        [System.Threading.Monitor]::Enter($sync)
+        try {
+          $ageMgr = [Environment]::TickCount - [int]$sync.MgrAt
+          if ($sync.Mgr -and $ageMgr -ge 0 -and $ageMgr -lt $MgrWindowMs) { $mgr = $sync.Mgr }
+          $ne = $null
+          if ($sync.Ne) {
+            $ageNe = [Environment]::TickCount - [int]$sync.NeAt
+            if ($ageNe -ge 0 -and $ageNe -le 6000) { $ne = $sync.Ne }
+          }
+          $outCount = $sync.Out.Count
+          $status = [string]$sync.SmtcStatus
+          $initErr = [string]$sync.InitErr
+        } finally { [System.Threading.Monitor]::Exit($sync) }
+        Resp $ctx 200 @{
+          ok = $true; name = $EngineName; ver = $EngineVersion; mgr = $mgr; ne = $ne
+          cmds = $outCount; smtc = @{ own = $true; status = $status; initErr = $initErr }
+        }
+        continue
+      }
+
+      # ---- POST /api/ne (truth heartbeat from the music api plugin) -------
+      if ($path -eq "/api/ne" -and $verb -eq "POST") {
+        $body = (New-Object IO.StreamReader($req.InputStream, [Text.Encoding]::UTF8)).ReadToEnd()
+        try {
+          $o = $body | ConvertFrom-Json
+          if (-not $o -or -not $o.v) { throw "missing v" }
+          [System.Threading.Monitor]::Enter($sync)
+          try { $sync.Ne = $o; $sync.NeAt = [Environment]::TickCount } finally { [System.Threading.Monitor]::Exit($sync) }
+          Resp $ctx 200 @{ ok = $true }
+        } catch {
+          Resp $ctx 400 @{ ok = $false; err = "bad-ne" }
+        }
+        continue
+      }
+
+      # ---- POST /api/lyric (plugin pushes full lyrics) / GET (host pulls) -
+      if ($path -eq "/api/lyric") {
+        if ($verb -eq "POST") {
+          $body = (New-Object IO.StreamReader($req.InputStream, [Text.Encoding]::UTF8)).ReadToEnd()
+          try {
+            $o = $body | ConvertFrom-Json
+            $sid = [string]$o.songId
+            if (-not $sid) { throw "missing songId" }
+            [System.Threading.Monitor]::Enter($sync)
+            try {
+              if (-not $sync.Lyrics.ContainsKey($sid)) {
+                $null = $sync.LyricOrder.Add($sid)
+                while ($sync.LyricOrder.Count -gt $LyricCap) {
+                  $old = [string]$sync.LyricOrder[0]
+                  $sync.LyricOrder.RemoveAt(0)
+                  $sync.Lyrics.Remove($old)
+                }
+              }
+              $sync.Lyrics[$sid] = $o
+            } finally { [System.Threading.Monitor]::Exit($sync) }
+            Resp $ctx 200 @{ ok = $true }
+          } catch {
+            Resp $ctx 400 @{ ok = $false; err = "bad-lyric" }
+          }
+        } else {
+          $sid = [string]$req.QueryString["songId"]
+          $hit = $null
+          [System.Threading.Monitor]::Enter($sync)
+          try { if ($sid -and $sync.Lyrics.ContainsKey($sid)) { $hit = $sync.Lyrics[$sid] } } finally { [System.Threading.Monitor]::Exit($sync) }
+          if ($hit) { Resp $ctx 200 @{ ok = $true; rev = [string]$hit.rev; lyric = $hit } }
+          else { Resp $ctx 200 @{ ok = $false } }
+        }
+        continue
+      }
+
+      # ---- POST /api/cmd (host controls) / GET (plugin polls) -------------
+      if ($path -eq "/api/cmd") {
+        if ($verb -eq "POST") {
+          $body = (New-Object IO.StreamReader($req.InputStream, [Text.Encoding]::UTF8)).ReadToEnd()
+          try {
+            $o = $body | ConvertFrom-Json
+            $c = [string]$o.cmd
+            $known = @("play", "pause", "toggle", "next", "prev", "seek")
+            if ($known -notcontains $c) { throw "unknown-cmd" }
+            $pos = $null
+            if ($c -eq "seek") {
+              $pos = [double]::Parse([string]$o.position, [Globalization.CultureInfo]::InvariantCulture)
+              if ($pos -lt 0 -or $pos -gt 86400) { throw "bad-position" }
+            }
+            [System.Threading.Monitor]::Enter($sync)
+            try { Enqueue $sync @{ cmd = $c; at = [Environment]::TickCount; position = $pos } $CmdCap } finally { [System.Threading.Monitor]::Exit($sync) }
+            Resp $ctx 200 @{ ok = $true }
+          } catch {
+            Resp $ctx 400 @{ ok = $false; err = "bad-cmd" }
+          }
+        } else {
+          $cmds = @()
+          [System.Threading.Monitor]::Enter($sync)
+          try {
+            $now = [Environment]::TickCount
+            while ($sync.Out.Count -gt 0 -and ($now - [int]$sync.Out[0].at) -gt $CmdExpireMs) { $sync.Out.RemoveAt(0) }
+            while ($sync.Out.Count -gt 0 -and $cmds.Count -lt 8) {
+              $it = $sync.Out[0]; $sync.Out.RemoveAt(0)
+              $cmds += $it
+            }
+          } finally { [System.Threading.Monitor]::Exit($sync) }
+          Resp $ctx 200 @{ ok = $true; cmds = $cmds }
+        }
+        continue
+      }
+
+      # ---- POST /api/mgr (manager heartbeat) -------------------------------
+      if ($path -eq "/api/mgr" -and $verb -eq "POST") {
+        $body = (New-Object IO.StreamReader($req.InputStream, [Text.Encoding]::UTF8)).ReadToEnd()
+        try {
+          $o = $body | ConvertFrom-Json
+          [System.Threading.Monitor]::Enter($sync)
+          try { $sync.Mgr = [string]$o.v; $sync.MgrAt = [Environment]::TickCount } finally { [System.Threading.Monitor]::Exit($sync) }
+          Resp $ctx 200 @{ ok = $true }
+        } catch { Resp $ctx 400 @{ ok = $false; err = "bad-mgr" } }
+        continue
+      }
+
+      Resp $ctx 404 @{ ok = $false; err = "not-found" }
+    } catch {
+      try { Resp $ctx 500 @{ ok = $false; err = "hub" } } catch { }
+    }
+  }
 }
 
-function Update-SmtcFromNe {
-  $ne = $sync.Ne
-  $nowMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-  if ($null -eq $ne) { Set-SmtcClosed; return }
-  $age = $nowMs - [long]$ne.ts
-  if ($age -gt $NeStaleMs) { Set-SmtcClosed; return }
+$hubState = [powershell]::Create()
+$null = $hubState.AddScript($hubScript)
+$null = $hubState.AddArgument($sync)
+$null = $hubState.AddArgument($Port)
+$null = $hubState.AddArgument($EngineVersion)
+$null = $hubState.AddArgument($EngineName)
+$null = $hubState.AddArgument($CmdExpireMs)
+$null = $hubState.AddArgument($CmdCap)
+$null = $hubState.AddArgument($LyricCap)
+$null = $hubState.AddArgument($MgrWindowMs)
+$hubHandle = $hubState.BeginInvoke()
+Write-Log "http hub launching on 127.0.0.1:$Port"
 
-  $playing = ($ne.playing -eq $true)
-  $posSec = [double]$ne.position
-  if ($playing) { $posSec += ($age / 1000.0) }
-  $durSec = [double]$ne.duration
-  if ($durSec -gt 0) {
-    if ($posSec -lt 0) { $posSec = 0 }
-    if ($posSec -gt $durSec) { $posSec = $durSec }
-  } elseif ($posSec -lt 0) { $posSec = 0 }
+# ---------------------------------------------------------------------------
+# Timeline / metadata driver (main thread; the only WinRT writer)
+# ---------------------------------------------------------------------------
+$metaSig = ""
+$lastApply = 0
 
-  # Metadata: only rewrite when content actually changed (cheap stability).
-  $pic = [string]$ne.pic
-  $metaSig = "$( $ne.title )|$( $ne.artist )|$( $ne.album )|$pic"
-  if ($metaSig -ne $script:SmtcMeta) {
-    try {
-      $du = $script:SmtcCtl.DisplayUpdater
-      $du.Type = [Windows.Media.MediaPlaybackType]::Music
+function Close-Session {
+  if (-not $ctl) { return }
+  try { $ctl.PlaybackStatus = [Windows.Media.Playback.MediaPlaybackStatus]::Closed } catch { }
+  $sync.SmtcStatus = "closed"
+}
+
+function Apply-Truth {
+  if (-not $ctl) { return }
+  $ne = $null
+  Lock-Exec { $ne = $sync.Ne }
+  if (Test-TruthStale) {
+    if ($sync.SmtcStatus -ne "closed") {
+      Close-Session
+      Write-Log "truth stale -> session closed"
+    }
+    return
+  }
+  try {
+    $playing = ($ne.playing -eq $true)
+    $dur = 0.0
+    if ($ne.duration) { $dur = [double]$ne.duration }
+    if ($dur -lt 0) { $dur = 0 }
+    $pos = 0.0
+    if ($ne.position) { $pos = [double]$ne.position }
+    if ($playing -and $sync.NeAt -gt 0) {
+      $ageMs = [Environment]::TickCount - [int]$sync.NeAt
+      if ($ageMs -lt 0) { $ageMs = 0 }
+      if ($ageMs -gt 6000) { $ageMs = 6000 }
+      $pos = $pos + ($ageMs / 1000.0)
+    }
+    if ($dur -gt 0 -and $pos -gt $dur) { $pos = $dur }
+    if ($pos -lt 0) { $pos = 0 }
+
+    $status = [Windows.Media.Playback.MediaPlaybackStatus]::Paused
+    if ($playing) { $status = [Windows.Media.Playback.MediaPlaybackStatus]::Playing }
+    $ctl.PlaybackStatus = $status
+
+    # metadata only when it actually changed (DisplayUpdater rewrites are heavy)
+    $pic = ""
+    if ($ne.pic) { $pic = [string]$ne.pic }
+    $sig = "$($ne.title)|$($ne.artist)|$($ne.album)|$pic"
+    if ($sig -ne $metaSig) {
+      $metaSig = $sig
+      $du = $ctl.DisplayUpdater
+      $du.Type = [Windows.Media.Playback.MediaPlaybackType]::Music
       $du.MusicProperties.Title = [string]$ne.title
       $du.MusicProperties.Artist = [string]$ne.artist
       $du.MusicProperties.AlbumTitle = [string]$ne.album
-      if ($pic -and $pic.ToLower().StartsWith("https://")) {
-        try { $du.Thumbnail = [Windows.Storage.Streams.RandomAccessStreamReference]::CreateFromUri([Uri]$pic) } catch { }
+      if ($pic -like "https://*") {
+        try {
+          $du.Thumbnail = [Windows.Storage.Streams.RandomAccessStreamReference]::CreateFromUri(
+            [Uri]::new($pic))
+        } catch { }
       }
       $du.Update()
-    } catch { }
-    $script:SmtcMeta = $metaSig
-  }
+    }
 
-  try {
-    $status = [Windows.Media.MediaPlaybackStatus]::Paused
-    if ($playing) { $status = [Windows.Media.MediaPlaybackStatus]::Playing }
-    $script:SmtcCtl.PlaybackStatus = $status
-  } catch { }
+    $tl = New-Object Windows.Media.Playback.SystemMediaTransportControlsTimelineProperties
+    $tl.StartTime = [TimeSpan]::Zero
+    $tl.EndTime = [TimeSpan]::FromSeconds([Math]::Max(1.0, $dur))
+    $tl.MinSeekTime = [TimeSpan]::Zero
+    $tl.MaxSeekTime = [TimeSpan]::FromSeconds([Math]::Max(1.0, $dur))
+    $tl.Position = [TimeSpan]::FromSeconds($pos)
+    $ctl.UpdateTimelineProperties($tl)
 
-  try {
-    $tl = New-Object Windows.Media.SystemMediaTransportControlsTimelineProperties
-    $tl.StartTime = [TimeSpan]::FromSeconds($posSec)
-    $tl.EndTime = [TimeSpan]::FromSeconds([Math]::Max(0.0, $durSec))
-    $tl.MinSeekTime = [TimeSpan]::FromSeconds(0)
-    $tl.MaxSeekTime = [TimeSpan]::FromSeconds([Math]::Max(0.0, $durSec))
-    $tl.Position = [TimeSpan]::FromSeconds($posSec)
-    $script:SmtcCtl.UpdateTimelineProperties($tl)
-  } catch { }
-
-  $script:SmtcOpen = $true
-}
-
-# ---------------------------------------------------------------------------
-# 5) HTTP hub (own runspace; only touches $sync, never WinRT objects)
-# ---------------------------------------------------------------------------
-$httpScript = {
-  param($sync, $port, $engineVersion, $neStaleMs, $cmdExpireMs)
-
-  function Write-Json($rsp, [object]$obj, [int]$code = 200) {
-    try {
-      $body = [System.Text.Encoding]::UTF8.GetBytes(($obj | ConvertTo-Json -Depth 8 -Compress))
-      $rsp.StatusCode = $code
-      $rsp.ContentType = "application/json"
-      $rsp.ContentLength64 = $body.Length
-      $rsp.Headers["Access-Control-Allow-Origin"] = "*"
-      $rsp.Headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-      $rsp.Headers["Access-Control-Allow-Headers"] = "Content-Type"
-      $rsp.OutputStream.Write($body, 0, $body.Length)
-    } catch { }
-    try { $rsp.OutputStream.Close() } catch { }
-  }
-
-  $listener = $null
-  try {
-    $listener = New-Object System.Net.HttpListener
-    $listener.Prefixes.Add("http://127.0.0.1:$port/")
-    $listener.Start()
+    $sync.SmtcStatus = "playing"
+    if (-not $playing) { $sync.SmtcStatus = "paused" }
   } catch {
-    Write-Host "[ChuShiSmtcEngine] FATAL: cannot bind 127.0.0.1:$port ($($_.Exception.Message))"
-    $sync.Stop = $true
-    return
+    Write-Log "apply-truth error: $($_.Exception.Message)"
   }
-  Write-Host "[ChuShiSmtcEngine] listening http://127.0.0.1:$port (loopback only)"
+}
 
-  while (-not $sync.Stop) {
-    try {
-      $ctx = $listener.GetContext()
-      $req = $ctx.Request
-      $rsp = $ctx.Response
-      $path = $req.Url.AbsolutePath
-      $method = $req.HttpMethod
-
-      if ($method -eq "OPTIONS") {
-        $rsp.StatusCode = 204
-        $rsp.Headers["Access-Control-Allow-Origin"] = "*"
-        $rsp.Headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-        $rsp.Headers["Access-Control-Allow-Headers"] = "Content-Type"
-        try { $rsp.OutputStream.Close() } catch { }
-        continue
-      }
-
-      if ($path -eq "/api/ping" -and $method -eq "GET") {
-        Write-Json $rsp @{ ok = $true; name = "chushi-smtc-engine"; ver = $engineVersion }
-        continue
-      }
-
-      if ($path -eq "/api/state" -and $method -eq "GET") {
-        $nowMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-        $ne = $sync.Ne
-        $neOut = $null
-        if ($null -ne $ne -and ($nowMs - [long]$ne.ts) -le $neStaleMs) { $neOut = $ne }
-        $mgr = [string]$sync.Mgr
-        if ($mgr -and ($nowMs - [long]$sync.MgrAt) -gt 90000) { $mgr = "" }
-        $status = "closed"
-        if ($null -ne $ne) { if ($ne.playing -eq $true) { $status = "playing" } else { $status = "paused" } }
-        Write-Json $rsp @{
-          ok = $true; name = "chushi-smtc-engine"; ver = $engineVersion
-          mgr = $mgr; ne = $neOut; cmds = $sync.Out.Count
-          smtc = @{ own = $true; status = $status }
-        }
-        continue
-      }
-
-      if ($path -eq "/api/ne" -and $method -eq "POST") {
-        try {
-          $body = (New-Object System.IO.StreamReader($req.InputStream, [System.Text.Encoding]::UTF8)).ReadToEnd()
-          $j = $body | ConvertFrom-Json
-          $ne = @{
-            v = [string]$j.v; ts = [long]$j.ts
-            songId = [long]$j.songId
-            title = [string]$j.title; artist = [string]$j.artist; album = [string]$j.album
-            pic = [string]$j.pic
-            position = [double]$j.position; duration = [double]$j.duration
-            playing = [bool]$j.playing
-            seekAckId = [string]$j.seekAckId; seekAckOk = [bool]$j.seekAckOk; seekAckAt = [long]$j.seekAckAt
-          }
-          $sync.Ne = $ne
-          Write-Json $rsp @{ ok = $true }
-        } catch { Write-Json $rsp @{ ok = $false; err = "bad-ne" } 400 }
-        continue
-      }
-
-      if ($path -eq "/api/lyric" -and $method -eq "POST") {
-        try {
-          $body = (New-Object System.IO.StreamReader($req.InputStream, [System.Text.Encoding]::UTF8)).ReadToEnd()
-          $j = $body | ConvertFrom-Json
-          $sid = [string]$j.songId
-          if ($sid) {
-            $sync.Lyrics[$sid] = @{
-              songId = [long]$j.songId; title = [string]$j.title; artist = [string]$j.artist
-              rev = [string]$j.rev
-              yrc = [string]$j.yrc; ytlrc = [string]$j.ytlrc
-              lrc = [string]$j.lrc; tlyric = [string]$j.tlyric
-              source = [string]$j.source
-            }
-            while ($sync.Lyrics.Count -gt 4) {
-              $oldest = $sync.Lyrics.Keys | Select-Object -First 1
-              $sync.Lyrics.Remove($oldest)
-            }
-          }
-          Write-Json $rsp @{ ok = $true }
-        } catch { Write-Json $rsp @{ ok = $false; err = "bad-lyric" } 400 }
-        continue
-      }
-
-      if ($path -eq "/api/lyric" -and $method -eq "GET") {
-        $sid = $req.QueryString["songId"]
-        if ($sid -and $sync.Lyrics.ContainsKey($sid)) {
-          $ly = $sync.Lyrics[$sid]
-          Write-Json $rsp @{ ok = $true; rev = $ly.rev; lyric = $ly }
-        } else {
-          Write-Json $rsp @{ ok = $false }
-        }
-        continue
-      }
-
-      if ($path -eq "/api/cmd" -and $method -eq "POST") {
-        try {
-          $body = (New-Object System.IO.StreamReader($req.InputStream, [System.Text.Encoding]::UTF8)).ReadToEnd()
-          $j = $body | ConvertFrom-Json
-          $type = [string]$j.cmd
-          if ($type -in @("play", "pause", "toggle", "next", "prev", "seek")) {
-            $pos = $null
-            if ($type -eq "seek" -and $null -ne $j.position) { $pos = [double]$j.position }
-            $sync.Out.Add(@{ id = 0; cmd = $type; position = $pos; at = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() }) | Out-Null
-            while ($sync.Out.Count -gt 8) { $sync.Out.RemoveAt(0) }
-            Write-Json $rsp @{ ok = $true }
-          } else {
-            Write-Json $rsp @{ ok = $false; err = "unknown-cmd" } 400
-          }
-        } catch { Write-Json $rsp @{ ok = $false; err = "bad-cmd" } 400 }
-        continue
-      }
-
-      if ($path -eq "/api/cmd" -and $method -eq "GET") {
-        $nowMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-        $out = @()
-        while ($sync.Out.Count -gt 0) {
-          $c = $sync.Out[0]
-          $sync.Out.RemoveAt(0)
-          if ($c.at -gt 0 -and ($nowMs - [long]$c.at) -gt $cmdExpireMs) { continue }
-          $out += $c
-          if ($out.Count -ge 8) { break }
-        }
-        Write-Json $rsp @{ ok = $true; cmds = $out }
-        continue
-      }
-
-      if ($path -eq "/api/mgr" -and $method -eq "POST") {
-        try {
-          $body = (New-Object System.IO.StreamReader($req.InputStream, [System.Text.Encoding]::UTF8)).ReadToEnd()
-          $j = $body | ConvertFrom-Json
-          $sync.Mgr = [string]$j.v
-          $sync.MgrAt = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-          Write-Json $rsp @{ ok = $true }
-        } catch { Write-Json $rsp @{ ok = $false } 400 }
-        continue
-      }
-
-      Write-Json $rsp @{ ok = $false; err = "not-found" } 404
-    } catch {
-      try { Start-Sleep -Milliseconds 50 } catch { }
-    }
+while ($true) {
+  Start-Sleep -Milliseconds 120
+  $now = [Environment]::TickCount
+  if (($now - $lastApply) -ge $ApplyEveryMs) {
+    $lastApply = $now
+    Apply-Truth
   }
-  try { $listener.Stop() } catch { }
 }
-
-# ---------------------------------------------------------------------------
-# 6) Boot + main loop (WinRT stays on this thread)
-# ---------------------------------------------------------------------------
-try { Initialize-OwnSmtc } catch {
-  Write-Host "[ChuShiSmtcEngine] FATAL: SMTC init failed: $($_.Exception.Message)"
-  exit 1
-}
-
-$rs = [runspacefactory]::CreateRunspace()
-$rs.Open()
-$ps = [powershell]::Create()
-$ps.Runspace = $rs
-$null = $ps.AddScript($httpScript).AddArgument($sync).AddArgument($Port).AddArgument($EngineVersion).AddArgument($NeStaleMs).AddArgument($CmdExpireMs)
-$null = $ps.BeginInvoke()
-
-$lastTick = 0
-while (-not $sync.Stop) {
-  try {
-    $nowMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-    if (($nowMs - $lastTick) -ge 900) {
-      $lastTick = $nowMs
-      Update-SmtcFromNe
-    }
-  } catch { }
-  try { Start-Sleep -Milliseconds 120 } catch { }
-}
-
-try { $ps.Stop() } catch { }
-try { $rs.Close() } catch { }
-Write-Host "[ChuShiSmtcEngine] stopped"
