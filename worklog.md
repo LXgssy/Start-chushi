@@ -871,3 +871,25 @@ Stage Summary:
 - 用户三条指令闭环：三插件独立（桥单独成插件）、页面音乐 API 重写（传输层换桥枢纽、公开面零破坏）、「初始页面不显示音乐」结构性根治（数据面去引擎化——枢纽住在插件里，插件活着页面就有数据）
 - 新律：①渲染进程 = 完整 Node 运行时，枢纽/服务类需求优先 require("http") 进插件，不再外溢进程；②BetterNCM 本体服务器有 api_key+CORS 双锁，不能当页面中继；③「装了看不见」之后的新三律（结构门/过滤链模拟器/语言三律分立断言）已机器锁死
 - 待办：用户真机复测（删旧装三新 → 重启网易云 → 列表三可见 → SMTC 开关关闭验系统卡片/可拖/媒体键 → 面板真值/逐字/seek 回执 → 本体不受影响确认）；真机 mediaSession 不出卡片时按任务 A.1 诊断路径查 unsupported；Edge 商店材料仍未动
+
+---
+Task ID: 93
+Agent: Super Z (main)
+Task: 用户第 12 轮反馈「你写的三个插件完全是坏的啊，完全不工作啊，甚至你写的smtc插件连windows都读取不了」→ v7.0.0 原生 SMTC + 纯 JS 三插件全量重写（架构翻案）
+
+Work Log:
+- 【根因确诊（一手源码实证）】拉 BetterNCM v2 冻结源码（fork NanoRocky/BetterNCM，branch v2）逐文件读：①BetterNCM 是 **CEF 架构**（cef_v8value_t 注入、无 nodeIntegration）→ v6 插件B 的 require("http") 枢纽在真机第一行就 ReferenceError → 页面必然无数据 →「三插件全坏/页面无音乐」统一根因；②v6 插件A 的 navigator.mediaSession 在 NCM 环境不产生 Windows 系统卡片 →「smtc 连 windows 都读取不了」；③v6 曾记录「渲染进程有完整 Node」为错误结论，本代作废；④BetterNCM v2 JS 面无 app.exec——JS 拉进程路线彻底封死，原生 DLL 是唯一正解
+- 【BetterNCM 原生 ABI 实证】导出 void BetterNCMPluginMain(PluginAPI*)；PluginAPI{addNativeAPI, betterncmVersion, processType, ncmVersion}；native API 仅 processType&Renderer 真注册；betterncm_native.native_plugin.call(id,[args]) 参数个数严格匹配 + V8 主线程必须立即返回；manifest native_plugin 非空时每次启动重解压覆盖
+- 【SMTC 权威定义提取】Windows SDK 16299 投影头（tpn/winsdk-10 镜像）逐槽位提取：SMTC v1=99FA3FF4（26 槽位，get_DisplayUpdater 属性形态、Previous 在 Next 前）、SMTC2=EA98D2F6（UpdateTimelineProperties 第 7 槽）、Interop=DDB0472D GetForWindow、事件特化 GUID ButtonPressed=0557e996/PositionChange=44E34F15、TimelineProperties 是**接口**（RoActivateInstance 后逐 put）、boolean=1 字节
+- 【原生 DLL（插件A 核心）】bridge/v7/native/chushi_smtc_native.c（llvm-mingw 交叉编译 75KB，仅依赖 KERNEL32/USER32/WS2_32/UCRT）：MTA RoInitialize→自有隐藏窗口→GetForWindow 独立会话→媒体键/可拖时间线（Min/MaxSeekTime 必设）/封面 CreateFromUri；命名互斥体 Host 选举（Main 先加载天然当选，GPU/Utility 静默）；HTTP 枢纽 26901→26902→26903（CORS *+PNA+身份 ping）；三线程三职责（SMTC 线程独占 WinRT/事件回调只入队/HTTP 只碰锁内数据）；导出表 llvm-objdump 断言 BetterNCMPluginMain
+- 【插件B/C 纯 JS 重写】Music Bridge：audio 元素粘滞锁 + dva store 只读探针（webpackJsonp/webpackChunk* 双格式捕获 __webpack_require__）+ 物理自愈（>1.2s 窗）；控制单次执行律（currentTime 全文件唯一写点 + 420ms/1s 双读回 seekAck）；1Hz 心跳=排空 cmd/events→执行→POST smtc/update（表单）+POST state；Lyric Source：纯 JS 自实现 MD5+AES-128-ECB（FIPS-197 C.1/B + RFC1321 + node/python 双对照），eapi→channel→直连三层回退 + klyric→yrc
+- 【页面音乐 API v7】smtc.ts 全新实现：/api/ping 身份三端口发现粘滞、hubVer 门、诚实归因；公开面字段级兼容（PresetWidgets/sandbox/预设脚本零改动）；扩展 host_permissions 三端口齐备；package.json/extension/preset 版本 7.0.0
+- 【验证 ×2 轮全绿 84 项】G1 语法+密码学向量+纪律门 26（MD5("abc") 真值 900150983cd24fb0d6963f7d28e17f72 为 node/python 双实现交叉确认——记忆向量 9001509832498e37d2f16bceff0f19a4 是错的，差点冤杀正确实现）；打包结构门 37（manifest 根部/name ASCII/描述中文/ncm3/PE 导出表解析/BetterNCM 过滤链模拟器 WOULD LOAD AND LIST ×3）；e2e 21（mock 原生枢纽真轮询：客户端连接/真值映射/seek 排队/歌词到达/插件B 白盒心跳九连/枢纽全灭诚实离线）——e2e 排障实锤 bun 无 window 全局导致 SSR 守卫拦截 start()（测试环境差异非产品 bug，补 window 垫片后全绿）
+- 【交付】download/v7.0.0 七件套（三 .plugin 含 30KB 原生 DLL + 扩展 zip + .cshz + AllInOne + SHA256SUMS + 使用说明 v7 版）；main e7751cb+e0bb323 推送；gh-pages DEPLOY-OK + 线上指纹（chunk 4c2af5d2 26901/chushi-smtc-hub 命中）；Release v7.0.0 七资产直链 SHA-256 ALL OK（**新坑：GitHub Release 资产名吃非 ASCII 不报错**——「合并交付包.zip」上传成「.zip」、「初始SMTC音乐预设.cshz」成「SMTC.cshz」，rel-v7-fix.py 删除断名资产改 ASCII 名重传：ChuShi-Smtc-Preset-7.0.0.cshz/ChuShi-v7.0.0-AllInOne.zip）；文叔叔合并包 https://c.wss.ink/f/ktij2nm6ekt（complete code=0 success 99%）
+- 【文档】AI-HANDOFF 全量重写 v7（宪法/翻案四条/拓扑图/数据律/产线/矩阵/坑 20-28/任务 A-C 含 SMTC 排障路径）；README v7.0.0 版本段（标注 v6 误判作废）；package.json 7.0.0
+
+Stage Summary:
+- 「smtc 连 windows 都读取不了」结构性根治：SMTC 由真原生 DLL 持有（独立系统会话，GetForWindow 自有窗口），不再依赖任何 JS 侧 mediaSession 幻术
+- 「三个插件完全坏」统一根因闭环：CEF 无 Node 实锤 → 枢纽住进 DLL、B/C 纯 JS 化；「v6 渲染进程有 Node」的错误结论正式作废并写入 AI-HANDOFF 防止重蹈
+- 新律：①原生能力必须原生 DLL，JS 侧 mediaSession 在 Electron/CEF 不产生系统卡片；②BetterNCM native API 回调=V8 主线程立即返回律；③SDK 头逐槽位对照律（凭记忆写 WinRT vtable 必死）；④Release 资产名单 ASCII 强制（GitHub 静默截断非 ASCII 名）；⑤记忆中的密码学向量不可信——以 node/python 双实现交叉确认为准（本代差点冤杀正确的 MD5）
+- 待办：用户真机复测（删光旧 .plugin→装 v7 三件→完全重启→SMTC 关闭态验系统卡片/可拖/媒体键→面板真值/逐字/seek 回执→页脚 v7.0.0）；若卡片不出按 AI-HANDOFF 任务 B 的 Smtc.info/status/lastHr 三步排障；Edge 商店材料仍未动
