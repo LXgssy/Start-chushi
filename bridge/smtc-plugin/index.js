@@ -2,6 +2,10 @@
  * 初始SMTC桥 (ChuShi SMTC Bridge) — BetterNCMII / chromatic 插件（纯管理，无状态）
  * v3.0.0 双插件架构：本插件 = 桥进程生命周期的唯一管理者（零网易云状态生产）。
  * 网易云真值（进度/播放态/歌词/seek）由「初始网易云API」插件（cc.chushi.ncmapi）负责。
+ * v2.1.0：内嵌桥升级到 v3.0.0 —— 桥自带「满血版」自有 SMTC 会话
+ *         （MediaPlayer 手动驱动：真实时间线 1Hz 墙钟推进 + IsPlaybackPositionEnabled
+ *         可拖动进度 + 媒体键/悬浮窗按钮/拖动 seek 事件回灌网易云），
+ *         网易云自带的残疾 SMTC（position 不动/seek 静默忽略）从此不承担任何角色。
  *
  * 职责（全部沿用 v1.4.0–v1.5.1 真机验证过的桥管理代码，原样提取）：
  *   部署（betterncm.fs → 数据目录 chushi-bridge/，写后读回校验——
@@ -30,10 +34,10 @@
   const log = (...a) => console.log(TAG, ...a);
   const warn = (...a) => console.warn(TAG, ...a);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const PLUGIN_VERSION = "2.0.0";
+  const PLUGIN_VERSION = "2.1.0";
 
   /* ---------- 内嵌桥（构建时注入 base64，纯 ASCII ps1 + On Error 静默 vbs） ---------- */
-  const EMBEDDED_BRIDGE_VERSION = "2.0.0";
+  const EMBEDDED_BRIDGE_VERSION = "3.0.0";
   const EMBEDDED_BRIDGE_PS1_B64 = "/*__BRIDGE_PS1_B64__*/";
   const EMBEDDED_BRIDGE_VBS_B64 = "/*__BRIDGE_VBS_B64__*/";
   const BRIDGE_DIR_REL = "chushi-bridge";
@@ -235,7 +239,7 @@
       const wrap = document.createElement("div");
       wrap.style.cssText = "font-size:12px;line-height:1.8;";
       const info = document.createElement("div");
-      info.innerText = `初始SMTC桥 ${PLUGIN_VERSION} — 桥进程生命周期唯一管理者（部署/拉起/杀旧/监督/自启），内嵌桥 v${EMBEDDED_BRIDGE_VERSION}；网易云真值由「初始网易云API」插件提供，两端端口须一致`;
+      info.innerText = `初始SMTC桥 ${PLUGIN_VERSION} — 桥进程生命周期唯一管理者（部署/拉起/杀旧/监督/注册自启），内嵌桥 v${EMBEDDED_BRIDGE_VERSION}（满血版自有 SMTC 会话：可拖动进度/媒体键/悬浮窗全部可控，真值由网易云插件驱动）；网易云真值由「初始网易云API」插件提供，两端端口须一致`;
       const st = document.createElement("div");
       st.innerText = "当前桥状态: " + (bridgeRunningVer ? "运行中 v" + bridgeRunningVer : "不可达（监督循环会自动重试拉起）") + (bridgeBlocked ? "（自动升级被系统策略拦截，请用交付包内「手动启动桥（备用）」文件夹的 启动桥.bat）" : "");
       const row = document.createElement("div");

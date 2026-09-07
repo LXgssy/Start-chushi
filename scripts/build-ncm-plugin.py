@@ -12,7 +12,7 @@ index = (SRC / "index.js").read_text(encoding="utf-8")
 
 # 自检：真值/歌词/seek 关键路径齐全（v1.4.0–v1.5.1 真机教训的全部防线）
 for needle in (
-    "2.1.0", "role: \"ncm\"", "/api/plugin/state", "/api/plugin/lyric", "/api/plugin/cmd",
+    "2.2.0", "role: \"ncm\"", "/api/plugin/state", "/api/plugin/lyric", "/api/plugin/cmd",
     "e82ckenh8dichen8", "audioplayer.seek", "playing/setPlayingPosition",
     "nativeExpectMs", "pickMediaEl", "lastPlayingAt", "lastProgressAt", "lastSeekAt",
     "needLyric", "rePushLyric", "chushi-channel-seek-disabled",
@@ -20,6 +20,8 @@ for needle in (
     # v3.0.1 四症状根治：播放态物理自愈 + store 次级真值
     "物理自愈：进度在推进 = 在播放", "posMs - lastReportedPosMs > 800",
     "store.getState().playing && store.getState().playing.position",
+    # v2.2.0 满血 SMTC 控制回路插件侧执行器 + seek 末级重写/身份捕获
+    "ctrlPlayPause", "ctrlNextPrev", "clickVisibleBtn", "rewriteDone", "seek 身份捕获",
 ):
     assert needle in index, f"index.js 缺少 {needle}"
 # 双插件律：本插件绝不管理桥进程（绝不内嵌/部署/拉起桥）

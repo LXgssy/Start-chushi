@@ -116,7 +116,7 @@
    *   play/pause/toggle/next/prev。旧 chushi.smtc 保持原样兼容。
    * ============================================================ */
   function __chushiMusicCore(hooks) {
-    var st = { cbs: [], snap: null, anchor: null, lines: null, lmode: 0, lrev: "\u0000none", parsedRef: null };
+    var st = { cbs: [], snap: null, anchor: null, lines: null, lmode: 0, lrev: "\u0000none", parsedRef: null, fadeMs: 0 };
 
     function clamp01(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
 
@@ -234,15 +234,52 @@
       for (var i = st.cbs.length - 1; i >= 0; i--) { try { st.cbs[i](snap); } catch (e) { } }
     }
 
-    /* 每拍锚点（每秒必达）：只动锚点字段，不触发订阅回调（离散快照已含可见变化） */
+    /* 每拍锚点（每秒必达）。
+     * v3.1.0 逐字歌词防抖/防漂移（用户指令的渲染层落地）：
+     * ① slew 微抖吸收：真值每秒重锚会带入 ±(事件到达抖动) 的微小跳变，
+     *    逐字扫色肉眼可见地「抖」。播放中真值漂移 ≤0.35s 的拍不重锚
+     *    （position/fetchedAt 都不动——只改其一等于倒退）；累计漂移超闸、
+     *    播放态翻转、seek/切歌大跳立即重锚。显示层平滑，不修改真值。 */
+    var LY_SLEW_SEC = 0.35;
     function tick(tk) {
       var a = st.anchor;
       if (!tk || !a) return;
-      if (typeof tk.position === "number") a.position = tk.position;
+      var prevPlaying = a.playing;
+      var expected = posNow();
+      var reanchor = true;
+      if (typeof tk.position === "number") {
+        reanchor = prevPlaying !== !!tk.playing || !a.playing || Math.abs(tk.position - expected) >= LY_SLEW_SEC;
+        if (reanchor) {
+          a.position = tk.position;
+          a.fetchedAt = typeof tk.fetchedAt === "number" ? tk.fetchedAt : Date.now();
+        }
+      } else if (typeof tk.fetchedAt === "number") {
+        a.fetchedAt = tk.fetchedAt;
+      }
       if (typeof tk.duration === "number") a.duration = tk.duration;
       if (typeof tk.playing === "boolean") a.playing = tk.playing;
       if (typeof tk.rate === "number" && tk.rate > 0) a.rate = tk.rate;
-      if (typeof tk.fetchedAt === "number") a.fetchedAt = tk.fetchedAt;
+      /* ② 暂停淡出计时（用户指令：暂停时按歌词时间轴计算淡入淡出时长）：
+         播放→暂停翻转时算一次 fadeMs，恢复时沿用该值做淡入。 */
+      if (prevPlaying === true && a.playing === false) st.fadeMs = calcFadeMs(posNow());
+    }
+    /* 淡入淡出时长 = clamp(120..420ms, 当前词剩余时长)，无词在唱时用行尾剩余，
+       兜底 260ms。按词时间算而非固定值：暂停瞬间的视觉收敛永远落在正确的词
+       边界内，恢复后从冻结位置继续扫色，不产生累积漂移。 */
+    function calcFadeMs(ms) {
+      var L = st.lines;
+      if (!L || !L.length) return 260;
+      var lo = 0, hi = L.length - 1;
+      while (lo <= hi) { var mid = (lo + hi) >> 1; if (L[mid].s <= ms) lo = mid + 1; else hi = mid - 1; }
+      var li = hi;
+      if (li < 0) return 260;
+      var ln = L[li];
+      if (ln.w && ln.w.length) {
+        var lo2 = 0, hi2 = ln.w.length - 1, wi = -1;
+        while (lo2 <= hi2) { var m2 = (lo2 + hi2) >> 1; if (ln.w[m2].s <= ms) { wi = m2; lo2 = m2 + 1; } else hi2 = m2 - 1; }
+        if (wi >= 0) return Math.max(120, Math.min(420, (ln.w[wi].s + ln.w[wi].d) - ms));
+      }
+      return Math.max(120, Math.min(420, ln.e - ms));
     }
 
     function posNow() {
@@ -282,6 +319,8 @@
         duration: d,
         progress: d > 0 ? clamp01(p / d) : 0,
         playing: a ? a.playing : false,
+        /* v3.1.0 暂停淡入淡出时长（按词时间轴算，部件直接消费） */
+        fadeMs: st.fadeMs || 0,
         lineIndex: al ? al.lineIndex : -1,
         wordIndex: al ? al.wordIndex : -1,
         wordProgress: al ? al.wordProgress : 0,

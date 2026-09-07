@@ -176,13 +176,15 @@
 "use strict";
 var $=function(id){return document.getElementById(id)};
 /* ============================================================
- * v2.0.0 音乐面板 —— 只写样式与渲染，零计算。
+ * v3.1.0 音乐面板 —— 只写样式与渲染，零计算。
  * 数据面 = 宿主「初始」内建引擎 chushi.music：
  *   snapshot()/subscribe(cb) → 离散快照（封面/歌名/解析好的歌词结构/时长）
  *   now()                    → 实时态（position/progress/lineIndex/wordIndex/
- *                              wordProgress 均由宿主按 SMTC 时间戳预对齐）
+ *                              wordProgress/fadeMs 均由宿主按真值时间轴预对齐）
  *   seek(s)/toggle/next/prev → 控制（seek 成功宿主自动乐观重锚）
- * 本文件不再包含任何 yrc/lrc 解析、时钟插值或锚点运算。
+ * v3.1.0 逐字歌词防漂移（用户指令）：暂停时按宿主计算的词时间轴时长淡出、
+ *   恢复时淡入（opacity 过渡，样式/布局零改动）；扫色微抖已由宿主 slew 吸收。
+ * 本文件不包含任何 yrc/lrc 解析、时钟插值或锚点运算。
  * ============================================================ */
 var card=$("card"),sk=$("sk");
 var E={aF:$("aF"),t1:$("t1"),t2:$("t2"),t3:$("t3"),bar:$("bar"),th:$("th"),
@@ -197,7 +199,7 @@ var snap=null,mode="em",lastKey="",drag=false,dragRatio=0;
 var lyHold=false; /* v2.3.1 歌词高度迟滞：同曲歌词暂时消失（桥重启丢词/重拉）
    时面板高度不塌 124px —— 真机：歌词到位/消失反复横跳时面板 px 弹簧把
    播放/暂停按钮大幅上下位移；只有换曲才重算 lyHold */
-var lyBox=E.ly,lyInr=null,lyEls=null,lyActive=-1,lyWords=null,lyMode=0,lyKey="__none__",lyRef=null;
+var lyBox=E.ly,lyInr=null,lyEls=null,lyActive=-1,lyWords=null,lyMode=0,lyKey="__none__",lyRef=null,lyPrevOn=null;
 var mus=window.chushi&&window.chushi.music?window.chushi.music:null;
 function txt(el,v){if(el.textContent!==v)el.textContent=v}
 function fmt(s){s=Math.max(0,Math.floor(s));return Math.floor(s/60)+":"+(s%60<10?"0":"")+s%60}
@@ -215,7 +217,7 @@ function cover(img){
 }
 /* 歌词 DOM：直接消费宿主解析好的行/词结构（t=文本 tr=翻译 w=词[{s,d,t}]） */
 function buildLyric(){
-  lyBox.innerHTML="";lyEls=[];lyWords=[];lyActive=-1;lyInr=null;
+  lyBox.innerHTML="";lyEls=[];lyWords=[];lyActive=-1;lyInr=null;lyPrevOn=null;
   if(!hasLyric()){lyBox.classList.add("hd");lyMode=0;return}
   var lines=snap.lyric.lines;lyMode=snap.lyric.mode;
   lyBox.classList.remove("hd");lyHold=true; /* 歌词在场 → 高度迟滞锚定 */
@@ -343,6 +345,16 @@ function lyricFrame(n){
       /* v2.0.1：只写 --p 一个变量（clip-path 裁剪显色），无 class 摘挂无 background-clip */
       ws[wI].style.setProperty("--p",(p*100).toFixed(1)+"%");
     }
+  }
+  /* v3.1.0 暂停淡出/恢复淡入：时长由宿主按词时间轴计算（fadeMs），
+     暂停时高亮行淡出收敛在本词边界内，恢复时从冻结位置淡入——
+     视觉上不再有「冻结的字」与「跳回」，累积漂移感知归零。 */
+  var on2=!!n.playing;
+  if(on2!==lyPrevOn&&lyInr){
+    var fd=Math.max(120,Math.min(420,n.fadeMs||260));
+    lyInr.style.transition="transform .55s var(--ez), opacity "+fd+"ms ease";
+    lyInr.style.opacity=on2?"1":"0.38";
+    lyPrevOn=on2;
   }
 }
 requestAnimationFrame(tick);

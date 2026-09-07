@@ -4,6 +4,11 @@
  * 桥进程的部署/拉起/监督由「初始SMTC桥」插件（cc.chushi.smtcbridge）负责。
  * v2.1.0：播放态物理自愈（进度推进 = 在播放——修面板状态不同步/全冻结）
  *         + dva store.position 次级真值（原生进度事件死时不再冻死）。
+ * v2.2.0：满血 SMTC 控制回路的插件侧执行器（桥 3.0.0 把系统媒体键/悬浮窗
+ *         按钮/悬浮窗拖动进度全部转发到本插件）+ 命令队列（bridge v3.0.0
+ *         起 cmd 支持 play/pause/toggle/next/prev/seek 多命令排队下发）
+ *         + seek 末级重写加固（1600ms 二次直写防本体重置元素 + 生效时
+ *         身份捕获锁定真主元素）。
  *
  * 职责（每数据单主——位置/时长/播放态/元数据/歌词的真值只出自这里）：
  *   ① 精确播放状态（songId/positionMs/durationMs/playing/封面 URL）——帧级真值
@@ -41,7 +46,7 @@
   const log = (...a) => console.log(TAG, ...a);
   const warn = (...a) => console.warn(TAG, ...a);
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const PLUGIN_VERSION = "2.1.0";
+  const PLUGIN_VERSION = "2.2.0";
 
   /*__EAPI_CRYPTO_START__*/
   // —— eapi 加密（与 NetEaseCloudMusicApi 同构：nobody{url}use{text}md5forencrypt
@@ -631,9 +636,10 @@
       if (lastEvAt >= pend.at && lastProgressMs >= 0) {
         ev = Math.abs(lastProgressMs - targetMs) <= 1200;
       }
+      let elNow = null;
       let elHit = false;
       try {
-        const elNow = elLock || pickMediaEl(nowMs);
+        elNow = elLock || pickMediaEl(nowMs);
         if (elNow && elNow.isConnected !== false && isFinite(elNow.currentTime)) {
           elHit = Math.abs(elNow.currentTime * 1000 - targetMs) <= 1200;
         }
@@ -641,6 +647,12 @@
       if (ev || elHit) {
         if (elHit && !ev && lastProgressMs !== targetMs) {
           lastProgressMs = targetMs; lastProgressAt = nowMs; /* 元素真值 = 播放器实际位置 */
+        }
+        /* v2.2.0 身份捕获：被直写且真实生效的元素 = 主播放器，立即上锁
+           （此后真值读取锁定同人，不再依赖评分漂移） */
+        if (elHit && !elLock && elNow && elNow.isConnected !== false) {
+          elLock = elNow; elLockStreak = 2; elLockMiss = 0;
+          log("seek 身份捕获 -> 锁定主播放器元素");
         }
         log("seek 生效（" + (ev ? "native 事件" : "元素真值") + "）-> " + posSec.toFixed(1) + "s");
         ackSeek(seekId, true, targetMs);
@@ -661,6 +673,18 @@
           }
         } catch (e) { warn("元素直写失败", e); }
       }
+      /* v2.2.0 末级重写：本体可能在直写后立刻用自身状态重置元素 currentTime
+         （真机「拖了没反应」的末级路径）。证据仍缺时 1600ms 二次直写。 */
+      if (!pend.rewriteDone && elapsed >= 1600) {
+        pend.rewriteDone = true;
+        try {
+          const w2 = elLock || pickMediaEl(Date.now());
+          if (w2 && w2.isConnected !== false && isFinite(w2.currentTime) && Math.abs(w2.currentTime * 1000 - targetMs) > 1200) {
+            w2.currentTime = posSec;
+            log("seek 末级重写 -> " + posSec.toFixed(1) + "s");
+          }
+        } catch (e) { /* 重写失败不影响裁决 */ }
+      }
       if (elapsed >= 2000) { ackSeek(seekId, false, targetMs); return; }
       setTimeout(step, 200);
     }
@@ -680,9 +704,61 @@
     if (!ok) warn("seek 未生效 pos=" + (targetMs / 1000).toFixed(1) + "（已如实回报，宿主将弹回真实进度）");
     pushState(true).catch(function () {});
   }
+  /* ---------- v2.2.0 页内控制执行器（满血 SMTC 控制回路的插件侧） ----------
+   * play/pause：锁定元素（本体的 audio 引擎）play()/pause() —— 与引擎自身
+   * 语义同源，store/UI 跟随元素事件；验证 paused 真实翻转后失败才兑底页脚
+   * 按钮（多候选可见性点击，不押注单一选择器）。
+   * next/prev：页脚可见按钮一条页内路径（元素无切歌语义）。 */
+  function clickVisibleBtn(cands) {
+    for (let i = 0; i < cands.length; i++) {
+      try {
+        const els = document.querySelectorAll(cands[i]);
+        for (let j = 0; j < els.length; j++) {
+          const b = els[j];
+          if (b && b.offsetParent !== null) { b.click(); return true; }
+        }
+      } catch (e) { /* 下一候选 */ }
+    }
+    return false;
+  }
+  function ctrlPlayPause(target) {
+    try {
+      const el = elLock || pickMediaEl(Date.now());
+      if (el && el.isConnected !== false && typeof el.play === "function") {
+        const before = el.paused;
+        if (target === "play" && before) { const p = el.play(); if (p && p.catch) p.catch(function () {}); return true; }
+        if (target === "pause" && !before) { el.pause(); return true; }
+        /* 元素状态已与目标一致：视为已生效（防双路径重复执行） */
+        if ((target === "play") === !before) return true;
+      }
+    } catch (e) { /* 元素路径失败兑底按钮 */ }
+    if (target === "play") return clickVisibleBtn(["#btn-play", ".btn-play", "#btn-pause", ".btn-pause"]);
+    return clickVisibleBtn(["#btn-pause", ".btn-pause", "#btn-play", ".btn-play"]);
+  }
+  function ctrlNextPrev(dir) {
+    if (dir === "next") return clickVisibleBtn(["#btn-next", ".btn-next"]);
+    return clickVisibleBtn(["#btn-previous", "#btn-prev", ".btn-previous", ".btn-prev"]);
+  }
   function applyBridgeCmd(resp, snap) {
     try {
-      if (resp.cmd !== "seek") return;
+      const cmd = String(resp.cmd || "");
+      /* v2.2.0 满血 SMTC 控制回路：系统媒体键/悬浮窗按钮 → 桥 Try*Async 直控
+         网易云会话，失败时才到本插件页内执行；桥无会话（虚拟曲目场景）时
+         面板按钮也走这里。play/pause 用锁定元素（本体的 audio 引擎）优先，
+         页脚可见按钮兑底；next/prev 只有页脚按钮一条页内路径。 */
+      if (cmd === "play" || cmd === "pause" || cmd === "toggle") {
+        let target = cmd;
+        if (cmd === "toggle") target = (snap && snap.playing) ? "pause" : "play";
+        const ok = ctrlPlayPause(target);
+        log("bridge 命令 " + cmd + " -> 页内" + (ok ? "已执行" : "无可用路径"));
+        return;
+      }
+      if (cmd === "next" || cmd === "prev") {
+        const ok = ctrlNextPrev(cmd);
+        log("bridge 命令 " + cmd + " -> " + (ok ? "页脚点击" : "无可用路径"));
+        return;
+      }
+      if (cmd !== "seek") return;
       const pos = Number(resp.position);
       if (!isFinite(pos) || pos < 0) return;
       const seekId = String(resp.id || "").slice(0, 40);
@@ -705,7 +781,7 @@
       seekPending = {
         id: seekId, posMs: targetMs, songId: songId, at: Date.now(),
         displayUntil: Date.now() + 2500, preTruthMs: lastProgressMs,
-        dispatchDone: false, writeDone: false, verdict: false,
+        dispatchDone: false, writeDone: false, rewriteDone: false, verdict: false,
       };
       const viaChannel = channelSeek(songId, pos);
       if (!viaChannel) { channelDispatch(pos); seekPending.dispatchDone = true; }

@@ -18,7 +18,7 @@ ps1_bytes = BRIDGE_PS1.read_bytes()
 vbs_bytes = BRIDGE_VBS.read_bytes()
 assert all(b < 128 for b in ps1_bytes), "桥 ps1 必须纯 ASCII"
 assert all(b < 128 for b in vbs_bytes), "桥 vbs 必须纯 ASCII"
-assert b"$BRIDGE_VERSION = '2.0.0'" in ps1_bytes, "桥 ps1 版本应为 2.0.0"
+assert b"$BRIDGE_VERSION = '3.0.0'" in ps1_bytes, "桥 ps1 版本应为 3.0.0"
 assert b"On Error Resume Next" in vbs_bytes, "桥 vbs 必须 On Error 静默化（真机 WSH 弹窗教训）"
 ps1_b64 = base64.b64encode(ps1_bytes).decode("ascii")
 vbs_b64 = base64.b64encode(vbs_bytes).decode("ascii")
@@ -28,7 +28,7 @@ assert "/*__BRIDGE_PS1_B64__*/" not in index and "/*__BRIDGE_VBS_B64__*/" not in
 
 # 自检：桥管理关键路径齐全（v1.4.0–v1.5.1 真机教训的全部防线）
 for needle in (
-    "2.0.0", "superviseBridge", "deployBridge", "spawnBridge", "killStaleBridge",
+    "2.1.0", "superviseBridge", "deployBridge", "spawnBridge", "killStaleBridge",
     "spawnBackoffMs", "upgradeBackoffMs", "bridgeBlocked", "readFileText",
     "chushi-bridge.ps1", "/api/plugin/register", "EMBEDDED_BRIDGE_VERSION",
     "powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File",

@@ -1,4 +1,4 @@
-# ChuShi SMTC Bridge v2.0.0 (embedded edition, ASCII-only)
+# ChuShi SMTC Bridge v3.0.0 (embedded edition, ASCII-only)
 # ============================================================
 # IMPORTANT: this file MUST stay pure ASCII (no CJK) so encoding can never
 # break it. It is embedded (base64) inside the ChuShi SMTC Bridge BetterNCM
@@ -11,6 +11,7 @@
 #
 # Exposes the Windows system media session (SMTC) on http://127.0.0.1:20754:
 #   GET  /api/state          snapshot + plugins registry (smtc plugin version)
+#                            + smtcOwn diagnostic (own full-power session)
 #   GET  /api/cover?v=rev    cover bytes (cached)
 #   POST /api/control        {cmd: play|pause|toggle|next|prev|seek, position?}
 #   GET  /api/lyric?v=rev    lyric payload pushed by the NetEase plugin
@@ -19,6 +20,32 @@
 #   GET  /api/plugin/cmd     plugin fast command poll (seek latency <= 300ms)
 #   GET  /api/ping           liveness probe {ok,name,version}
 #
+# v3.0.0 changes (FULL-POWER OWN SMTC SESSION - the user directive):
+#   NetEase's own SMTC is crippled (position never advances, flyout seek is
+#   silently ignored, timeline freezes). The bridge now owns its own REAL
+#   system media session: Windows.Media.Playback.MediaPlayer with a silent
+#   in-memory wav source and CommandManager disabled (official manual-control
+#   pattern), driven entirely by the NetEase plugin truth (ne):
+#     + real timeline (UpdateTimelineProperties ~1Hz wall-clock advance) with
+#       IsPlaybackPositionEnabled = true -> the Windows flyout/lock-screen
+#       progress bar WORKS and is draggable (PositionChangeRequest raised)
+#     + ButtonPressed (play/pause/next/prev) -> Try*Async on the NetEase
+#       session directly; if that fails, queued to the NetEase plugin
+#     + PlaybackPositionChangeRequested (flyout drag) -> queued to the NetEase
+#       plugin (its in-page seek ladder is the only path NetEase accepts) +
+#       optimistic own-timeline rebase so the flyout bar follows the drag
+#     + /api/state gains a diagnostic smtcOwn object
+#     + reader-side self filter: our own session is never selected as a
+#       foreign media session (AUMID 'ChuShi.SmtcBridge' set at startup)
+#   + commands for the plugin are QUEUED (was a single slot): panel seek,
+#     flyout buttons and flyout drag can coexist; oldest-first, 5s expiry.
+#   + control fix: with NO SMTC session at all (NetEase session missing /
+#     virtual-track scenario) play/pause/next/prev/seek are forwarded to the
+#     plugin when ne is fresh (was ok:false no-session -> panel controls dead)
+#   + seek gate fix: the old title-match requirement is dropped at bridge
+#     level (the plugin gates by its own current song anyway); panel seeks in
+#     ne-owns mode always reach the plugin (real-machine "drag does nothing"
+#     bridge-side root cause when the NetEase SMTC session title differs)
 # v2.0.0 changes (two-plugin split, transport-only):
 #   + /api/plugin/register: the SMTC supervisor plugin reports {role:'smtc',
 #     v}; registry surfaced in /api/state as plugins.smtc (fresh <= 90s) so
@@ -55,7 +82,7 @@ param(
 $ErrorActionPreference = 'Stop'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
-$BRIDGE_VERSION = '2.0.0'
+$BRIDGE_VERSION = '3.0.0'
 
 # ---------- WinRT projection (Windows PowerShell 5.1 only) ----------
 if ($PSVersionTable.PSVersion.Major -ge 6) {
@@ -67,6 +94,15 @@ Add-Type -AssemblyName System.Runtime.WindowsRuntime | Out-Null
 $null = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control, ContentType = WindowsRuntime]
 $null = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties, Windows.Media.Control, ContentType = WindowsRuntime]
 $null = [Windows.Storage.Streams.DataReader, Windows.Storage.Streams, ContentType = WindowsRuntime]
+# v3.0.0 own full-power session projections (manual-control pattern)
+$null = [Windows.Media.Playback.MediaPlayer, Windows.Media.Playback, ContentType = WindowsRuntime]
+$null = [Windows.Media.Core.MediaSource, Windows.Media.Core, ContentType = WindowsRuntime]
+$null = [Windows.Storage.Streams.InMemoryRandomAccessStream, Windows.Storage.Streams, ContentType = WindowsRuntime]
+$null = [Windows.Storage.Streams.RandomAccessStreamReference, Windows.Storage.Streams, ContentType = WindowsRuntime]
+$null = [Windows.Media.MediaPlaybackStatus, Windows.Media, ContentType = WindowsRuntime]
+$null = [Windows.Media.MediaPlaybackType, Windows.Media, ContentType = WindowsRuntime]
+$null = [Windows.Media.SystemMediaTransportControlsButton, Windows.Media, ContentType = WindowsRuntime]
+$null = [Windows.Media.SystemMediaTransportControlsTimelineProperties, Windows.Media, ContentType = WindowsRuntime]
 
 $script:AsTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() |
   Where-Object {
@@ -108,7 +144,21 @@ $script:PosAnchor = @{
 }
 $script:CurPos = 0.0
 $script:LastSampleAt = [DateTime]::MinValue
-$script:NeCmd = $null
+# v3.0.0: pending plugin commands are QUEUED (was a single slot - a flyout
+# seek could overwrite a pending panel seek). Oldest-first, 5s expiry, cap 8.
+$script:NeCmdQueue = [System.Collections.ArrayList]::Synchronized((New-Object System.Collections.ArrayList))
+# v3.0.0 own full-power SMTC session state (driven by ne truth)
+$script:SmtcOwn = @{
+  Ready = $false; Controls = $null; Player = $null
+  Live = $false                       # ne truth currently driving the session
+  Base = 0.0; At = [DateTime]::UtcNow # wall-clock position anchor
+  Playing = $false; Dur = 0.0
+  Title = ''; Artist = ''; Album = ''; Pic = ''
+  MetaSet = $false
+  UpdatedAt = [DateTime]::MinValue
+}
+$script:SmtcQueue = [System.Collections.ArrayList]::Synchronized((New-Object System.Collections.ArrayList))
+$script:SmtcOwnLastTick = [DateTime]::MinValue
 
 function Read-BodyJson($Req) {
   try {
@@ -171,6 +221,8 @@ function Update-NeState($Obj) {
   } catch { }
   $script:NeState = $st
   $script:NeStateAt = Get-Date
+  # v3.0.0: the plugin truth drives our own full-power SMTC session
+  Update-SmtcOwn $st
 }
 
 function Update-NeLyric($Obj) {
@@ -217,7 +269,22 @@ function Get-AppDisplayName([string]$Aumid) {
   return 'MediaApp'
 }
 
+function Test-OwnSmtcSession($S) {
+  # v3.0.0: our own full-power SMTC session runs in THIS process with the
+  # AUMID we set at startup ('ChuShi.SmtcBridge'). It mirrors the NetEase
+  # track, so it must never be selected as a foreign media session (would
+  # duplicate NetEase in SMTC-only fallback / wrong app label).
+  try {
+    $a = [string]$S.SourceAppUserModelId
+    if ($a -and $a -match 'chushi|powershell|pwsh') { return $true }
+  } catch { }
+  return $false
+}
+
 function Select-Session($Sessions) {
+  $foreign = @()
+  foreach ($s in $Sessions) { if (-not (Test-OwnSmtcSession $s)) { $foreign += $s } }
+  $Sessions = $foreign
   foreach ($s in $Sessions) {
     if ($s.SourceAppUserModelId -match $AppFilter) { return $s }
   }
@@ -355,13 +422,37 @@ function Update-MediaState {
 function Ensure-Fresh {
   if (((Get-Date) - $script:LastPoll).TotalMilliseconds -lt 350) { return }
   try { Update-MediaState } catch { $script:LastPoll = Get-Date }
+  Tick-SmtcOwn
 }
 
 # ---------- control ----------
 function Invoke-Control([string]$Cmd, $PositionSec) {
   $sess = $script:CurrentSession
   if (-not $sess) { Ensure-Fresh; $sess = $script:CurrentSession }
-  if (-not $sess) { return @{ ok = $false; reason = 'no-session' } }
+  # v3.0.0: NO session does not mean "cannot control". When the NetEase
+  # plugin truth is fresh (virtual-track scenario: NetEase SMTC session
+  # missing/absent), forward the command to the plugin for in-page execution
+  # instead of replying ok:false (panel play/pause/seek were dead there).
+  if (-not $sess) {
+    if ($null -ne $script:NeState -and ((Get-Date) - $script:NeStateAt).TotalSeconds -le 8) {
+      $c = @{ cmd = $Cmd; position = 0.0; title = [string]$script:NeState.title; id = ([System.Guid]::NewGuid().ToString('N').Substring(0, 12)); at = (Get-Date) }
+      if ($Cmd -eq 'seek') {
+        $p2 = 0.0
+        try { $p2 = [double]$PositionSec } catch { $p2 = 0.0 }
+        if ($p2 -lt 0) { $p2 = 0 }
+        $c.position = $p2
+      }
+      Enqueue-NeCmd $c
+      if ($Cmd -eq 'seek' -and $script:SmtcOwn.Ready) {
+        # optimistic own-timeline rebase (flyout bar follows; heartbeats correct)
+        $script:SmtcOwn.Base = $c.position
+        $script:SmtcOwn.At = [DateTime]::UtcNow
+        Update-SmtcTimeline
+      }
+      return @{ ok = $true; via = 'plugin' }
+    }
+    return @{ ok = $false; reason = 'no-session' }
+  }
   try {
     $pb = $sess.GetPlaybackInfo()
     switch ($Cmd) {
@@ -376,18 +467,28 @@ function Invoke-Control([string]$Cmd, $PositionSec) {
       'prev'  { $null = Await ($sess.TrySkipPreviousAsync()) ([System.Boolean]); return @{ ok = $true } }
       'seek'  {
         # NetEase ignores SMTC seek (client-side limitation). Send it anyway
-        # for well-behaved players, and always queue the command for the
-        # plugin (which seeks via the client internal API, with verification).
+        # for well-behaved players, and ALWAYS queue the command for the
+        # plugin (in-page seek ladder) while its truth is fresh - the plugin
+        # gates by its own current song, so no bridge-side title match needed
+        # (v3.0.0 fix: the old title gate silently killed panel seeks whenever
+        # the SMTC session title differed from the plugin title).
         $sec = [double]$PositionSec
         if ($sec -lt 0) { $sec = 0 }
         $ticks = [long]([Math]::Round($sec * 10000000))
         $smtcOk = $false
         try { $smtcOk = Await ($sess.TryChangePlaybackPositionAsync($ticks)) ([System.Boolean]) } catch { $smtcOk = $false }
-        $neT = $false
-        if ($null -ne $script:NeState) { $neT = Test-TitleMatch $script:State.Title $script:NeState.title }
-        if ($null -ne $script:NeState -and $neT -and ((Get-Date) - $script:NeStateAt).TotalSeconds -le 8) {
+        $queued = $false
+        if ($null -ne $script:NeState -and ((Get-Date) - $script:NeStateAt).TotalSeconds -le 8) {
           $seekId = [System.Guid]::NewGuid().ToString('N').Substring(0, 12)
-          $script:NeCmd = @{ cmd = 'seek'; position = $sec; title = [string]$script:NeState.title; id = $seekId; at = [DateTime]::UtcNow }
+          Enqueue-NeCmd @{ cmd = 'seek'; position = $sec; title = [string]$script:NeState.title; id = $seekId; at = (Get-Date) }
+          $queued = $true
+        }
+        if ($script:SmtcOwn.Ready) {
+          # flyout bar follows the drag immediately (optimistic rebase;
+          # the next plugin heartbeat corrects if the seek never took)
+          $script:SmtcOwn.Base = $sec
+          $script:SmtcOwn.At = [DateTime]::UtcNow
+          Update-SmtcTimeline
         }
         if ($smtcOk) {
           $script:PosAnchor.Base = $sec
@@ -395,7 +496,7 @@ function Invoke-Control([string]$Cmd, $PositionSec) {
           $script:CurPos = $sec
           return @{ ok = $true }
         }
-        if ($null -ne $script:NeCmd) { return @{ ok = $true; via = 'plugin' } }
+        if ($queued) { return @{ ok = $true; via = 'plugin' } }
         return @{ ok = $false; reason = 'seek-unavailable' }
       }
       default { return @{ ok = $false; reason = 'unknown-cmd' } }
@@ -405,12 +506,297 @@ function Invoke-Control([string]$Cmd, $PositionSec) {
   }
 }
 
+function Enqueue-NeCmd($C) {
+  if ($null -eq $C) { return }
+  try {
+    $C.at = (Get-Date)
+    $null = $script:NeCmdQueue.Add($C)
+    while ($script:NeCmdQueue.Count -gt 8) { $script:NeCmdQueue.RemoveAt(0) }
+  } catch { }
+}
+
 function Pop-NeCmd {
-  if ($null -eq $script:NeCmd) { return $null }
-  if (((Get-Date) - $script:NeCmd.at).TotalSeconds -gt 5) { $script:NeCmd = $null; return $null }
-  $c = $script:NeCmd
-  $script:NeCmd = $null
-  return $c
+  while ($script:NeCmdQueue.Count -gt 0) {
+    $c = $null
+    try { $c = $script:NeCmdQueue[0]; $script:NeCmdQueue.RemoveAt(0) } catch { return $null }
+    if ($null -eq $c) { continue }
+    if (((Get-Date) - $c.at).TotalSeconds -gt 5) { continue }
+    return $c
+  }
+  return $null
+}
+
+# ================= v3.0.0 own FULL-POWER SMTC session =================
+# Official manual-control pattern (learn.microsoft.com Windows apps docs):
+#   mediaPlayer = new MediaPlayer();
+#   smtc = mediaPlayer.SystemMediaTransportControls;
+#   mediaPlayer.CommandManager.IsEnabled = false;   <- manual, no auto link
+#   smtc.IsPlayEnabled/IsPauseEnabled/.../IsPlaybackPositionEnabled = true;
+# The session is driven 100% by the NetEase plugin truth (ne heartbeats):
+# metadata via DisplayUpdater, status via PlaybackStatus, timeline via
+# UpdateTimelineProperties (~1Hz wall-clock advance while playing). The
+# NetEase SMTC session stays crippled forever - this one does not.
+function Get-SmtcOwnPos {
+  $base = [double]$script:SmtcOwn.Base
+  if ($script:SmtcOwn.Playing) {
+    $el = ([DateTime]::UtcNow - $script:SmtcOwn.At).TotalSeconds
+    if ($el -gt 0 -and $el -lt 21600) { $base = $base + $el }
+  }
+  return [Math]::Max(0.0, $base)
+}
+
+function Update-SmtcTimeline {
+  try {
+    $pos = Get-SmtcOwnPos
+    $dur = [double]$script:SmtcOwn.Dur
+    if ($dur -le 0) { $dur = [Math]::Max(1.0, $pos + 1.0) }
+    if ($pos -gt $dur) { $pos = $dur }
+    $tl = New-Object Windows.Media.SystemMediaTransportControlsTimelineProperties
+    $tl.StartTime = [TimeSpan]::FromSeconds(0)
+    $tl.MinSeekTime = [TimeSpan]::FromSeconds(0)
+    $tl.MaxSeekTime = [TimeSpan]::FromSeconds($dur)
+    $tl.EndTime = [TimeSpan]::FromSeconds($dur)
+    $tl.Position = [TimeSpan]::FromSeconds($pos)
+    $tl.LastUpdatedTime = [TimeSpan]::Zero
+    $script:SmtcOwn.Controls.UpdateTimelineProperties($tl)
+  } catch { }
+}
+
+function Update-SmtcMeta {
+  try {
+    $du = $script:SmtcOwn.Controls.DisplayUpdater
+    $du.Type = [Windows.Media.MediaPlaybackType]::Music
+    $mu = $du.MusicProperties
+    $mu.Title = [string]$script:SmtcOwn.Title
+    $mu.Artist = [string]$script:SmtcOwn.Artist
+    $mu.AlbumTitle = [string]$script:SmtcOwn.Album
+    if ($script:SmtcOwn.Pic -and $script:SmtcOwn.Pic -match '^https?://') {
+      try {
+        $u = New-Object System.Uri($script:SmtcOwn.Pic)
+        $du.Thumbnail = [Windows.Storage.Streams.RandomAccessStreamReference]::CreateFromUri($u)
+      } catch { }
+    }
+    $du.Update()
+    $script:SmtcOwn.MetaSet = $true
+  } catch { }
+}
+
+function Close-SmtcOwn {
+  if (-not $script:SmtcOwn.Ready) { return }
+  try {
+    if ($script:SmtcOwn.Live) {
+      $script:SmtcOwn.Live = $false
+      $script:SmtcOwn.Playing = $false
+      $script:SmtcOwn.Controls.PlaybackStatus = [Windows.Media.MediaPlaybackStatus]::Closed
+    }
+  } catch { }
+}
+
+function Update-SmtcOwn($Ne) {
+  if (-not $script:SmtcOwn.Ready) { return }
+  try {
+    if ($null -eq $Ne -or -not ([string]$Ne.title)) { Close-SmtcOwn; return }
+    $nowUtc = [DateTime]::UtcNow
+    $ageSec = 0.0
+    try {
+      $tsMs = [double]$Ne.ts
+      if ($tsMs -gt 0) {
+        $ageSec = ([DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - $tsMs) / 1000.0
+        if ($ageSec -lt 0) { $ageSec = 0.0 }
+        if ($ageSec -gt 3) { $ageSec = 3.0 }
+      }
+    } catch { $ageSec = 0.0 }
+    $playing = ($Ne.playing -eq $true)
+    $posSec = [Math]::Max(0.0, ([double]$Ne.positionMs) / 1000.0)
+    if ($playing) { $posSec = $posSec + $ageSec }
+    $durSec = [Math]::Max(0.0, ([double]$Ne.durationMs) / 1000.0)
+    $title = [string]$Ne.title
+    $artist = [string]$Ne.artist
+    $album = [string]$Ne.album
+    $pic = [string]$Ne.pic
+    $metaChanged = ($title -ne $script:SmtcOwn.Title -or $artist -ne $script:SmtcOwn.Artist -or $album -ne $script:SmtcOwn.Album)
+    $picChanged = ($pic -ne $script:SmtcOwn.Pic)
+    $statusChanged = ($playing -ne $script:SmtcOwn.Playing)
+    $script:SmtcOwn.Title = $title
+    $script:SmtcOwn.Artist = $artist
+    $script:SmtcOwn.Album = $album
+    $script:SmtcOwn.Pic = $pic
+    $script:SmtcOwn.Playing = $playing
+    $script:SmtcOwn.Dur = $durSec
+    $script:SmtcOwn.Base = $posSec
+    $script:SmtcOwn.At = $nowUtc
+    $script:SmtcOwn.Live = $true
+    $script:SmtcOwn.UpdatedAt = $nowUtc
+    if ($metaChanged -or $picChanged -or -not $script:SmtcOwn.MetaSet) { Update-SmtcMeta }
+    if ($statusChanged -or $metaChanged -or -not $script:SmtcOwn.MetaSet) {
+      if ($playing) { $script:SmtcOwn.Controls.PlaybackStatus = [Windows.Media.MediaPlaybackStatus]::Playing }
+      else { $script:SmtcOwn.Controls.PlaybackStatus = [Windows.Media.MediaPlaybackStatus]::Paused }
+    }
+    Update-SmtcTimeline
+  } catch { }
+}
+
+function Tick-SmtcOwn {
+  if (-not $script:SmtcOwn.Ready) { return }
+  try {
+    # plugin truth gone stale -> hide our session (no zombie entry in flyout)
+    if ($script:SmtcOwn.Live) {
+      $fresh = $false
+      if ($null -ne $script:NeState) {
+        $ts = 0.0
+        try { $ts = [double]$script:NeState.ts } catch { $ts = 0.0 }
+        if ($ts -gt 0) {
+          $ageMs = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() - $ts
+          $fresh = ($ageMs -ge 0 -and $ageMs -le 6000)
+        } else {
+          $fresh = (((Get-Date) - $script:NeStateAt).TotalSeconds -le 6)
+        }
+      }
+      if (-not $fresh) { Close-SmtcOwn }
+    }
+    # wall-clock timeline advance (~1Hz; Microsoft docs recommend 5s, we do 1s)
+    if ($script:SmtcOwn.Live -and ((Get-Date) - $script:SmtcOwnLastTick).TotalMilliseconds -ge 950) {
+      $script:SmtcOwnLastTick = Get-Date
+      Update-SmtcTimeline
+    }
+  } catch { }
+}
+
+function Pop-SmtcEvents {
+  # drain events raised by our own SMTC session (media keys, flyout buttons,
+  # flyout drag). play/pause/next/prev: Try*Async on the NetEase session via
+  # Invoke-Control (proven working for these four; falls back to the plugin
+  # queue automatically when no session). seek: Invoke-Control 'seek' always
+  # queues to the plugin (NetEase ignores SMTC seek) + rebases our timeline.
+  $guard = 0
+  while ($guard -lt 12) {
+    $guard++
+    if ($script:SmtcQueue.Count -eq 0) { break }
+    $ev = $null
+    try { $ev = $script:SmtcQueue[0]; $script:SmtcQueue.RemoveAt(0) } catch { break }
+    if ($null -eq $ev) { break }
+    try {
+      if (((Get-Date) - ([DateTime]$ev.at)).TotalSeconds -gt 10) { continue }
+    } catch { continue }
+    $cmd = [string]$ev.cmd
+    if ($cmd -eq '') { continue }
+    $pos = $null
+    if ($cmd -eq 'seek') {
+      try { $pos = [double]$ev.position } catch { $pos = 0.0 }
+    }
+    $null = Invoke-Control $cmd $pos
+  }
+}
+
+function Initialize-OwnSmtc {
+  try {
+    # explicit AUMID: makes our session identifiable for the reader-side
+    # self filter AND keeps the flyout label stable. Best effort.
+    try {
+      if (-not ('ChuShiAumid' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System.Runtime.InteropServices;
+public static class ChuShiAumid {
+  [DllImport("shell32.dll")]
+  public static extern int SetCurrentProcessExplicitAppUserModelID([MarshalAs(UnmanagedType.LPWStr)] string AppID);
+}
+'@
+      }
+      $null = [ChuShiAumid]::SetCurrentProcessExplicitAppUserModelID('ChuShi.SmtcBridge')
+    } catch { }
+
+    # silent looping WAV fully in memory (no temp files - CJK path safe).
+    # 1s of 8kHz 16-bit mono silence; zero audible output, zero CPU.
+    $dataLen = 16000
+    $wav = New-Object byte[] (44 + $dataLen)
+    $a4 = [System.Text.Encoding]::ASCII.GetBytes('RIFF')
+    [Array]::Copy($a4, 0, $wav, 0, 4)
+    $a4 = [System.Text.Encoding]::ASCII.GetBytes('WAVE')
+    [Array]::Copy($a4, 0, $wav, 8, 4)
+    $a4 = [System.Text.Encoding]::ASCII.GetBytes('fmt ')
+    [Array]::Copy($a4, 0, $wav, 12, 4)
+    $a4 = [System.Text.Encoding]::ASCII.GetBytes('data')
+    [Array]::Copy($a4, 0, $wav, 36, 4)
+    $riffLen = 36 + $dataLen
+    $wav[4] = [byte]($riffLen -band 0xFF)
+    $wav[5] = [byte](($riffLen -shr 8) -band 0xFF)
+    $wav[6] = [byte](($riffLen -shr 16) -band 0xFF)
+    $wav[7] = [byte](($riffLen -shr 24) -band 0xFF)
+    $wav[16] = 16          # fmt chunk size
+    $wav[20] = 1           # PCM
+    $wav[22] = 1           # mono
+    $wav[24] = 0x40; $wav[25] = 0x1F    # 8000 Hz
+    $wav[28] = 0x80; $wav[29] = 0x3E    # byte rate 16000
+    $wav[32] = 2           # block align
+    $wav[34] = 16          # bits
+    $wav[40] = [byte]($dataLen -band 0xFF)
+    $wav[41] = [byte](($dataLen -shr 8) -band 0xFF)
+
+    $mem = New-Object Windows.Storage.Streams.InMemoryRandomAccessStream
+    $writer = New-Object Windows.Storage.Streams.DataWriter($mem.GetOutputStreamAt(0))
+    $writer.WriteBytes($wav)
+    $null = Await ($writer.StoreAsync()) ([System.UInt32])
+    $null = Await ($writer.FlushAsync()) ([System.Boolean])
+    $writer.DetachStream()
+    $writer.Dispose()
+    $mem.Seek(0)
+
+    $player = New-Object Windows.Media.Playback.MediaPlayer
+    $player.Volume = 0.0
+    $player.IsMuted = $true
+    $player.IsLoopingEnabled = $true
+    $source = [Windows.Media.Core.MediaSource]::CreateFromStream($mem, 'audio/wav')
+    $player.Source = $source
+
+    $ctrl = $player.SystemMediaTransportControls
+    $ctrl.IsEnabled = $true
+    $player.CommandManager.IsEnabled = $false
+    $ctrl.IsPlayEnabled = $true
+    $ctrl.IsPauseEnabled = $true
+    $ctrl.IsNextEnabled = $true
+    $ctrl.IsPreviousEnabled = $true
+    $ctrl.IsPlaybackPositionEnabled = $true
+
+    # media keys / flyout buttons -> synchronized queue (event thread safe),
+    # drained by the main HTTP loop between requests
+    $btnHandler = {
+      try {
+        $b = $SourceEventArgs.Button
+        $cmd = ''
+        if ($b -eq [Windows.Media.SystemMediaTransportControlsButton]::Play) { $cmd = 'play' }
+        elseif ($b -eq [Windows.Media.SystemMediaTransportControlsButton]::Pause) { $cmd = 'pause' }
+        elseif ($b -eq [Windows.Media.SystemMediaTransportControlsButton]::Next) { $cmd = 'next' }
+        elseif ($b -eq [Windows.Media.SystemMediaTransportControlsButton]::Previous) { $cmd = 'prev' }
+        if ($cmd -ne '') {
+          $null = $Event.MessageData.Add(@{ cmd = $cmd; position = 0.0; src = 'btn'; at = (Get-Date) })
+        }
+      } catch { }
+    }
+    $null = Register-ObjectEvent -InputObject $ctrl -EventName 'ButtonPressed' -Action $btnHandler -MessageData $script:SmtcQueue
+    $seekHandler = {
+      try {
+        $p = $SourceEventArgs.RequestedPlaybackPosition
+        if ($null -ne $p) {
+          $sec = [Math]::Max(0.0, $p.TotalSeconds)
+          $null = $Event.MessageData.Add(@{ cmd = 'seek'; position = $sec; src = 'seekreq'; at = (Get-Date) })
+        }
+      } catch { }
+    }
+    $null = Register-ObjectEvent -InputObject $ctrl -EventName 'PlaybackPositionChangeRequested' -Action $seekHandler -MessageData $script:SmtcQueue
+
+    # open + play the silent source so the session is reliably registered
+    try { $player.Play() } catch { }
+
+    $script:SmtcOwn.Controls = $ctrl
+    $script:SmtcOwn.Player = $player
+    $script:SmtcOwn.Ready = $true
+    Write-Host '[ChuShiBridge] Own full-power SMTC session initialized.'
+  } catch {
+    Write-Host '[ChuShiBridge] Own SMTC session unavailable (reader/transport still work).'
+    Write-Host $_.Exception.Message
+    try { if ($ctrl) { $ctrl.PlaybackStatus = [Windows.Media.MediaPlaybackStatus]::Closed } } catch { }
+    $script:SmtcOwn.Ready = $false
+  }
 }
 
 # ---------- init session manager ----------
@@ -421,6 +807,9 @@ try {
   Write-Host $_.Exception.Message
   exit 1
 }
+
+# ---------- v3.0.0 own full-power SMTC session (best effort; reader/transport unaffected on failure) ----------
+Initialize-OwnSmtc
 
 # ---------- HTTP listener (with version-aware takeover) ----------
 $listener = New-Object System.Net.HttpListener
@@ -506,6 +895,7 @@ Write-Host '  ============================ ChuShi SMTC Bridge ==================
 Write-Host "   Version  v$BRIDGE_VERSION (embedded edition, deployed by NetEase plugin)"
 Write-Host "   Listen   http://127.0.0.1:$Port  (loopback only)"
 Write-Host '   API      /api/state /api/cover /api/control /api/lyric /api/plugin/*'
+Write-Host '   OwnSmtc  full-power own media session driven by the NetEase plugin'
 Write-Host '   Note     Closing the NetEase window does NOT stop this bridge;'
 Write-Host '            the NetEase plugin restarts/upgrades it automatically.'
 Write-Host '  ============================================================================'
@@ -529,6 +919,10 @@ while ($true) {
   try { $ctx = $listener.GetContext() } catch { break }
   $req = $ctx.Request
   $res = $ctx.Response
+  # v3.0.0: drain events from our own SMTC session (media keys / flyout
+  # buttons / flyout drag) before routing - any incoming request unblocks
+  # this loop, so latency is bounded by the plugin 300ms cmd poll
+  try { Pop-SmtcEvents } catch { }
   try {
     if ($req.HttpMethod -eq 'OPTIONS') {
       $res.StatusCode = 204
@@ -565,11 +959,23 @@ while ($true) {
 
     if ($path -eq '/api/state') {
       Ensure-Fresh
+      Pop-SmtcEvents
       $s = $script:State
       # v2.0.0: plugins registry (supervisor plugin self-report, fresh <= 90s)
       $plugins = $null
       if ($script:SmtcPluginVer -and ((Get-Date) - $script:SmtcPluginAt).TotalSeconds -le 90) {
         $plugins = @{ smtc = [string]$script:SmtcPluginVer }
+      }
+      # v3.0.0: own full-power session diagnostic (not consumed by the host
+      # panel - the panel truth is ne; this is for diagnostics/support)
+      $smtcOwnPub = $null
+      if ($script:SmtcOwn.Ready) {
+        $smtcOwnPub = @{
+          ready = $true; live = [bool]$script:SmtcOwn.Live
+          playing = [bool]$script:SmtcOwn.Playing
+          position = [Math]::Round((Get-SmtcOwnPos), 3)
+          duration = [Math]::Round([double]$script:SmtcOwn.Dur, 3)
+        }
       }
       if ($s.HasSession) {
         Send-Json $res @{
@@ -584,9 +990,10 @@ while ($true) {
           }
           ne = (Get-NeFresh)
           plugins = $plugins
+          smtcOwn = $smtcOwnPub
         }
       } else {
-        Send-Json $res @{ ok = $true; name = 'chushi-smtc-bridge'; version = $BRIDGE_VERSION; track = $null; plugins = $plugins }
+        Send-Json $res @{ ok = $true; name = 'chushi-smtc-bridge'; version = $BRIDGE_VERSION; track = $null; plugins = $plugins; smtcOwn = $smtcOwnPub }
       }
       continue
     }
