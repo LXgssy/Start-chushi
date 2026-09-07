@@ -1,6 +1,6 @@
 # AI-HANDOFF — 给下一个读这个仓库的 AI / 开发者
 
-> 最后更新：v4.0.0（2026-09-07）。写给你的：无论你是人类贡献者还是 AI 助手，
+> 最后更新：v5.0.0（2026-09-07）。写给你的：无论你是人类贡献者还是 AI 助手，
 > 这一页是项目的「当前状态 + 下一步该干什么」的单一事实来源。
 > 动手前请先读完本页，不要凭想象改架构。
 
@@ -8,7 +8,8 @@
 
 「初始 / Start-chushi」：Next.js 15 新标签页（网页 + Edge MV3 扩展双形态），
 其中 SMTC 音乐面板显示网易云播放真值（进度/逐字歌词）并可控播。
-**v4.0.0 = 音乐链路全部从零重写**（用户明确指令：删光老代码、零复用）。
+**v5.0.0 = 音乐链路五层全部从零重写完成**（v4 四层 + 用户指认补齐的
+预设包/音乐面板 API/前端层；用户明确指令：删光老代码、零复用）。
 
 ## v4.0.0 重写的用户三条硬性指令（宪法级，永远生效）
 
@@ -19,14 +20,19 @@
 3. **插件不能有中文**——插件文件名、manifest、代码内容全部 ASCII
    （构建门逐字符断言）。用户真机实证：中文会导致"读取不了"。
 
-## 组件拓扑（v4.0.0 — 谁跟谁说话，谁拥有什么）
+**v5.0.0 补齐指令（同宪法级）**：用户「预设包和音乐面板所有相关的 API
+也不用重写了？全部重写」——v4 保留字节不动的 music-widget.html、沙盒
+音乐核心、smtc.ts 数据面在 v5 全部从零重写（视觉样式不变）；至此
+插件A/插件B/引擎/预设包/音乐面板 API 与前端**五层 0 复用**。
+
+## 组件拓扑（v5.0.0 — 谁跟谁说话，谁拥有什么）
 
 ```
 [Edge 扩展 / gh-pages 网页] ←同代码双形态→ [Next.js 静态导出 out/]
         │ postMessage(sandbox iframe / widget shim)
-        │  host: src/lib/startpage/smtc.ts v4（单真值直显，1s 轮询 127.0.0.1:26801）
+        │  host: src/lib/startpage/smtc.ts v5（单真值直显，1s 轮询 127.0.0.1:26801）
         ▼
-[引擎 bridge/engine/chushi-smtc-engine.ps1 v4.0.0]
+[引擎 bridge/engine/chushi-smtc-engine.ps1 v5.0.0]
         │  自有满血 SMTC 会话（MediaPlayer + CommandManager 禁用 = 官方
         │  manual-control 模式；AUMID 'ChuShi.SmtcEngine'；内存静音 WAV）：
         │    时间线 1Hz 墙钟推进 / IsPlaybackPositionEnabled 可拖 /
@@ -39,8 +45,16 @@
         │    GET  /api/cmd(插件 300ms 出队)  POST /api/mgr(管理插件心跳)
         ▲ /api/ne /api/lyric /api/cmd        ▲ /api/ping /api/mgr
         │                                    │
-[插件B ChuShi Music API cc.chushi.ncmapi v3.0.0]  [插件A ChuShi SMTC Manager cc.chushi.smtcbridge v3.0.0]
+[插件B ChuShi Music API cc.chushi.ncmapi v5.0.0]  [插件A ChuShi SMTC Manager cc.chushi.smtcbridge v5.0.0]
  只读真值生产者 + 控制执行器 + 全量歌词            引擎部署/杀旧/拉起/监督（SHA-256 读回校验）
+
+**v5 换代的四层（全部从零新写，样式不变）**：
+- 预设包部件 preset-src/smtc/music-widget.html v5（防位移三律/lyHold 迟滞/
+  乐观翻转/芯片四态诚实归因全保留，实现全新）+ music-commands.js v5。
+- 沙盒音乐核心 public/sandbox.js `__chushiMusicCoreV5`（Function.toString()
+  双通道同源；whitelist() 宿主态→部件快照扁平化唯一出口）。
+- 数据面 src/lib/startpage/smtc.ts v5（ENGINE_VER_MIN/PLUGIN_VER_MIN=5.0.0）。
+- 部件通道 src/components/startpage/PresetWidgets.tsx v5 路由。
 ```
 
 **v4 数据律（每数据单主，缺一即复发老 bug）**：
@@ -60,14 +74,14 @@
 
 ## 构建产线（改完代码必走全）
 
-1. `python3 scripts/test-crypto-v4.mjs` — 密码学向量 + ASCII 门（必须全过）
-2. `python3 scripts/build-v4-plugins.py` — 双 .plugin（引擎 base64 注入 + 协议交叉断言）
-3. `bun run build:export` → out/ ⚠ `next build` standalone 不写 out/
-4. `python3 scripts/build-extension.py` → 扩展 zip（⚠ 覆盖 out/，Pages 部署必须在其前）
-5. `python3 scripts/build-smtc-preset.py` → examples/初始SMTC音乐预设.cshz
-6. `python3 scripts/build-v4-assets.py` → download/v4.0.0/ 交付包全家 + SHA256SUMS.txt
-7. `node scripts/pw-lab/verify-v4.mjs` → 必须 **141/141 × 2 轮**
-   （S1-S10 静态门 + PSX 真语法门 + V1-V5 插件白盒 + M1-M4 核心单测 + E1-E11 e2e）
+1. `node scripts/syntax-gate-v5.mjs` — 全部 v5 JS 语法门（含 .plugin 内嵌 index.js 回环解析）
+2. `node scripts/verify-v5.mjs` + `node scripts/verify-v5-whitebox.mjs` +
+   `node scripts/verify-v5-e2e.mjs` — **184 项 × 2 轮**（静态 137 + 白盒 24 + e2e 23）
+3. `python3 scripts/build-v5-plugins.py` — 双 .plugin（引擎 base64 注入 + 门）
+4. `EXTENSION_MODE=1 bun run build:extension` → out/ ⚠ `next build` standalone 不写 out/
+5. `python3 scripts/build-extension.py` → 扩展 zip v5.0.0（⚠ 覆盖 out/，Pages 部署必须在其前）
+6. `python3 scripts/build-v5-preset.py` → examples/初始SMTC音乐预设.cshz
+7. `python3 scripts/build-v5-assets.py` → download/v5.0.0/ 交付六件套 + SHA256SUMS.txt
 8. `bash scripts/deploy-pages.sh` → gh-pages → 线上 grep 指纹验证
 9. Release（token 在 .pkgtmp/gh-token，0600；上传走 uploads.github.com）+ 文叔叔
    （scripts/pw-lab/wss-send.py；匿名限 2 任务/天，链接 1 天过期）
@@ -76,14 +90,15 @@
 
 | 宿主 | 要求引擎 | 要求API插件 | 管理插件 | 说明 |
 |------|---------|------------|---------|------|
-| v4.0.0 | 4.0.0（自有满血会话） | 3.0.0（只读+元素控制+歌词） | 3.0.0 | 全量重写代 |
+| v5.0.0 | 5.0.0（自有满血会话） | 5.0.0（只读+元素控制+歌词） | 5.0.0 | 五层全量重写代 |
+| v4.0.0 | 4.0.0（自有满血会话） | 3.0.0（只读+元素控制+歌词） | 3.0.0 | 四层重写代 |
 
 - 引擎不可达 = needsBridge（装 Manager 插件自动管理，或手动 Start-Engine.bat）。
-- ne 心跳缺失/ne.v < 3.0.0 = needsPlugin（装/更新 .plugin）。
+- ne 心跳缺失/ne.v < 5.0.0 = needsPlugin（装/更新 .plugin）。
 - 版本各查各的活源：引擎版本=/api/state.ver；API 插件=ne.v；管理插件=/api/state.mgr。
   不猜、不缓存。
-- **迁移**：新 .plugin 与旧「初始歌词源」并存无冲突（端口都不同：旧 20754 / 新 26801），
-  但面板会因 ne 心跳带 v=3.0.0 而正常显示；旧插件应卸载（插件B 配置面板有冲突提醒）。
+- **迁移**：v5 双插件可直接覆盖 v4 双插件（同名 slug 自动替换）；
+  旧「初始歌词源」应卸载（插件B 配置面板有冲突提醒）。
 
 ## 已知坑（本代新坑 + 沿用铁律）
 
@@ -112,6 +127,19 @@
 11. **策略拦截机器**：插件A 拉引擎失败 → 诚实 backoff + bridgeBlocked +
     交付包手动 bat 兜底。任何"拉进程"路径必须容忍被拦。
 12. **升级提示文案必须与真实可行路径一一对应**（v2.3.2 教训延续）。
+13. **e2e harness 的 innerHTML 不执行 <script>**（HTML5 规范）：部件 html
+    用 innerHTML 注入后脚本永远不跑、空态浮层拦截一切点击（v5 首跑 E3
+    超时的根因）。必须 iframe srcdoc + mock 定义在部件脚本之前；断言全部
+    走 frame 上下文。
+14. **String.replace 第二参为 JS 源码时 $&/$'/$` 是特殊序列**：会被替换
+    语义解释。一律用函数替换器 `replace(s, () => code)`。
+15. **sandbox.js 按 location.search 分发 pageMode/widgetMode**：srcdoc 无
+    query 永远进不了 widgetMode（e2e 必须用服务器路径 /sandbox-frame?mode=widget
+    生产同形加载）。含字面 `</script>` 的 JS 内联进 HTML script 块必须先
+    `<\/script>` 转义（JS 字符串等价）。
+16. **测试基建的三重根因都披着「被测代码坏了」的外衣**：v5 e2e 三连修
+    （innerHTML→srcdoc / replace 陷阱 / 模式分发）全非产品 bug；先分层
+    归因（产品 vs harness）再动手，别急着改产品代码。
 
 ## 用户机器的已知约束（真机实证）
 
@@ -121,12 +149,12 @@
 
 ## 下一步开发任务（按优先级）
 
-### A. v4.0.0 真机验收（最高优先，等用户反馈）
+### A. v5.0.0 真机验收（最高优先，等用户反馈）
 1. 网易云 SMTC 开关**关闭**状态下：放歌 → 悬浮窗/锁屏出现本引擎卡片
    （进度每秒走、可拖、媒体键全响应）；拖动后网易云真实跳转。
 2. 面板进度/时间/逐字歌词跟手；暂停淡出、恢复淡入；暂停 30s 恢复无漂移。
 3. 网易云**自家**进度条/按钮与装插件前行为一致（"装插件弄坏本体"根治确认）。
-4. 页脚 `API v3.0.0 · 管理 v3.0.0`；升级芯片熄灭。
+4. 页脚 `API v5.0.0 · 管理 v5.0.0`；升级芯片熄灭。
 5. 若引擎未自启（策略拦截）：交付包手动 Start-Engine.bat 后面板应连上。
 
 ### B. seek 元素级真机验证
@@ -146,9 +174,9 @@
 
 ## 交付流程备忘（每次发版照抄）
 
-1. 改码 → 全产线重建 → verify-v4 全绿（两轮）
+1. 改码 → 全产线重建 → verify-v5 三套全绿（两轮）
 2. commit（`vX.Y.Z: 一句话——①②③`）→ push main
 3. `bash scripts/deploy-pages.sh`（工作树必须干净）→ 线上 grep 指纹
-4. GitHub Release：五资产直链 + SHA-256 全输出 ALL OK
+4. GitHub Release：资产直链 + SHA-256 全输出 ALL OK
 5. 文叔叔合并包（wss-send.py）→ 链接发用户
 6. worklog.md 追加本版记录；README 版本历史补段；本文件更新「下一步任务」
