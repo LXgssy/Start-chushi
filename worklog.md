@@ -907,3 +907,4 @@ Work Log:
 - 【构建与门】llvm-mingw 重编译 76800B；llvm-nm 确认无 RoActivateInstance 引用；反汇编确认 UpdateTimelineProperties(smtc2, &tp) 走 vtable+0x60、struct 在栈上；新打包门 G1-G8（新增 G8=DLL 内 b'RoActivateInstance' 不存在）16/16 全绿；版本同步 manifest/伴生 JS/DLL=7.0.1（B/C/前端零变化，协议兼容，页脚版本门 >=7.0.0 通过）
 - 【文档】AI-HANDOFF：坑 27 重大纠正（struct 事实+崩溃实锤+判断律「凡 struct/enum/delegate 不可激活」）+ 坑 29（CrashReport 符号化陷阱：非导出函数全归最近导出名，必须 RVA 反汇编定位）+ 坑 30（native-log.txt 通道）；任务 A/B 改为 v7.0.1 验收与日志优先排障
 - 【交付】download/v7.0.1/{ChuShi-SMTC-Manager-7.0.1.plugin, SHA256SUMS.txt, 使用说明-崩溃修复v7.0.1.md}；git 推送；Release v7.0.1；文叔叔
+- 【交付链接实录】文叔叔 https://c.wss.ink/f/ktj46tnrin9（崩溃修复包 zip：plugin+说明+SHA256）；Release https://github.com/LXgssy/Start-chushi/releases/tag/v7.0.1（双资产 SHA-256 ALL OK）；commit 961efec 推送 main
