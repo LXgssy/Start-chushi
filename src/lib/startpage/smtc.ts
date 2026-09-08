@@ -1,5 +1,10 @@
 /* ============================================================================
- * 「初始」音乐面板数据客户端 v8.0.4（第八代，InfLink-rs 适配版）
+ * 「初始」音乐面板数据客户端 v8.0.5（第八代，InfLink-rs 适配版）
+ *
+ * v8.0.5 原生媒体键兜底版（插件层独有变更，本文件仅版本门提升）：
+ *   PLUGIN_VER_MIN 8.0.4→8.0.5 —— 旧桥插件（渲染层四路全灭的 NCM 上无法
+ *   控歌）必须升级到 8.0.5（含 hub.dll 8.0.5 原生媒体键端点）才能通过
+ *   版本门，面板「组件待更新」芯片会如实提示；页面侧诊断口与控制链路不变。
  *
  * v8.0.4 歌词滞留根治 + 控制可观测（用户实机取证）：
  *   ①歌词拉取强校验——hub /api/lyric 是单槽缓存，切歌瞬间页面拉到的必然是
@@ -44,8 +49,8 @@ export const SMTC_PORTS: readonly number[] = [26901, 26902, 26903];
 
 const HUB_NAME = "chushi-music-hub";
 const HUB_VER_MIN = "8.0.0";
-const PLUGIN_VER_MIN = "8.0.4";
-const CLIENT_VER = "8.0.4";
+const PLUGIN_VER_MIN = "8.0.5";
+const CLIENT_VER = "8.0.5";
 const POLL_MS = 1000;
 const RETRY_MS = 1500;
 const TIMEOUT_MS = 2200;

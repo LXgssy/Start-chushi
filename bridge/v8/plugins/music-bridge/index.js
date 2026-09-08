@@ -1,18 +1,19 @@
 /* ============================================================================
- * ChuShi Music Bridge 8.0.4 — 网易云 InfLink-rs 适配桥（v8.0.4 歌词滞留根治+控制可观测）
+ * ChuShi Music Bridge 8.0.5 — 网易云 InfLink-rs 适配桥（v8.0.5 原生媒体键终级兜底）
  *   v8.0.1：①命令解析兼容 hub 实物协议 {"_id",raw:{...}}；②jpost 2.5s 超时；
  *   ③toggle 方向判定取 InfLink 真值。
  *   v8.0.2：控制验证+三级备路 / 播放态时间线自愈 / 封面 https 升级。
  *   v8.0.3：按钮候选扩宽 / 完整指针序列 / toggle 元素路径复验。
- *   v8.0.4（用户实机取证：切歌后歌词滞留上一首 + 按键失效无从诊断）：
- *   ①切歌检测改曲键（songId|title）——songId 恒 0 的真值源也能触发重拉；
- *   ②requestLyric 先推 pending 占位清 hub 单槽旧词——窗口期页面只见等待态，
- *     绝不再见上一首的词继续滚（页面端同步加了 songId 强校验）；
- *   ③暂停态 yrc 校准重查（用户指定管线）：当前词无逐字时趁暂停每 30s 重查
- *     逐字源（至多 3 次/曲），拿到 yrc 即升级真逐字（时间轴仍由 SMTC 锚点
- *     驱动，渲染层对纯 lrc 行内插值伪逐字，全曲都有逐字效果）；
- *   ④命令回执进 /api/state（state.cmd.last）——用户在浏览器里测试拿不到本
- *     诊断口，面板/页面端可直读「命令是否被执行、四路降级走到哪一级」。
+ *   v8.0.4：切歌曲键检测+pending 清槽 / 逐字校准管线 / 命令回执进 /api/state。
+ *   v8.0.5（用户 cmdTrace 取证：POST ok=true 而播放不动 = 渲染层四级备路
+ *   InfLink/redux/元素/按钮在该 NCM 3.x 版本上全灭，连续四轮实测穷尽）：
+ *   新增终级兜底 nativeEscalate —— hub.dll 8.0.5 新端点 /api/native 在
+ *   操作系统输入层重放「媒体键」（mode1=WM_APPCOMMAND 直投本进程主窗口，
+ *   mode2=keybd_event 全局虚拟媒体键），与物理键盘媒体键完全同一条通路
+ *   （NCM 自带 SMTC 或 InfLink-rs 二者必居其一持有会话——物理媒体键能
+ *   控歌就必通）。每次注入前方向预检（目标已达成不补刀，防 toggle 双向
+ *   振荡），注入后 950ms 验证，回执路径 napp/nkey；旧 hub 无此端点回 404
+ *   诚实降级（markCmd ok=false path=native）。
  *
  * v8 架构律（本代宪法）：
  *   1. 零自写 SMTC——系统媒体卡片（元数据/封面/时间线/媒体键/拖动）完全由
@@ -41,7 +42,7 @@
   'use strict';
   if (window.__chushiMusicBridge) return;
 
-  var VER = '8.0.4';
+  var VER = '8.0.5';
   var HUB_NAME = 'chushi-music-hub';
   var HUB_PORTS = [26901, 26902, 26903];
   var BEAT_MS = 1000;
@@ -642,12 +643,24 @@
 
   function songKey() { return truth.songId + '|' + truth.title; }
 
-  /* 方向真值：优先本桥真值快照（readTruth 已含时间线自愈，1Hz 新鲜）；
-     InfLink playState 冻结时盲信它会把方向/验证全部带偏。 */
+  /* 方向真值（v8.0.5 仲裁律——e2e B3 台架实锤的假 'link' 回执根因）：
+     ①linkStatus() 实时读 playState 是唯一无陈旧窗口的信号，第一优先；
+     ②唯一例外 = v8.0.2 冻结病（playState 恒 Paused 而进度在推进）：
+       真值快照带 inflink+heal 标记且新鲜 → heal 铁证赢过冻结的实时值；
+     ③探测前遗留的无源帧（src=none，playing 继承自初始化假值）绝不可信；
+     ④InfLink 缺席 → 新鲜真值 → audio 元素 → 继承值。 */
   function playingNowCalc() {
-    if (truth.updatedAt && nowMs() - truth.updatedAt < 3500) return truth.playing;
+    var fresh = !!(truth.updatedAt && nowMs() - truth.updatedAt < 2500);
     var st = linkStatus();
-    if (st) return (st === 'Playing' || st === 'Loading');
+    if (st) {
+      var live = (st === 'Playing' || st === 'Loading');
+      if (fresh && truth.playing !== live) {
+        if (truth.playing && truth.src === 'inflink+heal') return true; /* 冻结病仲裁 */
+        return live; /* 无源帧/其他分歧 → 信实时 */
+      }
+      return live;
+    }
+    if (fresh) return truth.playing;
     var el = getAudio();
     if (el) return !el.paused && !el.ended;
     return truth.playing;
@@ -729,7 +742,8 @@
             }
             clickSeq(visibleBtn(BTN_PLAY));
             traceCmd('fb', 'button');
-            markCmd(cmd._id, type, false, 'button');
+            /* v8.0.5：四级全灭 → 终级兜底原生媒体键（方向语义交 native 层预检） */
+            nativeEscalate(seq, cmd._id, type, function () { return playingNowCalc() === wantPlay; });
           }, 700);
         }, 800);
       }, 900);
@@ -752,7 +766,7 @@
         markCmd(cmd._id, type, ok1 ? true : false, ok1 ? 'redux' : 'button');
         return;
       }
-      /* +1200ms 验证：曲未变（单循环曲也极少原地）→ 直发 dva；再 +1100ms 仍原曲 → 按钮 */
+      /* +1200ms 验证：曲未变（单循环曲也极少原地）→ 直发 dva；再 +1100ms 仍原曲 → 按钮 → 原生 */
       setTimeout(function () {
         if (seq !== cmdSeq) return;
         if (songKey() !== key0) { traceCmd('ok', 'link'); markCmd(cmd._id, type, true, 'link'); return; }
@@ -762,7 +776,8 @@
           if (songKey() !== key0) { traceCmd('ok', 'redux'); markCmd(cmd._id, type, true, 'redux'); return; }
           clickTransport(dir);
           traceCmd('fb', 'button');
-          markCmd(cmd._id, type, false, 'button');
+          /* v8.0.5：四级全灭 → 终级兜底原生媒体键 */
+          nativeEscalate(seq, cmd._id, type, function () { return songKey() !== key0; });
         }, 1100);
       }, 1200);
     } else if (type === 'seek') {
@@ -822,6 +837,42 @@
 
   function clickTransport(dir) {
     clickSeq(visibleBtn(dir === 'next' ? BTN_NEXT : BTN_PREV));
+  }
+
+  /* ---------------------------------------------------------------- */
+  /* v8.0.5 终级兜底：原生媒体键（hub.dll 8.0.5 新端点 /api/native）       */
+  /*   渲染层四路（InfLink/redux/元素/按钮）全灭的 NCM 3.x 版本上，        */
+  /*   唯一未触及的层 = 操作系统输入层。mode1=WM_APPCOMMAND（scoped），    */
+  /*   mode2=keybd_event 全局虚拟媒体键（物理键盘同一条输入流——NCM 自带   */
+  /*   SMTC 或 InfLink 二者必居其一持有会话，物理媒体键能控就必通）。       */
+  /*   每次注入前方向预检：目标已达成（迟到低阶路径/外部操作生效）不补刀，   */
+  /*   防 toggle 型注入的双向振荡；注入后 950ms 验证，回执 napp/nkey。      */
+  /*   旧 hub（<8.0.5）无端点 404 → mode2 再试一次 → 仍无则诚实失败。      */
+  /* ---------------------------------------------------------------- */
+  function nativeFireOnce(seq, id, type, checkOk, mode) {
+    if (seq !== cmdSeq) return;
+    if (checkOk()) { traceCmd('ok', 'late'); markCmd(id, type, true, 'late'); return; } /* 预检：已达标 */
+    jpost(hub.url('/api/native'), { act: type === 'next' ? 'next' : type === 'prev' ? 'prev' : 'toggle', mode: mode })
+      .then(function (j) {
+        if (seq !== cmdSeq) return;
+        if (!j || j.ok !== true) {
+          /* hub 太旧或无主窗（mode1 hwnd=0）→ mode2 再试；仍败 → 诚实失败 */
+          if (mode === 1) { traceCmd('fb', 'no-native'); nativeFireOnce(seq, id, type, checkOk, 2); return; }
+          traceCmd('fb', 'native');
+          markCmd(id, type, false, 'native');
+          return;
+        }
+        setTimeout(function () {
+          if (seq !== cmdSeq) return;
+          if (checkOk()) { traceCmd('ok', mode === 1 ? 'napp' : 'nkey'); markCmd(id, type, true, mode === 1 ? 'napp' : 'nkey'); return; }
+          if (mode === 1) { traceCmd('fb', 'napp'); nativeFireOnce(seq, id, type, checkOk, 2); return; }
+          traceCmd('fb', 'nkey');
+          markCmd(id, type, false, 'native');
+        }, 950);
+      });
+  }
+  function nativeEscalate(seq, id, type, checkOk) {
+    nativeFireOnce(seq, id, type, checkOk, 1);
   }
 
   function doSeek(pos) {
