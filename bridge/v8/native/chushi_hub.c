@@ -34,7 +34,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define PLUGIN_VERSION "8.0.2"
+#define PLUGIN_VERSION "8.0.3"
 #define HUB_NAME_S "chushi-music-hub"
 #define HUB_MUTEX_NAMEW L"ChuShi-Music-Hub-8-Singleton"
 

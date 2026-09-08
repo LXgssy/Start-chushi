@@ -11,6 +11,12 @@
  *   ② 播放态时间线自愈——InfLink playState 冻结为 Paused 但时间线仍在推进
  *      （≥1.2s/拍）时按播放处理（面板▶/进度走同屏矛盾的根因）；
  *   ③ 封面 http→https 升级——页面端 https 源丢弃 http 图导致恒显默认底。
+ *   v8.0.3 控制末端加固（用户实测 NCM 3.x 上 InfLink/redux 派发均被静默忽略）：
+ *   ①按钮候选扩宽（aria-label/title 中文关键词 + class 模糊匹配，NCM 3.x DOM
+ *     改版兼容；列表/队列类按钮误中保护）；②完整指针事件序列
+ *     （pointerdown→mousedown→pointerup→mouseup→click）；③toggle 元素路径
+ *     +700ms 复验（元素自身 paused 即算生效，防双翻转），双真值都未达预期
+ *     才走末端按钮。
  *
  * v8 架构律（本代宪法）：
  *   1. 零自写 SMTC——系统媒体卡片（元数据/封面/时间线/媒体键/拖动）完全由
@@ -39,7 +45,7 @@
   'use strict';
   if (window.__chushiMusicBridge) return;
 
-  var VER = '8.0.2';
+  var VER = '8.0.3';
   var HUB_NAME = 'chushi-music-hub';
   var HUB_PORTS = [26901, 26902, 26903];
   var BEAT_MS = 1000;
@@ -638,6 +644,20 @@
     } catch (e) { return false; }
   }
 
+  function elemToggle(el, wantPlay) {
+    try {
+      if (wantPlay) {
+        var pr = el.play();
+        if (pr && typeof pr.catch === 'function') {
+          pr.catch(function () { clickSeq(visibleBtn(BTN_PLAY)); }); /* 自动播放策略拒绝 → 按钮 */
+        }
+      } else {
+        el.pause();
+      }
+      return true;
+    } catch (e) { return false; }
+  }
+
   function execCommand(cmd) {
     if (!cmd || typeof cmd !== 'object') return;
     var type = clip(cmd.cmd || cmd.type, 16);
@@ -665,15 +685,20 @@
           if (seq !== cmdSeq) return;
           if (playingNowCalc() === wantPlay) { traceCmd('ok', 'redux'); return; }
           var el = getAudio();
-          if (el) {
-            try {
-              if (wantPlay) safePlay(el); else el.pause();
-              traceCmd('fb', 'element');
-              return;
-            } catch (e) { /* 元素失败 → 按钮 */ }
-          }
-          toggleViaButton();
-          traceCmd('fb', 'button');
+          if (el) elemToggle(el, wantPlay);
+          /* v8.0.3：+700ms 复验——元素自身 paused 也算数（播放态真值可能冻结）；
+             双真值都未达预期才走按钮，防双翻转（元素已停再点按钮=恢复播放） */
+          setTimeout(function () {
+            if (seq !== cmdSeq) return;
+            var elOk = null;
+            var el2 = getAudio();
+            if (el2) elOk = wantPlay ? !el2.paused : el2.paused;
+            if (playingNowCalc() === wantPlay || elOk === true) {
+              traceCmd('ok', elOk === true ? 'element' : 'late'); return;
+            }
+            clickSeq(visibleBtn(BTN_PLAY));
+            traceCmd('fb', 'button');
+          }, 700);
         }, 800);
       }, 900);
     } else if (type === 'next' || type === 'prev') {
@@ -712,26 +737,25 @@
     }
   }
 
-  /* 备路：CEF 自动播放策略拒绝 el.play() 时，降级点击本体播放/暂停按钮 */
-  function safePlay(el) {
-    try {
-      var pr = el.play();
-      if (pr && typeof pr.catch === 'function') {
-        pr.catch(function () {
-          var b = visibleBtn(['.btn-p-play', '#btn-play', '.j-play', '[data-action="play"]',
-            '[aria-label*="播放"]', '[aria-label*="暂停"]']);
-          if (b) { try { b.click(); } catch (e2) { } }
-        });
-      }
-    } catch (e) {
-      var b2 = visibleBtn(['.btn-p-play', '#btn-play', '.j-play', '[data-action="play"]']);
-      if (b2) { try { b2.click(); } catch (e3) { } }
-    }
-  }
+  /* 备路：CEF 自动播放策略拒绝 el.play() 时，降级点击本体播放/暂停按钮。
+     v8.0.3 套路升级：①完整指针序列（pointerdown→mousedown→pointerup→mouseup
+     →click，部分 NCM 版本的 React 处理器监听鼠标事件而非 click）；
+     ②候选选择器扩宽（aria-label/title 中文关键词，NCM 3.x DOM 改版兼容），
+     误中保护：列表/队列类按钮（播放列表等）一律跳过。 */
+  var BTN_PLAY = ['.btn-p-play', '#btn-play', '.j-play', '[data-action="play"]',
+    '[aria-label*="播放"]', '[aria-label*="暂停"]', '[title*="播放"]', '[title*="暂停"]',
+    '[class*="btn"][class*="play"]', '[class*="play"][class*="btn"]', '.play-btn', '.playBtn'];
+  var BTN_NEXT = ['.btn-p-next', '#btn-next', '.j-next', '[data-action="next"]', '.next-btn',
+    '[aria-label*="下一首"]', '[title*="下一首"]', '[class*="btn"][class*="next"]'];
+  var BTN_PREV = ['.btn-p-previous', '#btn-previous', '.j-prev', '[data-action="previous"]', '.prev-btn',
+    '[aria-label*="上一首"]', '[title*="上一首"]', '[class*="btn"][class*="prev"]'];
 
-  function toggleViaButton() {
-    var b = visibleBtn(['.btn-p-play', '#btn-play', '.j-play', '[data-action="play"]']);
-    if (b) { try { b.click(); } catch (e) { /* 点击异常 */ } }
+  function btnLabelOk(el) {
+    try {
+      var lab = (el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('title'))) || '';
+      if (/列表|队列|清单|歌单/.test(lab)) return false; /* 误中保护：播放列表类按钮不碰 */
+    } catch (e) { /* 属性异常按可用 */ }
+    return true;
   }
 
   function visibleBtn(cands) {
@@ -739,18 +763,30 @@
       var list = document.querySelectorAll(cands[i]);
       for (var j = 0; j < list.length; j++) {
         var b = list[j];
-        if (b && b.offsetParent !== null && typeof b.click === 'function') return b;
+        if (b && b.offsetParent !== null && typeof b.click === 'function' && btnLabelOk(b)) return b;
       }
     }
     return null;
   }
 
+  function clickSeq(el) {
+    if (!el) return false;
+    try {
+      var opts = { bubbles: true, cancelable: true, view: window };
+      var evs = ['pointerdown', 'mousedown', 'pointerup', 'mouseup'];
+      for (var i = 0; i < evs.length; i++) {
+        try {
+          var isPtr = evs[i].indexOf('pointer') === 0 && typeof PointerEvent === 'function';
+          el.dispatchEvent(isPtr ? new PointerEvent(evs[i], opts) : new MouseEvent(evs[i], opts));
+        } catch (e1) { /* 单事件失败继续 */ }
+      }
+      if (typeof el.click === 'function') { el.click(); return true; }
+    } catch (e) { /* 点击异常 */ }
+    return false;
+  }
+
   function clickTransport(dir) {
-    var cands = dir === 'next'
-      ? ['.btn-p-next', '#btn-next', '.j-next', '[data-action="next"]', '.next-btn']
-      : ['.btn-p-previous', '#btn-previous', '.j-prev', '[data-action="previous"]', '.prev-btn'];
-    var b = visibleBtn(cands);
-    if (b) { try { b.click(); } catch (e) { /* 点击异常 */ } }
+    clickSeq(visibleBtn(dir === 'next' ? BTN_NEXT : BTN_PREV));
   }
 
   function doSeek(pos) {

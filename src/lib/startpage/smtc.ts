@@ -1,5 +1,5 @@
 /* ============================================================================
- * 「初始」音乐面板数据客户端 v8.0.1（第八代，InfLink-rs 适配版）
+ * 「初始」音乐面板数据客户端 v8.0.3（第八代，InfLink-rs 适配版）
  *
  * v8.0.1 容错调优：配合枢纽空连接快关（hub 侧最坏阻塞 3s→0.5s），
  *   采样超时 1400→2200ms、重探节流 2400→1500ms、掉线判定 2→3 连败——
@@ -34,7 +34,7 @@ export const SMTC_PORTS: readonly number[] = [26901, 26902, 26903];
 
 const HUB_NAME = "chushi-music-hub";
 const HUB_VER_MIN = "8.0.0";
-const PLUGIN_VER_MIN = "8.0.2";
+const PLUGIN_VER_MIN = "8.0.3";
 const POLL_MS = 1000;
 const RETRY_MS = 1500;
 const TIMEOUT_MS = 2200;
