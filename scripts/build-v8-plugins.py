@@ -23,8 +23,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / 'bridge/v8/plugins'
 NATIVE_DLL = ROOT / 'bridge/v8/native/hub.dll'
-OUT = ROOT / 'download/v8.0.5'
-VER = '8.0.5'
+OUT = ROOT / 'download/v8.0.6'
+VER = '8.0.6'
 LYRIC_VER = '7.2.0'
 
 PASS = 0
@@ -214,13 +214,12 @@ def main():
             imports = pe_import_names(dll)
             imp_blob = b'|'.join(n.encode() for n in imports)
             check('hub.dll 必须导入 WS2_32', b'WS2_32' in imp_blob, str(imports))
-            check('hub.dll 必须导入 USER32（v8.0.5 媒体键兜底）', b'USER32' in imp_blob, str(imports))
+            check('hub.dll 零 USER32 导入（v8.0.6 媒体键退役，OS 输入层干预根除）', b'USER32' not in imp_blob, str(imports))
             hit = [h.decode() for h in WINRT_IMPORT_HINTS if h in imp_blob]
             check('hub.dll 零 WinRT/COM 导入（v8 宪法 G5）', not hit, str(hit))
-            check('hub.dll 内嵌版本串 8.0.5', b'8.0.5' in dll)
-            check('hub.dll nativeFire 响应格式串在位（v8.0.5；注：GCC -O2 会把 strncmp 字面量展开成立即数比较，/api/native 字符串不落 .rdata，故断言响应格式串）',
-                  b'"mode":%d,"hwnd":%d' in dll)
-            check('hub.dll 原生注入日志串在位（[native]）', b'[native] appcommand' in dll and b'[native] mediakey' in dll)
+            check('hub.dll 内嵌版本串 8.0.6', b'8.0.6' in dll)
+            check('hub.dll 媒体键符号根除（nativeFire/WM_APPCOMMAND/keybd_event）',
+                  not any(s in dll for s in (b'nativeFire', b'WM_APPCOMMAND', b'keybd_event', b'api/native')))
             check('hub.dll 非占位（>30KB）', len(dll) > 30000, str(len(dll)))
             check('hub.dll 导出表仅 BetterNCMPluginMain（def 收敛）', exports == ['BetterNCMPluginMain'], str(exports))
             check('hub.dll 防阻塞三律在位（select 快关/NODELAY/500ms）',
@@ -241,7 +240,7 @@ def main():
                           'music\\.126\\.net']
             miss2 = [s for s in v802_marks if s.replace('\\\\', '\\') not in js]
             check('music-bridge v8.0.2 备路/自愈/封面升级符号在位', not miss2, str(miss2))
-            check('music-bridge cmdTrace 上限 12', 'cmdTrace.length > 12' in js)
+            check('music-bridge cmdTrace 上限 20', 'cmdTrace.length > 20' in js)
             # v8.0.3 末端加固门：按钮扩宽+指针序列+元素复验
             v803_marks = ['aria-label*="下一首"', 'aria-label*="上一首"',
                           'pointerdown', 'pointerup', 'clickSeq', 'elemToggle',
@@ -254,13 +253,17 @@ def main():
                           "cmd: { last:"]
             miss4 = [s for s in v804_marks if s not in js]
             check('music-bridge v8.0.4 曲键切歌/pending占位/命令回执/暂停校准符号在位', not miss4, str(miss4))
-            # v8.0.5 原生媒体键终级兜底门
-            v805_marks = ['nativeEscalate', 'nativeFireOnce', '/api/native',
-                          "'napp'", "'nkey'", "'native'", 'no-native']
-            miss5 = [s for s in v805_marks if s not in js]
-            check('music-bridge v8.0.5 原生媒体键兜底符号在位', not miss5, str(miss5))
-            check('music-bridge toggle/next/prev 双支路都接兜底（调用点×2）',
-                  js.count('nativeEscalate(seq, cmd._id') == 2, str(js.count('nativeEscalate(seq, cmd._id')))
+            # v8.0.6 媒体键退役 + 备路三代修正门
+            check('music-bridge 媒体键兜底符号根除（nativeEscalate/nativeFireOnce//api/native）',
+                  not any(s in js for s in ('nativeEscalate', 'nativeFireOnce', '/api/native')))
+            v806_marks = ['st2.playing', 'playingState === 2', 'resourceTrackId',
+                          'resourceName', 'resourceArtists',
+                          'findStoreViaFiber(true)', 'hub-id-rewind',
+                          "traceCmd('link', 'play-called')", "traceCmd('link', 'pause-called')",
+                          "traceCmd('link', 'next-called')", "traceCmd('link', 'prev-called')",
+                          "traceCmd('link', 'seek-called')", 'storeOk']
+            miss6 = [s for s in v806_marks if s not in js]
+            check('music-bridge v8.0.6 三代 store/遥测/幂等闸回退防护符号在位', not miss6, str(miss6))
         else:
             # v7.1.0 歌词源门：带凭据 eapi + 同源 web v1 + 真 yrc klyric 转换
             v710_marks = ['credentials: withCreds', "credentials: 'include'",

@@ -1,19 +1,29 @@
 /* ============================================================================
- * ChuShi Music Bridge 8.0.5 — 网易云 InfLink-rs 适配桥（v8.0.5 原生媒体键终级兜底）
+ * ChuShi Music Bridge 8.0.6 — 网易云 InfLink-rs 适配桥（媒体键退役 + 备路三代修正）
  *   v8.0.1：①命令解析兼容 hub 实物协议 {"_id",raw:{...}}；②jpost 2.5s 超时；
  *   ③toggle 方向判定取 InfLink 真值。
  *   v8.0.2：控制验证+三级备路 / 播放态时间线自愈 / 封面 https 升级。
  *   v8.0.3：按钮候选扩宽 / 完整指针序列 / toggle 元素路径复验。
  *   v8.0.4：切歌曲键检测+pending 清槽 / 逐字校准管线 / 命令回执进 /api/state。
- *   v8.0.5（用户 cmdTrace 取证：POST ok=true 而播放不动 = 渲染层四级备路
- *   InfLink/redux/元素/按钮在该 NCM 3.x 版本上全灭，连续四轮实测穷尽）：
- *   新增终级兜底 nativeEscalate —— hub.dll 8.0.5 新端点 /api/native 在
- *   操作系统输入层重放「媒体键」（mode1=WM_APPCOMMAND 直投本进程主窗口，
- *   mode2=keybd_event 全局虚拟媒体键），与物理键盘媒体键完全同一条通路
- *   （NCM 自带 SMTC 或 InfLink-rs 二者必居其一持有会话——物理媒体键能
- *   控歌就必通）。每次注入前方向预检（目标已达成不补刀，防 toggle 双向
- *   振荡），注入后 950ms 验证，回执路径 napp/nkey；旧 hub 无此端点回 404
- *   诚实降级（markCmd ok=false path=native）。
+ *   v8.0.5：native 媒体键兜底（已按用户指令于本版退役——系统媒体卡片
+ *   实测可控制，证明 InfLink-rs 控制通路有效，断点在桥端备路，OS 输入层
+ *   方案整体废除：hub.dll 媒体键端点同步删除）。
+ *   v8.0.6（InfLink-rs 3.2.11 源码逐行比对结论）：
+ *   ①系统卡片按钮 → Rust dispatch_event → InfLink 前端 handleAdapterCommand
+ *     → adapter.play() → reduxStore.dispatch；而 window.InfLinkApi.play()
+ *     就是同一个 adapter.play()——三者同路。桥主路（v8.0.2 起）调用入口
+ *     正确，但缺调用级遥测，失败不可见 → 本版 apiToggle/next/prev/seek
+ *     全部落 trace。
+ *   ②实锤修复：桥全部 store 判定（findDvaStore/findStoreViaFiber/storeOk/
+ *     readStore）只认 2.x 顶层 st.player——NCM 3.x 顶层是 st.playing
+ *     （InfLink v3 adapter 即读 playing/playingList）→ 3.x 上 redux 备路
+ *     全灭（no-store）。本版 storeOk 改判 player(2.x) ∥ playing(3.x)，
+ *     readStore 同步兼容 playingState/resourceTrackId/resourceName。
+ *   ③控制 store 优先级反转：fiber（InfLink 同款 #root 遍历）> webpack
+ *     dva > g_app——第二路与系统卡片按钮的 dispatch 等效。
+ *   ④幂等闸防 hub 重启 _id 回退碰撞（hub 重启 g_cmdNextId 归零，桥侧
+ *     lastCmdDone 残留旧 _id 会把新命令当重复静默吞掉）。
+ *   ⑤cmdTrace 容量 12→20。
  *
  * v8 架构律（本代宪法）：
  *   1. 零自写 SMTC——系统媒体卡片（元数据/封面/时间线/媒体键/拖动）完全由
@@ -42,7 +52,7 @@
   'use strict';
   if (window.__chushiMusicBridge) return;
 
-  var VER = '8.0.5';
+  var VER = '8.0.6';
   var HUB_NAME = 'chushi-music-hub';
   var HUB_PORTS = [26901, 26902, 26903];
   var BEAT_MS = 1000;
@@ -191,10 +201,15 @@
     return null;
   }
 
+  /* v8.0.6：store 合法性判三代——2.x 顶层 st.player；3.x 顶层 st.playing
+     （InfLink v3 adapter 即读 playing/playingList，从不读 player）。旧版只
+     认 player → 3.x 全树扫描必然判废 → redux 备路全灭（no-store）。 */
   function storeOk(s) {
     try {
       var st = s.getState();
-      return !!(st && st.player && typeof st.player === 'object');
+      if (!st || typeof st !== 'object') return false;
+      return !!(st.player && typeof st.player === 'object') ||
+             !!(st.playing && typeof st.playing === 'object');
     } catch (e) { return false; }
   }
 
@@ -352,7 +367,7 @@
     if (storeProbe.found) {
       try {
         var st = storeProbe.found.getState ? storeProbe.found.getState() : null;
-        if (st && st.player) return storeProbe.found;
+        if (st && (st.player || st.playing)) return storeProbe.found;
       } catch (e) { /* 缓存失效重扫 */ }
       storeProbe.found = null;
     }
@@ -374,7 +389,10 @@
         else if (ex.default && typeof ex.default.getState === 'function') cand = ex.default;
         if (!cand) continue;
         var st2 = cand.getState();
-        if (st2 && st2.player && typeof st2.player === 'object') { storeProbe.found = cand; return cand; }
+        if (st2 && ((st2.player && typeof st2.player === 'object') ||
+                    (st2.playing && typeof st2.playing === 'object'))) {
+          storeProbe.found = cand; return cand;
+        }
       } catch (e3) { /* 单模块异常忽略 */ }
     }
     return null;
@@ -386,10 +404,22 @@
       var store = findDvaStore(false) || findStoreViaFiber(false) || findStoreViaGApp();
       if (!store) return out;
       var st = store.getState();
-      var pl = st && st.player ? st.player : null;
+      /* v8.0.6：2.x 取 st.player；3.x 取 st.playing（InfLink v3 同源） */
+      var pl = (st && st.player && typeof st.player === 'object') ? st.player
+             : (st && st.playing && typeof st.playing === 'object') ? st.playing : null;
       if (!pl) return out;
       if (typeof pl.isPlaying === 'boolean') out.playing = pl.isPlaying;
       else if (typeof pl.playing === 'boolean') out.playing = pl.playing;
+      else if (typeof pl.playingState === 'number') out.playing = pl.playingState === 2;
+      /* 3.x playing 结构：resourceTrackId/resourceName/resourceArtists */
+      if (pl.resourceTrackId != null && !out.song) {
+        out.song = {
+          id: Number(pl.resourceTrackId) || 0,
+          name: typeof pl.resourceName === 'string' ? pl.resourceName : '',
+          artist: (pl.resourceArtists && pl.resourceArtists[0] && pl.resourceArtists[0].name) || '',
+          album: (pl.curTrack && pl.curTrack.album && pl.curTrack.album.name) || ''
+        };
+      }
       var posCands = [pl.position, pl.progress, pl.currentTime];
       for (var i = 0; i < posCands.length; i++) {
         var p = Number(posCands[i]);
@@ -594,6 +624,7 @@
   /* ------------------------------------------------------------------ */
   var seekAck = { id: '', ok: null, at: 0 };
   var lastCmdDone = {};
+  var maxCmdId = 0; /* v8.0.6：hub 重启 _id 回退检测 */
   var cmdSeq = 0;
   var cmdTrace = [];
   /* v8.0.4 命令回执：随 /api/state 透出（控制可观测——面板端直读归因） */
@@ -601,7 +632,7 @@
 
   function traceCmd(kind, detail) {
     cmdTrace.push({ at: nowMs(), k: clip(String(kind || ''), 12), d: clip(String(detail || ''), 80) });
-    if (cmdTrace.length > 12) cmdTrace.shift();
+    if (cmdTrace.length > 20) cmdTrace.shift();
   }
 
   function markCmd(id, type, ok, path) {
@@ -612,9 +643,11 @@
     cmdLast.at = nowMs();
   }
 
+  /* v8.0.6 控制优先级反转：fiber（InfLink v3 同款 #root 遍历）第一——
+     与系统卡片按钮的 dispatch 同源等效；webpack/dva/g_app 依次殿后 */
   function controlStore() {
     var st = null;
-    try { st = findDvaStore(false) || findStoreViaFiber(false) || findStoreViaGApp(); } catch (e0) { st = null; }
+    try { st = findStoreViaFiber(true) || findDvaStore(true) || findStoreViaGApp(); } catch (e0) { st = null; }
     if (st && typeof st.dispatch === 'function') return st;
     return null;
   }
@@ -649,6 +682,17 @@
        真值快照带 inflink+heal 标记且新鲜 → heal 铁证赢过冻结的实时值；
      ③探测前遗留的无源帧（src=none，playing 继承自初始化假值）绝不可信；
      ④InfLink 缺席 → 新鲜真值 → audio 元素 → 继承值。 */
+  /* 方向真值（v8.0.6 修订）：
+     ①执行前方向判定 playingNowCalc()：实时 linkStatus 第一优先 + 冻结病仲裁；
+     ②执行后验证 linkNow()：只信 InfLink 实时状态，零仲裁——v8.0.6 e2e 台架
+       实锤：首拍无源帧（position=0）→ toggle 拍跳变 12.3s → 自愈误标
+       inflink+heal → 900ms 验证被仲裁判败 → 主路误降级。执行后验证绝不信快照。 */
+  function linkNow() {
+    var st = linkStatus();
+    if (st) return st === 'Playing' || st === 'Loading';
+    return playingNowCalc();
+  }
+
   function playingNowCalc() {
     var fresh = !!(truth.updatedAt && nowMs() - truth.updatedAt < 2500);
     var st = linkStatus();
@@ -668,21 +712,26 @@
 
   function apiToggle(playing) {
     var api = inflink.api;
-    if (!api) return false;
+    if (!api) { traceCmd('link', 'absent'); return false; }
     try {
-      if (playing) { if (typeof api.pause === 'function') { api.pause(); return true; } }
-      else { if (typeof api.play === 'function') { api.play(); return true; } }
-    } catch (e) { /* InfLink 控制异常 → 备路 */ }
+      if (playing) {
+        if (typeof api.pause === 'function') { api.pause(); traceCmd('link', 'pause-called'); return true; }
+      } else {
+        if (typeof api.play === 'function') { api.play(); traceCmd('link', 'play-called'); return true; }
+      }
+      traceCmd('link', 'no-method');
+    } catch (e) { traceCmd('link', 'throw'); }
     return false;
   }
 
   function apiSeek(posSec) {
     var api = inflink.api;
-    if (!api || typeof api.seekTo !== 'function') return false;
+    if (!api || typeof api.seekTo !== 'function') { traceCmd('link', 'seek-noapi'); return false; }
     try {
       api.seekTo(Math.round(posSec * 1000)); /* InfLink 律：毫秒 */
+      traceCmd('link', 'seek-called');
       return true;
-    } catch (e) { return false; }
+    } catch (e) { traceCmd('link', 'seek-throw'); return false; }
   }
 
   function elemToggle(el, wantPlay) {
@@ -703,6 +752,15 @@
     if (!cmd || typeof cmd !== 'object') return;
     var type = clip(cmd.cmd || cmd.type, 16);
     if (!type) return; /* 坏命令（raw 解析失败等）直接丢 */
+    /* v8.0.6 幂等闸回退防护：hub 重启后 g_cmdNextId 归零重计，桥侧
+       lastCmdDone 残留旧世代 _id 会把新命令当重复静默吞掉（trace 都
+       不会留）——检测到 _id 回退即清空旧世代记录 */
+    var cid = Number(cmd._id) || 0;
+    if (cid && maxCmdId && cid < maxCmdId) {
+      lastCmdDone = {};
+      traceCmd('reset', 'hub-id-rewind');
+    }
+    if (cid > maxCmdId) maxCmdId = cid;
     if (lastCmdDone[cmd._id]) return; /* 幂等闸：同一条命令只执行一次 */
     lastCmdDone[cmd._id] = true;
     var keys = Object.keys(lastCmdDone);
@@ -742,8 +800,9 @@
             }
             clickSeq(visibleBtn(BTN_PLAY));
             traceCmd('fb', 'button');
-            /* v8.0.5：四级全灭 → 终级兜底原生媒体键（方向语义交 native 层预检） */
-            nativeEscalate(seq, cmd._id, type, function () { return playingNowCalc() === wantPlay; });
+            /* v8.0.6：媒体键兜底已退役（用户指令）——四路全灭即诚实失败，
+               归因 path=button，面板芯片直读 cmdLast */
+            markCmd(cmd._id, type, false, 'button');
           }, 700);
         }, 800);
       }, 900);
@@ -755,10 +814,11 @@
       try {
         var api2 = inflink.api;
         if (api2 && (dir === 'next' ? typeof api2.next === 'function' : typeof api2.previous === 'function')) {
-          if (dir === 'next') api2.next(); else api2.previous();
+          if (dir === 'next') { api2.next(); traceCmd('link', 'next-called'); }
+          else { api2.previous(); traceCmd('link', 'prev-called'); }
           done = true;
         }
-      } catch (e2) { done = false; }
+      } catch (e2) { done = false; traceCmd('link', 'throw:' + dir); }
       if (!done) {
         /* InfLink 缺席：直接 redux（同动词）→ 末端按钮 */
         var ok1 = reduxDispatch('playingList/jump2Track', { flag: flag, type: 'call', triggerScene: 'hotKey' });
@@ -766,7 +826,7 @@
         markCmd(cmd._id, type, ok1 ? true : false, ok1 ? 'redux' : 'button');
         return;
       }
-      /* +1200ms 验证：曲未变（单循环曲也极少原地）→ 直发 dva；再 +1100ms 仍原曲 → 按钮 → 原生 */
+      /* +1200ms 验证：曲未变（单循环曲也极少原地）→ 直发 dva；再 +1100ms 仍原曲 → 按钮终点 */
       setTimeout(function () {
         if (seq !== cmdSeq) return;
         if (songKey() !== key0) { traceCmd('ok', 'link'); markCmd(cmd._id, type, true, 'link'); return; }
@@ -776,8 +836,8 @@
           if (songKey() !== key0) { traceCmd('ok', 'redux'); markCmd(cmd._id, type, true, 'redux'); return; }
           clickTransport(dir);
           traceCmd('fb', 'button');
-          /* v8.0.5：四级全灭 → 终级兜底原生媒体键 */
-          nativeEscalate(seq, cmd._id, type, function () { return songKey() !== key0; });
+          /* v8.0.6：媒体键兜底已退役——诚实失败 */
+          markCmd(cmd._id, type, false, 'button');
         }, 1100);
       }, 1200);
     } else if (type === 'seek') {
@@ -840,40 +900,10 @@
   }
 
   /* ---------------------------------------------------------------- */
-  /* v8.0.5 终级兜底：原生媒体键（hub.dll 8.0.5 新端点 /api/native）       */
-  /*   渲染层四路（InfLink/redux/元素/按钮）全灭的 NCM 3.x 版本上，        */
-  /*   唯一未触及的层 = 操作系统输入层。mode1=WM_APPCOMMAND（scoped），    */
-  /*   mode2=keybd_event 全局虚拟媒体键（物理键盘同一条输入流——NCM 自带   */
-  /*   SMTC 或 InfLink 二者必居其一持有会话，物理媒体键能控就必通）。       */
-  /*   每次注入前方向预检：目标已达成（迟到低阶路径/外部操作生效）不补刀，   */
-  /*   防 toggle 型注入的双向振荡；注入后 950ms 验证，回执 napp/nkey。      */
-  /*   旧 hub（<8.0.5）无端点 404 → mode2 再试一次 → 仍无则诚实失败。      */
+  /* v8.0.6：native 媒体键兜底整体退役（用户指令）。OS 输入层重放方案   */
+  /*   与 v8 宪法第 1 条（零 OS 干预）冲突，且系统卡片实测可控证明       */
+  /*   InfLink 通路有效——修复重心回到桥端备路与遥测。                  */
   /* ---------------------------------------------------------------- */
-  function nativeFireOnce(seq, id, type, checkOk, mode) {
-    if (seq !== cmdSeq) return;
-    if (checkOk()) { traceCmd('ok', 'late'); markCmd(id, type, true, 'late'); return; } /* 预检：已达标 */
-    jpost(hub.url('/api/native'), { act: type === 'next' ? 'next' : type === 'prev' ? 'prev' : 'toggle', mode: mode })
-      .then(function (j) {
-        if (seq !== cmdSeq) return;
-        if (!j || j.ok !== true) {
-          /* hub 太旧或无主窗（mode1 hwnd=0）→ mode2 再试；仍败 → 诚实失败 */
-          if (mode === 1) { traceCmd('fb', 'no-native'); nativeFireOnce(seq, id, type, checkOk, 2); return; }
-          traceCmd('fb', 'native');
-          markCmd(id, type, false, 'native');
-          return;
-        }
-        setTimeout(function () {
-          if (seq !== cmdSeq) return;
-          if (checkOk()) { traceCmd('ok', mode === 1 ? 'napp' : 'nkey'); markCmd(id, type, true, mode === 1 ? 'napp' : 'nkey'); return; }
-          if (mode === 1) { traceCmd('fb', 'napp'); nativeFireOnce(seq, id, type, checkOk, 2); return; }
-          traceCmd('fb', 'nkey');
-          markCmd(id, type, false, 'native');
-        }, 950);
-      });
-  }
-  function nativeEscalate(seq, id, type, checkOk) {
-    nativeFireOnce(seq, id, type, checkOk, 1);
-  }
 
   function doSeek(pos) {
     seekAck.id = 's-' + nowMs() + '-' + Math.floor(Math.random() * 999);
@@ -951,9 +981,12 @@
       var store = readStore();
       if (playing === null && store.playing !== null) { playing = store.playing; metaSrc += (metaSrc ? '+' : '') + 'store'; }
       if (position < 0 && store.position >= 0) { position = store.position; }
-      /* 物理自愈：进度在走 = 在播放（阶梯路径专属；<1.2s 窗防暂停微抖） */
+      /* 物理自愈：进度在走 = 在播放（阶梯路径专属；<1.2s 窗防暂停微抖；
+         v8.0.6：上一拍必须非无源帧——src='none' 首拍 position 从 0 跳变
+         不是「在播放」的铁证） */
       if (playing === false && position - truth.position > 1.2 && t - truth.updatedAt < 4000 &&
-        (!truth.songId || !store.song || Number(store.song.songId) === truth.songId)) {
+          truth.src !== 'none' &&
+          (!truth.songId || !store.song || Number(store.song.songId) === truth.songId)) {
         playing = true;
       }
       var lad = readLadderMeta();
@@ -973,9 +1006,13 @@
       if (duration <= 0 && linkOut.song && linkOut.song.durationMs > 0) duration = linkOut.song.durationMs / 1000;
       /* v8.0.2 状态自愈：InfLink playState 冻结为 Paused 但时间线仍在推进
          （≥1.2s/拍、同曲、拍间陈旧 <4s）→ 按播放处理。只治假暂停，
-         绝不反向伪造（缓冲/加载中交由 'Loading' 原义承载）。 */
+         绝不反向伪造（缓冲/加载中交由 'Loading' 原义承载）。
+         v8.0.6 收紧：上一拍必须已是 InfLink 源（src 以 inflink 开头）——
+         首拍/源切换的无源帧 position=0 → 本拍 12.3s 的跳变不是「假暂停」，
+         是无源→有源的正常建立，绝不自愈（e2e 台架实锤的误触发）。 */
       if (playing === false && position - truth.position > 1.2 &&
           t - truth.updatedAt < 4000 &&
+          truth.src.indexOf('inflink') === 0 &&
           (!truth.songId || !linkOut.song || Number(linkOut.song.songId) === truth.songId)) {
         playing = true;
         metaSrc = 'inflink+heal';

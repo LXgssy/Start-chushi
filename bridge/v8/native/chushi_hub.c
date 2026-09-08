@@ -1,30 +1,24 @@
 /* ============================================================================
- * ChuShi Music Hub 8.0.5 —— 纯 winsock HTTP 中继 + 原生媒体键兜底
+ * ChuShi Music Hub 8.0.6 —— 纯 winsock HTTP 中继（媒体键端点退役）
  *
- * v8.0.5（用户四轮实测：渲染层四级备路 InfLink/redux/元素/按钮全灭）：
- *   新增 POST /api/native —— 本 DLL 住在网易云 Main 进程里，直接在
- *   操作系统输入层重放「媒体键」，与物理键盘媒体键完全同一条通路
- *   （NCM 自带 SMTC 或 InfLink-rs 二者必居其一持有会话）：
- *     mode 1 = WM_APPCOMMAND 直投本进程主窗口（scoped，零外溢）；
- *     mode 2 = keybd_event 全局虚拟媒体键（VK_MEDIA_*，extended key）。
- *   单次注入无状态幂等，验证与降级由桥 JS 负责（nativeEscalate）。
- *   旧 hub（<8.0.5）无此端点回 404，桥诚实降级不误报。
+ * v8.0.6（用户指令 + InfLink-rs 源码比对）：POST /api/native 整体退役——
+ *   系统媒体卡片实测可控制，证明 InfLink-rs 控制通路有效，OS 输入层重放
+ *   方案（WM_APPCOMMAND/keybd_event）不再需要，随本版从代码库根除；
+ *   导入表回到 ws2_32 + kernel32（user32 引用清零）。
  *
  * v8 架构律（本代宪法）：
- *   1. 零 WinRT / 零 COM / 零 SMTC——系统媒体卡片完全由 InfLink-rs（第三方
- *      Rust 插件）持有；本 DLL 与 WinRT 永久绝缘（构建门断言导入表无
- *      combase/ole32/winrt，仅 ws2_32 + user32 + kernel32 系统基础库；
- *      v8.0.5 新增 user32 仅用于媒体键注入（EnumWindows/PostMessage/
- *      keybd_event），不是 WinRT/COM/SMTC）。v7.0.x 四代
- *      崩溃的根因（RoInitialize/TimelineProperties ABI/COM 委托/raise 路径）
+ *   1. 零 WinRT / 零 COM / 零 SMTC / 零 OS 输入层干预——系统媒体卡片
+ *      完全由 InfLink-rs（第三方 Rust 插件）持有；本 DLL 与 WinRT 永久
+ *      绝缘（构建门断言导入表无 combase/ole32/winrt，仅 ws2_32 +
+ *      kernel32 系统基础库）。v7.0.x 四代崩溃的根因
+ *      （RoInitialize/TimelineProperties ABI/COM 委托/raise 路径）
  *      在本载体上结构性不存在。
  *   2. 职责唯一——本 DLL 只做一件事：把网易云渲染进程（音乐桥 JS）与
- *      「初始」页面（浏览器/扩展）连起来。五个端点，状态最新者胜。
+ *      「初始」页面（浏览器/扩展）连起来。四个端点，状态最新者胜。
  *        GET  /api/ping       身份（name=chushi-music-hub）
  *        GET/POST /api/state  播放真值快照（桥 1Hz 推，页面 1Hz 拉）
  *        GET/POST /api/cmd    页面→桥 控制命令队列（POST 入队带 _id，GET 排空）
  *        GET/POST /api/lyric  歌词缓存（歌词源插件产物经桥中继）
- *        POST /api/native     原生媒体键兜底（v8.0.5，仅 Main 进程宿主）
  *   3. 零阻塞——BetterNCMPluginMain 内只做选举 + CreateThread 后立即返回，
  *      绝无任何等待/忙等（宿主加载律）。
  *   4. 进程纪律——仅 Main 进程（ptype=0x1）当枢纽宿主（命名互斥体选举，
@@ -46,7 +40,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define PLUGIN_VERSION "8.0.5"
+#define PLUGIN_VERSION "8.0.6"
 #define HUB_NAME_S "chushi-music-hub"
 #define HUB_MUTEX_NAMEW L"ChuShi-Music-Hub-8-Singleton"
 
@@ -285,66 +279,6 @@ static void respondPreflight(SOCKET s) {
 }
 
 /* ------------------------------------------------------------------ */
-/* v8.0.5 原生媒体键兜底（终极控制路径，零网易云内部依赖）                  */
-/*   物理媒体键在一切能播歌的网易云机器上都通：NCM 自带 SMTC 或 InfLink    */
-/*   必居其一持有媒体会话。本 DLL 与 NCM 同进程，直接重放：                */
-/*     mode 1 = WM_APPCOMMAND → 本进程最大可见顶层窗口（scoped）；        */
-/*     mode 2 = keybd_event 全局 VK_MEDIA_*（与物理键盘同一条输入流）。    */
-/*   单次注入无状态幂等；验证与降级由桥 JS 负责（nativeEscalate）。        */
-/*   注入不属于 WinRT/COM——导入表仅增 user32，零 WinRT 门不受影响。        */
-/* ------------------------------------------------------------------ */
-typedef struct {
-    HWND best;
-    LONG area;
-} MainWinScan;
-
-static BOOL CALLBACK hub_find_main_win(HWND hwnd, LPARAM lp) {
-    MainWinScan* s = (MainWinScan*)lp;
-    DWORD pid = 0;
-    GetWindowThreadProcessId(hwnd, &pid);
-    if (pid != GetCurrentProcessId()) return TRUE;      /* 只认本进程（NCM）窗口 */
-    if (GetWindow(hwnd, GW_OWNER) != NULL) return TRUE;  /* 跳过附属窗 */
-    if (!IsWindowVisible(hwnd)) return TRUE;
-    if (GetWindowLongPtrW(hwnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) return TRUE;
-    RECT rc;
-    if (!GetWindowRect(hwnd, &rc)) return TRUE;
-    LONG area = (rc.right - rc.left) * (rc.bottom - rc.top);
-    if (area > s->area) { s->area = area; s->best = hwnd; }
-    return TRUE;
-}
-
-/* act: "toggle"|"next"|"prev"；mode: 1=WM_APPCOMMAND 2=keybd_event */
-static void nativeFire(const char* act, int mode, char* out, int cap) {
-    /* APPCOMMAND: NEXT=11 PREV=12 PLAY_PAUSE=14；VK: B1/B7/B3 */
-    int ac = 0;
-    unsigned char vk = 0;
-    if (lstrcmpiA(act, "next") == 0) { ac = 11; vk = 0xB7; }
-    else if (lstrcmpiA(act, "prev") == 0) { ac = 12; vk = 0xB1; }
-    else { ac = 14; vk = 0xB3; }
-    int hwndHit = 0;
-    if (mode != 2) {
-        MainWinScan s;
-        s.best = NULL; s.area = 0;
-        EnumWindows(hub_find_main_win, (LPARAM)&s);
-        if (s.best) {
-            PostMessageW(s.best, WM_APPCOMMAND, (WPARAM)s.best,
-                         (LPARAM)(((int)ac) << 16));
-            hwndHit = 1;
-        }
-        logf_line("[native] appcommand %s hwnd=%d", act, hwndHit);
-    } else {
-        keybd_event(vk, 0, KEYEVENTF_EXTENDEDKEY, 0);
-        keybd_event(vk, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0);
-        logf_line("[native] mediakey VK=0x%02X %s", (unsigned)vk, act);
-    }
-    _snprintf(out, cap - 1,
-        "{\"ok\":%s,\"mode\":%d,\"hwnd\":%d,\"act\":\"%s\",\"v\":\"%s\"}",
-        (mode == 2 || hwndHit) ? "true" : "false",
-        mode, hwndHit, act, PLUGIN_VERSION);
-    out[cap - 1] = 0;
-}
-
-/* ------------------------------------------------------------------ */
 /* 请求处理                                                              */
 /* ------------------------------------------------------------------ */
 static void handleRequest(SOCKET s, const char* req, DWORD reqLen) {
@@ -422,31 +356,7 @@ static void handleRequest(SOCKET s, const char* req, DWORD reqLen) {
         return;
     }
 
-    /* v8.0.5 原生媒体键兜底：body {"act":"toggle"|"next"|"prev","mode":1|2} */
-    if (_stricmp(method, "POST") == 0 && strncmp(path, "/api/native", 11) == 0) {
-        char act[16] = {0};
-        int mode = 1;
-        const char* a = strstr(body, "\"act\"");
-        if (a) {
-            const char* q1 = strchr(a + 5, '"');
-            if (q1) {
-                q1++;
-                const char* q2 = strchr(q1, '"');
-                if (q2 && q2 > q1 && (q2 - q1) < 16) {
-                    memcpy(act, q1, (size_t)(q2 - q1));
-                    act[q2 - q1] = 0;
-                }
-            }
-        }
-        const char* m = strstr(body, "\"mode\"");
-        if (m) mode = atoi(m + 6);
-        if (mode != 1 && mode != 2) mode = 1;
-        if (!act[0]) lstrcpynA(act, "toggle", 16);
-        char out2[192];
-        nativeFire(act, mode, out2, (int)sizeof(out2));
-        respondJson(s, 200, out2, (DWORD)lstrlenA(out2));
-        return;
-    }
+    /* v8.0.6：/api/native 媒体键端点已随 OS 输入层方案整体退役 */
 
     {
         const char* nf = "{\"ok\":false,\"error\":\"not-found\"}";

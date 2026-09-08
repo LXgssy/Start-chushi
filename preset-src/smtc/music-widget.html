@@ -61,8 +61,7 @@ body{
   text-overflow:ellipsis}
 .cs-t3{font-size:11px;color:var(--ink3);margin-top:2px;white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis}
-.cs-swin{animation:cs-ri .5s var(--ez)}
-@keyframes cs-ri{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+/* 切歌滑入动画已随 v8.0.6 瘦身移除（切歌反馈由封面/歌词变化承担） */
 .cs-x{position:absolute;right:10px;top:10px;appearance:none;border:0;cursor:pointer;
   display:flex;align-items:center;justify-content:center;width:24px;height:24px;
   border-radius:var(--r9);color:var(--ink2);background:var(--card2);opacity:.85;
@@ -70,8 +69,12 @@ body{
 .cs-x svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2;
   stroke-linecap:round;stroke-linejoin:round}
 .cs-x:hover{transform:scale(1.08)}
-/* v8.0.3 进度条被动化：网页端不提供拖动调节，去滑块/去交互，只留只读进度条 */
-.cs-seek{margin-top:13px;height:14px;display:flex;align-items:center}
+/* v8.0.6 进度条交互恢复：InfLink seekTo 通路实测可控（系统卡片跳转同源），
+   拖动/点击均可调进度；拖动中本地预览，松手 mus.seek（失败由宿主 seekAck
+   → seekNote 芯片诚实呈现，成功由宿主乐观重锚） */
+.cs-seek{margin-top:13px;height:14px;display:flex;align-items:center;cursor:pointer;
+  touch-action:none}
+.cs-seek:hover .cs-rail{height:6px}
 .cs-rail{position:relative;width:100%;height:4px;border-radius:4px;background:var(--pr);overflow:hidden}
 .cs-rail i{position:absolute;left:0;top:0;height:100%;width:0%;border-radius:4px;background:var(--acc)}
 .cs-tm{display:flex;justify-content:space-between;margin-top:2px;font-size:10.5px;
@@ -86,8 +89,7 @@ body{
 /* v8.0.3 主键悬停律：.cs-b:hover 的 card2 半透暗底/ink 深色前景/scale 与主键
    accent 白图标三重冲突（同特异性按序胜出=悬停变黑+图标视觉位移），
    主键悬停恒保 accent 底白图标，仅提亮不加位移 */
-.cs-bmain,.cs-bmain:hover{color:#fff;background:var(--acc)}
-.cs-bmain:hover{filter:brightness(1.12);transform:none}
+.cs-bmain:hover{color:#fff;background:var(--acc);filter:brightness(1.12);transform:none}
 /* 主播放键：双图标绝对堆叠同圆心（布局零位移），切换 = opacity+scale 交叉过渡
    ——细线框▶与实心⏸流内排布 + display 硬切换曾被真机读作「按钮位移」，此法根治 */
 .cs-bmain{width:46px;height:46px;color:#fff;background:var(--acc);position:relative;
@@ -202,7 +204,8 @@ body{
      + 控制失败诚实提示（悬停/点击均有反馈，不再静默）。
      v8.0.4：已唱行渐隐律（唱完保持全亮到离场，再 opacity 渐变到灰，
      不再瞬消）+ 控制归因读桥命令回执（cmdLast：区分「桥未执行命令」
-     与「网易云未响应」，用户在浏览器里也能定位按键失效断点）。 */
+     与「网易云未响应」，用户在浏览器里也能定位按键失效断点）。
+     v8.0.6：进度条拖动跳转恢复（InfLink seekTo 同源通路）+ 版本门 8.0.6。 */
   var H = { fl: 248, em: 92 }, LY_H = 124, W = 340;
   var DEF = "asset:cover.svg"; /* v8.0.1：asset 在生产宿主实测可用；失联时 onerror 藏 img 露渐变底，绝不破图 */
   function $(id) { return document.getElementById(id); }
@@ -241,13 +244,12 @@ body{
   var ctlNote = "", ctlNoteAt = 0, ctlTimer = 0;
 
   function fmt(s) {
-    s = Math.max(0, Math.floor(s || 0));
+    s = Math.floor(s || 0);
     var m = Math.floor(s / 60), r = s % 60;
     return m + ":" + (r < 10 ? "0" : "") + r;
   }
   function hasLyric() { return !!(snap && snap.lyric && snap.lyric.lines && snap.lyric.lines.length); }
   function hFor() { return mode === "fl" && (hasLyric() || lyHold) ? H.fl + LY_H : H[mode]; }
-  function clamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
 
   function setMode(m) {
     if (m === mode) return;
@@ -285,7 +287,7 @@ body{
 
   /* ---------- 芯片与页脚（诚实归因文案；v8.0.3 兼顾控制未生效提示） ---------- */
   function pluginOld() {
-    var v = String((snap && snap.pluginVer) || "").split("."), need = [8, 0, 4];
+    var v = String((snap && snap.pluginVer) || "").split("."), need = [8, 0, 6];
     for (var i = 0; i < 3; i++) {
       var x = parseInt(v[i], 10) || 0, y = need[i];
       if (x !== y) return x < y;
@@ -300,13 +302,13 @@ body{
     var bridgeRan = !!(cl && cl.at && clickedAt && cl.at >= clickedAt - 800);
     if (!bridgeRan) {
       return pluginOld()
-        ? "音乐桥插件 v" + ((snap && snap.pluginVer) || "?") + " 控制能力不足 · 请更新 ChuShi Music Bridge 插件并完全重启网易云"
-        : "音乐桥未执行命令 · 请更新桥插件并完全重启网易云后重试";
+        ? "桥插件 v" + ((snap && snap.pluginVer) || "?") + " 过旧 · 请更新 ChuShi Music Bridge 并重启网易云"
+        : "音乐桥未执行命令 · 请更新桥插件并重启网易云";
     }
     if (cl.ok === false) {
-      return "网易云未响应控制 · 桥已尝试全部备路（" + (cl.path || "按钮") + "）· 请完全退出并重启网易云";
+      return "网易云未响应控制（" + (cl.path || "按钮") + "）· 请完全退出并重启网易云";
     }
-    return "控制已下发但网易云未响应 · 请完全退出并重启网易云后重试";
+    return "控制已下发但未生效 · 请完全退出并重启网易云";
   }
   function noteCtl(txt) {
     if (ctlTimer) { clearTimeout(ctlTimer); ctlTimer = 0; }
@@ -318,7 +320,6 @@ body{
   function armCtlVerify(passed, clickedAt) {
     if (ctlTimer) { clearTimeout(ctlTimer); ctlTimer = 0; }
     ctlNote = "";
-    if (typeof passed !== "function") return;
     ctlTimer = setTimeout(function () {
       ctlTimer = 0;
       if (!passed()) return;
@@ -330,11 +331,11 @@ body{
       chipUpd.classList.add("on");
       updTxt.textContent = s.needsBridge
         ? (s.engineOld
-          ? "音乐桥版本过旧 · 更新 ChuShi Music Bridge 插件并重启网易云"
-          : "音乐桥未连接 · 安装 ChuShi Music Bridge 插件并重启网易云")
+          ? "音乐桥版本过旧 · 请更新插件并重启网易云"
+          : "音乐桥未连接 · 请安装插件并重启网易云")
         : (!s.pluginVer
-          ? "音乐桥未就绪 · 确认 ChuShi Music Bridge 插件在网易云插件列表中已启用"
-          : "组件待更新 · 请更新三个 .plugin 至最新版并重启网易云");
+          ? "音乐桥未就绪 · 请在网易云插件列表启用它"
+          : "组件待更新 · 请更新三个 .plugin 并重启网易云");
     } else if (ctlNote && Date.now() - ctlNoteAt < 6000) {
       chipUpd.classList.add("on");
       updTxt.textContent = ctlNote;
@@ -382,11 +383,10 @@ body{
             row.appendChild(sp);
             words.push({ ov: ov });
           }
-          if (!ln.t) row.classList.add("gap");
         } else {
-          row.textContent = ln.t || "· · ·";
-          if (!ln.t) row.classList.add("gap");
+          row.textContent = ln.t || "·";
         }
+        if (!ln.t) row.classList.add("gap");
         if (ln.tr) {
           var sub = document.createElement("div");
           sub.className = "cs-sub";
@@ -470,8 +470,7 @@ body{
   function render() {
     var s = snap;
     if (!s || !s.connected) {
-      e1.textContent = "系统媒体待接入";
-      e2.textContent = "安装 InfLink-rs 与初始插件（Music Bridge / Lyric Source）并播放音乐即自动接入";
+      /* e1/e2 空态文案初始化时已设，不再重复写 DOM */
       footTxt.textContent = "未连接";
       setMode("em");
       return;
@@ -483,7 +482,6 @@ body{
       lyHold = hasLyric();       /* 切歌时重算歌词高度迟滞 */
       lyKey = "\u0000force";     /* 强制重建 */
       buildLyric();
-      replay(t1); replay(t2); replay(t3);
     } else {
       buildLyric();
     }
@@ -495,23 +493,16 @@ body{
     playVisual(effPlaying());
     if (optAt && Date.now() - optAt >= 2500 && s.playing === optP) { optAt = 0; } /* 真值确认，乐观窗口退役 */
   }
-  function replay(el) {
-    el.classList.remove("cs-swin");
-    void el.offsetWidth;
-    el.classList.add("cs-swin");
-  }
 
   /* ---------- 交互 ---------- */
   $("csClose").addEventListener("click", function () {
     if (window.chushi && typeof window.chushi.close === "function") chushi.close();
   });
-  function ctlFail(okPromise, passed, clickedAt) {
+  function ctlFail(p, passed, clickedAt) {
     armCtlVerify(passed, clickedAt);
-    if (okPromise && typeof okPromise.then === "function") {
-      okPromise.then(function (ok) {
-        if (ok !== true) noteCtl("音乐桥未连接 · 控制未送达");
-      });
-    }
+    p.then(function (ok) {
+      if (ok !== true) noteCtl("音乐桥未连接 · 控制未送达");
+    });
   }
   function songUnchanged() { var k0 = trackKey; return function () { return trackKey === k0; }; }
   $("csPrev").addEventListener("click", function () {
@@ -529,11 +520,43 @@ body{
     ctlFail(mus.toggle(), function () { return effPlaying() !== optP; }, optAt);
   });
 
-  /* ---------- rAF 主循环（永不停止；v8.0.3 进度条只读，无拖拽分支） ---------- */
+  /* ---------- v8.0.6 进度条拖动跳转（InfLink seekTo 同源通路） ---------- */
+  var scrub = { on: 0, r: 0, dur: 0 };
+  function evR(e) {
+    var rc = seekBox.getBoundingClientRect();
+    return Math.min(1, Math.max(0, (e.clientX - rc.left) / (rc.width || 1)));
+  }
+  function scrubUI() {
+    fill.style.width = (scrub.r * 100).toFixed(2) + "%";
+    tCur.textContent = fmt(scrub.r * scrub.dur);
+  }
+  seekBox.onpointerdown = function (e) {
+    var n = mus.now();
+    if (!(n.duration > 0)) return;
+    scrub.on = 1; scrub.dur = n.duration; scrub.r = evR(e);
+    try { seekBox.setPointerCapture(e.pointerId); } catch (e1) { /* 已释放 */ }
+    scrubUI();
+  };
+  seekBox.onpointermove = function (e) {
+    if (scrub.on) { scrub.r = evR(e); scrubUI(); }
+  };
+  seekBox.onpointerup = function (e) {
+    if (!scrub.on) return;
+    scrub.on = 0;
+    /* 失败：宿主 seekAck 管线 → seekNote 芯片；成功：宿主乐观重锚 */
+    mus.seek(evR(e) * scrub.dur);
+  };
+  seekBox.onpointercancel = function () { scrub.on = 0; };
+
+  /* ---------- rAF 主循环（永不停止；拖动中用本地预览，不覆盖） ---------- */
   function loop() {
     var n = mus.now();
-    fill.style.width = (n.progress * 100).toFixed(2) + "%";
-    tCur.textContent = fmt(n.position);
+    if (scrub.on) {
+      scrubUI();
+    } else {
+      fill.style.width = (n.progress * 100).toFixed(2) + "%";
+      tCur.textContent = fmt(n.position);
+    }
     tDur.textContent = n.duration > 0 ? fmt(n.duration) : "--:--";
     lyricFrame(n);
     requestAnimationFrame(loop);
