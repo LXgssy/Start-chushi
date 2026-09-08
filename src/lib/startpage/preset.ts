@@ -230,8 +230,9 @@ export const PRESET_LIMITS = {
   pages: 3,
   htmlLen: 24000,
   widgets: 3,
-  /* v1.9.0：12000 → 18000 —— SMTC 音乐部件加入逐字歌词渲染（解析器+DOM 构建+逐帧扫色） */
-  widgetHtmlLen: 18000,
+  /* v1.9.0：12000 → 18000 —— SMTC 音乐部件加入逐字歌词渲染（解析器+DOM 构建+逐帧扫色）
+     v8.0.1：18000 → 19200 —— 音乐部件封面双保险与沙箱标准模式修复的余量；预设包仍按 18000 打包（兼容旧宿主） */
+  widgetHtmlLen: 19200,
   icons: 7,
   iconLen: 8192,
   tokenValLen: 120,

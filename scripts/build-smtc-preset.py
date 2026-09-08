@@ -41,6 +41,10 @@ def minify_html(s: str) -> str:
     s = style_re.sub(lambda m: m.group(1) + minify_css(m.group(2)) + m.group(3), s)
     script_re = re.compile(r"(<script>)(.*?)(</script>)", re.S)
     s = script_re.sub(lambda m: m.group(1) + minify_js(m.group(2)) + m.group(3), s)
+    # v8.0.1：srcdoc 固定 iframe 用不到的文档头杂物剥离（viewport/title/lang）
+    s = re.sub(r'<meta name="viewport"[^>]*>', "", s)
+    s = re.sub(r"<title>[^<]*</title>", "", s)
+    s = s.replace('<html lang="zh-CN">', "<html>")
     s = re.sub(r">\s*\n\s*<", "><", s)
     s = re.sub(r"\s*\n\s*", "\n", s)
     s = re.sub(r"\n{2,}", "\n", s)
@@ -58,9 +62,9 @@ assert len(code) <= 16000, f"script code 超限: {len(code)} > 16000"
 _no_data = re.sub(r"data:image/svg\+xml,[^\"']+", "", html)
 _no_ns = _no_data.replace("http://www.w3.org/", "")
 assert "http://" not in _no_ns and "https://" not in _no_ns, "widget html 不应包含外链 URL"
-# 资产引用自检（v8.0.1）：默认封面已内联 data-URI，不再依赖 asset: 引用；出现即异常
+# 资产引用自检：默认封面引用 cover.svg（pack.ts ASSET_REF_RE 白名单字符集）
 refs = set(re.findall(r"asset:([A-Za-z0-9._-]{1,64})", html))
-assert refs == set(), f"asset 引用异常: {refs}"
+assert refs == {"cover.svg"}, f"asset 引用异常: {refs}"
 
 preset = {
     "chushi": 1,
