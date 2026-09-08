@@ -1105,3 +1105,22 @@ Work Log:
 Stage Summary:
 - 新律：①单槽缓存类接口的消费者必须校验「响应归属=请求归属」，否则切歌窗口必吃旧值且永久标记——凡缓存中继都要想清楚「窗口期返回什么」；②切歌检测键=曲键（id|title）而非单 id——真值源 id 缺失时 title 是唯一指纹；③桥命令回执必须进数据面（state.cmd.last）——诊断口在另一个进程的页面里时，用户永远拿不到 cmdTrace，控制问题不许留黑盒；④台架 stub 的异步回执时序必须模拟真实链路方向（桥执行晚于点击）；⑤逐字歌词架构定稿（用户指定）：内容=API 整首词（lrc 全覆盖+yrc 尽力），时间=SMTC 锚点对表，行内=显示单元加权插值，暂停=软重锚防漂移+30s×3 yrc 校准升级
 - 待办：用户侧验收（换两插件→完全重启→重导 cshz→切歌歌词跟随/全曲逐字/行尾渐隐/首行定位/按键归因芯片五项）；若芯片亮「网易云未响应控制」则请用户发「初始」页 __chushiMusicBridge.debug() 输出（现在是页面侧口，浏览器里可得）做下一层定位；cshz 字符余量 176 需在下轮前瘦身；x86 hub.dll 线仍暂停
+
+---
+Task ID: 104
+Agent: main (Super Z)
+Task: 用户 cmdTrace 取证（toggle×2 ok:true port:26901 而播放不动）——判定桥在执行但渲染层四级备路全灭，v8.0.5 原生媒体键终极兜底发布
+
+Work Log:
+- 【取证判读】截图 cmdTrace 是页面侧 POST 轨迹（smtc.ts control() 记录，ok=true=hub 受理）；数据面 1Hz 存活⇒桥轮询存活⇒命令必被取走执行；v8.0.2~v8.0.4 连续四轮实测=渲染层四级（InfLink→dva→元素→按钮）在该 NCM 3.x 全灭——唯一未触及层=操作系统输入层
+- 【修复①hub.dll 8.0.5 重编 x64】新端点 POST /api/native：mode1=EnumWindows 找本进程最大可见顶层窗口→PostMessage WM_APPCOMMAND（NEXT=11/PREV=12/PLAY_PAUSE=14，scoped 零外溢）；mode2=keybd_event VK_MEDIA_*（B3/B7/B1，extended key，物理键盘同一条输入流）；导入表仅增 USER32（零 WinRT 宪法不变，构建门逐项断言）；[native] 注入日志进 hub-log.txt；旧 hub 无端点 404→桥诚实降级
+- 【修复②桥 8.0.5 六路执行链】execCommand toggle/next/prev 双支路四级全败后接 nativeEscalate→nativeFireOnce（预检 checkOk 已达标不补刀防 toggle 振荡→jpost /api/native→950ms 验证→mode1 败升 mode2→终败 markCmd ok=false path=native）；回执新路径 napp/nkey/native
+- 【修复③方向仲裁律（e2e B3 台架实锤的生产 bug）】start() 先 readTruth 后探针→首条命令拿「探测前无源帧（src=none，playing=false 假值）」判方向→方向反+假 ok:'link' 回执；playingNowCalc 重写：linkStatus 实时 playState 第一优先→唯一例外=真值带 inflink+heal 标记且新鲜（v8.0.2 冻结病仲裁）→无源帧/其他分歧信实时→InfLink 缺席回退新鲜真值/元素/继承
+- 【版本链】桥 8.0.5（manifest+描述）+ hub.c PLUGIN_VERSION 8.0.5 + smtc.ts PLUGIN_VER_MIN/CLIENT_VER 8.0.5（旧插件亮「组件待更新」强制升级）；部件零改动 cshz 不需重导（19024 字符原样）
+- 【门禁】build-v8-plugins.py 44/44（+USER32 导入门/nativeFire 响应格式串门——GCC -O2 把 strncmp 字面量展开成立即数比较致 /api/native 不落 .rdata，改断言 "mode":%d,"hwnd":%d / 桥 v8.0.5 兜底符号门/toggle+next+prev 双支路接兜底门=调用点×2）
+- 【e2e 50/50】makeBridgeCtx 升级：可注入命令队列+/api/native 三态（work=注入即翻转 linkState 模拟 OS 媒体键→SMTC→NCM 真实翻转/off404/noop）+真实 setInterval（1Hz 心跳保真值新鲜）；新增 B3「死网易云」（InfLink 读取活/控制面静默忽略=用户实机特征）四级全灭→mode1 接管→回执 ok=true path=napp；B4 旧 hub 两枪打完→终态 ok=false path=native 不误报；.wt-v7 已同步后跑（防假绿旧律）
+- 【发布】扩展 zip 11.7MB（7 内联脚本外置，smtc chunk 含 8.0.5 门）+ cshz 原样重打 + 七件套 + SHA256SUMS + AllInOne + Usage-Notes（含「这次只换 1 个文件」升级指引）；main 05d20ca 推送；Pages 7a8cc46 部署并线上核验（chunk ae8e5383 含 8.0.5 门）；Release id=384805126（6 资产逐个 sha256 上传核验 ALL OK）；文叔叔匿名登录失效（服务端 params parse error，两次重试同败）放弃镜像，GitHub Release 主通道完备
+
+Stage Summary:
+- 新律：①「数据面存活」可反推「命令必被桥取走」——控制失效排查先分层（投递/取走/执行/生效），cmdTrace+数据面二证据即可锁死断点在「生效」级；②渲染层路径穷尽后下探 OS 输入层：同进程原生 DLL 重放媒体键=与物理键盘同通路，零网易云内部依赖，是控制类问题的终极兑底；③方向判定禁信「探测前帧」——真值快照必须带来源标记（src），无源帧在命令路径上按未知处理；④GCC -O2 会把 strncmp(s,"lit",n) 展开成立即数比较，字符串字面量不落 .rdata——二进制门禁断言「端点存在」要用运行时才格式化的响应串而非路由字面量；⑤e2e 台架用真实 setInterval 保桥心跳节奏，才能复现「陈旧真值窗口」类时序 bug（B3 假 link 回执即台架立功）
+- 待办：用户侧验收（换 ChuShi-Music-Bridge-8.0.5.plugin→完全重启网易云→刷新「初始」页→按播放/上下首）；若芯片亮 native=连系统媒体键都被吞，请发 hub-log.txt（[native] 行）+网易云版本号；cshz 字符余量 176 仍未扩；x86 hub.dll 线暂停
