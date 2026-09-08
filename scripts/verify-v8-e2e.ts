@@ -50,18 +50,18 @@ const server = Bun.serve({
     const path = url.pathname;
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors() });
     if (path === '/api/ping') {
-      return Response.json({ ok: true, name: 'chushi-music-hub', version: '8.0.4', host: true }, { headers: cors() });
+      return Response.json({ ok: true, name: 'chushi-music-hub', version: '8.0.5', host: true }, { headers: cors() });
     }
     if (path === '/api/state' && req.method === 'GET') {
       return Response.json({
-        ok: true, name: 'chushi-music-state', v: '8.0.4', ts: Date.now(),
-        version: '8.0.4', hubVer: '8.0.4', inflinkVer: inflinkVerServed, smtcVer: inflinkVerServed,
+        ok: true, name: 'chushi-music-state', v: '8.0.5', ts: Date.now(),
+        version: '8.0.5', hubVer: '8.0.5', inflinkVer: inflinkVerServed, smtcVer: inflinkVerServed,
         cmd: { last: mockCmdLast },
         ne: {
           songId: 186016, title: '晴天', artist: '周杰伦', album: '叶惠美',
           pic: 'https://p1.music.126.net/x.jpg?param=500y500',
           position: 12.3, duration: 269.3, playing: true, ts: Date.now() - 300,
-          v: '8.0.4', src: 'inflink',
+          v: '8.0.5', src: 'inflink',
           seekAckId: 's-1', seekAckOk: true, seekAckAt: Date.now() - 1000,
         },
       }, { headers: cors() });
@@ -111,16 +111,23 @@ const oldServer = Bun.serve({
 });
 
 /* ---------- B. 桥白盒台架 ---------- */
-function makeBridgeCtx(withInflink: boolean) {
+function makeBridgeCtx(withInflink: boolean, opts?: {
+  cmds?: any[];              /* 自定义命令队列（默认 seek/next/prev） */
+  nativeMode?: 'work' | 'off404' | 'noop';  /* /api/native 行为：work=注入即翻转状态 / off404=旧 hub 无端点 / noop=回 ok 但无效果 */
+}) {
   const calls = { play: 0, pause: 0, next: 0, previous: 0, seek: [] as number[] };
   const statePosts: any[] = [];
-  const cmdServed: any[] = [
+  const nativePosts: any[] = [];
+  const cmdServed: any[] = opts?.cmds ? opts.cmds.slice() : [
     /* v8.0.3 协议律：与 hub.dll 实物同形 —— {"_id":N,"raw":{...}}（raw 为对象） */
     { _id: 'w-seek-1', raw: { cmd: 'seek', position: 100 } },
     { _id: 'w-next-1', raw: { cmd: 'next' } },
     /* 字符串形态兼容（备用路径） */
     { _id: 'w-prev-1', raw: '{"cmd":"prev"}' },
   ];
+  /* 「死网易云」模拟：InfLink 控制面派发被 reducer 静默忽略（读取正常）——
+     linkState 由 /api/native work 模式翻转（等价 OS 媒体键 → SMTC → NCM） */
+  let linkState = 'Playing';
   const sandbox: any = {
     console,
     fetch: async (url: string, init?: any) => {
@@ -132,8 +139,16 @@ function makeBridgeCtx(withInflink: boolean) {
       if (u.includes('/api/cmd') && init && init.method === 'POST') {
         return { json: async () => ({ ok: true }), ok: true };
       }
+      if (u.includes('/api/native') && init && init.method === 'POST') {
+        const body = JSON.parse(init.body);
+        nativePosts.push(body);
+        const mode = opts?.nativeMode ?? 'work';
+        if (mode === 'off404') return { json: async () => ({ ok: false, error: 'not-found' }), ok: false };
+        if (mode === 'work') linkState = linkState === 'Playing' ? 'Paused' : 'Playing';
+        return { json: async () => ({ ok: true, mode: body.mode, hwnd: body.mode === 1 ? 1 : 0, act: body.act, v: '8.0.5' }), ok: true };
+      }
       if (u.includes('/api/ping')) {
-        return { json: async () => ({ ok: true, name: 'chushi-music-hub', version: '8.0.4', host: true }), ok: true };
+        return { json: async () => ({ ok: true, name: 'chushi-music-hub', version: '8.0.5', host: true }), ok: true };
       }
       if (u.includes('/api/state') && init && init.method === 'POST') {
         statePosts.push(JSON.parse(init.body));
@@ -143,8 +158,10 @@ function makeBridgeCtx(withInflink: boolean) {
     },
     setTimeout,
     clearTimeout,
-    setInterval: () => 0,
-    clearInterval: () => { },
+    /* v8.0.5：桥的 1Hz 心跳用真实 interval（真值 1Hz 刷新，native 验证读近实时真值）；
+       bun 测试结束后进程退出，不依赖清理 */
+    setInterval: (fn: any, ms: number) => setInterval(fn, ms),
+    clearInterval: (t: any) => clearInterval(t),
     Date,
     JSON,
     Math,
@@ -178,7 +195,11 @@ function makeBridgeCtx(withInflink: boolean) {
         songName: '晴天', authorName: '周杰伦', albumName: '叶惠美',
         cover: { url: 'https://p1.music.126.net/x.jpg' }, ncmId: 186016, duration: 269300,
       }),
-      getPlaybackStatus: () => 'Playing',
+      /* 读取面活性：默认恒 Playing；opts.nativeMode==='work' 时由 /api/native
+         翻转（等价 OS 媒体键 → SMTC/NCM 真实翻转）。控制面（play/pause/next/
+         previous）计数但永不改变 linkState —— 模拟「reducer 静默忽略派发」
+         的死网易云（用户实机特征：数据活、控制全灭）。 */
+      getPlaybackStatus: () => linkState,
       getTimeline: () => ({ currentTime: 12345, totalTime: 269300 }),
       play: () => { calls.play++; },
       pause: () => { calls.pause++; },
@@ -192,7 +213,7 @@ function makeBridgeCtx(withInflink: boolean) {
   const src = require('fs').readFileSync(
     '/home/z/my-project/.wt-v7/bridge/v8/plugins/music-bridge/index.js', 'utf8');
   vm.runInContext(src, ctx, { filename: 'music-bridge-v8.js' });
-  return { calls, statePosts, sandbox };
+  return { calls, statePosts, nativePosts, sandbox };
 }
 
 /* ================================ 测试 ================================ */
@@ -215,7 +236,7 @@ describe('v8 e2e', () => {
     await new Promise((r) => setTimeout(r, 2600));
     const s = m.smtc.getSnapshot();
     ok('connected=true', s.connected === true);
-    ok('hubVer=8.0.4', s.version === '8.0.4', s.version);
+    ok('hubVer=8.0.5', s.version === '8.0.5', s.version);
     ok('needsBridge=false（v8 身份命中）', s.needsBridge === false);
     ok('needsPlugin=false（ne.v=8.0.4）', s.needsPlugin === false);
     ok('needsUpdate=false', s.needsUpdate === false);
@@ -257,7 +278,7 @@ describe('v8 e2e', () => {
     ok('桥至少推一次状态', statePosts.length >= 1, String(statePosts.length));
     const blob = statePosts[0];
     ok('blob 名字 chushi-music-state', blob && blob.name === 'chushi-music-state');
-    ok('blob v=8.0.4', blob && blob.v === '8.0.4');
+    ok('blob v=8.0.5', blob && blob.v === '8.0.5');
     ok('ne.title 来自 InfLink', blob && blob.ne.title === '晴天', blob && blob.ne.title);
     ok('ne.artist 来自 InfLink', blob && blob.ne.artist === '周杰伦');
     ok('ne.position=ms→s（12.345）', blob && Math.abs(blob.ne.position - 12.345) < 0.01, blob && blob.ne.position);
@@ -287,6 +308,35 @@ describe('v8 e2e', () => {
     ok('ne 无假数据（空标题诚实落库）', blob && blob.ne.title === '', blob && blob.ne.title);
     ok('备路未被误触发（无 InfLink 无元素 = 空转）', calls.next === 0 && calls.seek.length === 0);
   });
+
+  /* v8.0.5 终极兑底核心场景：死网易云（渲染层四路全灭）→ 原生媒体键接管。
+     模拟用户实机特征：InfLink 读取面正常、控制面派发被静默忽略（play/pause
+     只计数不改状态）、无 audio 元素、无可见按钮。/api/native work 模式在
+     注入时翻转 linkState（等价 OS 媒体键 → SMTC/NCM 真实翻转）。 */
+  test('B3 v8.0.5 死网易云：四级全灭 → 原生媒体键 mode1 接管 → 回执 napp', async () => {
+    const { nativePosts, statePosts } = makeBridgeCtx(true, {
+      cmds: [{ _id: 'w-tog-dead-1', raw: { cmd: 'toggle' } }],
+      nativeMode: 'work',
+    });
+    /* 冗余等待：开局 ~1.5s 拉命令 → 四级降级 ~2.4s → native 验证 ~1s → 下一拍落库 */
+    await new Promise((r) => setTimeout(r, 7500));
+    ok('走到了原生兑底（POST /api/native）', nativePosts.length >= 1, JSON.stringify(nativePosts));
+    ok('首枪 = mode1（WM_APPCOMMAND，scoped 优先）', nativePosts[0] && nativePosts[0].mode === 1 && nativePosts[0].act === 'toggle', JSON.stringify(nativePosts[0]));
+    const napp = statePosts.some((b) => b.cmd && b.cmd.last && b.cmd.last.ok === true && b.cmd.last.path === 'napp');
+    ok('回执 ok=true path=napp（mode1 验证通过）', napp, JSON.stringify(statePosts.map((b) => b.cmd)));
+  }, 12000);
+
+  test('B4 v8.0.5 旧 hub：/api/native 404 → mode2 再试 → 诚实失败回执 native', async () => {
+    const { nativePosts, statePosts } = makeBridgeCtx(true, {
+      cmds: [{ _id: 'w-tog-old-1', raw: { cmd: 'toggle' } }],
+      nativeMode: 'off404',
+    });
+    await new Promise((r) => setTimeout(r, 7500));
+    ok('旧 hub 下两枪都打完（mode1+mode2）', nativePosts.length >= 2, JSON.stringify(nativePosts));
+    ok('mode2 也在列（升格尝试）', nativePosts.some((p) => p.mode === 2), JSON.stringify(nativePosts));
+    const last = statePosts.length ? statePosts[statePosts.length - 1] : null;
+    ok('终态回执 ok=false path=native（诚实不误报）', !!last && last.cmd && last.cmd.last && last.cmd.last.ok === false && last.cmd.last.path === 'native', JSON.stringify(last && last.cmd));
+  }, 12000);
 
   test('C 否定门：v7 老身份枢纽必须被拒绝', async () => {
     const m = await import('/home/z/my-project/.wt-v7/src/lib/startpage/smtc.ts');
