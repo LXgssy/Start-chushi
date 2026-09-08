@@ -1,22 +1,18 @@
 /* ============================================================================
- * ChuShi Music Bridge 8.0.2 — 网易云 InfLink-rs 适配桥（v8.0.2 实机对症版）
+ * ChuShi Music Bridge 8.0.4 — 网易云 InfLink-rs 适配桥（v8.0.4 歌词滞留根治+控制可观测）
  *   v8.0.1：①命令解析兼容 hub 实物协议 {"_id",raw:{...}}；②jpost 2.5s 超时；
  *   ③toggle 方向判定取 InfLink 真值。
- *   v8.0.2 实机三联修（用户视频/log 取证）：
- *   ① 控制验证+三级备路——InfLink 控制面是纯 redux dispatch（play/pause/next/
- *      prev/seek 全部 this.reduxStore?.dispatch），在部分 NCM 3.x 版本上 action 被
- *      reducer 静默忽略（数据读取同 store 却正常，故现场呈「数据活、按钮全死」）；
- *      本版改为「下发 → 延时验证（歌曲号/播放态真翻转）→ 不动则直发 dva action
- *      （动词逐字抄 InfLink 3.2.11）→ 再不动则 audio 元素/可见按钮」，绝不假装成功；
- *   ② 播放态时间线自愈——InfLink playState 冻结为 Paused 但时间线仍在推进
- *      （≥1.2s/拍）时按播放处理（面板▶/进度走同屏矛盾的根因）；
- *   ③ 封面 http→https 升级——页面端 https 源丢弃 http 图导致恒显默认底。
- *   v8.0.3 控制末端加固（用户实测 NCM 3.x 上 InfLink/redux 派发均被静默忽略）：
- *   ①按钮候选扩宽（aria-label/title 中文关键词 + class 模糊匹配，NCM 3.x DOM
- *     改版兼容；列表/队列类按钮误中保护）；②完整指针事件序列
- *     （pointerdown→mousedown→pointerup→mouseup→click）；③toggle 元素路径
- *     +700ms 复验（元素自身 paused 即算生效，防双翻转），双真值都未达预期
- *     才走末端按钮。
+ *   v8.0.2：控制验证+三级备路 / 播放态时间线自愈 / 封面 https 升级。
+ *   v8.0.3：按钮候选扩宽 / 完整指针序列 / toggle 元素路径复验。
+ *   v8.0.4（用户实机取证：切歌后歌词滞留上一首 + 按键失效无从诊断）：
+ *   ①切歌检测改曲键（songId|title）——songId 恒 0 的真值源也能触发重拉；
+ *   ②requestLyric 先推 pending 占位清 hub 单槽旧词——窗口期页面只见等待态，
+ *     绝不再见上一首的词继续滚（页面端同步加了 songId 强校验）；
+ *   ③暂停态 yrc 校准重查（用户指定管线）：当前词无逐字时趁暂停每 30s 重查
+ *     逐字源（至多 3 次/曲），拿到 yrc 即升级真逐字（时间轴仍由 SMTC 锚点
+ *     驱动，渲染层对纯 lrc 行内插值伪逐字，全曲都有逐字效果）；
+ *   ④命令回执进 /api/state（state.cmd.last）——用户在浏览器里测试拿不到本
+ *     诊断口，面板/页面端可直读「命令是否被执行、四路降级走到哪一级」。
  *
  * v8 架构律（本代宪法）：
  *   1. 零自写 SMTC——系统媒体卡片（元数据/封面/时间线/媒体键/拖动）完全由
@@ -45,7 +41,7 @@
   'use strict';
   if (window.__chushiMusicBridge) return;
 
-  var VER = '8.0.3';
+  var VER = '8.0.4';
   var HUB_NAME = 'chushi-music-hub';
   var HUB_PORTS = [26901, 26902, 26903];
   var BEAT_MS = 1000;
@@ -68,6 +64,7 @@
         domScrape: !!(scrapeBar())
       },
       seekAck: JSON.parse(JSON.stringify(seekAck)),
+      cmdLast: JSON.parse(JSON.stringify(cmdLast)),
       cmdTrace: cmdTrace.slice()
     };
   };
@@ -455,15 +452,23 @@
 
   /* ------------------------------------------------------------------ */
   /* 歌词（与歌词源插件协作：cc:lyric-req → cc:lyric-res）                  */
+  /* v8.0.4：hub /api/lyric 是单槽缓存——切歌后新词到达前，页面拉到的必然是
+     旧词；旧版不推不清，页面就看到上一首的词一直滚。现在 requestLyric
+     先推 pending 占位清槽；曲键（songId|title）变化即重拉；暂停态对无
+     逐字结果节流重查升级真 yrc（用户指定校准管线）。                    */
   /* ------------------------------------------------------------------ */
-  var lyric = { songId: 0, payload: null, pendingId: 0, pendingAt: 0, done: {} };
+  var lyric = { songId: 0, payload: null, pendingId: 0, pendingAt: 0, done: {},
+    refineAt: 0, refineTries: 0 };
 
   window.addEventListener('cc:lyric-res', function (ev) {
     try {
       var d = ev.detail || {};
       if (d.reqId !== lyric.pendingId) return;
       if (d.songId !== lyric.songId) return;
-      if (d.payload && (d.payload.yrc || d.payload.lrc)) {
+      /* 升级保护：已有带 yrc 的结果时不被无逐字结果降级 */
+      var better = d.payload && (d.payload.yrc || d.payload.lrc) &&
+        !(lyric.payload && lyric.payload.yrc && !d.payload.yrc);
+      if (better) {
         lyric.payload = d.payload;
         pushLyric();
       }
@@ -471,16 +476,29 @@
     } catch (e) { /* 忽略坏应答 */ }
   }, false);
 
-  function requestLyric(songId) {
+  function pushLyricPending(songId) {
+    if (!hub.port) return;
+    /* 占位清槽：页面端 songId 强校验 + 空 yrc/lrc → 走重试分支，绝不渲染旧词 */
+    jpost(hub.url('/api/lyric'), { ok: true, lyric: {
+      songId: songId, pending: true, title: '', artist: '',
+      yrc: '', ytlrc: '', lrc: '', tlyric: '', source: 'pending', rev: 'p-' + songId
+    } });
+  }
+
+  function requestLyric(songId, title, artist, force) {
     lyric.songId = songId;
-    lyric.payload = null;
+    if (!force) lyric.refineTries = 0;
     if (lyric.done[songId]) { lyric.payload = lyric.done[songId]; pushLyric(); return; }
+    lyric.payload = null;
+    pushLyricPending(songId); /* 立即清 hub 单槽旧词（切歌滞留根治） */
     if (!songId) return;
     lyric.pendingId++;
     lyric.pendingAt = nowMs();
     try {
       window.dispatchEvent(new CustomEvent('cc:lyric-req', {
-        detail: { songId: songId, reqId: lyric.pendingId, want: ['yrc', 'ytlrc', 'lrc', 'tlyric'] }
+        detail: { songId: songId, reqId: lyric.pendingId, force: force === true,
+          title: clip(String(title || ''), 120), artist: clip(String(artist || ''), 120),
+          want: ['yrc', 'ytlrc', 'lrc', 'tlyric'] }
       }));
     } catch (e) { /* 歌词源缺席 */ }
   }
@@ -577,10 +595,20 @@
   var lastCmdDone = {};
   var cmdSeq = 0;
   var cmdTrace = [];
+  /* v8.0.4 命令回执：随 /api/state 透出（控制可观测——面板端直读归因） */
+  var cmdLast = { id: 0, type: '', ok: null, path: '', at: 0 };
 
   function traceCmd(kind, detail) {
     cmdTrace.push({ at: nowMs(), k: clip(String(kind || ''), 12), d: clip(String(detail || ''), 80) });
     if (cmdTrace.length > 12) cmdTrace.shift();
+  }
+
+  function markCmd(id, type, ok, path) {
+    cmdLast.id = Number(id) || 0;
+    cmdLast.type = clip(String(type || ''), 16);
+    cmdLast.ok = (ok === true || ok === false) ? ok : null;
+    cmdLast.path = clip(String(path || ''), 16);
+    cmdLast.at = nowMs();
   }
 
   function controlStore() {
@@ -670,20 +698,21 @@
     probeInflight(); /* 双保险：执行前刷新 InfLinkApi 在场状态 */
     var seq = ++cmdSeq;
     traceCmd('cmd', type + '#' + (cmd._id != null ? cmd._id : '?'));
+    markCmd(cmd._id, type, null, 'recv'); /* 回执：桥已收到（可观测起点） */
 
     if (type === 'play' || type === 'pause' || type === 'toggle') {
       var before = playingNowCalc();
       var wantPlay = type === 'play' ? true : type === 'pause' ? false : !before;
-      if (wantPlay === before) { traceCmd('skip', 'already'); return; } /* 已处目标态 */
+      if (wantPlay === before) { traceCmd('skip', 'already'); markCmd(cmd._id, type, true, 'skip'); return; } /* 已处目标态 */
       apiToggle(before); /* 主路：InfLink（与系统卡片按钮同路的 redux 派发） */
       /* +900ms 验证：播放态真翻转则收工；未翻转 → 直发 dva → 元素 → 按钮 */
       setTimeout(function () {
         if (seq !== cmdSeq) return;
-        if (playingNowCalc() === wantPlay) { traceCmd('ok', 'link'); return; }
+        if (playingNowCalc() === wantPlay) { traceCmd('ok', 'link'); markCmd(cmd._id, type, true, 'link'); return; }
         reduxDispatch(wantPlay ? 'playing/resume' : 'playing/pause', { triggerScene: 'desktopLyric' });
         setTimeout(function () {
           if (seq !== cmdSeq) return;
-          if (playingNowCalc() === wantPlay) { traceCmd('ok', 'redux'); return; }
+          if (playingNowCalc() === wantPlay) { traceCmd('ok', 'redux'); markCmd(cmd._id, type, true, 'redux'); return; }
           var el = getAudio();
           if (el) elemToggle(el, wantPlay);
           /* v8.0.3：+700ms 复验——元素自身 paused 也算数（播放态真值可能冻结）；
@@ -694,10 +723,13 @@
             var el2 = getAudio();
             if (el2) elOk = wantPlay ? !el2.paused : el2.paused;
             if (playingNowCalc() === wantPlay || elOk === true) {
-              traceCmd('ok', elOk === true ? 'element' : 'late'); return;
+              traceCmd('ok', elOk === true ? 'element' : 'late');
+              markCmd(cmd._id, type, true, elOk === true ? 'element' : 'late');
+              return;
             }
             clickSeq(visibleBtn(BTN_PLAY));
             traceCmd('fb', 'button');
+            markCmd(cmd._id, type, false, 'button');
           }, 700);
         }, 800);
       }, 900);
@@ -717,23 +749,26 @@
         /* InfLink 缺席：直接 redux（同动词）→ 末端按钮 */
         var ok1 = reduxDispatch('playingList/jump2Track', { flag: flag, type: 'call', triggerScene: 'hotKey' });
         if (!ok1) clickTransport(dir);
+        markCmd(cmd._id, type, ok1 ? true : false, ok1 ? 'redux' : 'button');
         return;
       }
       /* +1200ms 验证：曲未变（单循环曲也极少原地）→ 直发 dva；再 +1100ms 仍原曲 → 按钮 */
       setTimeout(function () {
         if (seq !== cmdSeq) return;
-        if (songKey() !== key0) { traceCmd('ok', 'link'); return; }
+        if (songKey() !== key0) { traceCmd('ok', 'link'); markCmd(cmd._id, type, true, 'link'); return; }
         reduxDispatch('playingList/jump2Track', { flag: flag, type: 'call', triggerScene: 'hotKey' });
         setTimeout(function () {
           if (seq !== cmdSeq) return;
-          if (songKey() !== key0) { traceCmd('ok', 'redux'); return; }
+          if (songKey() !== key0) { traceCmd('ok', 'redux'); markCmd(cmd._id, type, true, 'redux'); return; }
           clickTransport(dir);
           traceCmd('fb', 'button');
+          markCmd(cmd._id, type, false, 'button');
         }, 1100);
       }, 1200);
     } else if (type === 'seek') {
       var pos = clampNum(Number(cmd.position), 0, 86400);
       doSeek(pos);
+      markCmd(cmd._id, type, null, 'seek');
     }
   }
 
@@ -912,6 +947,10 @@
     if (playing === null) playing = truth.playing;
 
     var changedSong = songId !== truth.songId && !!songId;
+    /* v8.0.4 曲键切换检测：songId 变化 或（songId 同但 title 变，治 songId 恒 0
+       的真值源）都触发歌词重拉——旧版只看 songId，恒 0 时永不重拉 */
+    var metaKey = (songId || 0) + '|' + (title || '');
+    var metaChanged = changedSong || metaKey !== (truth._metaKey || '');
     truth.playing = playing === true;
     truth.position = position;
     truth.duration = duration;
@@ -922,8 +961,9 @@
     truth.pic = pic || '';
     truth.src = clip(metaSrc || (hasLink ? 'inflink' : 'none'), 32);
     truth.updatedAt = t;
+    truth._metaKey = metaKey;
 
-    if (changedSong) requestLyric(truth.songId);
+    if (metaChanged) requestLyric(truth.songId, truth.title, truth.artist, false);
     return truth;
   }
 
@@ -949,6 +989,8 @@
         seekAckOk: seekAck.ok === true,
         seekAckAt: seekAck.at
       },
+      /* v8.0.4 控制可观测：命令回执（面板/页面端直读归因，不再黑盒） */
+      cmd: { last: { id: cmdLast.id, type: cmdLast.type, ok: cmdLast.ok, path: cmdLast.path, at: cmdLast.at } },
       /* smtcVer v8 语义 = InfLink-rs 版本（系统卡片提供方）；空 = 未装/未启用 */
       smtcVer: inflink.ver,
       inflinkVer: inflink.ver,
@@ -994,6 +1036,14 @@
 
       /* 4) 读真值 → 5) 推状态（页面唯一数据源） */
       readTruth();
+      /* v8.0.4 暂停校准（用户指定管线）：当前词无逐字（纯行级/伪逐字降级）时，
+         趁暂停每 30s 重查逐字源（至多 3 次/曲），拿到 yrc 即升级真逐字 */
+      if (!truth.playing && lyric.payload && !lyric.payload.yrc && lyric.songId &&
+          nowMs() - lyric.refineAt > 30000 && lyric.refineTries < 3) {
+        lyric.refineAt = nowMs();
+        lyric.refineTries++;
+        requestLyric(lyric.songId, truth.title, truth.artist, true);
+      }
       var blob = buildStateBlob();
       await jpost(hub.url('/api/state'), blob);
     } catch (e) {

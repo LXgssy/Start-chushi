@@ -96,17 +96,27 @@
   }
 
   /* ============================================================
-   * 音乐引擎核心（v6.0.0，第六代纯插件架构配套实现）——「初始」内建媒体数据面
+   * 音乐引擎核心（v6.1，第六代纯插件架构配套实现）——「初始」内建媒体数据面
    *
    * 职责分工律：插件产真值，引擎只搬运，本层管呈现——
    *   - 解析逐字歌词（yrc 括号时间轴）/行级歌词（lrc）+ 双语翻译对齐；
+   *   - v6.1 逐字全曲律（用户指定架构）：yrc 不覆盖所有歌曲——纯 lrc 歌
+   *     在行内按显示单元（CJK 字符/拉丁单词，权重均分）生成伪逐字
+   *     时间轴，时间基准完全取 SMTC 锚点（对表律），全曲都有逐字效果；
    *   - 锚点 = {position, fetchedAt, playing, rate, duration}，本地时钟
    *     插值：任何时刻的显示位置 = 锚点 + 已流逝，绝无逐帧累加，
    *     从根上排除累积漂移；
    *   - slew 吸收：播放中真值抖动 < 0.35s 的拍只确认不重锚
    *     （1s 轮询的到达抖动是逐字扫色肉眼抖动的来源）；
    *   - 暂停淡入淡出：播放→暂停翻转的当拍，按「当前词剩余时长」
-   *     计算一次 fadeMs（用户指定的防漂移管线的最后一环），恢复沿用；
+   *     计算一次 fadeMs；恢复→播放翻转时的淡入期位置偏差（网易云
+   *     淡入使 SMTC 恢复瞬间位置跳变）做 600ms 软重锚缓动入轨——
+   *     防跳变，也防淡入期偏差被 slew 误吸收成永久漂移（用户指定
+   *     「暂停时计算淡入淡出时间防累积漂移」管线）；
+   *   - 首行预备律：曲目前奏（早于首行起点）即定位首行，不再等到
+   *     唱到才跳（用户指定「播放时歌词立即跳到第一行」）；
+   *   - 曲目一致性律：歌词 payload 的 songId 与曲目 songId 均在场且
+   *     不同 → 歌词视为上一首残留，不渲染（切歌歌词滞留最后一道防线）；
    *   - now() 同步返回预计算实时态，面板 rAF 直接取用，零计算。
    * 通道桥接（两通道同一份源码，零漂移）：
    *   - 脚本通道：全局 smtcPush/smtcTick 处理器 → feed/tick；
@@ -117,6 +127,7 @@
   function __chushiMusicCoreV6(hooks) {
     "use strict";
     var SLEW_SEC = 0.35;
+    var SOFT_MS = 600;        /* 恢复淡入期软重锚窗口（缓动入轨） */
     var anchor = null;        /* {position, duration, playing, rate, fetchedAt} */
     var snapCbs = [];
     var lastSnap = null;
@@ -124,17 +135,35 @@
     var parsedKey = "\u0000none";
     var parsedRef = null;
     var fadeMs = 0;
+    var soft = null;          /* {from,at,dur} 恢复期软重锚（淡入期防漂移） */
 
     function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
     function rateOf() { return anchor && anchor.rate > 0 ? anchor.rate : 1; }
 
-    /* ---- 本地时钟插值：唯一位置公式，绝不逐帧累加 ---- */
-    function posNow() {
+    /* ---- 本地时钟插值：唯一位置公式，绝不逐帧累加 ----
+       baseNow = 锚点轨迹（SMTC 真值）；posNow = 软重锚混合后的显示位置 */
+    function baseNow() {
       if (!anchor) return 0;
       var p = anchor.position +
         (anchor.playing ? ((Date.now() - anchor.fetchedAt) / 1000) * rateOf() : 0);
       if (anchor.duration > 0) return clamp(p, 0, anchor.duration);
       return Math.max(0, p);
+    }
+    function posNow() {
+      var p = baseNow();
+      if (soft) {
+        var el = Date.now() - soft.at;
+        if (el >= soft.dur) { soft = null; return p; }
+        /* 旧轨迹继续走 + smoothstep 入轨到新锚轨迹：淡入期位置偏差
+           平滑吸收（既不跳变，也不残留为永久漂移） */
+        var fromP = soft.from + (el / 1000) * rateOf();
+        var t = el / soft.dur;
+        var k = t * t * (3 - 2 * t);
+        var out = fromP + (p - fromP) * k;
+        if (anchor.duration > 0) return clamp(out, 0, anchor.duration);
+        return Math.max(0, out);
+      }
+      return p;
     }
 
     /* ---- 歌词解析（一次性，缓存按 rev + 对象引用双重失效） ---- */
@@ -230,11 +259,44 @@
       var lrcLines = parseLineText(ly.lrc);
       if (lrcLines.length) {
         joinTranslation(lrcLines, ly.tlyric, 600);
-        parsed = { mode: 2, lines: lrcLines };
+        /* v6.1 逐字全曲律（用户指定架构）：yrc 不覆盖所有歌曲，纯 lrc 歌
+           行内按显示单元加权均分生成伪逐字时间轴，时间基准取 SMTC 锚点
+           （暂停态可用桥侧 yrc 校准重查升级真逐字）。mode 置 1 走逐字渲染。 */
+        for (var u = 0; u < lrcLines.length; u++) unitizeLine(lrcLines[u]);
+        parsed = { mode: 1, lines: lrcLines };
         return parsed;
       }
       parsed = null;
       return null;
+    }
+
+    /* ---- 行内伪逐字：显示单元切分 + 权重均分（CJK 字符×2/拉丁单词×1/空格×0.4） ---- */
+    function unitizeLine(ln) {
+      if (!ln.t || ln.w) return;
+      var toks = [], buf = "", bw = 0;
+      function flush() { if (buf) { toks.push({ t: buf, w: bw }); buf = ""; bw = 0; } }
+      for (var i = 0; i < ln.t.length; ) {
+        var code = ln.t.codePointAt(i) || 0;
+        var adv = code > 0xFFFF ? 2 : 1;
+        var ch = String.fromCodePoint(code);
+        var isCJK = (code >= 0x2E80 && code <= 0x9FFF) || (code >= 0xF900 && code <= 0xFAFF) ||
+          (code >= 0x3000 && code <= 0x30FF) || (code >= 0xFF00 && code <= 0xFFEF);
+        if (isCJK) { flush(); toks.push({ t: ch, w: 2 }); }
+        else if (/\s/.test(ch)) { flush(); toks.push({ t: ch, w: 0.4 }); }
+        else { buf += ch; bw += 1; }
+        i += adv;
+      }
+      flush();
+      if (!toks.length) return;
+      var dur = Math.max(400, ln.e - ln.s), sum = 0, j;
+      for (j = 0; j < toks.length; j++) sum += toks[j].w;
+      var at = ln.s;
+      ln.w = [];
+      for (j = 0; j < toks.length; j++) {
+        var d = dur * toks[j].w / sum;
+        ln.w.push({ s: Math.round(at), d: Math.round(d), t: toks[j].t });
+        at += d;
+      }
     }
 
     /* ---- 逐行/逐词二分定位 ---- */
@@ -248,7 +310,13 @@
         var mid = (lo + hi) >> 1;
         if (lines[mid].s <= ms) { idx = mid; lo = mid + 1; } else { hi = mid - 1; }
       }
-      if (idx < 0 || ms > lines[idx].e + 200) return none;
+      if (idx < 0) {
+        /* v6.1 首行预备律：前奏期（早于首行起点）即定位首行（未唱态），
+           不再等到唱到才跳（用户指定）；尾声（末行已过）维持间奏灰。 */
+        var l0 = lines[0];
+        return { lineIndex: 0, wordIndex: -1, wordProgress: 0, lineProgress: 0, lineText: l0.t, lineTr: l0.tr, wordText: "" };
+      }
+      if (ms > lines[idx].e + 200) return none;
       var ln = lines[idx];
       var lp = clamp((ms - ln.s) / Math.max(1, ln.e - ln.s), 0, 1);
       if (!ln.w) {
@@ -293,8 +361,10 @@
     function whitelist(s) {
       var t = s && s.track && typeof s.track === "object" ? s.track : null;
       var ly = s && s.lyric && typeof s.lyric === "object" ? s.lyric : null;
+      var songId = t && typeof t.songId === "number" && isFinite(t.songId) ? Math.max(0, t.songId) : 0;
       var out = {
         connected: !!(s && s.connected),
+        songId: songId,
         app: t ? String(t.app || "").slice(0, 40) : "",
         title: t ? String(t.title || "").slice(0, 200) : "",
         artist: t ? String(t.artist || "").slice(0, 200) : "",
@@ -308,15 +378,26 @@
         pluginVer: s ? String(s.pluginVer || "").slice(0, 16) : "",
         smtcVer: s ? String(s.smtcVer || "").slice(0, 16) : "",
         seekNote: s ? String(s.seekNote || "").slice(0, 40) : "",
+        cmdLast: s && s.cmdLast && typeof s.cmdLast === "object" ? {
+          id: Number(s.cmdLast.id) || 0,
+          type: String(s.cmdLast.type || "").slice(0, 16),
+          ok: typeof s.cmdLast.ok === "boolean" ? s.cmdLast.ok : null,
+          path: String(s.cmdLast.path || "").slice(0, 16),
+          at: Number(s.cmdLast.at) || 0,
+        } : null,
         needsUpdate: !!(s && s.needsUpdate),
         needsPlugin: !!(s && s.needsPlugin),
         needsBridge: !!(s && s.needsBridge),
         engineOld: !!(s && s.engineOld),
       };
       if (ly) {
-        var data = ensureParsed(ly);
+        /* v6.1 曲目一致性律：歌词 payload 归属另一曲目（songId 双方在场且
+           不同）= 上一首残留，一律不渲染——切歌歌词滞留的最后一道防线 */
+        var lyId = Number(ly.songId) || 0;
+        var stale = songId > 0 && lyId > 0 && lyId !== songId;
+        var data = stale ? null : ensureParsed(ly);
         if (data) {
-          out.lyric = { mode: data.mode, lines: data.lines };
+          out.lyric = { mode: data.mode, lines: data.lines, songId: lyId };
           out._lyricRaw = ly; /* 内部字段：定位/淡入淡出用 */
         }
       }
@@ -339,19 +420,31 @@
         rate: t && typeof t.rate === "number" && t.rate > 0 ? t.rate : 1,
         fetchedAt: t && typeof t.fetchedAt === "number" ? t.fetchedAt : Date.now(),
       };
+      soft = null; /* 新快照全量重锚：软窗口作废 */
       push();
     }
 
-    /* ---- 节拍：slew 吸收 + 播放态翻转时算 fadeMs ---- */
+    /* ---- 节拍：slew 吸收 + 播放态翻转算 fadeMs + 恢复期软重锚 ----
+       v6.1 防漂移管线（用户指定）：暂停→恢复翻转时 SMTC 位置常带淡入期
+       偏差（±0.2~0.5s 瞬跳）。偏差 ≤2s 时启动 600ms 软重锚：显示位置从
+       旧轨迹 smoothstep 入轨到新锚轨迹——不跳变，窗口结束锚定真值，
+       淡入期偏差不会成为永久漂移；>2s（seek/切歌）仍硬锚。 */
     function tick(tk) {
       if (!anchor) return;
       if (!tk || typeof tk !== "object") return;
       var prevPlaying = anchor.playing;
       if (typeof tk.position === "number" && isFinite(tk.position)) {
         var expected = posNow();
+        var delta = tk.position - expected;
         var reanchor = prevPlaying !== !!tk.playing || !anchor.playing ||
-          Math.abs(tk.position - expected) >= SLEW_SEC;
+          Math.abs(delta) >= SLEW_SEC;
         if (reanchor) {
+          if (prevPlaying === false && tk.playing === true &&
+              Math.abs(delta) > 0.05 && Math.abs(delta) <= 2) {
+            soft = { from: posNow(), at: Date.now(), dur: SOFT_MS };
+          } else if (Math.abs(delta) > 2 || prevPlaying !== !!tk.playing) {
+            soft = null;
+          }
           anchor.position = Math.max(0, tk.position);
           anchor.fetchedAt = typeof tk.fetchedAt === "number" && tk.fetchedAt > 0 ? tk.fetchedAt : Date.now();
         }
@@ -360,7 +453,7 @@
       if (typeof tk.playing === "boolean") anchor.playing = tk.playing;
       if (typeof tk.rate === "number" && tk.rate > 0) anchor.rate = tk.rate;
       if (typeof tk.fetchedAt === "number" && tk.fetchedAt > 0 && !anchor.playing) anchor.fetchedAt = tk.fetchedAt;
-      if (prevPlaying === true && anchor.playing === false) fadeMs = computeFadeMs();
+      if (prevPlaying === true && anchor.playing === false) { fadeMs = computeFadeMs(); soft = null; }
     }
 
     /* ---- 实时态（面板 rAF 每帧取用） ---- */

@@ -1,6 +1,6 @@
 # AI-HANDOFF — 给下一个读这个仓库的 AI / 开发者
 
-> 最后更新：v8.0.3（2026-09-08，控制末端加固四联修：按钮扩宽+指针序列+元素复验 / 悬停律 / 中文逐字根修 / 只读进度条）。写给你的：无论你是人类贡献者还是 AI 助手，
+> 最后更新：v8.0.4（2026-09-08，歌词滞留根治 + 逐字全曲覆盖（用户指定架构）+ 行尾渐隐/首行预备/控制可观测）。写给你的：无论你是人类贡献者还是 AI 助手，
 > 这一页是项目的「当前状态 + 下一步该干什么」的单一事实来源。
 > 动手前请先读完本页，不要凭想象改架构。
 
@@ -29,7 +29,20 @@ ChuShi Music Bridge 8.0.0 以 `window.InfLinkApi` 为第一真值源、控制主
   （v7.0.0 实锤），网易云↔浏览器的唯一可行通道 = 本地 HTTP 枢纽；v8 起枢纽载体
    = 音乐桥内置 hub.dll（纯 winsock，零 WinRT 结构性无崩溃面）。
 
-## v8.0.3（当前版）：控制末端加固四联修（按钮 / 悬停 / 中文逐字 / 进度条）
+## v8.0.4（当前版）：歌词滞留根治 + 逐字全曲（用户指定架构）+ 控制可观测
+
+**取证链**：用户 40s 录屏逐帧 + 控制台截图。录屏实锤「标题/封面已切新歌（What Makes You Beautiful）而歌词区仍按旧歌时间轴滚旧词（拼接乌托邦）」；控制台截图实锤 `window.__chushiMusicBridge` undefined（用户在浏览器 Pages 版测试，桥诊断口只在网易云主页面）+ `GET 127.0.0.1:26901/api/state ERR_CONNECTION_REFUSED`（截图瞬间 hub 离线，与「面板已连接 v8.0.3」帧并存 = 端口重探/重启窗口的正常噪声）。
+
+- **①歌词滞留三层根治（头号根因）**：a) hub /api/lyric 是**单槽缓存**（g_lyric 一份，GET 无视 songId 参数）——切歌窗口页面拉到的必然是旧词，而 smtc.ts 旧版不校验响应 songId 照单全收且把新曲目标记为已拉取（`lyricRevDone=wanted`）→ 滞留永久化。修复三层：**桥**切歌检测改曲键 `songId|title`（治 songId 恒 0 永不重拉）+ `requestLyric` 先推 `pending` 占位清槽；**页面端**响应 songId 强校验（不符=未就绪继续重试）；**渲染层**（core whitelist）track.songId 与 lyric.songId 双方在场且不同 → 不渲染。e2e 新增「mock 单槽首帧回旧歌残留 → 客户端拒绝重试直至新词」断言。
+- **②逐字全曲覆盖（用户指定架构）**：用户原话「yrc 不是覆盖所有歌曲，先 api 拿整首歌歌词，通过 SMTC 对时间戳做逐字；暂停时算淡入淡出防累积漂移（可试获取 yrc 校准）」。落地：core v6.1 纯 lrc 行内**伪逐字**——unitizeLine 按显示单元切分（CJK 字符×2/拉丁连续串×1/空格×0.4）权重均分行时长，mode 置 1 走逐字渲染，时间基准完全取 SMTC 锚点（对表律）；**暂停校准管线**：桥在暂停态且当前词无 yrc 时每 30s 重查逐字源（force 绕缓存，≤3 次/曲），拿到 yrc 即升级替换（cc:lyric-res 升级保护：不降级已有 yrc）。
+- **③恢复期软重锚（防漂移管线的暂停分支）**：恢复翻转（false→true）且位置偏差 0.05~2s 时，600ms smoothstep 缓动入轨（旧轨迹继续走 + 混合到新锚轨迹）——不跳变、淡入期偏差不残留为永久漂移；>2s（seek/切歌）仍硬锚；feed/暂停翻转即作废软窗。
+- **④行尾渐隐律（部件）**：done 行不再 `display:none` 瞬消——遮罩 `--p` 定格 100%，`.cs-ln.done .cs-w .ov{opacity:0;transition:opacity .6s ease}` 渐隐 + 行色 ink→ink2 .5s 渐变（用户指定「唱完等过了这句再渐变消失」）；**sung 标记**：只有真正 active 过的行才定格全亮渐隐，seek 跳中段的未唱行直接灰（restoreLine 0%）；倒回退出 done 由 restoreLine 还原未唱态。
+- **⑤首行预备律**：alignAt 早于首行起点时返回 lineIndex=0（未唱预备态）——前奏期立即定位高亮第一行，不再等到唱到才跳；尾声（末行 e+200 后）维持间奏灰。
+- **⑥控制可观测（按键失效不再黑盒）**：桥 execCommand 各落点 `markCmd(id,type,ok,path)`（recv/skip/link/redux/element/button/late）→ `state.cmd.last` 随 1Hz 状态透出；面板归因三态（`ctlFailText(clickedAt)`）：cmdLast.at ∈ [点击-0.8s, 窗口末] 视为「桥已执行」→ ok=false 亮「网易云未响应控制·桥已尝试全部备路（path）」/否则「控制已下发但未响应」；无回执 → 插件旧亮「控制能力不足」/新亮「音乐桥未执行命令」。**页面侧诊断口**：smtc.ts start() 挂 `window.__chushiMusicBridge`（side:'page'，不覆盖桥侧同名口）——`debug().cmdTrace` 返回 hub 连接/pluginVer/歌词归属/控制 POST 轨迹，用户在「初始」页控制台即可取源。
+- **版本链**：桥 8.0.4（hub.dll 8.0.3 未重编，版本门 8.0.0 仍满足）；歌词源 7.2.0（getLyric force + 无逐字追加 channel 升级）；smtc.ts 8.0.4（PLUGIN_VER_MIN 8.0.4 + SmtcTrack.songId + SmtcCmdLast）；部件 v8.0.4（cshz 19024/19200 字符，余量 176）。
+- **发版**：插件门 39/39 + e2e 44/44 + 渲染台架 25/25（probe-widget-v804.mjs：渐隐五断言+伪逐字五断言+首行预备+归因三态+v8.0.3 全量回归；教训：台架 stub 的 cmdLast.at 必须晚于点击——桥 1Hz 拉取+执行延迟在真实链路必然如此；直渲染切位置用 __pos 不用 setSnap（后者新建 lyric 对象触发 DOM 重建丢 sung 标记））+ Release id=384767993（6 资产逐个 sha256 核验）+ 文叔叔 https://c.wss.ink/f/ktrwhlglr4j + Pages 线上核验（sandbox.js 含 unitizeLine×2、chunk 845a913e 含 "8.0.4"）。
+
+## v8.0.3（历史）：控制末端加固四联修（按钮 / 悬停 / 中文逐字 / 进度条）
 
 **取证链**：用户复测反馈「双语歌词已好（部件层修复生效）但按键仍死、悬停变黑位移仍在、中文无逐字」——修复生效面分布揭示了「用户重导了 cshz 但未必换了插件」的交付学新律。
 

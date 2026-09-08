@@ -37,6 +37,11 @@ let cmdQueue: any[] = [
   { _id: 't-play-1', cmd: 'play' },
 ];
 const inflinkVerServed = '3.2.11';
+/* v8.0.4：模拟 hub 单槽歌词缓存的「切歌窗口」——首次 GET 回旧歌残留（songId=999），
+   客户端必须拒绝并重试，直到槽内是新歌（songId=186016） */
+let lyricSlotStale = true;
+/* v8.0.4：模拟桥命令回执（state.cmd.last） */
+const mockCmdLast = { id: 7, type: 'toggle', ok: true, path: 'link', at: Date.now() - 900 };
 
 const server = Bun.serve({
   port: 26901,
@@ -45,17 +50,18 @@ const server = Bun.serve({
     const path = url.pathname;
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors() });
     if (path === '/api/ping') {
-      return Response.json({ ok: true, name: 'chushi-music-hub', version: '8.0.3', host: true }, { headers: cors() });
+      return Response.json({ ok: true, name: 'chushi-music-hub', version: '8.0.4', host: true }, { headers: cors() });
     }
     if (path === '/api/state' && req.method === 'GET') {
       return Response.json({
-        ok: true, name: 'chushi-music-state', v: '8.0.3', ts: Date.now(),
-        version: '8.0.3', hubVer: '8.0.3', inflinkVer: inflinkVerServed, smtcVer: inflinkVerServed,
+        ok: true, name: 'chushi-music-state', v: '8.0.4', ts: Date.now(),
+        version: '8.0.4', hubVer: '8.0.4', inflinkVer: inflinkVerServed, smtcVer: inflinkVerServed,
+        cmd: { last: mockCmdLast },
         ne: {
           songId: 186016, title: '晴天', artist: '周杰伦', album: '叶惠美',
           pic: 'https://p1.music.126.net/x.jpg?param=500y500',
           position: 12.3, duration: 269.3, playing: true, ts: Date.now() - 300,
-          v: '8.0.3', src: 'inflink',
+          v: '8.0.4', src: 'inflink',
           seekAckId: 's-1', seekAckOk: true, seekAckAt: Date.now() - 1000,
         },
       }, { headers: cors() });
@@ -65,7 +71,16 @@ const server = Bun.serve({
       return Response.json({ ok: true }, { headers: cors() });
     }
     if (path === '/api/lyric' && req.method === 'GET') {
-      return Response.json({ ok: true, lyric: { songId: 186016, title: '晴天', yrc: '[00:01.00]晴(100,200)天', lrc: '[00:01.00]晴天', tlyric: '', ytlrc: '', source: 'eapi-yrc', rev: '186016-8.0.3' } }, { headers: cors() });
+      const want = url.searchParams.get('songId') || '';
+      /* v8.0.4 单槽语义：首次回旧歌残留（songId 不符）；客户端必须拒绝重试 */
+      if (lyricSlotStale) {
+        lyricSlotStale = false;
+        return Response.json({ ok: true, lyric: { songId: 999, title: '上一首残留', yrc: '[00:01.00]旧(100,200)词', lrc: '[00:01.00]旧词', tlyric: '', ytlrc: '', source: 'eapi-yrc', rev: '999-stale' } }, { headers: cors() });
+      }
+      if (want && want !== '186016') {
+        return Response.json({ ok: false, lyric: null }, { headers: cors() });
+      }
+      return Response.json({ ok: true, lyric: { songId: 186016, title: '晴天', yrc: '[00:01.00]晴(100,200)天', lrc: '[00:01.00]晴天', tlyric: '', ytlrc: '', source: 'eapi-yrc', rev: '186016-8.0.4' } }, { headers: cors() });
     }
     if (path === '/api/lyric' && req.method === 'POST') {
       hub.lyricPosts.push(await req.json());
@@ -118,7 +133,7 @@ function makeBridgeCtx(withInflink: boolean) {
         return { json: async () => ({ ok: true }), ok: true };
       }
       if (u.includes('/api/ping')) {
-        return { json: async () => ({ ok: true, name: 'chushi-music-hub', version: '8.0.3', host: true }), ok: true };
+        return { json: async () => ({ ok: true, name: 'chushi-music-hub', version: '8.0.4', host: true }), ok: true };
       }
       if (u.includes('/api/state') && init && init.method === 'POST') {
         statePosts.push(JSON.parse(init.body));
@@ -187,7 +202,7 @@ describe('v8 e2e', () => {
     ok('SMTC_COMMANDS 白名单', m.SMTC_COMMANDS.has('seek') && m.SMTC_COMMANDS.has('toggle') && m.SMTC_COMMANDS.size === 6);
     ok('smtc 单例可 start/subscribe/control', typeof m.smtc.start === 'function' && typeof m.smtc.subscribe === 'function' && typeof m.smtc.control === 'function');
     ok('smtcPositionNow 插值', Math.abs(m.smtcPositionNow({
-      app: 'x', title: '', artist: '', album: '', playing: true, position: 10,
+      app: 'x', songId: 0, title: '', artist: '', album: '', playing: true, position: 10,
       duration: 100, rate: 1, coverRev: '', fetchedAt: Date.now() - 2000,
     }) - 12) < 0.5);
   });
@@ -200,23 +215,26 @@ describe('v8 e2e', () => {
     await new Promise((r) => setTimeout(r, 2600));
     const s = m.smtc.getSnapshot();
     ok('connected=true', s.connected === true);
-    ok('hubVer=8.0.3', s.version === '8.0.3', s.version);
+    ok('hubVer=8.0.4', s.version === '8.0.4', s.version);
     ok('needsBridge=false（v8 身份命中）', s.needsBridge === false);
-    ok('needsPlugin=false（ne.v=8.0.3）', s.needsPlugin === false);
+    ok('needsPlugin=false（ne.v=8.0.4）', s.needsPlugin === false);
     ok('needsUpdate=false', s.needsUpdate === false);
     ok('smtcVer=InfLink-rs 版本', s.smtcVer === '3.2.11', s.smtcVer);
     ok('track 真值直显', s.track && s.track.title === '晴天' && s.track.artist === '周杰伦');
+    ok('track.songId=186016（v8.0.4 歌词归属校验用）', s.track && s.track.songId === 186016, s.track && s.track.songId);
+    ok('cmdLast 回执透出（v8.0.4 控制可观测）', !!s.cmdLast && s.cmdLast.type === 'toggle' && s.cmdLast.ok === true && s.cmdLast.path === 'link', JSON.stringify(s.cmdLast));
     ok('封面 URL 透传', s.coverUrl === 'https://p1.music.126.net/x.jpg?param=500y500');
     ok('engineOld=false', s.engineOld === false);
     off();
   });
 
-  test('A3 歌词拉取', async () => {
-    await new Promise((r) => setTimeout(r, 1800));
+  test('A3 歌词拉取（v8.0.4 songId 强校验：首帧旧歌残留必须被拒）', async () => {
+    await new Promise((r) => setTimeout(r, 3600));
     const m = await import('/home/z/my-project/.wt-v7/src/lib/startpage/smtc.ts');
     const s = m.smtc.getSnapshot();
-    ok('歌词已装配', !!s.lyric && s.lyric.yrc.includes('晴') && s.lyric.source === 'eapi-yrc');
-    ok('lyricRev=186016', s.lyricRev === '186016-8.0.3' || s.lyricRev === '186016', s.lyricRev);
+    ok('歌词已装配（非旧歌残留）', !!s.lyric && s.lyric.yrc.includes('晴') && s.lyric.source === 'eapi-yrc');
+    ok('歌词归属 songId=186016', !!s.lyric && s.lyric.songId === 186016, s.lyric && s.lyric.songId);
+    ok('lyricRev=186016', s.lyricRev === '186016-8.0.4' || s.lyricRev === '186016', s.lyricRev);
   });
 
   test('A4 控制下发', async () => {
@@ -239,7 +257,7 @@ describe('v8 e2e', () => {
     ok('桥至少推一次状态', statePosts.length >= 1, String(statePosts.length));
     const blob = statePosts[0];
     ok('blob 名字 chushi-music-state', blob && blob.name === 'chushi-music-state');
-    ok('blob v=8.0.3', blob && blob.v === '8.0.3');
+    ok('blob v=8.0.4', blob && blob.v === '8.0.4');
     ok('ne.title 来自 InfLink', blob && blob.ne.title === '晴天', blob && blob.ne.title);
     ok('ne.artist 来自 InfLink', blob && blob.ne.artist === '周杰伦');
     ok('ne.position=ms→s（12.345）', blob && Math.abs(blob.ne.position - 12.345) < 0.01, blob && blob.ne.position);
@@ -248,6 +266,8 @@ describe('v8 e2e', () => {
     ok('inlinkVer=3.2.11', blob && blob.inflinkVer === '3.2.11', blob && blob.inflinkVer);
     ok('smtcVer=3.2.11', blob && blob.smtcVer === '3.2.11', blob && blob.smtcVer);
     ok('ne.src=inflink', blob && String(blob.ne.src).indexOf('inflink') === 0, blob && blob.ne.src);
+    /* v8.0.4 控制可观测：state 携带命令回执；执行后 markCmd 落库 */
+    ok('blob 携带 cmd.last 回执', blob && blob.cmd && blob.cmd.last && typeof blob.cmd.last.at === 'number', JSON.stringify(blob && blob.cmd));
     /* 命令执行：主路 InfLinkApi（v8.0.3 含 raw 对象/字符串双形协议验证） */
     await new Promise((r) => setTimeout(r, 1500));
     ok('seek 主路 = InfLinkApi.seekTo(100000ms)【raw 对象形】', calls.seek.includes(100000), JSON.stringify(calls.seek));

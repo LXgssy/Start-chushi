@@ -103,13 +103,14 @@ body{
   -webkit-mask-image:linear-gradient(180deg,transparent,#000 16%,#000 84%,transparent)}
 .cs-lyr-in{position:absolute;left:0;right:0;top:0;transition:transform .55s var(--ez);will-change:transform}
 .cs-ln{padding:4px 2px;text-align:center;font-size:14.5px;font-weight:560;line-height:1.45;
-  color:var(--ink3);transition:color .3s ease}
+  color:var(--ink3);transition:color .5s ease}
 .cs-ln.on{color:var(--ink)}
-/* v8.0.2 已唱行回落灰：行离场后遮罩归零、底色提至 ink2——不再定格全白；
-   修中英双语/回声行场景「上一行与当前行双高亮」的排版混乱 */
+/* v8.0.4 已唱行渐隐律（用户指定「唱完等过了这句再渐变消失」）：行离场不再
+   瞬消——遮罩定格 100%（全亮态），.ov 高亮层 opacity .6s 渐隐 + 行色
+   ink→ink2 渐变到已唱灰；倒回（seek）时由 restoreLine 重置未唱态 */
 .cs-ln.done{color:var(--ink2)}
 .cs-ln.done .cs-w{color:var(--ink2)}
-.cs-ln.done .cs-w .ov{display:none}
+.cs-ln.done .cs-w .ov{opacity:0;transition:opacity .6s ease}
 .cs-ln.gap{font-size:11px;letter-spacing:7px;color:var(--ink3)}
 /* 逐字扫色：双层实体色 + clip-path（background-clip:text 在 transform 过场中
    会整词隐形闪动；底层永远实体色可见，上层同文本按 --p 裁剪显色） */
@@ -193,12 +194,15 @@ body{
 <script>
 (function () {
   "use strict";
-  /* ================= ChuShi music widget v8.0.3（纯渲染层）=================
+  /* ================= ChuShi music widget v8.0.4（纯渲染层）=================
      解析/插值/对齐/淡入淡出全部由宿主 chushi.music API 预计算，
      本层每帧只做取数 + 写样式。布局零位移三律：主键双 SVG 同圆心堆叠、
      歌词高度迟滞（歌词短暂缺失不塌面板）、无逐帧布局读写。
      v8.0.3：主键悬停修复 + 进度条被动化（去滑块/去拖动）
-     + 控制失败诚实提示（悬停/点击均有反馈，不再静默）。 */
+     + 控制失败诚实提示（悬停/点击均有反馈，不再静默）。
+     v8.0.4：已唱行渐隐律（唱完保持全亮到离场，再 opacity 渐变到灰，
+     不再瞬消）+ 控制归因读桥命令回执（cmdLast：区分「桥未执行命令」
+     与「网易云未响应」，用户在浏览器里也能定位按键失效断点）。 */
   var H = { fl: 248, em: 92 }, LY_H = 124, W = 340;
   var DEF = "asset:cover.svg"; /* v8.0.1：asset 在生产宿主实测可用；失联时 onerror 藏 img 露渐变底，绝不破图 */
   function $(id) { return document.getElementById(id); }
@@ -228,7 +232,7 @@ body{
   var mode = "em";
   var lyHold = false;          /* 歌词高度迟滞：短暂缺失不塌面板（按钮不跳） */
   var lyKey = "", lyRef = null, lyMode = 0;
-  var lineEls = [];            /* [{el, words:[{ov}], line}] */
+  var lineEls = [];            /* [{el, words:[{ov}], line, sung}] */
   var activeLine = -2;
   var optP = false, optAt = 0; /* 播放/暂停乐观翻转窗口 */
   var trackKey = "";
@@ -281,17 +285,28 @@ body{
 
   /* ---------- 芯片与页脚（诚实归因文案；v8.0.3 兼顾控制未生效提示） ---------- */
   function pluginOld() {
-    var v = String((snap && snap.pluginVer) || "").split("."), need = [8, 0, 3];
+    var v = String((snap && snap.pluginVer) || "").split("."), need = [8, 0, 4];
     for (var i = 0; i < 3; i++) {
       var x = parseInt(v[i], 10) || 0, y = need[i];
       if (x !== y) return x < y;
     }
     return false;
   }
-  function ctlFailText() {
-    return pluginOld()
-      ? "音乐桥插件 v" + ((snap && snap.pluginVer) || "?") + " 控制能力不足 · 请更新 ChuShi Music Bridge 插件并完全重启网易云"
-      : "控制已下发但网易云未响应 · 请完全退出并重启网易云后重试";
+  /* v8.0.4 归因三态：读桥命令回执（cmdLast 经 state 透出）区分——
+     ①桥侧从未执行（插件过旧无回执/桥未拉取）②桥四路全败（ok=false）
+     ③桥报成功但面板未见翻转（状态链路问题） */
+  function ctlFailText(clickedAt) {
+    var cl = snap && snap.cmdLast;
+    var bridgeRan = !!(cl && cl.at && clickedAt && cl.at >= clickedAt - 800);
+    if (!bridgeRan) {
+      return pluginOld()
+        ? "音乐桥插件 v" + ((snap && snap.pluginVer) || "?") + " 控制能力不足 · 请更新 ChuShi Music Bridge 插件并完全重启网易云"
+        : "音乐桥未执行命令 · 请更新桥插件并完全重启网易云后重试";
+    }
+    if (cl.ok === false) {
+      return "网易云未响应控制 · 桥已尝试全部备路（" + (cl.path || "按钮") + "）· 请完全退出并重启网易云";
+    }
+    return "控制已下发但网易云未响应 · 请完全退出并重启网易云后重试";
   }
   function noteCtl(txt) {
     if (ctlTimer) { clearTimeout(ctlTimer); ctlTimer = 0; }
@@ -299,15 +314,15 @@ body{
     ctlNoteAt = Date.now();
     if (snap) renderChips(snap);
   }
-  /* 点击后的验证窗口：3200ms 内真值未达预期 → 亮「控制未生效」芯片（版本归因） */
-  function armCtlVerify(passed) {
+  /* 点击后的验证窗口：3200ms 内真值未达预期 → 亮「控制未生效」芯片（回执归因） */
+  function armCtlVerify(passed, clickedAt) {
     if (ctlTimer) { clearTimeout(ctlTimer); ctlTimer = 0; }
     ctlNote = "";
     if (typeof passed !== "function") return;
     ctlTimer = setTimeout(function () {
       ctlTimer = 0;
       if (!passed()) return;
-      noteCtl(ctlFailText());
+      noteCtl(ctlFailText(clickedAt));
     }, 3200);
   }
   function renderChips(s) {
@@ -395,15 +410,22 @@ body{
     if (n.lineIndex !== activeLine) {
       var prev = activeLine;
       activeLine = n.lineIndex;
-      /* v8.0.2 已唱行回落灰：离场行遮罩归零 + done 标记；间奏（-1）维持已唱进度；
-         倒回（seek 后回退）时后续行自动退出 done 还原未唱 */
+      /* v8.0.4 行离场渐隐律：done 行遮罩定格 100%，靠 .ov opacity .6s 渐隐
+         + 行色渐变到已唱灰（不再瞬消）；倒回（seek 后回退）退出 done 的行
+         由 restoreLine 重置未唱态；间奏（-1）维持已唱进度 */
       var ref = activeLine >= 0 ? activeLine : prev;
       for (var i = 0; i < lineEls.length; i++) {
         var on = i === activeLine;
+        var was = lineEls[i].el.classList.contains("done");
         var done = ref >= 0 && i <= ref && !on;
         lineEls[i].el.classList.toggle("on", on);
         lineEls[i].el.classList.toggle("done", done);
-        if (done) clearLine(i);
+        if (on) lineEls[i].sung = true;
+        if (done && !was) {
+          /* 唱过的行定格全亮渐隐（用户指定）；seek 跳中段的未唱行直接灰 */
+          if (lineEls[i].sung) finalizeLine(i); else restoreLine(i);
+        }
+        else if (!done && was) restoreLine(i);
       }
       if (activeLine >= 0 && activeLine < lineEls.length) {
         var el = lineEls[activeLine].el;
@@ -427,9 +449,17 @@ body{
       lyInr.style.opacity = n.playing ? "1" : "0.38";
     }
   }
-  function clearLine(idx) {
-    /* 行离场回落（v8.0.2）：遮罩归零露出已唱灰底，不再定格全白
-       （旧 finalizeLine 100% 全亮在双语/回声行场景呈双高亮假象） */
+  function finalizeLine(idx) {
+    /* 行离场定格（v8.0.4）：遮罩保持 100% 全亮，视觉靠 .ov opacity 渐隐
+       + 行色渐变到已唱灰收尾（用户指定「唱完等过了这句再渐变消失」） */
+    var ws = lineEls[idx].words;
+    for (var j = 0; j < ws.length; j++) {
+      ws[j].ov.style.setProperty("--p", "100%");
+    }
+  }
+  function restoreLine(idx) {
+    /* 倒回还原（seek 回退退出 done）：遮罩归零回未唱态（.ov opacity 随类
+       移除自动回 1，遮罩 0% 时本就不可见，无闪烁） */
     var ws = lineEls[idx].words;
     for (var j = 0; j < ws.length; j++) {
       ws[j].ov.style.setProperty("--p", "0%");
@@ -475,8 +505,8 @@ body{
   $("csClose").addEventListener("click", function () {
     if (window.chushi && typeof window.chushi.close === "function") chushi.close();
   });
-  function ctlFail(okPromise, passed) {
-    armCtlVerify(passed);
+  function ctlFail(okPromise, passed, clickedAt) {
+    armCtlVerify(passed, clickedAt);
     if (okPromise && typeof okPromise.then === "function") {
       okPromise.then(function (ok) {
         if (ok !== true) noteCtl("音乐桥未连接 · 控制未送达");
@@ -485,10 +515,10 @@ body{
   }
   function songUnchanged() { var k0 = trackKey; return function () { return trackKey === k0; }; }
   $("csPrev").addEventListener("click", function () {
-    ctlFail(mus.prev(), songUnchanged());
+    ctlFail(mus.prev(), songUnchanged(), Date.now());
   });
   $("csNext").addEventListener("click", function () {
-    ctlFail(mus.next(), songUnchanged());
+    ctlFail(mus.next(), songUnchanged(), Date.now());
   });
   $("csPlay").addEventListener("click", function () {
     var cur = effPlaying();
@@ -496,7 +526,7 @@ body{
     optAt = Date.now();
     playVisual(optP);
     /* 失败条件 = 验证窗口到期时真值仍 ≠ 期望态（armCtlVerify 语义：条件成立即亮芯片） */
-    ctlFail(mus.toggle(), function () { return effPlaying() !== optP; });
+    ctlFail(mus.toggle(), function () { return effPlaying() !== optP; }, optAt);
   });
 
   /* ---------- rAF 主循环（永不停止；v8.0.3 进度条只读，无拖拽分支） ---------- */

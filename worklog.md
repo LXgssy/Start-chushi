@@ -1081,3 +1081,27 @@ Work Log:
 Stage Summary:
 - 新律：①「修复生效面分布」可用于反推用户实际更新了哪一层——显示修好而控制未好=插件层未更新，反馈话术要按层拆分；②嵌套按钮组 :hover 全局规则必须显式豁免强调色主键（同特异性源码顺序裁决）；③转换器产出必须按消费方解析器格式并做往返单测（klyric→yrc 第三次格式漂移）；④yrc 等登录态数据源：无凭据请求只回公开子集，测试台架必须区分「匿名响应」与「登录响应」两种真值
 - 待办：用户侧验收（换两插件→完全重启→重导 cshz→按键/悬停/中文逐字/进度条四项）；若按键芯片亮「网易云未响应」则需要用户 cmdTrace 输出做下一层定位；x86 hub.dll 线暂停
+
+---
+Task ID: 103
+Agent: main (Super Z)
+Task: 用户录屏+控制台截图五反馈——①切歌歌词有概率滞留上一首 ②逐字歌词改按用户架构实现（API 拿整首词+SMTC 对时间戳+暂停算淡入淡出防漂移+暂停可试 yrc 校准）③行尾高亮瞬消应渐变 ④放歌不立即跳第一行 ⑤cmdTrace undefined+按键仍失效——v8.0.4 六联修发布
+
+Work Log:
+- 【取证①录屏逐帧】40.28s 录屏 3s 步进抽帧+面板裁剪：f12 面板滞留 See Tình 而网易云在播「拼接乌托邦」；f18 标题已切（0:06）歌词对上；f27/f33 决定性帧——标题/封面已是 What Makes You Beautiful（进度 0:05→0:11），歌词区仍是「拼接乌托邦」的词且按旧时间轴继续滚——「有概率不切换」=切歌窗口竞态滞留；面板底部「已连接 · API v8.0.3 · Inflink-rs v3.2.11」证明链路健康
+- 【取证②环境重大发现】录屏显示用户在**浏览器**打开「初始」Pages 线上版（ikxgssy.github.io/Start-chushi）+ 右侧网易云客户端——非 BetterNCM 内嵌新标签页；控制台截图 `__chushiMusicBridge` undefined（桥诊断口只注入网易云主页面，浏览器里当然没有）+ 26901 ERR_CONNECTION_REFUSED（截图瞬间 hub 离线，与已连接帧并存=重启/重探窗口噪声）——「按键失效无从诊断」的结构性原因：桥执行轨迹用户拿不到
+- 【根因①歌词滞留·实锤】a) hub /api/lyric 单槽缓存（chushi_hub.c g_lyric 一份，GET 无视 songId）——切歌窗口页面拉到的必然旧词；b) smtc.ts pullLyric 不校验响应 songId 照单全收且 lyricRevDone=wanted 永久标记；c) 桥 changedSong 只看 songId（InfLink ncmId 恒 0 场景永不重拉）；d) requestLyric 清 payload 后若歌词源慢/失败不推不清——旧词无限期滞留
+- 【修复①三层根治】桥：切歌检测改曲键 metaKey=songId|title + requestLyric 先推 pending 占位清槽（页面端空 yrc/lrc 走重试，绝不见旧词）；页面：响应 songId 强校验（不符=未就绪）；渲染：core whitelist track.songId vs lyric.songId 不一致拦截（SmtcTrack 新增 songId 字段贯通）
+- 【修复②逐字全曲（用户指定架构）】core v6.1 unitizeLine：纯 lrc 行内按显示单元切分（CJK 字符×2/拉丁连续串×1/空格×0.4）权重均分行时长生成伪逐字，mode 置 1 走逐字渲染，时间基准完全取 SMTC 锚点；桥暂停校准管线：暂停态且无 yrc 时每 30s 重查逐字源（force，≤3 次/曲），歌词源 7.2.0 getLyric(force) 绕缓存 + 无逐字结果追加 channel 升级；cc:lyric-res 升级保护（不降级已有 yrc）
+- 【修复③恢复期软重锚】core tick：恢复翻转且偏差 0.05~2s → 600ms smoothstep 缓动入轨（旧轨迹继续走+混合新锚轨迹），防跳变且淡入期偏差不残留为永久漂移；>2s 硬锚；feed/暂停翻转作废软窗
+- 【修复④行尾渐隐】部件 done 行 .ov 从 display:none 改 opacity:0+transition .6s 渐隐 + 行色 .5s 渐变；finalizeLine 遮罩定格 100%（sung 过的行）；restoreLine 0%（seek 跳中段未唱行/倒回还原）；sung 标记防「从未高亮的行闪一下再渐隐」
+- 【修复⑤首行预备】core alignAt 早于首行起点返回 lineIndex=0 未唱预备态——前奏期立即定位第一行
+- 【修复⑥控制可观测】桥 markCmd 落点回执（recv/skip/link/redux/element/button/late）→ state.cmd.last 1Hz 透出；部件归因三态 ctlFailText(clickedAt)（桥已执行+ok=false→「网易云未响应控制（path）」/无回执→插件旧「控制能力不足」新「音乐桥未执行命令」）；smtc.ts start() 挂页面侧 window.__chushiMusicBridge（side:'page' 不覆盖桥侧）——debug().cmdTrace 返回 hub 连接/歌词归属/控制 POST 轨迹，浏览器里也能诊断
+- 【调试实录】台架两假象：④b stub cmdLast.at 早于点击 1.7s 被判「桥未执行」——真实链路桥 1Hz 拉取+执行，回执必然晚于点击（at 应设点击后）；直渲染切位置误用 setSnap（新建 lyric 对象触发 DOM 重建丢 sung 标记）——改直写 __pos 由 rAF 驱动行切换
+- 【版本链】桥 8.0.4（hub.dll 8.0.3 未重编，HUB_VER_MIN 8.0.0 满足）；歌词源 7.2.0；smtc.ts 8.0.4（PLUGIN_VER_MIN+SmtcTrack.songId+SmtcCmdLast）；部件 v8.0.4；cshz 19024/19200（余量仅 176——下轮加代码前先瘦身注释）
+- 【验证】插件门 39/39（新增 v8.0.4 曲键/pending/回执/校准门+歌词源 force/升级门）；e2e 44/44（新增 mock 单槽首帧旧歌残留→客户端拒绝重试直至新词+cmdLast 透出断言）；渲染台架 25/25（probe-widget-v804.mjs：渐隐五断言沙箱链路+伪逐字五断言+首行预备+归因三态+v8.0.3 悬停/进度条/控制反馈全量回归）；tsc src 零错；hub.dll 不重编零 WinRT 门照过
+- 【发布】Next build + build:export + 扩展 zip（11.7MB，7 内联脚本外置，sandbox.js 含 unitizeLine×2、chunk 含 8.0.4）；cshz 重建；七件套+SHA256SUMS+AllInOne 12.3MB；gh-pages e8fe84c 线上核验（HTTP 200+sandbox unitizeLine+chunk 845a913e 含 8.0.4）；Release id=384767993（6 资产逐个 sha256 上传核验 ALL OK）；文叔叔 https://c.wss.ink/f/ktrwhlglr4j；rel-v804.py 入库（sed 迁移漏 v 前缀文件名两次修正）
+
+Stage Summary:
+- 新律：①单槽缓存类接口的消费者必须校验「响应归属=请求归属」，否则切歌窗口必吃旧值且永久标记——凡缓存中继都要想清楚「窗口期返回什么」；②切歌检测键=曲键（id|title）而非单 id——真值源 id 缺失时 title 是唯一指纹；③桥命令回执必须进数据面（state.cmd.last）——诊断口在另一个进程的页面里时，用户永远拿不到 cmdTrace，控制问题不许留黑盒；④台架 stub 的异步回执时序必须模拟真实链路方向（桥执行晚于点击）；⑤逐字歌词架构定稿（用户指定）：内容=API 整首词（lrc 全覆盖+yrc 尽力），时间=SMTC 锚点对表，行内=显示单元加权插值，暂停=软重锚防漂移+30s×3 yrc 校准升级
+- 待办：用户侧验收（换两插件→完全重启→重导 cshz→切歌歌词跟随/全曲逐字/行尾渐隐/首行定位/按键归因芯片五项）；若芯片亮「网易云未响应控制」则请用户发「初始」页 __chushiMusicBridge.debug() 输出（现在是页面侧口，浏览器里可得）做下一层定位；cshz 字符余量 176 需在下轮前瘦身；x86 hub.dll 线仍暂停

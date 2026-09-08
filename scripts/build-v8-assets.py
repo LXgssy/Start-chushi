@@ -1,67 +1,70 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""v8.0.0 交付七件套组装 + SHA256SUMS + 合并包（GitHub 资产名一律 ASCII）
+"""v8.0.4 交付七件套组装 + SHA256SUMS + 合并包（GitHub 资产名一律 ASCII）
 
-资产名单（v8 固定）：
-  ChuShi-Music-Bridge-8.0.0.plugin      音乐桥（含零 WinRT hub.dll）
-  ChuShi-Lyric-Source-7.0.0.plugin      歌词源（v7.0.0 沿用，协议不变）
-  ChuShi-NewTab-v8.0.0.zip              新标签页扩展（MV3）
-  ChuShi-Music-Preset-8.0.0.cshz        SMTC 音乐预设（InfLink-rs 文案版）
-  ChuShi-v8.0.0-Usage-Notes.md          使用说明（ASCII 名）
-  ChuShi-v8.0.0-AllInOne.zip            合并交付包（全部内容 + SHA256SUMS）
+资产名单（v8.0.4）：
+  ChuShi-Music-Bridge-8.0.4.plugin      音乐桥（含零 WinRT hub.dll 8.0.3，未重编）
+  ChuShi-Lyric-Source-7.2.0.plugin      歌词源（force 校准 + 无逐字升级）
+  ChuShi-NewTab-v8.0.4.zip              新标签页扩展（MV3）
+  ChuShi-Music-Preset-8.0.4.cshz        SMTC 音乐预设（部件 v8.0.4）
+  ChuShi-v8.0.4-Usage-Notes.md          使用说明（ASCII 名）
+  ChuShi-v8.0.4-AllInOne.zip            合并交付包（全部内容 + SHA256SUMS）
   SHA256SUMS.txt
 """
 import hashlib, shutil, zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / 'download/v8.0.2'
-VER = '8.0.2'
+OUT = ROOT / 'download/v8.0.4'
+VER = '8.0.4'
+LYRIC_VER = '7.2.0'
 
 FILES = [
-    ('download/v8.0.2/ChuShi-Music-Bridge-8.0.2.plugin', f'ChuShi-Music-Bridge-{VER}.plugin'),
-    ('download/v8.0.2/ChuShi-Lyric-Source-7.0.0.plugin', 'ChuShi-Lyric-Source-7.0.0.plugin'),
-    ('download/v8.0.2/ChuShi-NewTab-v8.0.2.zip', f'ChuShi-NewTab-v{VER}.zip'),
+    (f'download/v8.0.4/ChuShi-Music-Bridge-{VER}.plugin', f'ChuShi-Music-Bridge-{VER}.plugin'),
+    (f'download/v8.0.4/ChuShi-Lyric-Source-{LYRIC_VER}.plugin', f'ChuShi-Lyric-Source-{LYRIC_VER}.plugin'),
+    (f'download/v8.0.4/ChuShi-NewTab-v{VER}.zip', f'ChuShi-NewTab-v{VER}.zip'),
     ('examples/初始SMTC音乐预设.cshz', f'ChuShi-Music-Preset-{VER}.cshz'),
-    ('download/v8.0.2/ChuShi-v8.0.2-Usage-Notes.md', f'ChuShi-v{VER}-Usage-Notes.md'),
+    (f'download/v8.0.4/ChuShi-v{VER}-Usage-Notes.md', f'ChuShi-v{VER}-Usage-Notes.md'),
 ]
 
-NOTES = f'''# 「初始」v{VER} 实机对症版使用说明
+NOTES = f'''# 「初始」v{VER} 使用说明（歌词滞留根治 + 逐字全曲覆盖 + 控制可观测）
 
-## v8.0.2 修了什么（对应你视频里的三个问题）
+## v{VER} 修了什么（对应你录屏里的问题）
 
 | 问题 | 根因 | 修复 |
 |---|---|---|
-| 播放/暂停/上一首/下一首按键全坏 | InfLink-rs 的控制面是纯 redux 派发（play/pause/next/prev/seek 全部 `reduxStore?.dispatch`），在部分网易云 3.x 版本上这些 action 被静默忽略——而数据读取走同一 store 却正常，所以现场呈「数据活、按键全死」 | 桥改为「下发 → 延时验证（曲目/播放态真翻转）→ 不动则直发 dva action（动词逐字抄 InfLink 3.2.11）→ 再不动则 audio 元素/可见按钮」三级备路；执行轨迹记入 `window.__chushiMusicBridge.debug().cmdTrace` |
-| 播放中面板却显示播放键/黄灯（状态脱同步） | InfLink 的 playState 在部分网易云 3.x 版本上冻结为 Paused，但时间线仍在推进 | 桥加时间线自愈：报 Paused 但进度每秒推进 ≥1.2s → 按播放处理（只治假暂停，不反向伪造） |
-| 中英双语歌词显示混乱（上一行与当前行双高亮） | 部件歌词行离场时定格全亮（已唱遮罩 100% 不回落），回声行/重复句场景下读起来像两行同时在唱 | 已唱行离场后回落灰（.done），仅当前行保持卡拉OK高亮，翻译只挂当前行 |
-| 封面恒显默认底 | 网易云封面 URL 是 http 协议，页面 https 源按混合内容策略丢弃 | 桥端 http→https 升级（126 CDN 双协议均可用） |
+| **切歌后歌词不换，还是上一首的词在滚** | ①hub 歌词缓存是单槽，切歌瞬间页面拉到的必然是上一首的词，而页面端不校验归属照单全收、还把新歌标记为「已拉取」；②真值源 songId 恒 0 时切歌检测永不触发 | 三层根治：桥切歌检测改曲键（songId\\|title）+ 切歌立即推占位清槽；页面端歌词归属强校验（songId 不符一律拒绝重试）；渲染层曲目不一致拦截。窗口期只显示等待态，绝不再见旧词滚动 |
+| **中文歌没有逐字效果（yrc 不覆盖所有歌）** | 逐字渲染只在有 yrc 逐字数据时启用 | **按你指定的架构实现**：纯行级歌词（lrc）在行内按显示单元（汉字/英文单词加权）均分时间轴生成逐字效果，时间基准完全由 SMTC 播放进度驱动——**全曲都有逐字**；暂停时桥会自动重查逐字源校准升级（每 30s 至多 3 次/曲），拿到真 yrc 即无缝替换 |
+| **暂停/恢复后逐字漂移** | 网易云暂停/恢复有淡入淡出，恢复瞬间进度上报带偏差 | 恢复翻转时 600ms 软重锚缓动入轨：既不跳变，也不把淡入期偏差残留成永久漂移（锚点+本地时钟插值架构下无逐帧累加） |
+| **一行唱完后高亮瞬间消失** | 行离场时遮罩直接归零 | 已唱行离场后保持全亮，高亮层 0.6s 渐隐 + 行色渐变到已唱灰（等你说的「过了这句再渐变消失」）；seek 倒回自动还原未唱态 |
+| **放歌时歌词不立即跳到第一行** | 前奏期（早于首行起点）歌词区不定位 | 前奏期立即定位并高亮第一行（未唱态），不再等到唱到才跳 |
+| **播放/暂停、上一首/下一首按键失效无从排查** | 桥的执行轨迹只存在于网易云页面诊断口，浏览器里测试拿不到 | **控制可观测**：桥把命令回执（是否执行/四路降级走到哪一级）随状态透出，面板芯片直接归因三态——「插件过旧」/「音乐桥未执行命令」/「网易云未响应控制（桥已尝试全部备路）」；「初始」页控制台也可执行 `window.__chushiMusicBridge.debug().cmdTrace` 查看页面端 POST 轨迹（side:"page" 即页面侧口，桥侧口在网易云主页面） |
 
 ## 更新步骤（照做即可）
 
-1. 关闭网易云，进 `C:\\betterncm\\plugins`：**删掉旧 ChuShi-Music-Bridge-8.0.1.plugin**，
-   放入 `ChuShi-Music-Bridge-8.0.2.plugin`；**同时删掉 v7 时代遗留插件**（如
-   ChuShi-SMTC-Manager 或更旧的 Music-Bridge——双代插件同跑会互相打架）。
-2. 完全退出并重启网易云（托盘右键退出，不是关窗口）。
+1. 关闭网易云，进 `C:\\betterncm\\plugins`：删掉旧 **ChuShi-Music-Bridge-8.0.x.plugin** 和
+   **ChuShi-Lyric-Source-7.1.0.plugin**，放入 `ChuShi-Music-Bridge-{VER}.plugin` +
+   `ChuShi-Lyric-Source-{LYRIC_VER}.plugin`（**两个都要换**）。
+2. **完全退出并重启网易云**（托盘右键退出，不是关窗口）；InfLink-rs 3.2.11 保持启用。
 3. 「初始」页更新到 v{VER}（线上 Pages 已同步；扩展用户覆盖安装）。
-4. **「初始」页重新导入 `ChuShi-Music-Preset-{VER}.cshz`**（旧预设部件 HTML 是旧的，
-   必须重导入歌词修复才会生效）。
-5. InfLink-rs 保持 3.2.11 启用。
+4. **重新导入 `ChuShi-Music-Preset-{VER}.cshz`**（渐隐/首行定位/控制归因都在部件里）。
 
 ## 验收点
 
-- 点播放/暂停/上一首/下一首/拖进度，网易云真实响应（若 InfLink 派发失灵，
-  桥会自动降级直发 dva/元素，体感仍是「一点就动」）。
-- 播放中面板主键显示暂停图标（不再是播放键+黄灯同屏矛盾）。
-- 双语歌词：已唱行灰色、当前行卡拉OK高亮 + 翻译、未唱行淡灰——只有一行亮。
-- 封面显示真实专辑图（不再是紫色默认底）。
+- 连续切几首歌：标题/封面/歌词三者同步切换，不再出现上一首歌词滞留。
+- 随便放一首没有逐字歌词的中文歌：照样有逐字扫色效果。
+- 一行唱完：高亮保持到行尾，然后柔和渐隐成灰色。
+- 切到一首歌的前奏：歌词立即跳到第一行。
+- 按键若仍无反应：面板顶部会亮红色归因芯片——按芯片文案处理；若显示
+  「网易云未响应控制」，请完全退出并重启网易云后再试，仍不行请把「初始」页
+  控制台 `window.__chushiMusicBridge.debug()` 的输出发我们。
 
 ## 组件版本
 
-- ChuShi Music Bridge **{VER}**（hub.dll 8.0.2：防阻塞三律不变）
-- ChuShi Lyric Source 7.0.0（不变）
-- 「初始」NewTab **{VER}**（插件版本门升至 8.0.2）
-- SMTC 音乐预设 {VER}（歌词已唱行回落灰 + 单高亮律）
+- ChuShi Music Bridge **{VER}**（内置 hub.dll 8.0.3 未重编，满足版本门 8.0.0）
+- ChuShi Lyric Source **{LYRIC_VER}**（force 校准重查 + 无逐字结果升级通道）
+- 「初始」NewTab **{VER}**（插件版本门升至 {VER}）
+- SMTC 音乐预设 {VER}（部件 v{VER}：渐隐律/首行预备/归因三态）
 '''
 
 
@@ -69,6 +72,7 @@ def sha256(p: Path) -> str:
     h = hashlib.sha256()
     h.update(p.read_bytes())
     return h.hexdigest()
+
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
@@ -101,6 +105,7 @@ def main():
     print(f'  built {aio.name} ({aio.stat().st_size} bytes)')
 
     print(f'\nAllInOne: {aio}')
+
 
 if __name__ == '__main__':
     main()

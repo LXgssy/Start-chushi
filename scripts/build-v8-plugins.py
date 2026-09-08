@@ -23,9 +23,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / 'bridge/v8/plugins'
 NATIVE_DLL = ROOT / 'bridge/v8/native/hub.dll'
-OUT = ROOT / 'download/v8.0.3'
-VER = '8.0.3'
-LYRIC_VER = '7.1.0'
+OUT = ROOT / 'download/v8.0.4'
+VER = '8.0.4'
+LYRIC_VER = '7.2.0'
 
 PASS = 0
 FAIL = 0
@@ -216,7 +216,7 @@ def main():
             check('hub.dll 必须导入 WS2_32', b'WS2_32' in imp_blob, str(imports))
             hit = [h.decode() for h in WINRT_IMPORT_HINTS if h in imp_blob]
             check('hub.dll 零 WinRT/COM 导入（v8 宪法 G5）', not hit, str(hit))
-            check('hub.dll 内嵌版本串 8.0.3', b'8.0.3' in dll)
+            check('hub.dll 内嵌版本串 8.0.3（v8.0.4 未重编，HUB_VER_MIN 8.0.0 满足）', b'8.0.3' in dll)
             check('hub.dll 非占位（>30KB）', len(dll) > 30000, str(len(dll)))
             check('hub.dll 导出表仅 BetterNCMPluginMain（def 收敛）', exports == ['BetterNCMPluginMain'], str(exports))
             check('hub.dll 防阻塞三律在位（select 快关/NODELAY/500ms）',
@@ -244,6 +244,12 @@ def main():
                           'btnLabelOk', "el2.paused"]
             miss3 = [s for s in v803_marks if s not in js]
             check('music-bridge v8.0.3 按钮扩宽/指针序列/元素复验符号在位', not miss3, str(miss3))
+            # v8.0.4 歌词滞留根治 + 控制可观测门
+            v804_marks = ['pushLyricPending', 'pending: true', "metaKey",
+                          'metaChanged', 'markCmd', 'refineTries',
+                          "cmd: { last:"]
+            miss4 = [s for s in v804_marks if s not in js]
+            check('music-bridge v8.0.4 曲键切歌/pending占位/命令回执/暂停校准符号在位', not miss4, str(miss4))
         else:
             # v7.1.0 歌词源门：带凭据 eapi + 同源 web v1 + 真 yrc klyric 转换
             v710_marks = ['credentials: withCreds', "credentials: 'include'",
@@ -251,6 +257,11 @@ def main():
                           "'[' + s0 + ',' + lineDur + ']'", 'yrv: 0']
             miss7 = [s for s in v710_marks if s not in js]
             check('lyric-source v7.1.0 凭据/同源v1/真yrc转换符号在位', not miss7, str(miss7))
+            # v7.2.0 暂停校准门：force 绕缓存 + 无逐字升级
+            v720_marks = ['function getLyric(songId, force)', 'd.force === true',
+                          'up && up.yrc']
+            miss8 = [s for s in v720_marks if s not in js]
+            check('lyric-source v7.2.0 force/无逐字升级符号在位', not miss8, str(miss8))
 
     check('slug 唯一', len(slugs) == 2, str(slugs))
 
