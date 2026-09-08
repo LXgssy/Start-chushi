@@ -6,7 +6,7 @@
 # ⚠ html 里的 "asset:cover.svg" 引用只能在 .cshz 导入时被内联 —— 本包不再产单 JSON 形态
 import json, re, pathlib, zipfile
 
-ROOT = pathlib.Path("/home/z/my-project")
+ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC = ROOT / "preset-src" / "smtc"
 
 

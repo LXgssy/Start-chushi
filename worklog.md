@@ -929,3 +929,24 @@ Stage Summary:
 - 新律：①WinRT ABI 里「类参数」一律传接口指针（windows-rs Param<类>.abi() = 默认接口指针），手写 vtable 禁止把值类型当对象传；②崩溃栈符号按「最近导出符号」归因，单导出 DLL 的 +offset 必须反汇编定位真实 IP；③pinterface GUID 复算三坑（基 GUID/版本位/字节序）——复核特化 IID 必须按官方盐算法跑，不能靠记忆
 - 产物：ChuShi-SMTC-Manager-7.0.2.plugin（B/C/前端零改动，协议不变）
 - 待办：v7.0.2 真机验收（用户）→ 通过后继续 AI-HANDOFF 任务 B/C（插件列表/前端/预设包既有待办不变）
+
+---
+Task ID: 96
+Agent: main (Super Z)
+Task: 用户报告 v7.0.2 依旧崩（两弹窗：启动即崩 + 系统卡片切歌崩；系统卡片「未知曲目」）+ native-log.txt；同时预设包弹「registerCommand is not defined」——架构级终修 v7.1.0
+
+Work Log:
+- 【崩溃定位·反汇编】v7.0.2 DLL 本地 objdump 实锤：崩溃栈 smtc_native.dll+26E0 = QueryInterface 调用返回地址（0x1800026DE call *(%rcx) 下一行）——即 RoActivateInstance(TimelineProperties) 成功后、对系统返回对象 QI(IID_TimelineProps) 时崩于 Windows.Media.MediaControl.dll+58760。ABI 侧已全部核实（windows-rs streams.rs/foundation.rs/media.rs 三源复核 UriFactory/StreamRefStatics/SMTC/SMTC2/DisplayUpdater/Timeline 全部槽位与 IID，v7.0.2 无一错漏）→ 结论：宿主进程内 COM/SMTC 环境被污染（用户前轮「与网易云 smtc 冲突」猜想方向正确），宿主内修不可行
+- 【架构定案 v7.1.0】律：WinRT 绝不进宿主进程。DLL 瘦身为纯监督者（选举/释放/拉起/看护），独立 ChuShiSMTCBroker.exe 承载全部 WinRT/SMTC/HTTP 枢纽（协议逐字节同 v7.0.2，B/C/前端零改动）；宿主进程零 WinRT = 结构上不可能再崩宿主；broker 崩溃仅自杀退出（SEM_NOGPFAULTERRORBOX 无弹窗）+ 监督者滚动 10 分钟 ≤5 次重启预算
+- 【broker 实现】STA(RoInitialize(1)=SINGLETHREADED)+隐藏窗口+GetForWindow（Firefox 同款序列）；时间线对象唯一路径=自实现 CCW TpObj（绝不再激活 TimelineProperties 系统类——崩溃路径整体绕开）；事件 handler 增 IMarshal→FTM（CoCreateFreeThreadedMarshaler，真 agile）；全链 HRESULT 检查+GUARD 宏 SEH（AV→日志 hex code+addr→ExitProcess(2)）；--parent pid 看门狗；单实例互斥体；/api/broker/shutdown 供换版
+- 【监督者实现】BetterNCMPluginMain 选举（互斥体同名平滑升级）→ 内嵌 blob 释放 exe 至 %LOCALAPPDATA%\ChuShiSmtc\（缓冲区边界安全拼接）→ CreateProcess(CREATE_NO_WINDOW|BREAKAWAY 回退) → WaitForSingleObject 看护；旧版 broker 在跑→/api/ping 验版本→异版 shutdown 再拉新；渲染进程诊断 API 契约不变+broker 子对象；缓存 5s 的枢纽 smtcReady 探针（全超时）
+- 【ABI 防回归】broker 源 23 条 _Static_assert(offsetof(Vtbl,method)==槽位)——编译期证明全部布局，替代 v7.0.2 脆弱的反汇编模式匹配门（clang -O2 代码生成形态会变，数据断言不会）
+- 【构建】llvm-mingw -fms-extensions（SEH 关键字需显式开启，mingw 目标实测支持）；门禁 43/43 绿：G8 零 WinRT 律（DLL 导入表无 combase/winrt + 排除内嵌 blob 区后无 SMTC IID 字节）、G9 CCW 律（exe 不含 TimelineProperties 系统类名）、G10 内嵌 blob==包内 exe sha256、G11 编译期 ABI 门、G12 预设门
+- 【预设包修复】「registerCommand is not defined」根因=沙箱只注入 chushi 命名空间，music-commands.js 仍用 v5 时代裸 registerCommand/notify → 改 chushi.registerCommand/chushi.notify，重建 .cshz（G12 四断言）
+- 【交付】download/v7.1.0/：SMTC-Manager-7.1.0.plugin（95KB，DLL 内嵌 broker）+ B/C 7.0.0 零改动重附 + 初始SMTC音乐预设.cshz + 修复说明 + SHA256SUMS
+
+Stage Summary:
+- 架构律（永久）：WinRT 绝不进宿主进程——构建门断言（导入表+IID 字节排除 blob 区扫描），违反即构建失败
+- 调试律：clang -O2 把短字面量 strcmp 内联成 8 字节立即数（grep 字符串门禁只信长串）；llvm-mingw 编 SEH 需 -fms-extensions；门禁尽量用编译期 _Static_assert 替代二进制模式匹配
+- 产物：ChuShi-SMTC-Manager-7.1.0.plugin sha256 c548ac6d...（43 门全绿）
+- 待办：真机验收（用户）→ 通过后清 Edge 商店材料等历史欠账

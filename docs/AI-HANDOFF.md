@@ -1,6 +1,6 @@
 # AI-HANDOFF — 给下一个读这个仓库的 AI / 开发者
 
-> 最后更新：v7.0.0（2026-09-07）。写给你的：无论你是人类贡献者还是 AI 助手，
+> 最后更新：v7.1.0（2026-09-08，独立 broker 进程架构）。写给你的：无论你是人类贡献者还是 AI 助手，
 > 这一页是项目的「当前状态 + 下一步该干什么」的单一事实来源。
 > 动手前请先读完本页，不要凭想象改架构。
 
@@ -8,9 +8,10 @@
 
 「初始 / Start-chushi」：Next.js 15 新标签页（网页 + Edge MV3 扩展双形态），
 其中 SMTC 音乐面板显示网易云播放真值（进度/逐字歌词）并可控播。
-**v7.0.0 = 三插件原生架构**：SMTC 由**原生 DLL** 直接持有（真 Windows 系统会话），
-HTTP 枢纽住进 DLL；插件 B/C 与页面音乐 API 纯 JS 零 Node。
-v5 起五层零复用原则延续：三插件/页面音乐 API 每代全部从零新写。
+**v7.1.0 = 三插件 + 独立 broker 进程架构**：SMTC 由独立进程
+`ChuShiSMTCBroker.exe` 直接持有（真 Windows 系统会话 + HTTP 枢纽全在 broker），
+插件 A 的原生 DLL 只是监督者（释放/拉起/看护 broker）；插件 B/C 与页面音乐
+API 纯 JS 零 Node。v5 起五层零复用原则延续：三插件/页面音乐 API 每代全部从零新写。
 
 ## 宪法（用户硬性指令，永远生效）
 
@@ -19,6 +20,47 @@ v5 起五层零复用原则延续：三插件/页面音乐 API 每代全部从�
 3. **插件命名语言三律分立**（构建门分别断言）：插件 name 英文（ASCII）、
    介绍/描述/面板文案中文、.plugin 文件名 ASCII。
 4. **「重写」验收 = 构建门**：老符号零残留断言，不是口头承诺。
+5. **【v7.1.0 新增·最高优先】WinRT 绝不进宿主进程**——网易云进程内零 WinRT/
+   零 SMTC 代码（构建门 G8 断言导入表无 combase/winrt、自身代码无 SMTC IID
+   字节）。SMTC 一律由独立 broker 进程承载。违反此律 = 复蹈 v7.0.x 四代崩溃。
+
+## v7.1.0（当前版）：独立 broker 进程——四代崩溃的终局答案
+
+四代崩溃因果链：v7.0.0 缺 RoInitialize（combase AV）→ v7.0.1 TimelineProperties
+误判值类型栈传（WMM AV）→ v7.0.2 ABI 全对（windows-rs 逐槽核实）仍崩：反汇编实锤
+崩溃在 RoActivateInstance(TimelineProperties) 成功后对系统对象 QI 的路径上、
+AV 于 Windows.Media.MediaControl.dll 内部——我们侧全对，故为宿主进程内 COM/SMTC
+环境被污染（网易云本体 SMTC 会话 + 其它插件共存）。
+
+结论：问题不可在宿主进程内修复，只能隔离。v7.1.0 布局：
+- `ChuShiSMTCBroker.exe`（bridge/v7/native/chushi_smtc_broker.c）：独立进程承载
+  全部 WinRT/SMTC + HTTP 枢纽（协议与 v7.0.2 完全一致，B/C/页面零改动）。
+  STA(RoInitialize(1)=SINGLETHREADED) + 隐藏窗口 + GetForWindow（Firefox 同款序列）；
+  时间线对象一律自实现 CCW（TpObj，绝不再激活 TimelineProperties 系统类）；
+  全链 HRESULT 检查 + GUARD 宏 SEH 包裹（AV=记日志后 ExitProcess(2)，无 WER 弹窗）；
+  单实例互斥体；`--parent <pid>` 看门狗（父死即退）；`--log` 指定 broker-log.txt。
+- 插件 A DLL（chushi_smtc_native.c 重写为监督者）：零 WinRT 零 SMTC——选举
+  （互斥体同 v7 名）→ 从内嵌 blob（构建期生成的 chushi_broker_blob.h）释放 exe 到
+  `%LOCALAPPDATA%\ChuShiSmtc\` → CreateProcess → 看护（滚动 10 分钟 ≤5 次重启预算，
+  防崩溃循环）；发现旧版 broker 在跑 → /api/ping 验版本，异版 POST
+  /api/broker/shutdown 再拉新；渲染进程诊断 API 契约不变（ChuShi.Smtc.info，
+  新增 broker 子对象）。
+- ABI 防回归：broker 源内 23 条 `_Static_assert(offsetof(Vtbl, ...))` 编译期证明
+  全部槽位布局（构建门 G11），比反汇编模式匹配更强。
+- 生命周期：网易云启动 → DLL 释放+拉起 broker（CREATE_NO_WINDOW）→ broker 注册
+  系统会话；网易云退出 → 看门狗 → broker 退出（会话随宿主消亡，无僵尸卡片）。
+- 已知取舍：系统卡片封面经 Uri→RandomAccessStreamReference 工厂链（槽位已按
+  windows-rs streams.rs/foundation.rs 核实 + 全 hr 检查，失败仅丢封面不丢元数据）。
+
+### v7.1.0 真机排障路径
+1. `native-log.txt`（监督者）：boot(elected as supervisor) → sup(broker exe ready)
+   → sup(broker spawned pid=N)。若 seen 「restart budget exhausted」= broker 持续
+   崩溃，去看 broker-log。
+2. `broker-log.txt`（broker）：boot → smtc(RoInitialize ok (STA) → GetForWindow OK)
+   → http(listening on 26901) → upd(timeline applied) / [cover] 降级行。
+   `[seh] AV 0x...` 行 = broker 崩溃点（监督者会自动重启，宿主无感）。
+3. `GET http://127.0.0.1:26901/api/smtc/status` → smtcReady/metaApplied/updApplied。
+4. 任务管理器应见 ChuShiSMTCBroker.exe；网易云退出后它应在数秒内消失。
 
 ## v7.0.0 翻案（本代核心结论，用户第 12 轮反馈触发）
 
