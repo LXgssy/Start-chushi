@@ -13,12 +13,20 @@
  * 进程模型：BetterNCM 会在 Main/Renderer/GPU 等每个进程加载本 DLL；
  *   以命名互斥体选举唯一 Host，Host 承载 SMTC 会话与 HTTP 枢纽；
  *   v7.0.1 起 Host 若 SMTC 注册失败会释放互斥体让位（不再死守）。
- * v7.0.1 崩溃修复（真机实锤 combase RoActivateInstance AV）：
- *   SystemMediaTransportControlsTimelineProperties 是 WinRT struct（值
- *   类型），没有激活工厂，对它调 RoActivateInstance 在网易云进程内必崩。
- *   现改为栈上直接构造 5×TimeSpan 结构体按 ABI 传指针给
- *   UpdateTimelineProperties（windows-rs ISystemMediaTransportControls2_
- *   Vtbl 第 12 槽）。全部 GUID/vtable 已逐项对照 windows-rs 投影源验证。
+ * v7.0.2 崩溃修复（真机实锤 Windows.Media.MediaControl.dll AV，
+ *   崩溃点 = UpdateTimelineProperties 内部，反汇编 +266E 处 call *0x60）：
+ *   v7.0.1 把 TimelineProperties 误判为「struct 值类型」并栈上直传——错。
+ *   windows-rs 官方投影源实锤：SystemMediaTransportControlsTimelineProperties
+ *   是【可激活 runtime class】（FactoryCache 默认构造 + RuntimeName），
+ *   UpdateTimelineProperties 的 ABI 参数 = ISystemMediaTransportControls-
+ *   TimelineProperties 接口指针（{5125316A-C3A2-475B-8507-93534DC88F15}）。
+ *   传裸栈结构体 = 系统把前 8 字节当虚表指针解引用 → 必崩。
+ *   v7.0.2 改为：RoActivateInstance(类名) → QI 接口 → 逐属性 put →
+ *   UpdateTimelineProperties(接口指针)；激活失败则回退到自实现 CCW 对象。
+ *   事件 handler 额外应答 IAgileObject 标记（对齐 C++/WinRT 投影行为）。
+ *   本版已把全部 IID/vtable 逐项对照 windows-rs master 投影源 + Microsoft
+ *   SDK 原版 SystemMediaTransportControlsInterop.idl + pinterface 盐算法
+ *   （sha1({11F47AD5-7B73-42C0-ABAE-878B1E16ADEE} + 签名串)）复核通过。
  * 新增：DLL 同目录 native-log.txt 文件日志（报障直接发此文件）。
  * ========================================================================= */
 
@@ -39,7 +47,7 @@
 #pragma comment(lib, "kernel32")
 #pragma comment(lib, "ws2_32")
 
-#define PLUGIN_VERSION "7.0.1"
+#define PLUGIN_VERSION "7.0.2"
 #define HUB_NAME       "chushi-smtc-hub"
 #define MUTEX_NAMEW    L"ChuShi.Smtc.v7.Host"
 #define WINDOW_CLASSW  L"ChuShiSmtcHostWnd7"
@@ -70,6 +78,10 @@ DEFINE_GUID_CONST(IID_MusicDisplayProperties2, 0x00368462,0x97D3,0x44B9,0xB0,0x0
 DEFINE_GUID_CONST(IID_SMTCButtonPressedEventArgs, 0xB7F47116,0xA56F,0x4DC8,0x9E,0x11,0x92,0x03,0x1F,0x4A,0x87,0xC2);
 DEFINE_GUID_CONST(IID_PlaybackPositionChangeRequestedEventArgs, 0xB4493F88,0xEB28,0x4961,0x9C,0x14,0x33,0x5E,0x44,0xF3,0xE1,0x25);
 DEFINE_GUID_CONST(IID_SMTCInterop, 0xDDB0472D,0xC911,0x4A1F,0x86,0xD9,0xDC,0x3D,0x71,0xA9,0x5F,0x5A);
+/* ISystemMediaTransportControlsTimelineProperties（windows-rs master 实锤） */
+DEFINE_GUID_CONST(IID_TimelineProps, 0x5125316A,0xC3A2,0x475B,0x85,0x07,0x93,0x53,0x4D,0xC8,0x8F,0x15);
+/* IAgileObject（agile 标记，DirectN/NAudio 投影实锤） */
+DEFINE_GUID_CONST(IID_IAgileObject, 0x94EA2B94,0xE9CC,0x49E0,0xC0,0xFF,0xEE,0x64,0xCA,0x8F,0x5B,0x90);
 /* 事件特化（参数化接口实例 GUID，取自 SDK 16299 投影头） */
 DEFINE_GUID_CONST(IID_HandlerButtonPressed, 0x0557E996,0x7B23,0x5BAE,0xAA,0x81,0xEA,0x0D,0x67,0x11,0x43,0xA4);
 DEFINE_GUID_CONST(IID_HandlerPositionChange,0x44E34F15,0xBDC0,0x50A7,0xAC,0xE4,0x39,0xE9,0x1F,0xB7,0x53,0xF1);
@@ -81,10 +93,12 @@ DEFINE_GUID_CONST(IID_RandomAccessStreamReferenceStatics, 0x857309DC,0x3FBF,0x4E
 static const wchar_t* CLSID_SMTC      = L"Windows.Media.SystemMediaTransportControls";
 static const wchar_t* CLSID_URI       = L"Windows.Foundation.Uri";
 static const wchar_t* CLSID_STREAMREF = L"Windows.Storage.Streams.RandomAccessStreamReference";
-/* 注意：SystemMediaTransportControlsTimelineProperties 是 WinRT struct（值类型），
- * 不是 runtime class —— 没有 HSTRING 类名、没有激活工厂，只能栈上构造后按
- * ABI 传指针给 ISystemMediaTransportControls2::UpdateTimelineProperties。
- * v7.0.0 对它调 RoActivateInstance 导致网易云崩溃（真机 combase AV 实锤）。 */
+/* v7.0.2 定性纠正：SystemMediaTransportControlsTimelineProperties 是
+ * 【可激活 runtime class】（windows-rs: FactoryCache + RuntimeName 实锤），
+ * 默认接口 = ISystemMediaTransportControlsTimelineProperties。
+ * ISystemMediaTransportControls2::UpdateTimelineProperties 的 ABI 参数是
+ * 该接口的 COM 对象指针——绝不能栈上构造值结构体直传（v7.0.1 崩溃根因）。 */
+static const wchar_t* CLSID_TIMELINE  = L"Windows.Media.SystemMediaTransportControlsTimelineProperties";
 
 /* 枚举（SDK 16299 原值） */
 enum { MediaPlaybackType_Unknown = 0, MediaPlaybackType_Music = 1 };
@@ -98,22 +112,17 @@ enum { SMTCBTN_Play = 0, SMTCBTN_Pause = 1, SMTCBTN_Stop = 2, SMTCBTN_Record = 3
 typedef struct TimeSpan { INT64_ Duration; } TimeSpan; /* 100ns */
 typedef struct EventToken { INT64_ value; } EventToken;
 
-/* TimelineProperties struct（值类型）：字段序 = windows-rs 投影（5×TimeSpan） */
-typedef struct TimelinePropsStruct {
-    TimeSpan startTime;
-    TimeSpan endTime;
-    TimeSpan minSeekTime;
-    TimeSpan maxSeekTime;
-    TimeSpan position;
-} TimelinePropsStruct;
+/* v7.0.2：TimelineProps 已是接口（见上），值结构体不再单独使用 */
 
 /* combase.dll 动态函数指针 */
 typedef HRESULT (WINAPI *PFN_RoInitialize)(int initType);
+typedef HRESULT (WINAPI *PFN_RoActivateInstance)(HSTR classId, void** instance);
 typedef HRESULT (WINAPI *PFN_RoGetActivationFactory)(HSTR classId, const GUID* iid, void** factory);
 typedef HRESULT (WINAPI *PFN_WindowsCreateString)(const wchar_t* src, UINT32 len, HSTR* out);
 typedef HRESULT (WINAPI *PFN_WindowsDeleteString)(HSTR s);
 typedef const wchar_t* (WINAPI *PFN_WindowsGetStringRawBuffer)(HSTR s, UINT32* len);
 static PFN_RoInitialize                 pRoInitialize;
+static PFN_RoActivateInstance           pRoActivateInstance;
 static PFN_RoGetActivationFactory       pRoGetActivationFactory;
 static PFN_WindowsCreateString          pWindowsCreateString;
 static PFN_WindowsDeleteString          pWindowsDeleteString;
@@ -234,7 +243,22 @@ typedef struct MusicProps2Vtbl {
     HRESULT (WINAPI *get_Genres)(void*, void** value);
 } MusicProps2Vtbl;
 
-/* （TimelineProperties 的 vtable 已删除：它是 struct 不是接口，栈上直接构造） */
+/* ISystemMediaTransportControlsTimelineProperties：10 槽位
+ * （windows-rs master：StartTime/EndTime/MinSeekTime/MaxSeekTime/Position
+ *   五对 get/put，getter 在前；无 LastUpdatedTime） */
+typedef struct TimelinePropsVtbl {
+    InspectableVtbl ins;
+    HRESULT (WINAPI *get_StartTime)(void*, TimeSpan* value);
+    HRESULT (WINAPI *put_StartTime)(void*, TimeSpan value);
+    HRESULT (WINAPI *get_EndTime)(void*, TimeSpan* value);
+    HRESULT (WINAPI *put_EndTime)(void*, TimeSpan value);
+    HRESULT (WINAPI *get_MinSeekTime)(void*, TimeSpan* value);
+    HRESULT (WINAPI *put_MinSeekTime)(void*, TimeSpan value);
+    HRESULT (WINAPI *get_MaxSeekTime)(void*, TimeSpan* value);
+    HRESULT (WINAPI *put_MaxSeekTime)(void*, TimeSpan value);
+    HRESULT (WINAPI *get_Position)(void*, TimeSpan* value);
+    HRESULT (WINAPI *put_Position)(void*, TimeSpan value);
+} TimelinePropsVtbl;
 
 /* 事件参数 */
 typedef struct ButtonPressedArgsVtbl {
@@ -294,6 +318,7 @@ static HRESULT WINAPI h_QI(void* self, const GUID* riid, void** out) {
     if (!riid) return E_NOINTERFACE;
     if (memcmp(riid, &IID_IUnknown, sizeof(GUID)) == 0 ||
         memcmp(riid, &IID_IInspectable, sizeof(GUID)) == 0 ||
+        memcmp(riid, &IID_IAgileObject, sizeof(GUID)) == 0 ||
         (h->kind == 0 && memcmp(riid, &IID_HandlerButtonPressed, sizeof(GUID)) == 0) ||
         (h->kind == 1 && memcmp(riid, &IID_HandlerPositionChange, sizeof(GUID)) == 0)) {
         InterlockedIncrement(&h->refs);
@@ -345,6 +370,81 @@ static HandlerVtbl g_handlerVtblPosition = {
 };
 static HandlerObj g_handlerButton   = { &g_handlerVtblButton, 1, 0 };
 static HandlerObj g_handlerPosition = { &g_handlerVtblPosition, 1, 1 };
+
+/* ------------------------------------------------------------------ */
+/* TimelineProperties CCW（v7.0.2 兜底）                                 */
+/*   主路径 = RoActivateInstance(Windows.Media.SystemMediaTransport-     */
+/*   ControlsTimelineProperties) + QI；若激活失败（理论上不该发生），      */
+/*   用本自实现 COM 对象（实现 ISystemMediaTransportControlsTimeline-    */
+/*   Properties 全部 10 槽位）顶上，保证 UpdateTimelineProperties 永远    */
+/*   拿到的是 COM 对象指针，绝不会重演 v7.0.1 栈结构体直传崩溃。           */
+/* ------------------------------------------------------------------ */
+
+typedef struct TpObj {
+    TimelinePropsVtbl* vtbl;
+    volatile LONG_     refs;
+    TimeSpan startTime, endTime, minSeek, maxSeek, position;
+} TpObj;
+
+static HRESULT WINAPI tp_QI(void* self, const GUID* riid, void** out) {
+    TpObj* o = (TpObj*)self;
+    if (!out) return E_POINTER;
+    *out = NULL;
+    if (!riid) return E_INVALIDARG;
+    if (memcmp(riid, &IID_IUnknown, sizeof(GUID)) == 0 ||
+        memcmp(riid, &IID_IInspectable, sizeof(GUID)) == 0 ||
+        memcmp(riid, &IID_IAgileObject, sizeof(GUID)) == 0 ||
+        memcmp(riid, &IID_TimelineProps, sizeof(GUID)) == 0) {
+        InterlockedIncrement(&o->refs);
+        *out = self;
+        return S_OK;
+    }
+    return E_NOINTERFACE;
+}
+static ULONG_ WINAPI tp_AddRef(void* self) { return InterlockedIncrement(&((TpObj*)self)->refs); }
+static ULONG_ WINAPI tp_Release(void* self) {
+    TpObj* o = (TpObj*)self;
+    ULONG_ n = InterlockedDecrement(&o->refs);
+    if (n == 0) HeapFree(GetProcessHeap(), 0, o);
+    return n;
+}
+static HRESULT WINAPI tp_GetIids(void* self, ULONG_* count, GUID** iids) {
+    (void)self; if (count) *count = 0; if (iids) *iids = NULL; return S_OK;
+}
+static HRESULT WINAPI tp_GetRuntimeClassName(void* self, HSTR* name) {
+    (void)self; if (name) *name = NULL; return E_NOTIMPL;
+}
+static HRESULT WINAPI tp_GetTrustLevel(void* self, int* level) {
+    (void)self; if (level) *level = 0; return S_OK;
+}
+#define TP_PROP(pname) \
+static HRESULT WINAPI tp_get_##pname(void* self, TimeSpan* v) { \
+    if (!v) return E_POINTER; *v = ((TpObj*)self)->pname; return S_OK; } \
+static HRESULT WINAPI tp_put_##pname(void* self, TimeSpan v) { \
+    ((TpObj*)self)->pname = v; return S_OK; }
+TP_PROP(startTime)
+TP_PROP(endTime)
+TP_PROP(minSeek)
+TP_PROP(maxSeek)
+TP_PROP(position)
+#undef TP_PROP
+
+static TimelinePropsVtbl g_tpVtbl = {
+    { tp_QI, tp_AddRef, tp_Release, tp_GetIids, tp_GetRuntimeClassName, tp_GetTrustLevel },
+    tp_get_startTime, tp_put_startTime,
+    tp_get_endTime,   tp_put_endTime,
+    tp_get_minSeek,   tp_put_minSeek,
+    tp_get_maxSeek,   tp_put_maxSeek,
+    tp_get_position,  tp_put_position
+};
+
+static TpObj* TpObj_Create(void) {
+    TpObj* o = (TpObj*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(TpObj));
+    if (!o) return NULL;
+    o->vtbl = &g_tpVtbl;
+    o->refs = 1;
+    return o;
+}
 
 /* ------------------------------------------------------------------ */
 /* 共享状态（HTTP 线程 / SMTC 线程 / 事件回调线程）                        */
@@ -517,9 +617,11 @@ static void Post_SmtcOp(SmtcOp* op) {
 /* ------------------------------------------------------------------ */
 
 /* 运行时类名 HSTRING（smtc_thread 开头一次性建立） */
-static HSTR g_hClsSmtc, g_hClsUri, g_hClsStreamRef;
+static HSTR g_hClsSmtc, g_hClsUri, g_hClsStreamRef, g_hClsTimeline;
 #define mk_hstr_once(cls)  \
-    ( (cls) == CLSID_URI ? g_hClsUri : g_hClsStreamRef )
+    ( (cls) == CLSID_URI ? g_hClsUri \
+    : (cls) == CLSID_TIMELINE ? g_hClsTimeline \
+    : g_hClsStreamRef )
 
 static HSTR mk_hstr(const wchar_t* s) {
     HSTR h = NULL;
@@ -611,32 +713,67 @@ static void apply_op(SmtcOp* op, void* smtc, void* smtc2) {
     }
 
     /* 3) 时间线（可拖进度条的先决条件：Min/MaxSeekTime 必设）。
-     *    TimelineProperties 是 struct（值类型）：栈上构造、按 ABI 传指针。
-     *    v7.0.0 在此调 RoActivateInstance 导致网易云崩溃（真机实锤）。 */
+     *    v7.0.2 根因修复：UpdateTimelineProperties 的 ABI 参数是
+     *    ISystemMediaTransportControlsTimelineProperties 的 COM 对象指针。
+     *    主路径 = RoActivateInstance(TimelineProperties 类) → QI → 逐属性 put；
+     *    激活/QI 失败则回退自实现 CCW 对象（TpObj），绝不再裸结构体直传。 */
     if (op->hasTimeline && smtc2) {
         static double lastPos = -1, lastDur = -1;
         if (lastPos < 0 || lastDur < 0 ||
             (op->pos - lastPos) > 0.35 || (lastPos - op->pos) > 0.35 ||
             (op->dur - lastDur) > 0.01 || (lastDur - op->dur) > 0.01) {
-            TimelinePropsStruct tp;
-            memset(&tp, 0, sizeof(tp));
-            tp.endTime.Duration = (INT64_)(op->dur * 10000000.0);
-            tp.position.Duration = (INT64_)(op->pos * 10000000.0);
-            if (tp.endTime.Duration < 0) tp.endTime.Duration = 0;
-            if (tp.position.Duration < 0) tp.position.Duration = 0;
-            if (tp.position.Duration > tp.endTime.Duration)
-                tp.position.Duration = tp.endTime.Duration;
-            tp.minSeekTime.Duration = 0;
-            tp.maxSeekTime.Duration = tp.endTime.Duration;
-            hr = ((SMTC2Vtbl*)(*(void**)smtc2))->UpdateTimelineProperties(smtc2, &tp);
-            if (SUCCEEDED(hr)) {
-                if (lastPos < 0)
-                    logf_line("[upd] timeline applied first time pos=%.2f dur=%.2f", op->pos, op->dur);
-                lastPos = op->pos; lastDur = op->dur;
-                InterlockedIncrement(&g_updApplied);
+            TimeSpan tZero, tEnd, tPos;
+            tZero.Duration = 0;
+            tEnd.Duration = (INT64_)(op->dur * 10000000.0);
+            tPos.Duration = (INT64_)(op->pos * 10000000.0);
+            if (tEnd.Duration < 0) tEnd.Duration = 0;
+            if (tPos.Duration < 0) tPos.Duration = 0;
+            if (tPos.Duration > tEnd.Duration) tPos.Duration = tEnd.Duration;
+
+            void* tp = NULL;
+            void* osInst = NULL;
+            TpObj* ccw = NULL;
+            if (pRoActivateInstance && g_hClsTimeline) {
+                void* inst = NULL;
+                HRESULT hrA = pRoActivateInstance(g_hClsTimeline, &inst);
+                if (SUCCEEDED(hrA) && inst) {
+                    if (SUCCEEDED(((InspectableVtbl*)inst)->QueryInterface(inst, &IID_TimelineProps, &tp))) {
+                        osInst = inst; /* 持有实例：tp 生命周期与实例一致 */
+                    } else {
+                        ((InspectableVtbl*)inst)->Release(inst);
+                    }
+                } else {
+                    logf_line("[upd] RoActivateInstance(TimelineProps) hr=0x%08lX，用 CCW 兜底", (unsigned long)hrA);
+                }
+            }
+            if (!tp) {
+                ccw = TpObj_Create();
+                tp = (void*)ccw;
+            }
+            if (tp) {
+                TimelinePropsVtbl* tv = (TimelinePropsVtbl*)(*(void**)tp);
+                int ok = 1;
+                ok &= (SUCCEEDED(tv->put_StartTime(tp, tZero)) ? 1 : 0);
+                ok &= (SUCCEEDED(tv->put_EndTime(tp, tEnd)) ? 1 : 0);
+                ok &= (SUCCEEDED(tv->put_MinSeekTime(tp, tZero)) ? 1 : 0);
+                ok &= (SUCCEEDED(tv->put_MaxSeekTime(tp, tEnd)) ? 1 : 0);
+                ok &= (SUCCEEDED(tv->put_Position(tp, tPos)) ? 1 : 0);
+                hr = ((SMTC2Vtbl*)(*(void**)smtc2))->UpdateTimelineProperties(smtc2, tp);
+                if (SUCCEEDED(hr) && ok) {
+                    if (lastPos < 0)
+                        logf_line("[upd] timeline applied first time pos=%.2f dur=%.2f src=%s",
+                                  op->pos, op->dur, osInst ? "os" : "ccw");
+                    lastPos = op->pos; lastDur = op->dur;
+                    InterlockedIncrement(&g_updApplied);
+                } else {
+                    g_lastHr = SUCCEEDED(hr) ? (HRESULT)0x80004005L : hr;
+                    logf_line("[upd] UpdateTimelineProperties hr=0x%08lX propsOk=%d src=%s",
+                              (unsigned long)hr, ok, osInst ? "os" : "ccw");
+                }
+                if (osInst) ((InspectableVtbl*)osInst)->Release(osInst);
+                else if (ccw) tp_Release(ccw);
             } else {
-                g_lastHr = hr;
-                logf_line("[upd] UpdateTimelineProperties hr=0x%08lX", (unsigned long)hr);
+                logf_line("[upd] TimelineProps object create failed (OOM)");
             }
         }
     }
@@ -660,11 +797,12 @@ static DWORD WINAPI smtc_thread(LPVOID param) {
     if (!combase) combase = LoadLibraryW(L"combase.dll");
     if (!combase) { logf_line("[smtc] combase.dll not found, give up host"); Relinquish_Host(); return 1; }
     pRoInitialize              = (PFN_RoInitialize)(void*)GetProcAddress(combase, "RoInitialize");
+    pRoActivateInstance        = (PFN_RoActivateInstance)(void*)GetProcAddress(combase, "RoActivateInstance");
     pRoGetActivationFactory    = (PFN_RoGetActivationFactory)(void*)GetProcAddress(combase, "RoGetActivationFactory");
     pWindowsCreateString       = (PFN_WindowsCreateString)(void*)GetProcAddress(combase, "WindowsCreateString");
     pWindowsDeleteString       = (PFN_WindowsDeleteString)(void*)GetProcAddress(combase, "WindowsDeleteString");
     pWindowsGetStringRawBuffer = (PFN_WindowsGetStringRawBuffer)(void*)GetProcAddress(combase, "WindowsGetStringRawBuffer");
-    if (!pRoInitialize || !pRoGetActivationFactory ||
+    if (!pRoInitialize || !pRoActivateInstance || !pRoGetActivationFactory ||
         !pWindowsCreateString || !pWindowsDeleteString) {
         logf_line("[smtc] combase exports missing, give up host");
         Relinquish_Host(); return 1;
@@ -681,7 +819,8 @@ static DWORD WINAPI smtc_thread(LPVOID param) {
     g_hClsSmtc      = mk_hstr(CLSID_SMTC);
     g_hClsUri       = mk_hstr(CLSID_URI);
     g_hClsStreamRef = mk_hstr(CLSID_STREAMREF);
-    if (!g_hClsSmtc || !g_hClsUri || !g_hClsStreamRef) {
+    g_hClsTimeline  = mk_hstr(CLSID_TIMELINE);
+    if (!g_hClsSmtc || !g_hClsUri || !g_hClsStreamRef || !g_hClsTimeline) {
         logf_line("[smtc] HSTRING create failed, give up host");
         Relinquish_Host(); return 1;
     }
