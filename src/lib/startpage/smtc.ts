@@ -1,5 +1,11 @@
 /* ============================================================================
- * 「初始」音乐面板数据客户端 v8.0.5（第八代，InfLink-rs 适配版）
+ * 「初始」音乐面板数据客户端 v8.0.6（第八代，InfLink-rs 适配版）
+ *
+ * v8.0.6 媒体键退役 + seek 恢复（用户指令 + InfLink-rs 源码比对）：
+ *   PLUGIN_VER_MIN 8.0.5→8.0.6 —— 桥 8.0.6 删除 OS 媒体键兜底（用户指令），
+ *   修复 redux 备路只认 2.x st.player 的三代结构 bug（3.x 上备路全灭），
+ *   幂等闸防 hub 重启 _id 回退吞命令，控制全链调用级遥测进 cmdTrace；
+ *   部件恢复进度条拖动跳转（InfLink seekTo 同源通路）。旧桥必须升级。
  *
  * v8.0.5 原生媒体键兜底版（插件层独有变更，本文件仅版本门提升）：
  *   PLUGIN_VER_MIN 8.0.4→8.0.5 —— 旧桥插件（渲染层四路全灭的 NCM 上无法
@@ -49,8 +55,8 @@ export const SMTC_PORTS: readonly number[] = [26901, 26902, 26903];
 
 const HUB_NAME = "chushi-music-hub";
 const HUB_VER_MIN = "8.0.0";
-const PLUGIN_VER_MIN = "8.0.5";
-const CLIENT_VER = "8.0.5";
+const PLUGIN_VER_MIN = "8.0.6";
+const CLIENT_VER = "8.0.6";
 const POLL_MS = 1000;
 const RETRY_MS = 1500;
 const TIMEOUT_MS = 2200;
