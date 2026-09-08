@@ -1,5 +1,16 @@
 /* ============================================================================
- * ChuShi Music Hub 8.0.6 —— 纯 winsock HTTP 中继（媒体键端点退役）
+ * ChuShi Music Hub 8.0.7 —— 纯 winsock HTTP 中继（轮询租约：命令队列唯一消费者）
+ *
+ * v8.0.7（用户实机 cmdTrace 取证：POST 全 ok + 桥状态活 + 回执从未出现）：
+ *   GET /api/cmd 排空式先到先得——只要存在第二个轮询者（网易云残留进程里的
+ *   旧版桥 JS / BetterNCM 向多进程注入同一份 JS，__chushiMusicBridge 防重入
+ *   守卫只在单进程内有效），命令就被随机分走，新桥永远空手，回执永不产生，
+ *   控制全部落空。本版加轮询租约（poller lease）从结构上杜绝不唯一消费：
+ *     POST /api/poll {"id":"..."} → 认领/续租（粘性持有者，TTL 4s，
+ *       只有持有者沉默超时后才允许接管）；
+ *     GET /api/cmd?id=...        → 租约模式下非持有者得 []（结构性杜绝抢占）；
+ *     旧桥（无认领行为）在「从未有人认领」时照旧排空（legacy 兼容模式）。
+ *   持有者变更写 [poll] 日志——hub-log.txt 从此能直接暴露多进程残留。
  *
  * v8.0.6（用户指令 + InfLink-rs 源码比对）：POST /api/native 整体退役——
  *   系统媒体卡片实测可控制，证明 InfLink-rs 控制通路有效，OS 输入层重放
@@ -14,10 +25,12 @@
  *      （RoInitialize/TimelineProperties ABI/COM 委托/raise 路径）
  *      在本载体上结构性不存在。
  *   2. 职责唯一——本 DLL 只做一件事：把网易云渲染进程（音乐桥 JS）与
- *      「初始」页面（浏览器/扩展）连起来。四个端点，状态最新者胜。
+ *      「初始」页面（浏览器/扩展）连起来。五个端点，状态最新者胜。
  *        GET  /api/ping       身份（name=chushi-music-hub）
  *        GET/POST /api/state  播放真值快照（桥 1Hz 推，页面 1Hz 拉）
- *        GET/POST /api/cmd    页面→桥 控制命令队列（POST 入队带 _id，GET 排空）
+ *        GET/POST /api/cmd    页面→桥 控制命令队列（POST 入队带 _id，GET 排空；
+ *                             v8.0.7 起排空权归租约持有者唯一所有）
+ *        POST /api/poll       v8.0.7 轮询租约认领/续租（粘性持有者）
  *        GET/POST /api/lyric  歌词缓存（歌词源插件产物经桥中继）
  *   3. 零阻塞——BetterNCMPluginMain 内只做选举 + CreateThread 后立即返回，
  *      绝无任何等待/忙等（宿主加载律）。
@@ -40,7 +53,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define PLUGIN_VERSION "8.0.6"
+#define PLUGIN_VERSION "8.0.7"
 #define HUB_NAME_S "chushi-music-hub"
 #define HUB_MUTEX_NAMEW L"ChuShi-Music-Hub-8-Singleton"
 
@@ -137,6 +150,20 @@ static int     g_cmdHead = 0;   /* 队首（下一个出队） */
 static int     g_cmdCount = 0;  /* 队列长度 */
 static DWORD   g_cmdNextId = 1;
 
+/* v8.0.7 轮询租约：粘性持有者——防止多桥实例（残留进程/多进程注入）
+   抢排命令队列。持有者 1Hz 续租；沉默 > POLL_LEASE_MS 才允许接管。 */
+#define POLL_ID_MAX 40
+#define POLL_LEASE_MS 4000
+static char   g_pollId[POLL_ID_MAX + 1] = {0};
+static DWORD  g_pollExpires = 0;       /* GetTickCount() 基准 */
+static int    g_pollSeen = 0;          /* 从未有人认领 = legacy 模式 */
+
+/* 有符号差比较，规避 GetTickCount 49.7 天回绕 */
+static DWORD tickNow(void) { return GetTickCount(); }
+static int   leaseActive(DWORD now) {
+    return (g_pollSeen && (LONG)(now - g_pollExpires) < 0);
+}
+
 static void dataStoreState(const char* body, DWORD len) {
     if (!body || len == 0) return;
     if (len > STATE_MAX) len = STATE_MAX;
@@ -224,6 +251,68 @@ static DWORD dataDrainCmds(char* out, DWORD cap) {
     out[used++] = ']';
     out[used] = 0;
     return used;
+}
+
+/* ------------------------------------------------------------------ */
+/* v8.0.7 轮询租约                                                      */
+/* ------------------------------------------------------------------ */
+
+/* 从 POST 体 {"id":"..."} 提取 id（简单引号扫描，截断到 cap） */
+static void extractBodyId(const char* body, DWORD bodyLen, char* out, int cap) {
+    int n = 0;
+    out[0] = 0;
+    if (!body || bodyLen < 4) return;
+    const char* key = strstr(body, "\"id\"");
+    if (!key) return;
+    const char* p = strchr(key + 4, ':');
+    if (!p) return;
+    p = strchr(p + 1, '"');
+    if (!p) return;
+    p++;
+    while (*p && *p != '"' && n < cap - 1) {
+        char c = *p;
+        if (c != '\\' && c >= 0x20 && c <= 0x7e) out[n++] = c;
+        p++;
+    }
+    out[n] = 0;
+}
+
+/* 从路径 query（?id=...&...）提取 id，与 expect 比对；返回 1=匹配 */
+static int queryIdMatches(const char* path, const char* expect) {
+    const char* q = strstr(path, "id=");
+    if (!q || !expect[0]) return 0;
+    q += 3;
+    int n = 0;
+    while (q[n] && q[n] != '&' && q[n] != ' ') n++;
+    if (n == 0) return 0;
+    return (n == (int)strlen(expect) && strncmp(q, expect, n) == 0);
+}
+
+/* 认领/续租。返回 1=本请求者成为/已是持有者 */
+static int pollClaim(const char* body, DWORD bodyLen, char* resp, int respCap) {
+    char id[POLL_ID_MAX + 1];
+    extractBodyId(body, bodyLen, id, sizeof(id));
+    if (!id[0]) {
+        _snprintf(resp, respCap, "{\"ok\":false,\"error\":\"no-id\"}");
+        return 0;
+    }
+    DWORD now = tickNow();
+    int granted = 0;
+    WaitForSingleObject(g_dataMutex, 1000);
+    if (!g_pollSeen || strncmp(id, g_pollId, POLL_ID_MAX) == 0 || !leaseActive(now)) {
+        if (!g_pollSeen || strncmp(id, g_pollId, POLL_ID_MAX) != 0) {
+            logf_line("[poll] holder <- %s%s", id,
+                      g_pollSeen ? " (takeover)" : " (first)");
+        }
+        _snprintf(g_pollId, sizeof(g_pollId), "%s", id);
+        g_pollExpires = now + POLL_LEASE_MS;
+        g_pollSeen = 1;
+        granted = 1;
+    }
+    ReleaseMutex(g_dataMutex);
+    _snprintf(resp, respCap, "{\"ok\":true,\"lease\":%s,\"ver\":\"%s\"}",
+              granted ? "true" : "false", PLUGIN_VERSION);
+    return granted;
 }
 
 /* ------------------------------------------------------------------ */
@@ -327,8 +416,26 @@ static void handleRequest(SOCKET s, const char* req, DWORD reqLen) {
         return;
     }
 
+    if (_stricmp(method, "POST") == 0 && strncmp(path, "/api/poll", 9) == 0) {
+        /* v8.0.7 轮询租约认领：粘性持有者，仅持有者可排空命令队列 */
+        char resp[128];
+        pollClaim(body, bodyLen, resp, sizeof(resp));
+        respondJson(s, 200, resp, (DWORD)strlen(resp));
+        return;
+    }
+
     if (_stricmp(method, "GET") == 0 && strncmp(path, "/api/cmd", 8) == 0) {
         static char out[CMD_QUEUE_MAX * CMD_MAX + 256];
+        DWORD now = tickNow();
+        WaitForSingleObject(g_dataMutex, 1000);
+        int gated = (g_pollSeen && !queryIdMatches(path, g_pollId));
+        ReleaseMutex(g_dataMutex);
+        if (gated) {
+            /* v8.0.7 租约模式下的非持有者（旧桥残留/多进程注入的第二实例）：
+               回空数组——结构性杜绝抢排，旧实例再也无法偷走命令 */
+            respondJson(s, 200, "[]", 2);
+            return;
+        }
         DWORD n = dataDrainCmds(out, sizeof(out) - 2);
         respondJson(s, 200, out, n);
         return;
@@ -423,9 +530,20 @@ static SOCKET createListener(int port) {
 /*      败者连接会 connect 后不发数据，串行接受循环曾被它卡 3s，           */
 /*      页面 1.4s 超时 ×2 连败即误判「掉线」（间歇断连根因）；             */
 /*   3. TCP_NODELAY：响应立刻推平，杜绝 Nagle×延迟 ACK 叠加延迟。          */
+/* SEH 策略（v8.0.7）：x64 构建带 SEH 自愈；x86（i686）构建必须            */
+/*   -DHUB_NO_SEH——llvm-mingw i686 后端在 SEH×DWARF EH 代码生成上崩溃，   */
+/*   无 SEH 的纯 winsock 代码可正常编译（自愈让位于可用性：32 位宿主      */
+/*   用户自 v8.0.0 起从未有过能加载的 hub，六代双架构律欠账本次补齐）。    */
 /* ------------------------------------------------------------------ */
 static void hub_conn_serve(SOCKET ls, char* req) {
     SOCKET cs;
+#ifdef HUB_NO_SEH
+    cs = accept(ls, NULL, NULL);
+    if (cs == INVALID_SOCKET) {
+        Sleep(50);
+        return;
+    }
+#else
     /* 接受路径整体 SEH：任何 AV 自愈（关套接字→继续） */
     __try {
         cs = accept(ls, NULL, NULL);
@@ -438,7 +556,36 @@ static void hub_conn_serve(SOCKET ls, char* req) {
         Sleep(200);
         return;
     }
+#endif
 
+#ifdef HUB_NO_SEH
+    /* 空连接快关：400ms 内无首字节即视为预连接/探测，直接释放 */
+    fd_set rs;
+    struct timeval tv;
+    FD_ZERO(&rs);
+    FD_SET(cs, &rs);
+    tv.tv_sec = 0;
+    tv.tv_usec = 400 * 1000;
+    int ready = select((int)cs + 1, &rs, NULL, NULL, &tv);
+    if (ready <= 0) {
+        logf_line("[http] idle conn dropped (preconnect guard)");
+        closesocket(cs);
+        return;
+    }
+
+    BOOL nd = TRUE;
+    setsockopt(cs, IPPROTO_TCP, TCP_NODELAY, (const char*)&nd, sizeof(nd));
+    DWORD timeoutMs = 500;
+    setsockopt(cs, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeoutMs, sizeof(timeoutMs));
+    setsockopt(cs, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeoutMs, sizeof(timeoutMs));
+
+    DWORD n = readRequest(cs, req, REQ_MAX);
+    if (n > 0) {
+        req[n] = 0;
+        handleRequest(cs, req, n);
+    }
+    closesocket(cs);
+#else
     __try {
         /* 空连接快关：400ms 内无首字节即视为预连接/探测，直接释放 */
         fd_set rs;
@@ -471,6 +618,7 @@ static void hub_conn_serve(SOCKET ls, char* req) {
         __try { closesocket(cs); } __except (EXCEPTION_EXECUTE_HANDLER) { }
         Sleep(100);
     }
+#endif
 }
 
 static DWORD WINAPI hub_thread(LPVOID arg) {
