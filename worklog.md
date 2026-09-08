@@ -1194,3 +1194,21 @@ Stage Summary:
 - v8.0.8 已发布：根因修复 + 回路自证 + hublog 证据端点 + 状态新鲜度自愈 + no-recv 标记；未来任何断链，用户一张 debug() 截图即可一屏定层
 - 方法论沉淀：mock 永远测不出实物协议分叉——hub 逻辑必须以逐行移植的实物形态参与 e2e（hubsim 范式已入 scripts/，后续版本沿用）
 - 遗留：歌词三问题（逐字歌词按用户指定管线/渐隐时机/初始定位/切歌竞态）待下一轮；hublog 端点若 48 条环形不够可扩
+
+---
+Task ID: 107
+Agent: main (Super Z)
+Task: 用户报告四项——①拖动成功却提示「拖动不成功」+ 进度条回弹几秒才跳转（显示问题）；②拖动后歌词乱跳；③逐字歌词改成优先 yrc（无 yrc 再回退 SMTC 时间戳方案，暂停/播放校准不变）；④进度条悬停放大过渡 + 播放按钮高光渐显 + 关闭动画同理。v8.0.9 发布
+
+Work Log:
+- 【yrc 缺席根因实测实锢】复用并新写 probe-yrc-v809{,b}.mjs 实测网易 eapi：①`/eapi/song/lyric/v1` 加密信封多 `?` → 服务端解不开（HTTP 200 空体）；②加密路径带 `/eapi` 前缀 → 404——歌词源历代 eapi 层从未生效过，yrc 一直缺席，逐字永远走 lrc 伪降级；③修正信封（消息 `nobody{path}use{json}md5forencrypt` 无问号 + 加密路径去 /eapi 前缀）后同参数（yv:0 无 cv）yrc 6391 字节正常返回；④yv=0/-1/缺省均影响 yrc 下发（显式带 yv 键才有）
+- 【修复①歌词源 7.3.0】eapiEncrypt 信封根修 + eapiFetch 加密路径 `/eapi→/api` 去前缀（调用方 URL 不变）；localStorage 缓存键升代 `__chushi_lyric_cache_v8__`（防信封 bug 时代的 lrc-only 旧缓存遮蔽 yrc）；核心引擎 ensureParsed 本就 yrc 优先（此前 yrc 从未到达才永远伪逐字），回退序与暂停/播放校准管线原样未动（用户指定）
+- 【修复②seek 假失败芯片】桥 doSeek 读回校验 v2：读回源 = InfLink getTimeline 第一优先（页面所见即所验）+ audio 元素备源；420/1000/2200ms 三拍耐心；三态诚实上报——ok=null（无读回源）≠失败，buildStateBlob 新增 ne.seekAckKnown；smtc.ts cleanNe 透传 seekAckKnown（旧桥缺字段视为已验证维持旧行为），「拖动未生效」芯片仅在 known=true 且 ok=false 时亮
+- 【修复③回弹+歌词乱跳（同根治）】sandbox.js __chushiMusicCoreV6 新增 seek 护航窗：seek 乐观重锚时记录 {from,to,at,dur:4500,song}；tick 内——陈旧拍（距目标>2s 且仍在旧轨迹/中间态）直接忽略；真值到目标±2s 提前收窗；窗口过期诚实放行（真失败回锚）；播放态翻转一律放行（暂停/播放 fadeMs 校准管线不变）；feed 内同曲陈旧快照保位（seekNote 清空触发的 feed 不再成为第一记回弹）、换歌即弃窗
+- 【动效④】部件 cshz：.cs-rail 悬停 4→6px 加 transition:height .2s；.cs-b/.cs-x 合并规则 transition（transform/background-color/color/filter 全缓动）；.cs-x:hover 加 color 高亮；关闭按钮先淡出面板（复用 .cs-live 自带 opacity 过渡）190ms 后 chushi.close()；瘦身 19311→19172/19200（e2 文案精简 + ease 省略 + ctlFailText 短句）
+- 【测试三套】verify-v809-lyricapi.cjs 11/11（插件加密实现与 node crypto 规范实现逐字节一致 + 载荷解密结构断言 + 缓存键/版本门）；verify-v809-core.cjs 21/21（可控时钟沙箱驱动真核心：T1 yrc 优先/T2 伪逐字回退/T3 陈旧拍忽略+真值收窗/T4 过期回锚/T5 翻转放行+fadeMs 照算/T6 feed 保位/T7 换歌弃窗/T8 歌词对位）；verify-v809-e2e.cjs 15/15（真实桥×hubsim×双实例：A 死亡→C 接管租约→无读回源 seek→seekAckKnown=false 诚实未知；InfLink spy 延迟收敛 80ms 覆盖多拍耐心）
+- 【构建发版】build-hub-v809.sh 重编双架构（x86 主架 0x14c + x64 0x8664，版本串 8.0.9）；EXTENSION_MODE 构建（chunk d96a0dc4 含 8.0.9 门 + seekAckKnown）；build-v809-assets.py 七件套；Release id=384960355 六资产逐个 sha256 回读 ALL OK；main 7b3a31c 推送；gh-pages 部署线上核验（首页 200 + smtc chunk 8.0.9/seekAckKnown + sandbox.js 护航窗）
+
+Stage Summary:
+- 新律：①「服务端 404/空响应」要先用规范实现逐字节对照插件加密产物再怀疑参数——信封差一个问号，整条取词阶梯的第一层就从未存在过，下游永远在跑降级路径；②「三态上报」律：验证链的「未验证」必须与「验证失败」在协议层可区分（seekAckKnown），否则未知会被下游折叠成失败造出假提示；③跨进程真值收敛窗：乐观重锚后必须护航（忽略旧轨迹陈旧拍 + 到达提前收窗 + 过期诚实放行），UI 回弹/乱跳本质都是「新值未到、旧值先至」；④e2e 压缩计时器下 spy 收敛时间要按压缩比重设（80ms=第2拍），否则多拍耐心路径必红；⑤插件目录内的二进制拷贝与 native 产物是两份文件——重编后必须 cp 同步再打包（本次 hub.dll 新旧时间戳差 45min 实锤），资产门禁要断言 zip 内 DLL 与 native 逐字节一致
+- 待办：用户侧验收（换 Bridge 8.0.9 + Lyric Source 7.3.0 + 重导 cshz 8.0.9 + NewTab 8.0.9 → 拖动无回弹无假提示/歌词对位/逐字 yrc 生效/悬停动效）；若逐字仍不生效看 debug().lyricSource 是否 eapi-yrc（登录态进一步放宽 yrc 下发）；歌词三问题遗留项（渐隐时机/初始定位已在前版修复，切歌竞态已有三道防线）观察反馈
