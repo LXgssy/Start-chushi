@@ -1,18 +1,19 @@
 /* ============================================================================
- * 「初始」音乐面板数据客户端 v7.0.0（第七代，全新实现）
+ * 「初始」音乐面板数据客户端 v8.0.0（第八代，InfLink-rs 适配版，全新实现）
  *
- * 架构律（v7 宪法）：
- *   1. 数据面唯一——网易云「ChuShi Music Bridge」插件 1Hz 推送的真值快照
- *      经原生枢纽（ChuShi SMTC Manager 的 HTTP 中继）原样透传；本文件零仲裁、
- *      零守卫、零二次加工，只做一次性的采样年龄补偿。
- *   2. 控制只下发——seek/播放控制 POST 枢纽命令队列，由桥在网易云元素层
- *      单次执行并读回校验；本文件不碰网易云任何内部状态。
- *   3. 系统卡片独立——SMTC 会话由原生 DLL 持有（GetForWindow 自有窗口），
- *      网易云自带 SMTC 开关开/关均无影响；本文件不参与 SMTC。
- *   4. 诚实归因——枢纽不可达/版本过旧/桥插件过旧/SMTC 原生模块未就绪，
- *      一律以状态字段如实上报，由面板芯片渲染，绝不静默假装成功。
+ * 架构律（v8 宪法）：
+ *   1. 数据面唯一——网易云「ChuShi Music Bridge 8」插件 1Hz 推送的真值快照
+ *      经纯 winsock 枢纽（music-bridge 内置 hub.dll 的 HTTP 中继）原样透传；
+ *      本文件零仲裁、零守卫、零二次加工，只做一次性的采样年龄补偿。
+ *   2. 系统卡片归 InfLink-rs——Windows 媒体卡片（元数据/封面/时间线/媒体键）
+ *      完全由第三方 InfLink-rs 插件持有；本文件不参与 SMTC，快照里的
+ *      smtcVer 字段 v8 语义 = InfLink-rs 版本（空串 = 未装/未启用）。
+ *   3. 控制只下发——seek/播放控制 POST 枢纽命令队列，由桥在网易云内
+ *      执行（主路 InfLinkApi，备路元素/按钮）；本文件不碰网易云任何内部状态。
+ *   4. 诚实归因——枢纽不可达/版本过旧/桥插件过旧，一律以状态字段如实上报，
+ *      由面板芯片渲染，绝不静默假装成功。
  *
- * 端口发现：原生 DLL 绑 26901（占用时退 26902/26903）；
+ * 端口发现：hub.dll 绑 26901（占用时退 26902/26903）；
  * 本文件按 26901 → 26902 → 26903 顺序探测，粘住第一个应答枢纽身份的端口。
  *
  * 公开面（消费方 page.tsx / PresetWidgets / sandbox.ts / 预设脚本依赖，
@@ -21,15 +22,15 @@
  *   smtcPositionNow / smtc（单例：start/onTick/subscribe/getSnapshot/control）
  * ==========================================================================*/
 
-/** 原生枢纽主端口（被占用时 DLL 自动退到备选端口） */
+/** 枢纽主端口（被占用时 hub.dll 自动退到备选端口） */
 export const SMTC_PORT = 26901;
 export const SMTC_FALLBACK_PORT = 26902;
-/** v7 备选端口全集（按序探测） */
+/** v8 备选端口全集（按序探测） */
 export const SMTC_PORTS: readonly number[] = [26901, 26902, 26903];
 
-const HUB_NAME = "chushi-smtc-hub";
-const HUB_VER_MIN = "7.0.0";
-const PLUGIN_VER_MIN = "7.0.0";
+const HUB_NAME = "chushi-music-hub";
+const HUB_VER_MIN = "8.0.0";
+const PLUGIN_VER_MIN = "8.0.0";
 const POLL_MS = 1000;
 const RETRY_MS = 2400;
 const TIMEOUT_MS = 1400;
@@ -37,7 +38,7 @@ const TRUTH_STALE_SEC = 6;
 
 /** 单条媒体快照（真值直显产物） */
 export interface SmtcTrack {
-  /** 来源应用（v7 恒为网易云桥插件真值源） */
+  /** 来源应用（v8 恒为网易云桥插件真值源） */
   app: string;
   title: string;
   artist: string;
@@ -49,7 +50,7 @@ export interface SmtcTrack {
   duration: number;
   /** 播放速率（插值用；≤0 视作 1） */
   rate: number;
-  /** 兼容字段：v7 无二进制封面，恒空串 */
+  /** 兼容字段：v8 无二进制封面，恒空串 */
   coverRev: string;
   /** 宿主收到快照的时刻（插值基准） */
   fetchedAt: number;
@@ -57,7 +58,7 @@ export interface SmtcTrack {
 
 /** 客户端对外状态（公开面，预设脚本经 chushi.music 消费） */
 export interface SmtcState {
-  connected: boolean;      // 原生枢纽可达且版本达标
+  connected: boolean;      // 枢纽可达且版本达标
   version: string;         // 枢纽自报版本
   track: SmtcTrack | null; // null = 未连接 / 无真值
   cover: string | null;    // 兼容字段：恒 null（封面走 coverUrl）
@@ -65,7 +66,7 @@ export interface SmtcState {
   lyric: SmtcLyric | null;
   lyricRev: string;        // 歌词版本（变化即重拉）
   pluginVer: string;       // 音乐桥插件版本（ne.v 心跳；空串 = 不在场）
-  smtcVer: string;         // SMTC Manager 插件版本（状态总线心跳；空串 = 未注册）
+  smtcVer: string;         // InfLink-rs 版本（桥真值心跳；空串 = 未装/未启用）
   seekNote: string;        // seek 结果提示（自动消失）
   needsUpdate: boolean;    // needsPlugin || needsBridge
   needsPlugin: boolean;    // 音乐桥插件过旧/缺失
@@ -309,7 +310,7 @@ class SmtcClient {
   }
 
   /**
-   * v7 端口发现：原生枢纽以 /api/ping 自报身份（name=chushi-smtc-hub），
+   * v8 端口发现：hub 以 /api/ping 自报身份（name=chushi-music-hub），
    * 三端口顺序探测，粘住第一个命中者；全部失败时下一轮从头重探。
    */
   private async discover(): Promise<number | null> {
@@ -336,10 +337,11 @@ class SmtcClient {
       if (!j) throw new Error("state-empty");
       const version = clipStr(j.version, 16) || "0.0.0";
       const ne = cleanNe(j.ne);
-      const smtcVer = clipStr(j.smtcVer, 16);
+      /* v8 语义：smtcVer = InfLink-rs 版本（桥心跳携带；空 = 未装/未启用） */
+      const smtcVer = clipStr(j.inflinkVer, 16) || clipStr(j.smtcVer, 16);
 
       /* 枢纽本体版本由 /api/ping 提供（discover 阶段缓存），快照里也可能带 */
-      const hubVer = clipStr(j.hubVer, 16) || version;
+      const hubVer = clipStr(j.hubVer, 16) || clipStr(j.version, 16) || version;
       const hubOld = semverLt(hubVer, HUB_VER_MIN);
       const needsBridge = hubOld;
       const pluginVerNow = ne ? ne.v : "";
