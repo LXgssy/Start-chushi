@@ -37,14 +37,16 @@ body{
   justify-content:center;gap:7px;text-align:center;padding:12px}
 .cs-mode-em .cs-empty{display:flex}
 .cs-head{display:flex;align-items:center;gap:14px}
-.cs-cov{position:relative;flex:none}
-.cs-glow{position:absolute;inset:-7px;border-radius:22px;background:var(--acc);opacity:0;
-  filter:blur(12px);transition:opacity .55s ease}
-.cs-playing .cs-glow{opacity:.24}
-.cs-pic{position:relative;width:96px;height:96px;border-radius:16px;overflow:hidden;
+.cs-cov{position:relative;flex:none;display:block}
+/* v8.0.1：cs-pic 是嵌套 span（非 flex 直接子元素），行内 width/height 无效，
+   显式块化后 96px 才无条件生效（否则封面铺满整面板、标题列 0 宽） */
+.cs-pic{position:relative;display:block;width:96px;height:96px;border-radius:16px;overflow:hidden;
   background:linear-gradient(135deg,var(--acc32),var(--acc20));
   box-shadow:0 4px 14px rgba(0,0,0,.16);transition:transform .5s var(--ez)}
 .cs-playing .cs-pic{transform:scale(1.02)}
+.cs-glow{position:absolute;inset:-7px;border-radius:22px;background:var(--acc);opacity:0;
+  filter:blur(12px);transition:opacity .55s ease}
+.cs-playing .cs-glow{opacity:.24}
 .cs-pic img{width:100%;height:100%;object-fit:cover;display:block;opacity:0;
   transition:opacity .6s var(--ez),filter .5s ease}
 .cs-pic img.on{opacity:1}
@@ -187,7 +189,8 @@ body{
      本层每帧只做取数 + 写样式。布局零位移三律：主键双 SVG 同圆心堆叠、
      歌词高度迟滞（歌词短暂缺失不塌面板）、无逐帧布局读写。 */
   var H = { fl: 248, em: 92 }, LY_H = 124, W = 340;
-  var DEF = "asset:cover.svg";
+  /* 默认封面内联兜底（v8.0.1）：asset: 协议在任何宿主/代次失联时不再出破图图标 */
+  var DEF = "data:image/svg+xml," + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 144 144"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#a78bfa"/><stop offset=".55" stop-color="#8b5cf6"/><stop offset="1" stop-color="#6d28d9"/></linearGradient></defs><rect width="144" height="144" fill="url(#g)"/><g fill="none" stroke="#fff"><circle cx="72" cy="72" r="41" stroke-opacity=".24" stroke-width="1.4"/><circle cx="72" cy="72" r="32" stroke-opacity=".36" stroke-width="1.1"/><circle cx="72" cy="72" r="24" stroke-opacity=".2"/></g><circle cx="68.5" cy="87" r="7.5" fill="#fff" opacity=".95"/><rect x="73" y="55" width="4" height="32.5" rx="2" fill="#fff" opacity=".95"/><path d="M77 55c7.6 1.6 11.4 5.8 11.4 12.8-3.6-3.9-7.1-5.4-11.4-5.8z" fill="#fff" opacity=".95"/></svg>');
   function $(id) { return document.getElementById(id); }
 
   var root = $("csCard"), pic = $("csPic"), img = $("csCoverImg");
@@ -251,11 +254,15 @@ body{
     led.classList.toggle("pz", !on);
   }
 
-  /* ---------- 封面：单 img 淡入 + 自缓存属性防重复解码 ---------- */
+  /* ---------- 封面：单 img 淡入 + 自缓存属性防重复解码 + 失败兜底 ---------- */
   function renderCover(s) {
     var src = s.cover || s.coverUrl || DEF;
     if (img.getAttribute("src") !== src && img.__cs !== src) {
       img.__cs = src;
+      img.onerror = function () {
+        img.onerror = null;
+        if (img.src !== DEF) img.src = DEF; /* 网络封面/asset 失败 → 内联默认图 */
+      };
       img.src = src;
     }
     img.classList.add("on");

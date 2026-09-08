@@ -51,13 +51,16 @@ html = minify_html((SRC / "music-widget.html").read_text(encoding="utf-8"))
 code = minify_js((SRC / "music-commands.js").read_text(encoding="utf-8"))
 cover_svg = (SRC / "assets" / "cover.svg").read_text(encoding="utf-8")
 
-assert len(html) <= 18000, f"widget html 超限: {len(html)} > 18000"
+assert len(html) <= 19200, f"widget html 超限: {len(html)} > 19200"
 assert len(code) <= 16000, f"script code 超限: {len(code)} > 16000"
 # widget html 不能含外链脚本/资源（iframe 不透明源本就加载不了，这里防手滑）
-assert "http://" not in html and "https://" not in html, "widget html 不应包含外链 URL"
-# 资产引用自检：html 里必须恰好引用 cover.svg（pack.ts ASSET_REF_RE 白名单字符集）
+# v8.0.1：data-URI 兜底封面合法；xmlns 命名空间标识（w3.org）不是外链资源，剔除后再查
+_no_data = re.sub(r"data:image/svg\+xml,[^\"']+", "", html)
+_no_ns = _no_data.replace("http://www.w3.org/", "")
+assert "http://" not in _no_ns and "https://" not in _no_ns, "widget html 不应包含外链 URL"
+# 资产引用自检（v8.0.1）：默认封面已内联 data-URI，不再依赖 asset: 引用；出现即异常
 refs = set(re.findall(r"asset:([A-Za-z0-9._-]{1,64})", html))
-assert refs == {"cover.svg"}, f"asset 引用异常: {refs}"
+assert refs == set(), f"asset 引用异常: {refs}"
 
 preset = {
     "chushi": 1,

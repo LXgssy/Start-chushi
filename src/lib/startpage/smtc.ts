@@ -1,5 +1,9 @@
 /* ============================================================================
- * 「初始」音乐面板数据客户端 v8.0.0（第八代，InfLink-rs 适配版，全新实现）
+ * 「初始」音乐面板数据客户端 v8.0.1（第八代，InfLink-rs 适配版）
+ *
+ * v8.0.1 容错调优：配合枢纽空连接快关（hub 侧最坏阻塞 3s→0.5s），
+ *   采样超时 1400→2200ms、重探节流 2400→1500ms、掉线判定 2→3 连败——
+ *   消除偶发抖动被读成「一会连上一会断开」。
  *
  * 架构律（v8 宪法）：
  *   1. 数据面唯一——网易云「ChuShi Music Bridge 8」插件 1Hz 推送的真值快照
@@ -32,8 +36,8 @@ const HUB_NAME = "chushi-music-hub";
 const HUB_VER_MIN = "8.0.0";
 const PLUGIN_VER_MIN = "8.0.0";
 const POLL_MS = 1000;
-const RETRY_MS = 2400;
-const TIMEOUT_MS = 1400;
+const RETRY_MS = 1500;
+const TIMEOUT_MS = 2200;
 const TRUTH_STALE_SEC = 6;
 
 /** 单条媒体快照（真值直显产物） */
@@ -245,11 +249,15 @@ class SmtcClient {
     }
     const port = this.activePort ?? SMTC_PORT;
     try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 2500);
       const r = await fetch(`http://127.0.0.1:${port}/api/cmd`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
+        signal: ctrl.signal,
       });
+      clearTimeout(timer);
       const j = (await r.json()) as Record<string, unknown>;
       const ok = j?.ok === true;
       if (ok && cmd === "seek") {
@@ -413,10 +421,10 @@ class SmtcClient {
       this.schedule(POLL_MS);
     } catch {
       this.failStreak++;
-      if (this.activePort !== null && this.failStreak >= 4) {
+      if (this.activePort !== null && this.failStreak >= 6) {
         this.activePort = null; /* 粘住的端口疑似死了，下轮全端口重探 */
       }
-      if (this.failStreak >= 2) this.goOffline();
+      if (this.failStreak >= 3) this.goOffline();
       this.schedule(RETRY_MS);
     } finally {
       this.busy = false;
