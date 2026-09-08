@@ -9,42 +9,42 @@ from urllib.error import HTTPError
 ROOT = Path(__file__).resolve().parents[1]
 TOKEN = (ROOT / '.pkgtmp/gh-token').read_text().strip()
 REPO = 'LXgssy/Start-chushi'
-TAG = 'v8.0.1'
-OUT = ROOT / 'download/v8.0.1'
+TAG = 'v8.0.2'
+OUT = ROOT / 'download/v8.0.2'
 
 ASSETS = [
-    'ChuShi-Music-Bridge-8.0.1.plugin',
+    'ChuShi-Music-Bridge-8.0.2.plugin',
     'ChuShi-Lyric-Source-7.0.0.plugin',
-    'ChuShi-NewTab-v8.0.1.zip',
-    'ChuShi-Music-Preset-8.0.1.cshz',
-    'ChuShi-v8.0.1-AllInOne.zip',
+    'ChuShi-NewTab-v8.0.2.zip',
+    'ChuShi-Music-Preset-8.0.2.cshz',
+    'ChuShi-v8.0.2-AllInOne.zip',
     'SHA256SUMS.txt',
 ]
 
-BODY = r'''## v8.0.1 · 音乐链路三连修（控制 / 掉线 / 显示）
+BODY = r'''## v8.0.2 · 实机对症三联修（按键 / 状态脱同步 / 双语歌词）
 
-**本代指令**：InfLink-rs 插件有 SMTC 功能，直接舍弃自写的 SMTC，音乐桥和 API 都去适配它。
+**取证链**：用户实机录屏 + hub/桥日志 + InfLink-rs 3.2.11 源码解剖。
 
-### 修了什么（对应用户反馈三问题）
+### 修了什么
 
 | 问题 | 根因 | 修复 |
 |---|---|---|
-| **面板无法控制网易云** | 桥解析枢纽命令对实物协议 `{"_id",raw:{...}}` 误用 `JSON.parse`（对象→`"[object Object]"` 必抛）→ **所有控制命令被静默丢弃**（e2e mock 与实物协议分叉漏网） | 命令解析双形兼容（raw 对象/字符串都认）；e2e mock 改用实物协议同形 + 新增双形断言 |
-| **一会连上一会断开** | hub.dll 单线程接受循环被浏览器预连接（connect 后不发数据的空连接）阻塞最长 3s > 页面 1.4s 超时 ×2 连败即判掉线 | hub：空连接 400ms select 快关 + recv 500ms + TCP_NODELAY；页面：超时 2.2s / 掉线 3 连败 / 重探 1.5s；桥 jpost 补 2.5s 超时（防 beatBusy 永久哑掉） |
-| **面板显示异常**（封面铺满/无标题） | v6+ 部件封面 span 非 flex 直接子元素 → CSS 行内宽高失效 → 封面铺满整面板、标题列 0 宽；沙箱 shim 前置 doctype 致 quirks 模式放大问题 | 封面显式 `display:block`；默认封面内联 data-URI 兜底（破图根治）；sandbox shim 移至 doctype 之后（标准模式） |
-
-另：toggle/play/pause 方向判定改用 InfLink `getPlaybackStatus` 真值（audio 元素与 redux 脱同步时「按了没反应」一并修复）。
+| **播放/上一首/下一首按键全坏** | InfLink 控制面 = `reduxStore?.dispatch`（play/pause/next/prev/seek 全是），部分网易云 3.x 版本上这些 action 被 reducer **静默忽略**；数据读取同 store 却正常 → 「数据活、按键全死」 | 桥改「下发 → 延时验证（曲目/播放态真翻转）→ 直发 dva action（动词逐字抄 InfLink 3.2.11：`playing/resume`、`playing/pause`、`playingList/jump2Track`、`playing/setPlayingPosition`）→ audio 元素 → 可见按钮」三级备路；执行轨迹 `window.__chushiMusicBridge.debug().cmdTrace` |
+| **播放中面板显示播放键/黄灯** | InfLink `playState` 在部分网易云 3.x 上冻结为 Paused 而时间线仍推进 | 桥时间线自愈：报 Paused 但进度推进 ≥1.2s/拍（同曲、拍间 <4s）→ 按播放处理（只治假暂停） |
+| **中英双语歌词双高亮混乱** | 部件歌词行离场定格全亮（已唱遮罩 100% 不回落） | 已唱行回落灰（`.done`），仅当前行卡拉OK高亮 + 翻译；倒回（seek）自动还原未唱行 |
+| 封面恒显默认底 | 网易云封面 http URL 被 https 页面按混合内容策略丢弃 | 桥端 http→https 升级（126 CDN 双协议） |
 
 ### 升级（务必照做）
-1. 关网易云，`C:\betterncm\plugins`：**删 ChuShi-Music-Bridge-8.0.0.plugin**，放入 `ChuShi-Music-Bridge-8.0.1.plugin`
-2. **完全退出并重启网易云**（托盘右键退出）；InfLink-rs 不动
-3. 「初始」扩展更新到 v8.0.1（线上 Pages 已同步；扩展用户解压覆盖）
-4. **「初始」页重新导入 `ChuShi-Music-Preset-8.0.1.cshz`**（旧预设部件 HTML 是坏的，必须重导入）
+1. 关网易云，`C:\betterncm\plugins`：**删 ChuShi-Music-Bridge-8.0.1.plugin**，放入 `ChuShi-Music-Bridge-8.0.2.plugin`
+2. **同时删掉 v7 时代遗留插件**（ChuShi-SMTC-Manager / 旧 Music-Bridge——双代同跑互相打架）
+3. **完全退出并重启网易云**；InfLink-rs 3.2.11 不动
+4. 「初始」页更新到 v8.0.2（线上 Pages 已同步）
+5. **重新导入 `ChuShi-Music-Preset-8.0.2.cshz`**（歌词修复必须重导入才生效）
 
 ### 验证
-- 插件门 33/33（含 hub.dll 导出表 def 收敛断言 + 防阻塞三律字节断言 + 零 WinRT）
-- e2e 40/40（新增 raw 对象/字符串双形协议断言）
-- 渲染复现台架：修复前后截图对比（封面 96px + 标题列恢复）
+- 插件门 35/35（新增 v8.0.2 备路/自愈/封面升级符号门 + cmdTrace 门）
+- e2e 40/40（mock 同步 8.0.2 版本门）
+- 渲染台架 8/8 断言：回声行×2+翻译场景——已唱行回落灰、唯一高亮行、翻译只挂当前行（截图核验）
 - Pages 已部署：https://lxgssy.github.io/Start-chushi/
 '''
 

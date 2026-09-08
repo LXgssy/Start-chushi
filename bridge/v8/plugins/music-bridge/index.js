@@ -1,10 +1,16 @@
 /* ============================================================================
- * ChuShi Music Bridge 8.0.1 — 网易云 InfLink-rs 适配桥（v8.0.1 修复版）
- *   v8.0.1：①命令解析兼容 hub 实物协议 {"_id",raw:{...}}（raw 对象/字符串双兼容，
- *   旧代码 JSON.parse(对象) 必抛 → 所有控制命令被静默丢弃 = 面板无法控制的根因）；
- *   ②jpost 加 2.5s 超时（无超时 + beatBusy 闸 = 一次挂起永久哑掉）；
- *   ③toggle/play/pause 方向判定优先取 InfLink getPlaybackStatus 真值（audio 元素
- *   与 InfLink redux 脱同步时按了没反应）。
+ * ChuShi Music Bridge 8.0.2 — 网易云 InfLink-rs 适配桥（v8.0.2 实机对症版）
+ *   v8.0.1：①命令解析兼容 hub 实物协议 {"_id",raw:{...}}；②jpost 2.5s 超时；
+ *   ③toggle 方向判定取 InfLink 真值。
+ *   v8.0.2 实机三联修（用户视频/log 取证）：
+ *   ① 控制验证+三级备路——InfLink 控制面是纯 redux dispatch（play/pause/next/
+ *      prev/seek 全部 this.reduxStore?.dispatch），在部分 NCM 3.x 版本上 action 被
+ *      reducer 静默忽略（数据读取同 store 却正常，故现场呈「数据活、按钮全死」）；
+ *      本版改为「下发 → 延时验证（歌曲号/播放态真翻转）→ 不动则直发 dva action
+ *      （动词逐字抄 InfLink 3.2.11）→ 再不动则 audio 元素/可见按钮」，绝不假装成功；
+ *   ② 播放态时间线自愈——InfLink playState 冻结为 Paused 但时间线仍在推进
+ *      （≥1.2s/拍）时按播放处理（面板▶/进度走同屏矛盾的根因）；
+ *   ③ 封面 http→https 升级——页面端 https 源丢弃 http 图导致恒显默认底。
  *
  * v8 架构律（本代宪法）：
  *   1. 零自写 SMTC——系统媒体卡片（元数据/封面/时间线/媒体键/拖动）完全由
@@ -33,7 +39,7 @@
   'use strict';
   if (window.__chushiMusicBridge) return;
 
-  var VER = '8.0.1';
+  var VER = '8.0.2';
   var HUB_NAME = 'chushi-music-hub';
   var HUB_PORTS = [26901, 26902, 26903];
   var BEAT_MS = 1000;
@@ -55,7 +61,8 @@
         mediaSession: !!(readMediaSession()),
         domScrape: !!(scrapeBar())
       },
-      seekAck: JSON.parse(JSON.stringify(seekAck))
+      seekAck: JSON.parse(JSON.stringify(seekAck)),
+      cmdTrace: cmdTrace.slice()
     };
   };
 
@@ -553,10 +560,64 @@
   }
 
   /* ------------------------------------------------------------------ */
-  /* 控制执行（主路 InfLinkApi / 备路元素与按钮，单次执行律）                 */
+  /* 控制执行（主路 InfLinkApi → 延时验证 → 直发 dva → 元素/按钮，单次执行律） */
+  /* v8.0.2 实机对症：InfLink 控制面 = this.reduxStore?.dispatch（play/pause/
+   * next/prev/seek 全是），在部分 NCM 3.x 版本上这些 action 被 reducer 静默忽略
+   * （同一 store 的读取却正常——现场即「数据活、按钮全死」）。故每次下发后
+   * 延时验证「真翻转」，不动则降级：①直发 dva action（动词逐字抄 InfLink 3.2.11）
+   * ②audio 元素 ③可见按钮。命令代数号闸：新命令到达即作废旧验证链。      */
   /* ------------------------------------------------------------------ */
   var seekAck = { id: '', ok: null, at: 0 };
   var lastCmdDone = {};
+  var cmdSeq = 0;
+  var cmdTrace = [];
+
+  function traceCmd(kind, detail) {
+    cmdTrace.push({ at: nowMs(), k: clip(String(kind || ''), 12), d: clip(String(detail || ''), 80) });
+    if (cmdTrace.length > 12) cmdTrace.shift();
+  }
+
+  function controlStore() {
+    var st = null;
+    try { st = findDvaStore(false) || findStoreViaFiber(false) || findStoreViaGApp(); } catch (e0) { st = null; }
+    if (st && typeof st.dispatch === 'function') return st;
+    return null;
+  }
+
+  function reduxDispatch(type, payload) {
+    var st = controlStore();
+    if (!st) { traceCmd('redux', 'no-store:' + type); return false; }
+    try {
+      var act = { type: type };
+      if (payload) act.payload = payload;
+      st.dispatch(act);
+      traceCmd('redux', type);
+      return true;
+    } catch (e) { traceCmd('redux', 'throw:' + type); return false; }
+  }
+
+  function linkStatus() {
+    if (inflink.api && typeof inflink.api.getPlaybackStatus === 'function') {
+      try {
+        var s = inflink.api.getPlaybackStatus();
+        if (typeof s === 'string' && s) return s;
+      } catch (e) { /* 状态缺席 */ }
+    }
+    return '';
+  }
+
+  function songKey() { return truth.songId + '|' + truth.title; }
+
+  /* 方向真值：优先本桥真值快照（readTruth 已含时间线自愈，1Hz 新鲜）；
+     InfLink playState 冻结时盲信它会把方向/验证全部带偏。 */
+  function playingNowCalc() {
+    if (truth.updatedAt && nowMs() - truth.updatedAt < 3500) return truth.playing;
+    var st = linkStatus();
+    if (st) return (st === 'Playing' || st === 'Loading');
+    var el = getAudio();
+    if (el) return !el.paused && !el.ended;
+    return truth.playing;
+  }
 
   function apiToggle(playing) {
     var api = inflink.api;
@@ -587,39 +648,38 @@
     if (keys.length > 64) delete lastCmdDone[keys[0]];
 
     probeInflight(); /* 双保险：执行前刷新 InfLinkApi 在场状态 */
-    var el = getAudio();
-    /* v8.0.1：方向真值优先取 InfLink（audio 元素可能与 InfLink redux 脱同步，
-       按老逻辑会用错方向/被 alreadyOk 短路成「按了没反应」） */
-    var playingNow = null;
-    if (inflink.api && typeof inflink.api.getPlaybackStatus === 'function') {
-      try {
-        var stNow = inflink.api.getPlaybackStatus();
-        if (typeof stNow === 'string' && stNow) playingNow = (stNow === 'Playing' || stNow === 'Loading');
-      } catch (e0) { /* 状态缺席 → 落到元素 */ }
-    }
-    if (playingNow === null) playingNow = el ? (!el.paused && !el.ended) : truth.playing;
+    var seq = ++cmdSeq;
+    traceCmd('cmd', type + '#' + (cmd._id != null ? cmd._id : '?'));
 
     if (type === 'play' || type === 'pause' || type === 'toggle') {
-      /* v8：主路 InfLinkApi（与系统卡片按钮同路的 redux 派发）；备路元素方法 */
-      var wantPlay = type === 'play' ? true : type === 'pause' ? false : !playingNow;
-      var alreadyOk = (type === 'play' && playingNow) || (type === 'pause' && !playingNow);
-      var doneLink = false;
-      if (inflink.api) {
-        if (alreadyOk) doneLink = true; /* 已处目标态：主路视为完成，禁走备路 */
-        else if (apiToggle(playingNow)) doneLink = true;
-      }
-      if (!doneLink && !alreadyOk) {
-        if (el) {
-          try {
-            if (wantPlay && el.paused) safePlay(el);
-            else if (!wantPlay && !el.paused) el.pause();
-          } catch (e) { toggleViaButton(); }
-        } else {
+      var before = playingNowCalc();
+      var wantPlay = type === 'play' ? true : type === 'pause' ? false : !before;
+      if (wantPlay === before) { traceCmd('skip', 'already'); return; } /* 已处目标态 */
+      apiToggle(before); /* 主路：InfLink（与系统卡片按钮同路的 redux 派发） */
+      /* +900ms 验证：播放态真翻转则收工；未翻转 → 直发 dva → 元素 → 按钮 */
+      setTimeout(function () {
+        if (seq !== cmdSeq) return;
+        if (playingNowCalc() === wantPlay) { traceCmd('ok', 'link'); return; }
+        reduxDispatch(wantPlay ? 'playing/resume' : 'playing/pause', { triggerScene: 'desktopLyric' });
+        setTimeout(function () {
+          if (seq !== cmdSeq) return;
+          if (playingNowCalc() === wantPlay) { traceCmd('ok', 'redux'); return; }
+          var el = getAudio();
+          if (el) {
+            try {
+              if (wantPlay) safePlay(el); else el.pause();
+              traceCmd('fb', 'element');
+              return;
+            } catch (e) { /* 元素失败 → 按钮 */ }
+          }
           toggleViaButton();
-        }
-      }
+          traceCmd('fb', 'button');
+        }, 800);
+      }, 900);
     } else if (type === 'next' || type === 'prev') {
       var dir = type === 'next' ? 'next' : 'prev';
+      var flag = dir === 'next' ? 1 : -1;
+      var key0 = songKey();
       var done = false;
       try {
         var api2 = inflink.api;
@@ -628,7 +688,24 @@
           done = true;
         }
       } catch (e2) { done = false; }
-      if (!done) clickTransport(dir);
+      if (!done) {
+        /* InfLink 缺席：直接 redux（同动词）→ 末端按钮 */
+        var ok1 = reduxDispatch('playingList/jump2Track', { flag: flag, type: 'call', triggerScene: 'hotKey' });
+        if (!ok1) clickTransport(dir);
+        return;
+      }
+      /* +1200ms 验证：曲未变（单循环曲也极少原地）→ 直发 dva；再 +1100ms 仍原曲 → 按钮 */
+      setTimeout(function () {
+        if (seq !== cmdSeq) return;
+        if (songKey() !== key0) { traceCmd('ok', 'link'); return; }
+        reduxDispatch('playingList/jump2Track', { flag: flag, type: 'call', triggerScene: 'hotKey' });
+        setTimeout(function () {
+          if (seq !== cmdSeq) return;
+          if (songKey() !== key0) { traceCmd('ok', 'redux'); return; }
+          clickTransport(dir);
+          traceCmd('fb', 'button');
+        }, 1100);
+      }, 1200);
     } else if (type === 'seek') {
       var pos = clampNum(Number(cmd.position), 0, 86400);
       doSeek(pos);
@@ -692,7 +769,12 @@
         return;
       }
     }
-    if (!doneLink && !el) { seekAck.ok = false; seekAck.at = nowMs(); return; }
+    if (!doneLink && !el) {
+      /* v8.0.2：无元素可写时直发 dva 动词（InfLink 同款载荷，秒制） */
+      reduxDispatch('playing/setPlayingPosition', { duration: Math.round(pos) });
+      seekAck.ok = null; seekAck.at = nowMs(); /* 诚实未知，不假装成功 */
+      return;
+    }
     /* 读回校验：元素在就双读回（主路 InfLink seek 最终也落到元素） */
     if (!el) return; /* 无元素且主路已执行 → ok=null（诚实未知，不假装成功） */
     setTimeout(function () {
@@ -767,7 +849,16 @@
         }
       }
       if (duration <= 0 && linkOut.song && linkOut.song.durationMs > 0) duration = linkOut.song.durationMs / 1000;
-      metaSrc = 'inflink';
+      /* v8.0.2 状态自愈：InfLink playState 冻结为 Paused 但时间线仍在推进
+         （≥1.2s/拍、同曲、拍间陈旧 <4s）→ 按播放处理。只治假暂停，
+         绝不反向伪造（缓冲/加载中交由 'Loading' 原义承载）。 */
+      if (playing === false && position - truth.position > 1.2 &&
+          t - truth.updatedAt < 4000 &&
+          (!truth.songId || !linkOut.song || Number(linkOut.song.songId) === truth.songId)) {
+        playing = true;
+        metaSrc = 'inflink+heal';
+      }
+      metaSrc = metaSrc || 'inflink';
     }
 
     var song = linkOut.song;
@@ -776,6 +867,10 @@
     var artist = (song && song.artist) || truth.artist;
     var album = (song && song.album) || truth.album;
     var pic = (song && song.pic) || truth.pic;
+    /* v8.0.2：协议相对与 http 封面升级 https（页面端 https 源按 CSP/混合内容策略
+       会丢弃 http 图 → 恒显默认底；126 CDN 双协议均可用） */
+    if (pic && pic.indexOf('//') === 0) pic = 'https:' + pic;
+    if (pic && /^http:\/\/[^\/]*music\.126\.net/i.test(pic)) pic = 'https://' + pic.slice(7);
     if (pic && pic.indexOf('?param=') < 0 && pic.indexOf('http') === 0) pic = pic + '?param=500y500';
     if (position < 0) position = 0;
     if (playing === null) playing = truth.playing;

@@ -1,5 +1,5 @@
 /* ============================================================================
- * ChuShi Music Hub 8.0.1 —— 纯 winsock HTTP 中继（v8 全新实现）
+ * ChuShi Music Hub 8.0.2 —— 纯 winsock HTTP 中继（v8 全新实现）
  *
  * v8 架构律（本代宪法）：
  *   1. 零 WinRT / 零 COM / 零 SMTC——系统媒体卡片完全由 InfLink-rs（第三方
@@ -34,7 +34,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define PLUGIN_VERSION "8.0.1"
+#define PLUGIN_VERSION "8.0.2"
 #define HUB_NAME_S "chushi-music-hub"
 #define HUB_MUTEX_NAMEW L"ChuShi-Music-Hub-8-Singleton"
 

@@ -101,6 +101,11 @@ body{
 .cs-ln{padding:4px 2px;text-align:center;font-size:14.5px;font-weight:560;line-height:1.45;
   color:var(--ink3);transition:color .3s ease}
 .cs-ln.on{color:var(--ink)}
+/* v8.0.2 已唱行回落灰：行离场后遮罩归零、底色提至 ink2——不再定格全白；
+   修中英双语/回声行场景「上一行与当前行双高亮」的排版混乱 */
+.cs-ln.done{color:var(--ink2)}
+.cs-ln.done .cs-w{color:var(--ink2)}
+.cs-ln.done .cs-w .ov{display:none}
 .cs-ln.gap{font-size:11px;letter-spacing:7px;color:var(--ink3)}
 /* 逐字扫色：双层实体色 + clip-path（background-clip:text 在 transform 过场中
    会整词隐形闪动；底层永远实体色可见，上层同文本按 --p 裁剪显色） */
@@ -352,9 +357,15 @@ body{
     if (n.lineIndex !== activeLine) {
       var prev = activeLine;
       activeLine = n.lineIndex;
-      if (prev >= 0 && prev < lineEls.length) finalizeLine(prev);
+      /* v8.0.2 已唱行回落灰：离场行遮罩归零 + done 标记；间奏（-1）维持已唱进度；
+         倒回（seek 后回退）时后续行自动退出 done 还原未唱 */
+      var ref = activeLine >= 0 ? activeLine : prev;
       for (var i = 0; i < lineEls.length; i++) {
-        lineEls[i].el.classList.toggle("on", i === activeLine);
+        var on = i === activeLine;
+        var done = ref >= 0 && i <= ref && !on;
+        lineEls[i].el.classList.toggle("on", on);
+        lineEls[i].el.classList.toggle("done", done);
+        if (done) clearLine(i);
       }
       if (activeLine >= 0 && activeLine < lineEls.length) {
         var el = lineEls[activeLine].el;
@@ -378,11 +389,12 @@ body{
       lyInr.style.opacity = n.playing ? "1" : "0.38";
     }
   }
-  function finalizeLine(idx) {
-    /* 行离场定稿：已唱词全量显色，未唱词全量隐藏 */
+  function clearLine(idx) {
+    /* 行离场回落（v8.0.2）：遮罩归零露出已唱灰底，不再定格全白
+       （旧 finalizeLine 100% 全亮在双语/回声行场景呈双高亮假象） */
     var ws = lineEls[idx].words;
     for (var j = 0; j < ws.length; j++) {
-      ws[j].ov.style.setProperty("--p", "100%");
+      ws[j].ov.style.setProperty("--p", "0%");
     }
   }
 
