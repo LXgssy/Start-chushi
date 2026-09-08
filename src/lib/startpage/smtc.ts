@@ -1,5 +1,15 @@
 /* ============================================================================
- * 「初始」音乐面板数据客户端 v8.0.3（第八代，InfLink-rs 适配版）
+ * 「初始」音乐面板数据客户端 v8.0.4（第八代，InfLink-rs 适配版）
+ *
+ * v8.0.4 歌词滞留根治 + 控制可观测（用户实机取证）：
+ *   ①歌词拉取强校验——hub /api/lyric 是单槽缓存，切歌瞬间页面拉到的必然是
+ *     上一首歌词；旧版不校验响应 songId 照单全收且把新曲目标记为已拉取
+ *     （「切歌后歌词一直滞留上一首」的头号根因）。现在响应 songId 必须
+ *     等于请求 songId 才接受；track 透出 songId 供渲染层二次拦截；
+ *   ②桥命令回执透出（state.cmd）——用户在浏览器里测试拿不到桥诊断口，
+ *     面板/页面端可直读「命令是否被桥执行、四路降级走到哪一级」；
+ *   ③页面侧 window.__chushiMusicBridge 诊断口（不覆盖桥侧同名口）——
+ *     用户在「初始」页控制台执行同一条命令即可拿到 hub/控制 POST 轨迹。
  *
  * v8.0.1 容错调优：配合枢纽空连接快关（hub 侧最坏阻塞 3s→0.5s），
  *   采样超时 1400→2200ms、重探节流 2400→1500ms、掉线判定 2→3 连败——
@@ -34,7 +44,8 @@ export const SMTC_PORTS: readonly number[] = [26901, 26902, 26903];
 
 const HUB_NAME = "chushi-music-hub";
 const HUB_VER_MIN = "8.0.0";
-const PLUGIN_VER_MIN = "8.0.3";
+const PLUGIN_VER_MIN = "8.0.4";
+const CLIENT_VER = "8.0.4";
 const POLL_MS = 1000;
 const RETRY_MS = 1500;
 const TIMEOUT_MS = 2200;
@@ -44,6 +55,8 @@ const TRUTH_STALE_SEC = 6;
 export interface SmtcTrack {
   /** 来源应用（v8 恒为网易云桥插件真值源） */
   app: string;
+  /** 网易云曲目 id（0 = 真值源未提供；歌词归属校验用） */
+  songId: number;
   title: string;
   artist: string;
   album: string;
@@ -60,6 +73,18 @@ export interface SmtcTrack {
   fetchedAt: number;
 }
 
+/** 桥命令回执（v8.0.4：桥执行轨迹经 /api/state 透出，控制可观测） */
+export interface SmtcCmdLast {
+  /** 命令 _id（hub 队列号） */
+  id: number;
+  type: string;
+  /** 桥验证结果：true=真值翻转确认 / false=四路全败 / null=未知 */
+  ok: boolean | null;
+  /** 走到哪一路（link/redux/element/button/skip/…） */
+  path: string;
+  at: number;
+}
+
 /** 客户端对外状态（公开面，预设脚本经 chushi.music 消费） */
 export interface SmtcState {
   connected: boolean;      // 枢纽可达且版本达标
@@ -71,6 +96,7 @@ export interface SmtcState {
   lyricRev: string;        // 歌词版本（变化即重拉）
   pluginVer: string;       // 音乐桥插件版本（ne.v 心跳；空串 = 不在场）
   smtcVer: string;         // InfLink-rs 版本（桥真值心跳；空串 = 未装/未启用）
+  cmdLast: SmtcCmdLast | null; // 桥最近一次控制命令回执（v8.0.4）
   seekNote: string;        // seek 结果提示（自动消失）
   needsUpdate: boolean;    // needsPlugin || needsBridge
   needsPlugin: boolean;    // 音乐桥插件过旧/缺失
@@ -158,6 +184,22 @@ function cleanNe(raw: unknown) {
   };
 }
 
+/** 桥命令回执清洗（v8.0.4：state.cmd.last 白名单） */
+function cleanCmd(raw: unknown): SmtcCmdLast | null {
+  if (!raw || typeof raw !== "object") return null;
+  const last = (raw as Record<string, unknown>).last;
+  if (!last || typeof last !== "object") return null;
+  const o = last as Record<string, unknown>;
+  if (!(clipNum(o.at) > 0)) return null;
+  return {
+    id: clipNum(o.id),
+    type: clipStr(o.type, 16),
+    ok: typeof o.ok === "boolean" ? o.ok : null,
+    path: clipStr(o.path, 16),
+    at: clipNum(o.at),
+  };
+}
+
 async function getJson(url: string): Promise<Record<string, unknown> | null> {
   try {
     const ctrl = new AbortController();
@@ -194,6 +236,9 @@ class SmtcClient {
   private seekNote = "";
   private seekNoteAt = 0;
 
+  /** v8.0.4 控制可观测：页面端命令 POST 轨迹（诊断口消费） */
+  private ctlLog: Array<{ at: number; cmd: string; ok: boolean; port: number }> = [];
+
   private cbs: Cb[] = [];
   private tickCbs: Cb[] = [];
 
@@ -207,6 +252,7 @@ class SmtcClient {
     lyricRev: "",
     pluginVer: "",
     smtcVer: "",
+    cmdLast: null,
     seekNote: "",
     needsUpdate: true,
     needsPlugin: false,
@@ -240,7 +286,8 @@ class SmtcClient {
     };
   }
 
-  /** 控制下发（白名单外拒绝；HTTP ok 即视为排队成功） */
+  /** 控制下发（白名单外拒绝；HTTP ok 即视为排队成功）
+   *  v8.0.4：POST 结果记入 ctlLog（页面侧诊断口 cmdTrace 消费） */
   async control(cmd: string, position?: number): Promise<boolean> {
     if (!SMTC_COMMANDS.has(cmd)) return false;
     const body: Record<string, unknown> = { cmd };
@@ -248,6 +295,7 @@ class SmtcClient {
       body.position = Math.max(0, Math.min(86400, position));
     }
     const port = this.activePort ?? SMTC_PORT;
+    let ok = false;
     try {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 2500);
@@ -259,20 +307,48 @@ class SmtcClient {
       });
       clearTimeout(timer);
       const j = (await r.json()) as Record<string, unknown>;
-      const ok = j?.ok === true;
+      ok = j?.ok === true;
       if (ok && cmd === "seek") {
         this.seekNote = "";
         this.schedule(80);
       }
-      return ok;
     } catch {
-      return false;
+      ok = false;
     }
+    this.ctlLog.push({ at: Date.now(), cmd, ok, port });
+    if (this.ctlLog.length > 12) this.ctlLog.shift();
+    return ok;
   }
 
-  /** 启动轮询（幂等；SSR 守卫） */
+  /** 启动轮询（幂等；SSR 守卫）；v8.0.4 页面侧诊断口挂载（不覆盖桥侧同名口） */
   start() {
     if (typeof window === "undefined") return;
+    const w = window as unknown as Record<string, unknown>;
+    if (!w.__chushiMusicBridge) {
+      const client = this;
+      w.__chushiMusicBridge = {
+        side: "page",
+        ver: CLIENT_VER,
+        debug() {
+          const s = client.getSnapshot();
+          return {
+            side: "page" as const,
+            ver: CLIENT_VER,
+            note: "页面侧诊断口（桥侧口在网易云主页面；side 字段区分）",
+            hub: { port: client.activePort, connected: s.connected, version: s.version },
+            pluginVer: s.pluginVer,
+            smtcVer: s.smtcVer,
+            songId: s.track ? s.track.songId : 0,
+            title: s.track ? s.track.title : "",
+            cmdLast: s.cmdLast,
+            lyricReady: !!(s.lyric && (s.lyric.yrc || s.lyric.lrc)),
+            lyricSongId: s.lyric ? s.lyric.songId : 0,
+            lyricSource: s.lyric ? s.lyric.source : "",
+            cmdTrace: client.ctlLog.slice(),
+          };
+        },
+      };
+    }
     if (this.timer || this.busy) return;
     this.schedule(60);
   }
@@ -308,6 +384,7 @@ class SmtcClient {
       lyricRev: "",
       pluginVer: "",
       smtcVer: "",
+      cmdLast: null,
       needsUpdate: true,
       needsBridge: true,
       engineOld: false,
@@ -345,6 +422,7 @@ class SmtcClient {
       if (!j) throw new Error("state-empty");
       const version = clipStr(j.version, 16) || "0.0.0";
       const ne = cleanNe(j.ne);
+      const cmdLast = cleanCmd(j.cmd);
       /* v8 语义：smtcVer = InfLink-rs 版本（桥心跳携带；空 = 未装/未启用） */
       const smtcVer = clipStr(j.inflinkVer, 16) || clipStr(j.smtcVer, 16);
 
@@ -367,6 +445,7 @@ class SmtcClient {
         if (ne.duration > 0 && posSec > ne.duration) posSec = ne.duration;
         track = {
           app: "NetEase Music",
+          songId: ne.songId,
           title: ne.title,
           artist: ne.artist,
           album: ne.album,
@@ -404,6 +483,7 @@ class SmtcClient {
         lyricRev: this.state.lyricRev,
         pluginVer: pluginVerNow,
         smtcVer,
+        cmdLast: cmdLast ?? this.state.cmdLast,
         seekNote: this.seekNote,
         needsUpdate: needsPlugin || needsBridge,
         needsPlugin,
@@ -459,7 +539,14 @@ class SmtcClient {
             ? (j.lyric as Record<string, unknown>) : null;
           const yrc = clipStr(ly?.yrc, 200000);
           const lrc = clipStr(ly?.lrc, 200000);
-          if (j?.ok === true && ly && (yrc || lrc)) {
+          /* v8.0.4 歌词归属强校验：hub /api/lyric 是单槽缓存，切歌窗口内
+             返回的必然是上一首歌词——songId 不符一律视为未就绪，继续重试。
+             （旧版照单全收并把新曲目标记已拉取 = 歌词永远滞留上一首的头号
+             根因；桥侧已同步推 pending 占位清槽，此处是最终防线） */
+          const wantId = Number(this.lyricWanted) || 0;
+          const gotId = clipNum(ly?.songId);
+          const ownerOk = !wantId || !gotId || gotId === wantId;
+          if (j?.ok === true && ly && ownerOk && (yrc || lrc)) {
             this.lyricTries = 0;
             this.lyricRevDone = wanted;
             const lyric: SmtcLyric = {

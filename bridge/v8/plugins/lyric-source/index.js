@@ -1,5 +1,5 @@
 /* ============================================================================
- * ChuShi Lyric Source 7.0.0 — 歌词源（第七代全新实现，纯 JS 零 Node）
+ * ChuShi Lyric Source 7.2.0 — 歌词源（第七代全新实现，纯 JS 零 Node）
  *
  * 职责：按需提供完整歌词（逐字 yrc + 逐字翻译 ytlrc + 行级 lrc + 行级翻译）。
  *
@@ -11,8 +11,13 @@
  *   5. 直连旧公开接口 /api/song/lyric（lrc/tlyric）
  *   klyric 一律转真 yrc 时间轴（[s,d](s,d,0)词）——中文歌逐字渲染根修。
  *
+ * v7.2.0（用户指定「暂停时获取 yrc 校准」管线的歌词源侧）：
+ *   ①force 参数——桥暂停态校准重查绕过本地缓存（登录态/缓存变化后重取）；
+ *   ②带凭据/同源层拿到无逐字结果时追加一发 channel（内部 RPC 可能带 yrc），
+ *     尽力升级真逐字；拿不到也不降级已得结果。
+ *
  * 协作协议（与音乐桥）：
- *   收 cc:lyric-req {songId, reqId} → 应答 cc:lyric-res {songId, reqId, payload}
+ *   收 cc:lyric-req {songId, reqId, force?} → 应答 cc:lyric-res {songId, reqId, payload}
  *
  * 本文件零 require/零 Node——BetterNCM v2 渲染环境为 CEF。
  * ==========================================================================*/
@@ -20,7 +25,7 @@
   'use strict';
   if (window.__chushiLyricSource) return;
 
-  var VER = '7.1.0';
+  var VER = '7.2.0';
   window.__chushiLyricSource = { ver: VER };
 
   /* ------------------------------------------------------------------ */
@@ -403,10 +408,10 @@
       .catch(function () { clearTimeout(timer); return null; });
   }
 
-  function getLyric(songId) {
+  function getLyric(songId, force) {
     var id = Number(songId) || 0;
     if (!id) return Promise.resolve(null);
-    var hit = cache[id];
+    var hit = !force && cache[id];
     if (hit && hit.payload) {
       hit.at = Date.now();
       saveCache();
@@ -414,7 +419,9 @@
     }
     var params = { id: id, cp: false, lv: 0, tv: 0, rv: 0, kv: 0, yv: 0, ytv: 0, yrv: 0 };
     /* v7.1.0 五层取词阶梯：带凭据 eapi（登录会话，yrc 主源）→ 同源 web v1（自带
-       cookie）→ 匿名 eapi（旧路径，保底 lrc）→ 内部 channel → 公开旧接口 */
+       cookie）→ 匿名 eapi（旧路径，保底 lrc）→ 内部 channel → 公开旧接口
+       v7.2.0：前两层拿到无逐字结果时追加一发 channel（内部 RPC 可能带 yrc），
+       尽力升级真逐字（用户指定「暂停时获取 yrc 校准」管线的取词侧） */
     return eapiFetch('/eapi/song/lyric/v1', params, true)
       .then(function (j) {
         var p = extractLyric(j, id, 'eapi-yrc');
@@ -430,6 +437,15 @@
             });
           });
         });
+      })
+      .then(function (p) {
+        if (p && !p.yrc) {
+          /* 无逐字升级：channel 若返回 yrc 则采纳，拿不到保留原结果 */
+          return fetchViaChannel(id).then(function (up) {
+            return (up && up.yrc) ? up : p;
+          });
+        }
+        return p;
       })
       .catch(function () { return null; })
       .then(function (payload) {
@@ -450,7 +466,8 @@
       var songId = Number(d.songId) || 0;
       var reqId = d.reqId || 0;
       if (!songId) return;
-      getLyric(songId).then(function (payload) {
+      /* v7.2.0：force（桥暂停校准重查）绕过本地缓存；title/artist 预留 */
+      getLyric(songId, d.force === true).then(function (payload) {
         try {
           window.dispatchEvent(new CustomEvent('cc:lyric-res', {
             detail: { songId: songId, reqId: reqId, payload: payload }
