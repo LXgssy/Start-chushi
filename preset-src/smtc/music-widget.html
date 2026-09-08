@@ -175,7 +175,7 @@ body{
   <section class="cs-empty" id="csEmpty">
     <svg class="cs-eic" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><use href="#cs-i-note"/></svg>
     <div class="cs-e1" id="csE1">系统媒体待接入</div>
-    <div class="cs-e2" id="csE2">安装初始三插件（SMTC Manager / Music Bridge / Lyric Source）并播放音乐即自动接入</div>
+    <div class="cs-e2" id="csE2">安装 InfLink-rs 与初始插件（Music Bridge / Lyric Source）并播放音乐即自动接入</div>
   </section>
 </div>
 
@@ -284,7 +284,7 @@ body{
     footTxt.textContent = s.seekNote
       ? s.seekNote
       : ("已连接 · " + (s.pluginVer ? "API v" + s.pluginVer : "") +
-        (s.smtcVer ? " · 管理 v" + s.smtcVer : ""));
+        (s.smtcVer ? " · InfLink-rs v" + s.smtcVer : ""));
   }
 
   /* ---------- 歌词 DOM 构建（歌词键 + 对象引用双判定才重建） ---------- */
@@ -385,7 +385,7 @@ body{
     var s = snap;
     if (!s || !s.connected) {
       e1.textContent = "系统媒体待接入";
-      e2.textContent = "安装初始三插件（SMTC Manager / Music Bridge / Lyric Source）并播放音乐即自动接入";
+      e2.textContent = "安装 InfLink-rs 与初始插件（Music Bridge / Lyric Source）并播放音乐即自动接入";
       footTxt.textContent = "未连接";
       setMode("em");
       return;

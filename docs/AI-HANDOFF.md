@@ -1,6 +1,6 @@
 # AI-HANDOFF — 给下一个读这个仓库的 AI / 开发者
 
-> 最后更新：v7.2.0（2026-09-08，raise 路径 SEH 全覆盖 + 元数据链根治）。写给你的：无论你是人类贡献者还是 AI 助手，
+> 最后更新：v8.0.0（2026-09-08，自研 SMTC 退役 · InfLink-rs 适配版）。写给你的：无论你是人类贡献者还是 AI 助手，
 > 这一页是项目的「当前状态 + 下一步该干什么」的单一事实来源。
 > 动手前请先读完本页，不要凭想象改架构。
 
@@ -8,23 +8,77 @@
 
 「初始 / Start-chushi」：Next.js 15 新标签页（网页 + Edge MV3 扩展双形态），
 其中 SMTC 音乐面板显示网易云播放真值（进度/逐字歌词）并可控播。
-**v7.2.0 = 三插件 + 独立 broker 进程架构 + 全路径 SEH + 多阶梯元数据源**：SMTC 由独立进程
-`ChuShiSMTCBroker.exe` 直接持有（真 Windows 系统会话 + HTTP 枢纽全在 broker），
-插件 A 的原生 DLL 只是监督者（释放/拉起/看护 broker）；插件 B/C 与页面音乐
-API 纯 JS 零 Node。v5 起五层零复用原则延续：三插件/页面音乐 API 每代全部从零新写。
+**v8.0.0 = 自研 SMTC 全面退役 + InfLink-rs 适配**：系统媒体卡片由第三方 Rust 插件
+**InfLink-rs**（网易云市场可装）独占持有，本项目代码零 WinRT/零 SMTC（构建门断言）；
+ChuShi Music Bridge 8.0.0 以 `window.InfLinkApi` 为第一真值源、控制主路走 InfLinkApi，
+内置零 WinRT 纯 winsock hub.dll 承接页面数据通道（127.0.0.1:26901-26903）；
+插件 B/C 与页面音乐 API 纯 JS 零 Node。五层零复用原则延续：每代全部从零新写。
 
 ## 宪法（用户硬性指令，永远生效）
 
 1. **不许复用老代码**——插件/桥/宿主数据层每代全部删除重写，构建门断言老符号零残留。
-2. **不依赖网易云自带的 SMTC**——网易云 SMTC 开关开或关都不影响；v7 起自有原生会话。
+2. **系统媒体卡片归 InfLink-rs（v8.0.0 起用户指令）**——自研 SMTC 永久退役；
+   本项目任何代码不得持有/创建/驱动 WinRT SMTC 会话，系统卡片完全是
+   InfLink-rs 的领域；网易云自带 SMTC 开关开或关均无关（InfLink-rs 劫持接管）。
 3. **插件命名语言三律分立**（构建门分别断言）：插件 name 英文（ASCII）、
    介绍/描述/面板文案中文、.plugin 文件名 ASCII。
 4. **「重写」验收 = 构建门**：老符号零残留断言，不是口头承诺。
-5. **【v7.1.0 新增·最高优先】WinRT 绝不进宿主进程**——网易云进程内零 WinRT/
-   零 SMTC 代码（构建门 G8 断言导入表无 combase/winrt、自身代码无 SMTC IID
-   字节）。SMTC 一律由独立 broker 进程承载。违反此律 = 复蹈 v7.0.x 四代崩溃。
+5. **【v7.1.0 新增·v8 升格为全域】零 WinRT**——本项目全部产物（DLL/JS/页面）
+   零 WinRT/零 COM（hub.dll 导入表断言无 combase/ole32/winrt，仅 ws2_32+kernel32+ucrt）。
+6. **【v8.0.0 新增】数据枢纽是不可删的结构性必需件**——CEF 渲染进程无法监听端口
+  （v7.0.0 实锤），网易云↔浏览器的唯一可行通道 = 本地 HTTP 枢纽；v8 起枢纽载体
+   = 音乐桥内置 hub.dll（纯 winsock，零 WinRT 结构性无崩溃面）。
 
-## v7.2.0（当前版）：raise 路径 SEH 全覆盖 + 「未知曲目」根治
+## v8.0.0（当前版）：自研 SMTC 退役 · InfLink-rs 适配
+
+背景：v7.2.0 后用户再报四症状（加载久/市场打不开/卡片无信息/点暂停卡片消失），
+第五轮修复启动前用户改向：「InfLinkrs-3.2.11 插件有 smtc 功能，直接舍弃自写的 smtc，
+让音乐桥和 API 都去适配这个插件」。
+
+- **InfLink-rs 3.2.11 考古**（.plugin = zip：index.js 532KB + backend.dll Rust）：
+  - 前端 React 应用挂载 **`window.InfLinkApi`**：`version/getCurrentSong/
+    getPlaybackStatus/getTimeline/getPlayMode/getVolume/play/pause/stop/next/
+    previous/seekTo(ms)/toggleShuffle/toggleRepeat/setRepeatMode/setVolume/toggleMute/addEventListener`。
+  - 形状（从 bundle 反解）：getCurrentSong → `{songName, authorName, albumName,
+    cover:{url}|null, ncmId, duration(ms)}`（播客未同步时 **throw**，须 try/catch）；
+    getPlaybackStatus → 字符串 `"Playing"/"Paused"/"Loading"/"Error"`；
+    getTimeline → `{currentTime(ms), totalTime(ms)}`（1Hz 节流）或 null。
+  - 后端 `betterncm_native.native_plugin.call('inflink.dispatch',[JSON])`，命令
+    UpdateMetadata/UpdatePlayState/UpdateTimeline/UpdatePlayMode/EnableSmtc/…；
+    事件回调 registerEventCallback。**backend.dll 无 HTTP/落盘对外通道**（无
+    axum/hyper/bind 字符串）——故页面数据通道必须自建（见宪法 6）。
+- **ChuShi-SMTC-Manager 退役**：v7 全部原生产物（smtc_native.dll/broker exe）从
+  产线删除；构建门 OLD_SYMBOLS 清单断言零残留。
+- **ChuShi Music Bridge 8.0.0**（slug 不变，manifest `native_plugin: hub.dll`）：
+  - hub.dll（bridge/v8/native/chushi_hub.c 全新编写，~500 行）：仅 winsock2+kernel32+ucrt；
+    Main 进程（ptype=0x1）互斥体当选（Renderer=0x10 静默）；26901→26902→26903 退让；
+    四端点 ping/state/cmd/lyric（state 1MB/lyric 1MB/单命令 8KB/队列 32 深度）；
+    CORS *+PNA；accept 循环整体 SEH 自愈；hub-log.txt 1.5MB 轮转；
+    BetterNCMPluginMain 零阻塞（CreateThread 即返）。
+  - index.js v8：真值 = InfLinkApi 主源（三件套，播客 throw 当无歌）→ 五层阶梯
+    只填空缺；物理自愈（进度走=在播）仅限阶梯路径；控制主路 InfLinkApi
+    （play/pause/toggle 按元素/真值现状定方向，已处目标态=主路完成禁走备路；
+    seek=seekTo(ms)+元素双读回 seekAck），备路 audio 元素+可见按钮；
+    **beat 探针先行律**：probeInflight 必须在拉命令前执行（首拍/InfLink 重载后
+    命令不得落在空探针上——e2e 抓出）；心跳 1Hz：保活→探针→拉命令→读真值→推 state；
+    歌词 cc:lyric-req/res 协议与 LRU4 缓存不变。
+  - 状态 blob：`{ok,name:'chushi-music-state',v:'8.0.0',ts,ne{…},smtcVer:inflinkVer,
+    inflinkVer,version:hubVer,hubVer}`。
+- **smtc.ts v8**：公开面（SMTC_PORT/SmtcTrack/SmtcState/SmtcLyric/SMTC_COMMANDS/
+  smtcPositionNow/smtc）字段级兼容零改动；HUB_NAME='chushi-music-hub'，
+  HUB_VER_MIN=PLUGIN_VER_MIN='8.0.0'；cleanNe 不变；`smtcVer = ne.inflinkVer`
+  （InfLink-rs 版本，空=未装）；needsBridge/needsPlugin/engineOld 语义不变。
+- **预设**：music-widget.html 两处文案（「安装 InfLink-rs 与初始插件…」/页脚
+  「InfLink-rs vX」芯片），.cshz 重建（17943/1443 字符限额内）。
+- **验证**：插件门 31/31（G5 导入表零 WinRT/G6 零老符号/G7 v8 契约/PE 导出解析）+
+  e2e 39/39（A 客户端公开面/发现/快照/控制/歌词；B 桥 vm 白盒 InfLinkApi 全链
+  含命令主路 seek=100000ms 断言；C v7 老身份否定门）+ Next 构建（TS 门）。
+- **验证环境坑（新）**：bun 1.3.14 对大型 TS 模块的**原始值 export 命名空间绑定
+  有缺陷**（SMTC_PORT 等读出 undefined，模块内部值完好）——测试只依赖
+  `{smtc, SMTC_COMMANDS}`（绑定正常）；v7 坑9 重申：bun 测试环境必须
+  `globalThis.window = globalThis` 垫片，否则 SSR 守卫拦截 start()。
+
+## v7.2.0（历史）：raise 路径 SEH 全覆盖 + 「未知曲目」根治
 
 用户真机日志（broker-log + native-log）证明 v7.1.0 架构成功：零崩溃弹窗，
 broker 干净启动、会话注册成功、B→broker HTTP 链路通。剩余两问题定位与修复：
@@ -294,37 +348,19 @@ ChuShi-v7.0.0-AllInOne.zip / SHA256SUMS.txt。
 
 ## 下一步开发任务（按优先级）
 
-### A. v7.0.2 真机验收（最高优先，等用户反馈；本轮 = 时间线 ABI 根因修复）
-0. 前情：v7.0.1 装上后播歌仍崩（Windows.Media.MediaControl.dll AV，
-   smtc_native.dll+0x266E 反汇编实锤 = UpdateTimelineProperties 栈结构体直传）。
-   v7.0.2 已修复：TimelineProperties 以 COM 对象传入（RoActivateInstance 主路径
-   + CCW 兜底），20/20 构建门全绿（含 G8d 反汇编槽位断言）。
-1. 只需换插件A：删旧 ChuShi-SMTC-Manager-7.0.1.plugin → 装入
-   7.0.2（B/C 两个 7.0.0 不动）→ **完全重启网易云**。
-2. 验收点：播歌不崩；Windows 音量弹层/锁屏出独立卡片（封面/标题/进度每秒走/
-   可拖/媒体键）；「初始」面板真值/逐字/拖动回执；网易云自带 SMTC 开关无关。
-3. 若异常：**直接要 native-log.txt**
-   （C:\betterncm\plugins_runtime\ChuShi-SMTC-Manager\native-log.txt），
-   boot/host/smtc/http/upd 全链日志都在里面（upd 行含 src=os/ccw 溯源），
-   按行定位，不再盲猜。
-4. 页脚仍是 API v7.0.0 · 管理 v7.0.0（本轮未动前端，正常）。
+### A. v8.0.0 真机验收（最高优先，等用户反馈）
+1. 网易云插件目录：删 `ChuShi-SMTC-Manager-*.plugin` → 放 `ChuShi-Music-Bridge-8.0.0.plugin`
+   （Lyric-Source 7.0.0 不动）→ **完全重启网易云**。
+2. 验收点：InfLink-rs 卡片正常（封面/标题/进度/媒体键/拖动）；「初始」面板真值/
+   逐字/拖动回执；页脚芯片显示 InfLink-rs vX；任务管理器无 ChuShiSMTCBroker.exe。
+3. 若面板无数据：`GET http://127.0.0.1:26901/api/ping`（应答 chushi-music-hub 8.0.0）
+   + 桥日志 `plugins_runtime/ChuShi-Music-Bridge/hub-log.txt` + 控制台
+   `window.__chushiMusicBridge.debug()`（inflink.present / sources 五层命中）。
+4. 若系统卡片异常：那是 InfLink-rs 领域（检查其设置 SMTC 开关），与本桥无关。
 
-### B. SMTC 原生 DLL 真机排障路径（若卡片不出；v7.0.1 首选日志文件）
-1. **native-log.txt 优先**：
-   `C:\betterncm\plugins_runtime\ChuShi-SMTC-Manager\native-log.txt`；
-   正常链 = boot( elected as host ) → smtc( RoInitialize ok → GetForWindow
-   OK ) → http( listening on 26901 ) → upd( timeline applied first time )；
-   断在哪一行就是哪一环（give up host = 让位重选）。
-2. BetterNCM 开发者工具（网易云渲染进程控制台）跑
-   `betterncm_native.native_plugin.call('ChuShi.Smtc.info',[''])` →
-   应返回 `{"ok":true,...,"host":true/false,"smtcReady":true/false}`。
-3. `host=false`：说明 DLL 在 Main 进程未被加载或互斥体被占（查
-   BetterNCM 版本是否支持 native_plugin）。
-4. `smtcReady=false`：看 `GET http://127.0.0.1:26901/api/smtc/status` 的
-   `lastHr`（WinRT HRESULT）与 native-log 中 GetForWindow 的 hr——v7.0.1
-   失败会自动让位，若所有进程都失败则日志里每进程都有 give up 行。
-5. 枢纽端口被占：26901/26902/26903 三端口都试；`/api/ping` 无响应 =
-   DLL HTTP 线程未起（winsock 初始化失败罕见）。
+### B. SMTC 排障路径（v8 已移交 InfLink-rs）
+自研 SMTC 代码已全删，无排障面。系统卡片问题直接看 InfLink-rs 的设置与日志；
+数据面问题按 A3 三件套定位。
 
 ### C. 预设包/工程化欠账
 - 预设包脚本内注释版本仍是 v5.0.0 字样（外观性）；music-commands 的
