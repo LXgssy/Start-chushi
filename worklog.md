@@ -1124,3 +1124,29 @@ Work Log:
 Stage Summary:
 - 新律：①「数据面存活」可反推「命令必被桥取走」——控制失效排查先分层（投递/取走/执行/生效），cmdTrace+数据面二证据即可锁死断点在「生效」级；②渲染层路径穷尽后下探 OS 输入层：同进程原生 DLL 重放媒体键=与物理键盘同通路，零网易云内部依赖，是控制类问题的终极兑底；③方向判定禁信「探测前帧」——真值快照必须带来源标记（src），无源帧在命令路径上按未知处理；④GCC -O2 会把 strncmp(s,"lit",n) 展开成立即数比较，字符串字面量不落 .rdata——二进制门禁断言「端点存在」要用运行时才格式化的响应串而非路由字面量；⑤e2e 台架用真实 setInterval 保桥心跳节奏，才能复现「陈旧真值窗口」类时序 bug（B3 假 link 回执即台架立功）
 - 待办：用户侧验收（换 ChuShi-Music-Bridge-8.0.5.plugin→完全重启网易云→刷新「初始」页→按播放/上下首）；若芯片亮 native=连系统媒体键都被吞，请发 hub-log.txt（[native] 行）+网易云版本号；cshz 字符余量 176 仍未扩；x86 hub.dll 线暂停
+
+---
+Task ID: 105
+Agent: main (Super Z)
+Task: 用户给出 InfLink-rs 仓库并定性「系统卡片可控=InfLink 有效=桥的问题」——媒体键方案退役 + 找出控制失效根因 + 恢复跳转，v8.0.6 发布
+
+Work Log:
+- 【源码解剖】clone apoint123/inflink-rs 全仓：docs/inflink-api.md + frontend/src/hooks/useGlobalApi.ts 实锤 window.InfLinkApi 有 play/pause/stop/next/previous/seekTo(ms)/setVolume 全套一等控制方法；useGlobalApi→handleAdapterCommand→adapter.play()；backend/smtc_core.rs SMTC ButtonPressed→dispatch_event→NativeBackend eventCallback→useBackendConnection.onControl→**同一 handleAdapterCommand**——系统卡片按钮与 api.play() 100% 汇聚同一 adapter 方法（用户「卡片可控=InfLink 有效」推断在源码层成立）
+- 【根因实锤①】桥全部 store 判定（storeOk/findDvaStore/findStoreViaFiber/readStore）只认 2.x 顶层 st.player；NCM 3.x 顶层是 st.playing/playingList（v3 adapter 源码自证）→ 3.x 上 redux 备路全树扫描必判废 no-store → 备路全灭表象的一半根因
+- 【根因实锤②（e2e 台架立功）】start() 先无源 readTruth（position=0,src=none）→ toggle 拍 InfLink 报 Paused+position 跳变 12.3s → 「假暂停自愈」误触发（src=inflink+heal）→ 900ms 主路验证被「冻结病仲裁」判败 → 主路误降级 redux（B4 台架 trace：cmd→link:pause-called→redux:no-store→ok:redux）
+- 【修复①媒体键退役（用户令）】桥删 nativeFireOnce/nativeEscalate 全链，四路全灭后诚实 markCmd ok=false path=button；hub.c 删 /api/native 端点+EnumWindows/keybd_event 全部代码，PLUGIN_VERSION 8.0.6 重编 x64——导入表回到 WS2_32+KERNEL32（user32 清零），版本串 8.0.6，零 native 字符串残留
+- 【修复②store 三代】storeOk 判 player(2.x) ∥ playing(3.x)；readStore 兼容 playingState===2/resourceTrackId/resourceName/resourceArtists；findDvaStore 同步；controlStore 优先级反转 fiber(true)>dva(true)>g_app（fiber=InfLink 同款 #root 遍历，第二路与系统卡片 dispatch 等效）
+- 【修复③验证/自愈】新增 linkNow()（只信 InfLink 实时状态，零快照仲裁）用于 toggle 900ms/800ms/700ms 三级验证；自愈收紧：InfLink 分支要求上一拍 src 以 inflink 开头、阶梯分支要求 src≠none——首拍/源切换跳变绝不自愈；修复后台架 trace：cmd→link:pause-called→ok:link 一枪命中
+- 【修复④幂等闸回退防护】maxCmdId 检测：cmd._id < maxCmdId 即判 hub 重启（g_cmdNextId 归零）→ 清空 lastCmdDone + traceCmd('reset','hub-id-rewind')——旧版会把新命令当重复静默吞掉（trace 都不留）
+- 【修复⑤调用级遥测】apiToggle/apiSeek/api2.next/api2.previous 调用点全部 traceCmd（play-called/pause-called/next-called/prev-called/seek-called/absent/no-method/throw）；cmdTrace 容量 12→20
+- 【修复⑥seek 恢复（用户令）】部件 .cs-seek 恢复 cursor/touch-action+hover 加粗轨道；scrub 状态机（pointerdown/move/up/cancel + setPointerCapture + 本地预览 scrubUI，loop 拖动中不覆盖）；松手 mus.seek(ratio*dur)——失败走宿主 seekAck→seekNote 芯片、成功宿主乐观重锚；桥 apiSeek 主路已是 seekTo(毫秒) 不动
+- 【瘦身】cshz 19982 超限 782→等价瘦身：死代码 clamp01/replay+cs-swin+cs-ri 砍除、空态文案去重、归因四文案压缩、on* 事件绑定、gap 归一、.cs-bmain:hover 三规则合一、fmt 去 max——19168/19200（余 32）
+- 【门禁】build-v8-plugins.py 43/43：新增强制「零 USER32 导入」「媒体键符号根除（nativeFire/WM_APPCOMMAND/keybd_event/api/native）」「三代 store/遥测/幂等闸回退门」+ cmdTrace 20 上限；版本/OUT 8.0.6
+- 【e2e 50/50】makeBridgeCtx：nativeMode 删除→deadLink（控制被忽略）/liveLink（控制真翻转），/api/native 拦截只记录永远 404；B3 死网易云→ok=false path=button+媒体键零触碰；B4 活 link toggle 一枪命中 path=link+零触碰；B5 hub 重启 _id 回退两条 next 都到达 InfLink（calls.next===2）；版本串 8.0.6；.wt-v7 同步后跑（防假绿旧律）
+- 【tsc】src 零错误
+- 【发版 v8.0.6】EXTENSION_MODE 构建（chunk a9a347de 含 8.0.6 门）+ 扩展 zip 11.7MB（7 内联外置）+ cshz 19168 + 七件套 + AllInOne + Usage-Notes + SHA256SUMS；gh-pages 部署线上核验（HTTP 200+chunk 8.0.6+sandbox unitizeLine）；Release id=384866068 六资产逐个 sha256 上传核验 ALL OK；main 25f56da 推送；vendor/inflink-rs 出库+gitignore
+- 【调试实录】rel-v806 生成器两次翻车（re.sub 模板 \p 转义、r''' 定界符被吃）→ 直白切割 index() 方案落地
+
+Stage Summary:
+- 新律：①「系统卡片可控」类外部证据必须下探到源码级汇聚点——两条链路汇聚同一函数时，入口正确≠执行正确，备路同构才是保险；②store 合法性判定必须与上游框架的真实 state 结构（v2 player/v3 playing）逐版本核对，单一结构假设会让全部备路静默失效；③「执行后验证」绝不能复用「执行前方向判定」的仲裁器——heal/补偿类标记只该影响方向选择，不该影响效果评估；④e2e mock 的状态翻转必须模拟真实方向（控制调用→状态变化），只翻状态不调控制会掩盖验证链的误判；⑤凡依赖「自增 id 去重」的跨进程幂等闸，必须处理对端重启 id 回退
+- 待办：用户侧验收（换 Bridge 8.0.6.plugin→完全重启→重导 cshz→按键/进度条拖动/系统卡片三向同步）；若仍失效请 cmdTrace 输出——现在每次调用都有 link:* 遥测可直接定位；x86 hub.dll 线仍暂停
