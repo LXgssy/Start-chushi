@@ -1038,3 +1038,24 @@ Work Log:
 Stage Summary:
 - 新律：①凡「打包器门限」必须与「消费端校验」同源对齐——两道数字门分处两文件必生漂移（本次 18000 双写漂移的第三次发生）；②防御性内联（data-URI）先证实生产确实需要再上——为测试台架缺陷发明的兜底会反噬真实交付尺寸
 - 待办：用户重下 cshz 导入（旧包 18867 已不可用）；x86 hub.dll 线仍暂停
+
+---
+Task ID: 101
+Agent: main (Super Z)
+Task: 用户录屏三问题——播放/上下首按键全坏 + 播放态图标脱同步 + 中英双语歌词显示混乱——取证定位并发布 v8.0.2
+
+Work Log:
+- 【取证①视频帧析】30.75s 录屏逐帧（1fps 抽帧+裁剪放大）：f02-f18 播放键▶+黄灯但进度实时推进（1:19→1:46 与墙钟同步）；f08-f14 连点下一首、f18 点上一首、f20 点播放——曲目始终不变；f22 起图标⏸稳定（乐观翻转被真值确认）；放大帧实锤歌词区「上一行定格全白 + 当前行卡拉OK」双高亮、翻译行插中间、回声行（Of your L.I.F.E. ×2）读作重复
+- 【取证②用户日志】log.log：[ChuShi-Music-Bridge] native load Error ×8（v8 hub.dll 曾加载失败的历史账；视频里面板已连接且无版本警告芯片 → v8 hub 实际在位）；native-log/broker-log：v7.1.0 SMTC Manager + Broker 残留仍在运行并绑 26901（v7 hub 名 chushi-smtc-hub 与 v8 分端口分身份，不抢 v8 命令但证实双代并存）
+- 【取证③InfLink-rs 3.2.11 源码解剖】解包官方 .plugin：window.InfLinkApi 控制面 = reduxStore?.dispatch——play→{playing/resume,desktopLyric}、pause→{playing/pause}、next/prev→{playingList/jump2Track,flag±1,hotKey}、seek→{playing/setPlayingPosition,duration秒}；数据面 getPlaybackStatus=内部 playState、getTimeline=内部 musicPlayProgress（onStateChanged 订阅 redux）；**同一 store 读取正常而派发被静默忽略 = 部分 NCM 3.x 版本 reducer 不认这些 action** → 「数据活、按键全死」的完整解释
+- 【修复①桥 8.0.2 控制验证+三级备路】execCommand 重写：下发（InfLink 主路）→ +900/+1200ms 延时验证（播放态真翻转/曲目号变化）→ 不动则直发 dva action（动词逐字抄 InfLink）→ 再不动 audio 元素 → 末端可见按钮；cmdSeq 代数号闸（新命令作废旧验证链）+ lastCmdDone 幂等 + cmdTrace 12 条环形轨迹进 debug()；方向真值 playingNowCalc 优先本桥 truth 快照（已含自愈）不再盲信冻结的 getPlaybackStatus
+- 【修复②桥 8.0.2 时间线自愈】readTruth InfLink 分支：报 Paused 但 position 推进 >1.2s/拍（同曲+拍间<4s）→ playing=true（metaSrc=inflink+heal）——只治假暂停不反向伪造；修面板▶/黄灯与真实播放同屏矛盾
+- 【修复③桥 8.0.2 封面升级】pic 协议相对(//)补 https:、http://*.music.126.net 升 https（页面 https 源混合内容丢弃 → 恒显默认底的根因）
+- 【修复④部件 8.0.2 歌词单高亮律】新 .cs-ln.done（ink2 已唱灰+遮罩 display:none）：行离场遮罩归零+done 标记；间奏(activeLine=-1)维持已唱进度；seek 倒回自动还原未唱行；翻译仍只挂当前行——修双语/回声行双高亮混乱
+- 【版本链】smtc.ts PLUGIN_VER_MIN 8.0.0→8.0.2（旧插件诚实亮「组件待更新」芯片）；hub.c PLUGIN_VERSION 8.0.2 重编 x64（llvm-mingw）；manifest 版本+描述更新
+- 【验证】插件门 35/35（新增 v8.0.2 符号门：jump2Track/playing|resume|pause/setPlayingPosition/inflink+heal/cmdTrace/music\.126\.net + cmdTrace 上限）；e2e 40/40（mock 版本串同步 8.0.2；发现 e2e 读 .wt-v7 工作树旧拷贝 → 同步 index.js+smtc.ts 后全绿）；渲染台架 probe-widget-v802.mjs 8 断言全绿（沙箱链路截图 + 直渲染 stub 双通道：回声行×2+翻译场景——已唱行 done/遮罩隐藏/唯一高亮行/翻译只挂当前行/倒回还原）
+- 【发版 v8.0.2】Next 构建 + 扩展 zip（11.7MB，7 内联脚本外置）+ cshz 18147 字符（门限 19200 内）+ 七件套 + SHA256SUMS + Release id=384636131（6 资产逐个 sha256 上传核验 ALL OK）+ 文叔叔 https://c.wss.ink/f/ktqh9jb5rmt + Pages 部署线上核验（smtc chunk deec180a 含 "8.0.2"、sandbox.js 含 withShimAfterDoctype）+ main 推送 008174c
+
+Stage Summary:
+- 新律：①控制命令必须「下发→延时验证→逐级降级」——InfLink 这类「控制面与数据面同源不同命」的依赖，读取正常不代表派发生效（?.dispatch 静默吞）；②播放态真值以「进度是否在走」为最终仲裁——任何状态枚举都可能冻结；③歌词逐字高亮的行离场必须显式回落（保留 100% 遮罩=视觉双高亮）；④e2e 若从快照工作树读源码，发版前必须同步工作树（.wt-v7 漂移差点让假绿复辟）
+- 待办：用户侧验收（换 8.0.2 桥插件 + 删 v7 残留插件 + 重导入 cshz + 按键/图标/双语歌词/封面四项验收）；x86 hub.dll 线仍暂停

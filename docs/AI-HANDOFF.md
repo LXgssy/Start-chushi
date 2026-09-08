@@ -1,6 +1,6 @@
 # AI-HANDOFF — 给下一个读这个仓库的 AI / 开发者
 
-> 最后更新：v8.0.1（2026-09-08，音乐链路三连修：控制/掉线/显示）。写给你的：无论你是人类贡献者还是 AI 助手，
+> 最后更新：v8.0.2（2026-09-08，实机对症三联修：按键验证备路/状态自愈/歌词单高亮）。写给你的：无论你是人类贡献者还是 AI 助手，
 > 这一页是项目的「当前状态 + 下一步该干什么」的单一事实来源。
 > 动手前请先读完本页，不要凭想象改架构。
 
@@ -29,7 +29,19 @@ ChuShi Music Bridge 8.0.0 以 `window.InfLinkApi` 为第一真值源、控制主
   （v7.0.0 实锤），网易云↔浏览器的唯一可行通道 = 本地 HTTP 枢纽；v8 起枢纽载体
    = 音乐桥内置 hub.dll（纯 winsock，零 WinRT 结构性无崩溃面）。
 
-## v8.0.1（当前版）：音乐链路三连修
+## v8.0.2（当前版）：实机对症三联修（按键 / 状态脱同步 / 双语歌词）
+
+**取证链**：用户 30s 录屏逐帧 + hub/桥日志 + InfLink-rs 3.2.11 .plugin 解包源码解剖。三方证据闭环。
+
+- **①按键全坏的终局根因**：InfLink 控制面 = `window.InfLinkApi` 方法体内 `this.reduxStore?.dispatch(...)`——`playing/resume`、`playing/pause`、`playingList/jump2Track(flag±1,hotKey)`、`playing/setPlayingPosition(duration秒)`。部分网易云 3.x 版本上这些 action 被 reducer **静默忽略**（?. 链吞错），而数据读取走同一 store 正常 → 现场呈「数据活、按键全死」。v8.0.1 的「命令解析双形兼容」修的是命令**到达**桥的问题；v8.0.2 修的是命令**执行后无声无息**的问题。
+- **②桥 v8.0.2 控制律（验证+三级备路）**：下发（InfLink 主路）→ +900/+1200ms 延时验证（播放态真翻转 / 曲目号变化）→ 不动则直发 dva action（动词逐字抄 InfLink 3.2.11）→ audio 元素 → 末端可见按钮。cmdSeq 代数号闸防旧验证链串扰；cmdTrace 12 条环形轨迹进 `__chushiMusicBridge.debug()`。方向真值优先本桥 truth 快照（1Hz 新鲜，含自愈），不再盲信可能冻结的 getPlaybackStatus。
+- **③时间线自愈律**：InfLink 报 Paused 但进度推进 ≥1.2s/拍（同曲+拍间 <4s）→ 按播放处理（metaSrc=inflink+heal）。只治假暂停，绝不反向伪造。修「面板▶/黄灯与真实播放同屏矛盾」。
+- **④歌词单高亮律**：逐字歌词行离场必须回落灰（`.cs-ln.done` + 遮罩归零），不许保留 100% 全亮遮罩——否则回声行/重复句呈双高亮。间奏（lineIndex=-1）维持已唱进度；seek 倒回自动还原未唱行。翻译只挂当前行（.cs-sub 仅 .on 显示）。
+- **⑤封面 http→https**：网易云封面 http URL 被 https 页面按混合内容策略丢弃（恒显默认底的根因）；桥端升级 `http://*.music.126.net` → https + 协议相对(//)补全。
+- **e2e 工作树纪律**：verify-v8-e2e.ts 从 `.wt-v7` 工作树读桥/客户端源码——发版前必须同步该工作树（本次漏同步差点假绿复辟）。
+- **发版**：插件门 35/35 + e2e 40/40 + 渲染台架 8 断言（probe-widget-v802.mjs，沙箱链路截图 + 直渲染 stub 双通道）+ Release id=384636131 + 文叔叔 + Pages（smtc chunk deec180a 含 8.0.2 已核验）+ main 008174c。
+
+## v8.0.1（历史）：音乐链路三连修
 
 用户真机三反馈的根因与修复（细节见 worklog Task 99）：
 
