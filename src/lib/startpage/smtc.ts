@@ -1,11 +1,14 @@
 /* ============================================================================
- * 「初始」音乐面板数据客户端 v8.0.6（第八代，InfLink-rs 适配版）
+ * 「初始」音乐面板数据客户端 v8.0.7（第八代，InfLink-rs 适配版）
  *
- * v8.0.6 媒体键退役 + seek 恢复（用户指令 + InfLink-rs 源码比对）：
- *   PLUGIN_VER_MIN 8.0.5→8.0.6 —— 桥 8.0.6 删除 OS 媒体键兜底（用户指令），
- *   修复 redux 备路只认 2.x st.player 的三代结构 bug（3.x 上备路全灭），
- *   幂等闸防 hub 重启 _id 回退吞命令，控制全链调用级遥测进 cmdTrace；
- *   部件恢复进度条拖动跳转（InfLink seekTo 同源通路）。旧桥必须升级。
+ * v8.0.7 轮询租约 + 桥侧轨迹透传（用户实机 cmdTrace 取证）：
+ *   PLUGIN_VER_MIN 8.0.6→8.0.7 —— 实机证据：页面 POST /api/cmd 全部 ok、
+ *   桥状态通道活、但 cmdLast 回执从未出现且控制全灭 → /api/cmd 排空式
+ *   先到先得，网易云残留进程/多进程注入的第二桥实例把命令随机分走，
+ *   新桥永远空手。桥 8.0.7 + hub 8.0.7 引入轮询租约（粘性持有者唯一
+ *   排空权，非持有者被 hub 拦为 []）；本版透传桥侧执行轨迹（cmd.trace
+ *   20 条环形）与实例身份（who）/租约态（lease）进诊断口，用户在浏览器
+ *   一条命令即可看到桥内部每一步，诊断盲区永久消灭。旧桥必须升级。
  *
  * v8.0.5 原生媒体键兜底版（插件层独有变更，本文件仅版本门提升）：
  *   PLUGIN_VER_MIN 8.0.4→8.0.5 —— 旧桥插件（渲染层四路全灭的 NCM 上无法
@@ -55,8 +58,8 @@ export const SMTC_PORTS: readonly number[] = [26901, 26902, 26903];
 
 const HUB_NAME = "chushi-music-hub";
 const HUB_VER_MIN = "8.0.0";
-const PLUGIN_VER_MIN = "8.0.6";
-const CLIENT_VER = "8.0.6";
+const PLUGIN_VER_MIN = "8.0.7";
+const CLIENT_VER = "8.0.7";
 const POLL_MS = 1000;
 const RETRY_MS = 1500;
 const TIMEOUT_MS = 2200;
@@ -96,6 +99,16 @@ export interface SmtcCmdLast {
   at: number;
 }
 
+/** 桥侧执行轨迹条目（v8.0.7：state.cmd.trace 环形 20 条透传） */
+export interface SmtcCmdTraceEntry {
+  /** 桥侧时刻（ms） */
+  at: number;
+  /** 种类：cmd/recv/ok/skip/fb/link/redux/element/reset/… */
+  k: string;
+  /** 详情：toggle#12 / play-called / no-store:playing/resume / … */
+  d: string;
+}
+
 /** 客户端对外状态（公开面，预设脚本经 chushi.music 消费） */
 export interface SmtcState {
   connected: boolean;      // 枢纽可达且版本达标
@@ -108,6 +121,9 @@ export interface SmtcState {
   pluginVer: string;       // 音乐桥插件版本（ne.v 心跳；空串 = 不在场）
   smtcVer: string;         // InfLink-rs 版本（桥真值心跳；空串 = 未装/未启用）
   cmdLast: SmtcCmdLast | null; // 桥最近一次控制命令回执（v8.0.4）
+  cmdTrace: SmtcCmdTraceEntry[]; // 桥侧执行轨迹（v8.0.7，环形 20 条）
+  who: string;             // 桥实例身份（v8.0.7 租约持有者标识）
+  lease: string;           // 租约态：holder/standby/legacy（v8.0.7）
   seekNote: string;        // seek 结果提示（自动消失）
   needsUpdate: boolean;    // needsPlugin || needsBridge
   needsPlugin: boolean;    // 音乐桥插件过旧/缺失
@@ -195,20 +211,35 @@ function cleanNe(raw: unknown) {
   };
 }
 
-/** 桥命令回执清洗（v8.0.4：state.cmd.last 白名单） */
-function cleanCmd(raw: unknown): SmtcCmdLast | null {
-  if (!raw || typeof raw !== "object") return null;
-  const last = (raw as Record<string, unknown>).last;
-  if (!last || typeof last !== "object") return null;
-  const o = last as Record<string, unknown>;
-  if (!(clipNum(o.at) > 0)) return null;
-  return {
-    id: clipNum(o.id),
-    type: clipStr(o.type, 16),
-    ok: typeof o.ok === "boolean" ? o.ok : null,
-    path: clipStr(o.path, 16),
-    at: clipNum(o.at),
-  };
+/** 桥命令回执清洗（v8.0.4：state.cmd.last 白名单）；v8.0.7 附带 trace/who/lease */
+function cleanCmd(raw: unknown): { last: SmtcCmdLast | null; trace: SmtcCmdTraceEntry[] } {
+  const empty = { last: null as SmtcCmdLast | null, trace: [] as SmtcCmdTraceEntry[] };
+  if (!raw || typeof raw !== "object") return empty;
+  const o = raw as Record<string, unknown>;
+  const last = o.last;
+  let outLast: SmtcCmdLast | null = null;
+  if (last && typeof last === "object") {
+    const l = last as Record<string, unknown>;
+    if (clipNum(l.at) > 0) {
+      outLast = {
+        id: clipNum(l.id),
+        type: clipStr(l.type, 16),
+        ok: typeof l.ok === "boolean" ? l.ok : null,
+        path: clipStr(l.path, 16),
+        at: clipNum(l.at),
+      };
+    }
+  }
+  const trace: SmtcCmdTraceEntry[] = [];
+  if (Array.isArray(o.trace)) {
+    for (const it of o.trace.slice(-20)) {
+      if (!it || typeof it !== "object") continue;
+      const e = it as Record<string, unknown>;
+      if (!(clipNum(e.at) > 0)) continue;
+      trace.push({ at: clipNum(e.at), k: clipStr(e.k, 12), d: clipStr(e.d, 80) });
+    }
+  }
+  return { last: outLast, trace };
 }
 
 async function getJson(url: string): Promise<Record<string, unknown> | null> {
@@ -264,6 +295,9 @@ class SmtcClient {
     pluginVer: "",
     smtcVer: "",
     cmdLast: null,
+    cmdTrace: [],
+    who: "",
+    lease: "",
     seekNote: "",
     needsUpdate: true,
     needsPlugin: false,
@@ -345,17 +379,22 @@ class SmtcClient {
           return {
             side: "page" as const,
             ver: CLIENT_VER,
-            note: "页面侧诊断口（桥侧口在网易云主页面；side 字段区分）",
+            note: "页面侧诊断口（桥侧口在网易云主页面；side 字段区分）。" +
+              "cmdTrace=桥侧执行轨迹（桥收到命令后走到哪一路）/ " +
+              "postTrace=页面侧控制 POST 轨迹 / who+lease=桥实例身份与租约态",
             hub: { port: client.activePort, connected: s.connected, version: s.version },
             pluginVer: s.pluginVer,
             smtcVer: s.smtcVer,
             songId: s.track ? s.track.songId : 0,
             title: s.track ? s.track.title : "",
             cmdLast: s.cmdLast,
+            cmdTrace: s.cmdTrace.slice(-20),
+            postTrace: client.ctlLog.slice(),
+            who: s.who,
+            lease: s.lease,
             lyricReady: !!(s.lyric && (s.lyric.yrc || s.lyric.lrc)),
             lyricSongId: s.lyric ? s.lyric.songId : 0,
             lyricSource: s.lyric ? s.lyric.source : "",
-            cmdTrace: client.ctlLog.slice(),
           };
         },
       };
@@ -396,6 +435,9 @@ class SmtcClient {
       pluginVer: "",
       smtcVer: "",
       cmdLast: null,
+      cmdTrace: [],
+      who: "",
+      lease: "",
       needsUpdate: true,
       needsBridge: true,
       engineOld: false,
@@ -433,7 +475,11 @@ class SmtcClient {
       if (!j) throw new Error("state-empty");
       const version = clipStr(j.version, 16) || "0.0.0";
       const ne = cleanNe(j.ne);
-      const cmdLast = cleanCmd(j.cmd);
+      const cmd = cleanCmd(j.cmd);
+      const cmdLast = cmd.last;
+      const cmdTrace = cmd.trace;
+      const who = clipStr(j.who, 48);
+      const lease = clipStr(j.lease, 12);
       /* v8 语义：smtcVer = InfLink-rs 版本（桥心跳携带；空 = 未装/未启用） */
       const smtcVer = clipStr(j.inflinkVer, 16) || clipStr(j.smtcVer, 16);
 
@@ -495,6 +541,9 @@ class SmtcClient {
         pluginVer: pluginVerNow,
         smtcVer,
         cmdLast: cmdLast ?? this.state.cmdLast,
+        cmdTrace: cmdTrace.length ? cmdTrace : this.state.cmdTrace,
+        who: who || this.state.who,
+        lease: lease || this.state.lease,
         seekNote: this.seekNote,
         needsUpdate: needsPlugin || needsBridge,
         needsPlugin,

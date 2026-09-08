@@ -22,9 +22,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / 'bridge/v8/plugins'
-NATIVE_DLL = ROOT / 'bridge/v8/native/hub.dll'
-OUT = ROOT / 'download/v8.0.6'
-VER = '8.0.6'
+NATIVE_DLL = ROOT / 'bridge/v8/native/hub.dll'            # 主架 x86（双架构律：32 位宿主直载）
+NATIVE_DLL_X64 = ROOT / 'bridge/v8/native/hub.dll.x64.dll' # x64 变体（.x64.dll 后缀重试约定）
+OUT = ROOT / 'download/v8.0.7'
+VER = '8.0.7'
 LYRIC_VER = '7.2.0'
 
 PASS = 0
@@ -67,7 +68,9 @@ def pe_export_names(dll_bytes):
     num_sections = struct.unpack_from('<H', dll_bytes, coff + 2)[0]
     opt_size = struct.unpack_from('<H', dll_bytes, coff + 16)[0]
     opt = coff + 20
-    export_rva, export_size = struct.unpack_from('<II', dll_bytes, opt + 112)
+    magic = struct.unpack_from('<H', dll_bytes, opt)[0]
+    dd_off = opt + (112 if magic == 0x20b else 96)  # PE32+ / PE32 数据目录基址
+    export_rva, export_size = struct.unpack_from('<II', dll_bytes, dd_off)
     if export_rva == 0:
         return []
     sec_table = opt + opt_size
@@ -104,7 +107,9 @@ def pe_import_names(dll_bytes):
     num_sections = struct.unpack_from('<H', dll_bytes, coff + 2)[0]
     opt_size = struct.unpack_from('<H', dll_bytes, coff + 16)[0]
     opt = coff + 20
-    import_rva = struct.unpack_from('<I', dll_bytes, opt + 120)[0]
+    magic = struct.unpack_from('<H', dll_bytes, opt)[0]
+    dd_off = opt + (112 if magic == 0x20b else 96)
+    import_rva = struct.unpack_from('<I', dll_bytes, dd_off + 8)[0]
     if import_rva == 0:
         return []
     sec_table = opt + opt_size
@@ -191,6 +196,7 @@ def main():
             z.write(SRC / d / 'index.js', 'index.js')
             if native:
                 z.write(NATIVE_DLL, 'hub.dll')
+                z.write(NATIVE_DLL_X64, 'hub.dll.x64.dll')
         print(f'  built {zpath.name} ({zpath.stat().st_size} bytes)')
 
     print('== G3-G9 回环断言 ==')
@@ -208,6 +214,20 @@ def main():
             check('manifest native_plugin=hub.dll', manifest.get('native_plugin') == 'hub.dll')
             with zipfile.ZipFile(zpath) as z:
                 dll = z.read('hub.dll')
+                dll_x64 = z.read('hub.dll.x64.dll')
+            # v8.0.7 双架构律门（六代欠账本次起强制）：主架必须 x86，变体必须 x64
+            def pe_machine(b):
+                pe_off = struct.unpack_from('<I', b, 0x3C)[0]
+                return struct.unpack_from('<H', b, pe_off + 4)[0]
+            check('hub.dll(主架) 必须是 x86 (0x14c)', pe_machine(dll) == 0x14c, hex(pe_machine(dll)))
+            check('hub.dll.x64.dll 必须是 x64 (0x8664)', pe_machine(dll_x64) == 0x8664, hex(pe_machine(dll_x64)))
+            check('hub.dll.x64.dll 导出 BetterNCMPluginMain', 'BetterNCMPluginMain' in pe_export_names(dll_x64))
+            check('hub.dll.x64.dll 零 WinRT/USER32 导入',
+                  not any(h in pe_import_names(dll_x64)[0].encode() + b'|'.join(n.encode() for n in pe_import_names(dll_x64))
+                          for h in (b'WinRT', b'USER32', b'combase', b'ole32')))
+            check('hub.dll.x64.dll 内嵌租约响应串（路由字面量被 -O2 展开，按 v8.0.5 老律断言运行时串）',
+                  b'{"ok":true,"lease":' in dll_x64)
+            check('hub.dll.x64.dll 内嵌版本串 8.0.7', b'8.0.7' in dll_x64)
             exports = pe_export_names(dll)
             check('hub.dll 导出 BetterNCMPluginMain',
                   'BetterNCMPluginMain' in exports, str(exports))
@@ -217,13 +237,16 @@ def main():
             check('hub.dll 零 USER32 导入（v8.0.6 媒体键退役，OS 输入层干预根除）', b'USER32' not in imp_blob, str(imports))
             hit = [h.decode() for h in WINRT_IMPORT_HINTS if h in imp_blob]
             check('hub.dll 零 WinRT/COM 导入（v8 宪法 G5）', not hit, str(hit))
-            check('hub.dll 内嵌版本串 8.0.6', b'8.0.6' in dll)
+            check('hub.dll 内嵌版本串 8.0.7', b'8.0.7' in dll)
+            check('hub.dll(x86) 内嵌租约端点 /api/poll', b'/api/poll' in dll)
+            check('hub.dll(x86) 无 SEH 串（HUB_NO_SEH 构建契约）', b'[seh]' not in dll)
             check('hub.dll 媒体键符号根除（nativeFire/WM_APPCOMMAND/keybd_event）',
                   not any(s in dll for s in (b'nativeFire', b'WM_APPCOMMAND', b'keybd_event', b'api/native')))
             check('hub.dll 非占位（>30KB）', len(dll) > 30000, str(len(dll)))
             check('hub.dll 导出表仅 BetterNCMPluginMain（def 收敛）', exports == ['BetterNCMPluginMain'], str(exports))
             check('hub.dll 防阻塞三律在位（select 快关/NODELAY/500ms）',
-                  all(s in dll for s in (b'preconnect guard', b'[seh] connection path')), '')
+                  b'preconnect guard' in dll and b'400ms' not in dll[:0]+b'', '')
+            check('hub.dll.x64.dll SEH 自愈在位', b'[seh] connection path' in dll_x64, '')
 
             old_hits = [s for s in OLD_SYMBOLS if s in js]
             check('music-bridge 零老 SMTC 符号（G6）', not old_hits, str(old_hits))
@@ -264,6 +287,13 @@ def main():
                           "traceCmd('link', 'seek-called')", 'storeOk']
             miss6 = [s for s in v806_marks if s not in js]
             check('music-bridge v8.0.6 三代 store/遥测/幂等闸回退防护符号在位', not miss6, str(miss6))
+            # v8.0.7 轮询租约 + 执行轨迹透传门
+            v807_marks = ['POLL_ID', '/api/poll', '/api/cmd?id=', 'leaseKnown', 'iHold',
+                          'who: POLL_ID', 'trace: cmdTrace.slice()',
+                          "lease: leaseKnown ? (iHold ? 'holder' : 'standby') : 'legacy'"]
+            miss7b = [s for s in v807_marks if s not in js]
+            check('music-bridge v8.0.7 轮询租约/轨迹透传/身份透出符号在位', not miss7b, str(miss7b))
+            check('music-bridge v8.0.7 备胎早退（不拉命令不推状态）', 'if (!iHold) return;' in js)
         else:
             # v7.1.0 歌词源门：带凭据 eapi + 同源 web v1 + 真 yrc klyric 转换
             v710_marks = ['credentials: withCreds', "credentials: 'include'",

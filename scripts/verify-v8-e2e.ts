@@ -40,8 +40,15 @@ const inflinkVerServed = '3.2.11';
 /* v8.0.4：模拟 hub 单槽歌词缓存的「切歌窗口」——首次 GET 回旧歌残留（songId=999），
    客户端必须拒绝并重试，直到槽内是新歌（songId=186016） */
 let lyricSlotStale = true;
-/* v8.0.4：模拟桥命令回执（state.cmd.last） */
+/* v8.0.4：模拟桥命令回执（state.cmd.last）；v8.0.7 附带桥侧 trace/who/lease */
 const mockCmdLast = { id: 7, type: 'toggle', ok: true, path: 'link', at: Date.now() - 900 };
+const mockCmdTrace = [
+  { at: Date.now() - 950, k: 'cmd', d: 'toggle#7' },
+  { at: Date.now() - 940, k: 'link', d: 'pause-called' },
+  { at: Date.now() - 100, k: 'ok', d: 'link' },
+];
+const hubVerServed = '8.0.7';
+const bridgeVerServed = '8.0.7';
 
 const server = Bun.serve({
   port: 26901,
@@ -50,18 +57,19 @@ const server = Bun.serve({
     const path = url.pathname;
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors() });
     if (path === '/api/ping') {
-      return Response.json({ ok: true, name: 'chushi-music-hub', version: '8.0.6', host: true }, { headers: cors() });
+      return Response.json({ ok: true, name: 'chushi-music-hub', version: hubVerServed, host: true }, { headers: cors() });
     }
     if (path === '/api/state' && req.method === 'GET') {
       return Response.json({
-        ok: true, name: 'chushi-music-state', v: '8.0.6', ts: Date.now(),
-        version: '8.0.6', hubVer: '8.0.6', inflinkVer: inflinkVerServed, smtcVer: inflinkVerServed,
-        cmd: { last: mockCmdLast },
+        ok: true, name: 'chushi-music-state', v: bridgeVerServed, ts: Date.now(),
+        version: hubVerServed, hubVer: hubVerServed, inflinkVer: inflinkVerServed, smtcVer: inflinkVerServed,
+        cmd: { last: mockCmdLast, trace: mockCmdTrace },
+        who: 'bmock-holder', lease: 'holder',
         ne: {
           songId: 186016, title: '晴天', artist: '周杰伦', album: '叶惠美',
           pic: 'https://p1.music.126.net/x.jpg?param=500y500',
           position: 12.3, duration: 269.3, playing: true, ts: Date.now() - 300,
-          v: '8.0.6', src: 'inflink',
+          v: bridgeVerServed, src: 'inflink',
           seekAckId: 's-1', seekAckOk: true, seekAckAt: Date.now() - 1000,
         },
       }, { headers: cors() });
@@ -111,10 +119,47 @@ const oldServer = Bun.serve({
 });
 
 /* ---------- B. 桥白盒台架 ---------- */
+/* v8.0.7 租约 hub 仿真：与实物 hub.dll 同构——粘性持有者、TTL 4s、
+   非持有者 GET /api/cmd 拦为 []、expire() 模拟持有者死亡 */
+function makeLeaseHubSim() {
+  return {
+    holder: '' as string,
+    expires: 0,
+    dead: '' as string,   /* 已死亡的实例 id：模拟进程消失——它的一切 HTTP 都到不了 hub */
+    queue: [] as any[],
+    drainedBy: [] as string[],
+    claims: [] as Array<{ id: string; grant: boolean }>,
+    claim(id: string): boolean {
+      if (this.dead && id === this.dead) throw new Error('holder-dead: transport unreachable');
+      const now = Date.now();
+      const active = !!this.holder && now < this.expires;
+      const grant = !active || this.holder === id;
+      if (grant) { this.holder = id; this.expires = now + 4000; }
+      this.claims.push({ id, grant });
+      return grant;
+    },
+    /* 持有者死亡：保留 TTL（真实语义——死亡后旧租约仍占用至超时，
+       期间命令滞留队列，接管最迟 TTL+1拍 完成） */
+    killHolder() { this.dead = this.holder; },
+    expire() { this.expires = 0; },
+    drain(id: string): any[] {
+      if (this.dead && id === this.dead) throw new Error('holder-dead: transport unreachable');
+      const now = Date.now();
+      const active = !!this.holder && now < this.expires;
+      if (active && this.holder !== id) return [];
+      const out = this.queue; this.queue = [];
+      if (out.length) this.drainedBy.push(id);
+      return out;
+    },
+  };
+}
+
 function makeBridgeCtx(withInflink: boolean, opts?: {
   cmds?: any[];              /* 自定义命令队列（默认 seek/next/prev） */
   deadLink?: boolean;        /* true=InfLink 控制调用被 reducer 静默忽略（死网易云，用户实机特征） */
   liveLink?: boolean;        /* true=InfLink 控制调用真实翻转状态/曲目（正常 NCM，= 系统卡片同路有效） */
+  hubSim?: ReturnType<typeof makeLeaseHubSim>; /* v8.0.7：多实例共寲的租约 hub 仿真 */
+  legacyHub?: boolean;       /* v8.0.7：旧 hub（/api/poll 不存在 404）→ 桥 legacy 全权模式 */
 }) {
   const calls = { play: 0, pause: 0, next: 0, previous: 0, seek: [] as number[] };
   const statePosts: any[] = [];
@@ -138,7 +183,24 @@ function makeBridgeCtx(withInflink: boolean, opts?: {
     console,
     fetch: async (url: string, init?: any) => {
       const u = String(url);
+      /* v8.0.7：租约认领（每拍先于 /api/cmd）——legacyHub 模拟旧 hub 404 */
+      if (u.includes('/api/poll') && init && init.method === 'POST') {
+        if (opts?.legacyHub) {
+          return { json: async () => ({ ok: false, error: 'not-found' }), ok: false };
+        }
+        if (opts?.hubSim) {
+          const body = JSON.parse(init.body || '{}');
+          const grant = opts.hubSim.claim(String(body.id || ''));
+          return { json: async () => ({ ok: true, lease: grant }), ok: true };
+        }
+        return { json: async () => ({ ok: true, lease: true }), ok: true };
+      }
       if (u.includes('/api/cmd') && (!init || !init.method || init.method === 'GET')) {
+        if (opts?.hubSim) {
+          const m = u.match(/id=([^&]+)/);
+          const out = opts.hubSim.drain(m ? decodeURIComponent(m[1]) : '');
+          return { json: async () => out, ok: true };
+        }
         const out = cmdServed.slice(); cmdServed.length = 0;
         return { json: async () => out, ok: true };
       }
@@ -150,7 +212,7 @@ function makeBridgeCtx(withInflink: boolean, opts?: {
         return { json: async () => ({ ok: false, error: 'not-found' }), ok: false };
       }
       if (u.includes('/api/ping')) {
-        return { json: async () => ({ ok: true, name: 'chushi-music-hub', version: '8.0.6', host: true }), ok: true };
+        return { json: async () => ({ ok: true, name: 'chushi-music-hub', version: '8.0.7', host: true }), ok: true };
       }
       if (u.includes('/api/state') && init && init.method === 'POST') {
         statePosts.push(JSON.parse(init.body));
@@ -234,14 +296,16 @@ describe('v8 e2e', () => {
     await new Promise((r) => setTimeout(r, 2600));
     const s = m.smtc.getSnapshot();
     ok('connected=true', s.connected === true);
-    ok('hubVer=8.0.6', s.version === '8.0.6', s.version);
+    ok('hubVer=8.0.7', s.version === '8.0.7', s.version);
     ok('needsBridge=false（v8 身份命中）', s.needsBridge === false);
-    ok('needsPlugin=false（ne.v=8.0.4）', s.needsPlugin === false);
+    ok('needsPlugin=false（ne.v=8.0.7）', s.needsPlugin === false);
     ok('needsUpdate=false', s.needsUpdate === false);
     ok('smtcVer=InfLink-rs 版本', s.smtcVer === '3.2.11', s.smtcVer);
     ok('track 真值直显', s.track && s.track.title === '晴天' && s.track.artist === '周杰伦');
     ok('track.songId=186016（v8.0.4 歌词归属校验用）', s.track && s.track.songId === 186016, s.track && s.track.songId);
     ok('cmdLast 回执透出（v8.0.4 控制可观测）', !!s.cmdLast && s.cmdLast.type === 'toggle' && s.cmdLast.ok === true && s.cmdLast.path === 'link', JSON.stringify(s.cmdLast));
+    ok('cmdTrace 桥侧轨迹透出（v8.0.7）', s.cmdTrace.length === 3 && s.cmdTrace[0].k === 'cmd' && s.cmdTrace[2].d === 'link', JSON.stringify(s.cmdTrace));
+    ok('who/lease 透出（v8.0.7）', s.who === 'bmock-holder' && s.lease === 'holder', s.who + '/' + s.lease);
     ok('封面 URL 透传', s.coverUrl === 'https://p1.music.126.net/x.jpg?param=500y500');
     ok('engineOld=false', s.engineOld === false);
     off();
@@ -276,7 +340,7 @@ describe('v8 e2e', () => {
     ok('桥至少推一次状态', statePosts.length >= 1, String(statePosts.length));
     const blob = statePosts[0];
     ok('blob 名字 chushi-music-state', blob && blob.name === 'chushi-music-state');
-    ok('blob v=8.0.6', blob && blob.v === '8.0.6');
+    ok('blob v=8.0.7', blob && blob.v === '8.0.7');
     ok('ne.title 来自 InfLink', blob && blob.ne.title === '晴天', blob && blob.ne.title);
     ok('ne.artist 来自 InfLink', blob && blob.ne.artist === '周杰伦');
     ok('ne.position=ms→s（12.345）', blob && Math.abs(blob.ne.position - 12.345) < 0.01, blob && blob.ne.position);
@@ -287,6 +351,10 @@ describe('v8 e2e', () => {
     ok('ne.src=inflink', blob && String(blob.ne.src).indexOf('inflink') === 0, blob && blob.ne.src);
     /* v8.0.4 控制可观测：state 携带命令回执；执行后 markCmd 落库 */
     ok('blob 携带 cmd.last 回执', blob && blob.cmd && blob.cmd.last && typeof blob.cmd.last.at === 'number', JSON.stringify(blob && blob.cmd));
+    /* v8.0.7：who/lease 透传 */
+    ok('blob.lease=holder（租约仿真默认全权）', blob && blob.lease === 'holder', blob && blob.lease);
+    ok('blob.who 实例身份非空', typeof (blob && blob.who) === 'string' && (blob && blob.who).length >= 4, blob && blob.who);
+    ok('blob.cmd.trace 数组在场', blob && Array.isArray(blob.cmd.trace));
     /* 命令执行：主路 InfLinkApi（v8.0.3 含 raw 对象/字符串双形协议验证） */
     await new Promise((r) => setTimeout(r, 1500));
     ok('seek 主路 = InfLinkApi.seekTo(100000ms)【raw 对象形】', calls.seek.includes(100000), JSON.stringify(calls.seek));
@@ -310,7 +378,7 @@ describe('v8 e2e', () => {
   /* v8.0.6 核心场景一：死网易云（用户实机特征：InfLink 读取活、控制派发被
      静默忽略，无 audio 元素、无可见按钮）→ 四路全灭 → 诚实失败回执 button；
      且桥绝不触碰已根除的媒体键端点（行为级验证 nativePosts===0）。 */
-  test('B3 v8.0.6 死网易云：四路全灭 → 诚实失败 path=button，媒体键端点零触碰', async () => {
+  test('B3 v8.0.7 死网易云：四路全灭 → 诚实失败 path=button，媒体键端点零触碰', async () => {
     const { nativePosts, statePosts } = makeBridgeCtx(true, {
       cmds: [{ _id: 'w-tog-dead-1', raw: { cmd: 'toggle' } }],
       deadLink: true,
@@ -324,7 +392,7 @@ describe('v8 e2e', () => {
 
   /* v8.0.6 核心场景二：活 link（InfLink 控制调用真实翻转 = 系统卡片同路有效）
      → toggle 一枪命中 → 回执 ok=true path=link，不走任何降级。 */
-  test('B4 v8.0.6 活 link：toggle 一枪命中 path=link，媒体键端点零触碰', async () => {
+  test('B4 v8.0.7 活 link：toggle 一枪命中 path=link，媒体键端点零触碰', async () => {
     const { nativePosts, statePosts } = makeBridgeCtx(true, {
       cmds: [{ _id: 'w-tog-live-1', raw: { cmd: 'toggle' } }],
       liveLink: true,
@@ -335,7 +403,7 @@ describe('v8 e2e', () => {
     ok('回执 ok=true path=link（主路验证通过）', hit, JSON.stringify(statePosts.map((b) => b.cmd)));
   }, 8000);
 
-  test('B5 v8.0.6 活 link：next 曲目真变 → path=link；幂等闸 hub 重启 _id 回退不吞命令', async () => {
+  test('B5 v8.0.7 活 link：next 曲目真变 → path=link；幂等闸 hub 重启 _id 回退不吞命令', async () => {
     const { calls, nativePosts } = makeBridgeCtx(true, {
       cmds: [
         { _id: 'w-next-live-9', raw: { cmd: 'next' } },
@@ -347,6 +415,43 @@ describe('v8 e2e', () => {
     ok('媒体键端点零触碰', nativePosts.length === 0, JSON.stringify(nativePosts));
     ok('两条 next 都到达 InfLink（回退 _id 未被幂等闸吞）', calls.next === 2, String(calls.next));
   }, 12000);
+
+  test('B6 v8.0.7 租约：双桥实例同抢 → 唯一持有者排空，备胎零执行零状态；持有者死亡接管', async () => {
+    const sim = makeLeaseHubSim();
+    const A = makeBridgeCtx(true, { hubSim: sim, cmds: [] });
+    const B = makeBridgeCtx(true, { hubSim: sim, cmds: [] });
+    /* 双方各认领几拍（1Hz） */
+    await new Promise((r) => setTimeout(r, 2600));
+    const holders = new Set(sim.claims.filter((c) => c.grant).map((c) => c.id));
+    ok('同时刻恰有一个持有者', holders.size === 1, JSON.stringify([...holders]));
+    const aActive = A.statePosts.length > 0, bActive = B.statePosts.length > 0;
+    ok('恰有一个实例推状态（备胎不推）', aActive !== bActive, `A=${A.statePosts.length} B=${B.statePosts.length}`);
+    /* 注入命令：只能被持有者排空执行 */
+    sim.queue.push({ _id: 'w-lease-1', raw: { cmd: 'next' } });
+    await new Promise((r) => setTimeout(r, 1600));
+    const holderIsA = A.calls.next === 1;
+    ok('命令被唯一持有者执行', holderIsA || B.calls.next === 1, `A=${A.calls.next} B=${B.calls.next}`);
+    ok('备胎零执行（抢占结构性不可能）', holderIsA ? B.calls.next === 0 : A.calls.next === 0, `A=${A.calls.next} B=${B.calls.next}`);
+    /* 持有者死亡（进程消失，停止一切请求）→ TTL 内命令滞留 → 过期后备胎接管 */
+    sim.killHolder();
+    sim.queue.push({ _id: 'w-lease-2', raw: { cmd: 'next' } });
+    await new Promise((r) => setTimeout(r, 6200));
+    ok('接管后新命令由新持有者执行', holderIsA ? B.calls.next === 1 : A.calls.next === 1, `A=${A.calls.next} B=${B.calls.next}`);
+    ok('死亡实例零执行（彻底退出）', holderIsA ? A.calls.next === 1 : B.calls.next === 1, `A=${A.calls.next} B=${B.calls.next}`);
+    ok('接管切换被仿真 hub 记录（两个实例先后排空）', sim.drainedBy.length === 2 && new Set(sim.drainedBy).size === 2, JSON.stringify(sim.drainedBy));
+  }, 20000);
+
+  test('B7 v8.0.7 legacy 回退：旧 hub（/api/poll 404）→ 桥全权照常（升级窗口双向兼容）', async () => {
+    const { calls, statePosts } = makeBridgeCtx(true, {
+      cmds: [{ _id: 'w-leg-1', raw: { cmd: 'next' } }],
+      legacyHub: true,
+    });
+    await new Promise((r) => setTimeout(r, 3400));
+    ok('legacy 模式命令照常执行', calls.next === 1, String(calls.next));
+    ok('legacy 模式状态照常推送', statePosts.length >= 1, String(statePosts.length));
+    const blob = statePosts[0];
+    ok('blob.lease=legacy（诚实标注降级态）', blob && blob.lease === 'legacy', blob && blob.lease);
+  }, 8000);
 
   test('C 否定门：v7 老身份枢纽必须被拒绝', async () => {
     const m = await import('/home/z/my-project/.wt-v7/src/lib/startpage/smtc.ts');

@@ -25,6 +25,21 @@
  *     lastCmdDone 残留旧 _id 会把新命令当重复静默吞掉）。
  *   ⑤cmdTrace 容量 12→20。
  *
+ *   v8.0.7（用户实机 cmdTrace 取证：POST 全 ok + 桥状态活 + 回执从未出现）：
+ *   ①轮询租约（poller lease）——/api/cmd 排空式先到先得，网易云残留进程/
+ *     多进程注入的第二桥实例（window.__chushiMusicBridge 防重入守卫只在
+ *     单进程内有效）会把命令队列随机分走 → 新桥永远空手、回执永不产生、
+ *     控制全部落空——这是上述三证据同时成立的唯一自洽解释。本版每拍先
+ *     POST /api/poll {id:POLL_ID} 认领（粘性持有者，TTL 4s）；未持有
+ *     =备胎待命：不拉命令、不推状态、不写歌词（hub 侧同步把非持有者的
+ *     GET /api/cmd 拦为 []，双保险）。旧 hub 无 /api/poll（404）→ legacy
+ *     模式照常全权，升级窗口双向兼容。
+ *   ②执行轨迹全量透传：state.cmd.trace（20 条环形）+ who（实例身份）
+ *     + lease（holder/standby/legacy）——页面侧诊断口从此能看到桥内部
+ *     每一步（cmd#/recv/link:play-called/redux:no-store/fb:button…），
+ *     「桥到底有没有收到命令、走到哪一路」在浏览器里一条命令可见，
+ *     诊断盲区永久消灭。
+ *
  * v8 架构律（本代宪法）：
  *   1. 零自写 SMTC——系统媒体卡片（元数据/封面/时间线/媒体键/拖动）完全由
  *      InfLink-rs（Rust 原生插件）持有；本插件零 SMTC 代码，绝不与 WinRT
@@ -52,10 +67,18 @@
   'use strict';
   if (window.__chushiMusicBridge) return;
 
-  var VER = '8.0.6';
+  var VER = '8.0.7';
   var HUB_NAME = 'chushi-music-hub';
   var HUB_PORTS = [26901, 26902, 26903];
   var BEAT_MS = 1000;
+  /* v8.0.7 实例身份：本 JS 生命周期内稳定，跨进程唯一——多桥实例同抢
+     /api/cmd 的时代结束；who 字段透出后，用户在页面诊断口就能看到
+     「现在是谁在当家」 */
+  var POLL_ID = 'b' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+  /* 租约状态：leaseKnown=false → 旧 hub（无 /api/poll）→ legacy 全权模式；
+     iHold=true → 本实例是持有者（legacy 下恒 true） */
+  var leaseKnown = false;
+  var iHold = true;
 
   window.__chushiMusicBridge = { ver: VER };
   /* v8 诊断口：控制台 window.__chushiMusicBridge.debug() 一眼看全真值链 */
@@ -76,7 +99,9 @@
       },
       seekAck: JSON.parse(JSON.stringify(seekAck)),
       cmdLast: JSON.parse(JSON.stringify(cmdLast)),
-      cmdTrace: cmdTrace.slice()
+      cmdTrace: cmdTrace.slice(),
+      who: POLL_ID,
+      lease: leaseKnown ? (iHold ? 'holder' : 'standby') : 'legacy'
     };
   };
 
@@ -1077,8 +1102,13 @@
         seekAckOk: seekAck.ok === true,
         seekAckAt: seekAck.at
       },
-      /* v8.0.4 控制可观测：命令回执（面板/页面端直读归因，不再黑盒） */
-      cmd: { last: { id: cmdLast.id, type: cmdLast.type, ok: cmdLast.ok, path: cmdLast.path, at: cmdLast.at } },
+      /* v8.0.4 控制可观测：命令回执（面板/页面端直读归因，不再黑盒）
+         v8.0.7：执行轨迹全量透传（20 条环形）+ 实例身份 + 租约态——
+         页面侧诊断口从此能看到桥内部每一步，诊断盲区永久消灭 */
+      cmd: { last: { id: cmdLast.id, type: cmdLast.type, ok: cmdLast.ok, path: cmdLast.path, at: cmdLast.at },
+             trace: cmdTrace.slice() },
+      who: POLL_ID,
+      lease: leaseKnown ? (iHold ? 'holder' : 'standby') : 'legacy',
       /* smtcVer v8 语义 = InfLink-rs 版本（系统卡片提供方）；空 = 未装/未启用 */
       smtcVer: inflink.ver,
       inflinkVer: inflink.ver,
@@ -1103,11 +1133,28 @@
          （首拍/InfLink 重载后，命令执行不得落在空探针上） */
       probeInflight();
 
+      /* 2.5) v8.0.7 轮询租约认领：粘性持有者唯一排空权——网易云残留进程/
+         多进程注入的第二桥实例抢排 /api/cmd（排空式先到先得）是
+         「POST ok + 桥状态活 + 回执永不出现」的唯一自洽解释。
+         认领失败 = 备胎待命：不拉命令、不推状态、不写歌词
+         （hub 侧同步把非持有者的 GET /api/cmd 拦为 []，双保险）。
+         旧 hub 无 /api/poll（404 → ok!==true）→ legacy 全权模式。 */
+      var pl = await jpost(hub.url('/api/poll'), { id: POLL_ID });
+      if (pl && pl.ok === true) {
+        leaseKnown = true;
+        iHold = pl.lease === true;
+      } else {
+        leaseKnown = false;
+        iHold = true;
+      }
+      if (!iHold) return;
+
       /* 3) 拉页面命令（v8：无系统侧事件——媒体键全由 InfLink 直达网易云）
          v8.0.1 协议律：hub 实物返回 [{"_id":N,"raw":{...}}]，raw 是对象；
          旧代码 JSON.parse(item.raw) 把对象转 "[object Object]" 必抛 →
-         全部命令被静默丢弃（e2e mock 与实物协议分叉漏网）。双形兼容： */
-      var cmds = await jget(hub.url('/api/cmd'), 2000);
+         全部命令被静默丢弃（e2e mock 与实物协议分叉漏网）。双形兼容：
+         v8.0.7：URL 携带实例 id，hub 租约门校验非持有者拦为 [] */
+      var cmds = await jget(hub.url('/api/cmd?id=' + POLL_ID), 2000);
       if (Array.isArray(cmds)) {
         for (var c = 0; c < cmds.length; c++) {
           var item = cmds[c];
@@ -1148,8 +1195,9 @@
     readTruth();
     beat().finally(function () { });
     setInterval(function () { beat(); }, BEAT_MS);
-    /* 歌词请求超时重试 */
+    /* 歌词请求超时重试（v8.0.7：备胎待命时不重试——歌词写入权也归持有者） */
     setInterval(function () {
+      if (!iHold) return;
       if (lyric.pendingAt && nowMs() - lyric.pendingAt > 4000) {
         lyric.pendingAt = 0;
         requestLyric(lyric.songId);
