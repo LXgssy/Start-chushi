@@ -1,5 +1,14 @@
 /* ============================================================================
- * 「初始」音乐面板数据客户端 v8.0.8（第八代，InfLink-rs 适配版）
+ * 「初始」音乐面板数据客户端 v8.0.9（第九代，InfLink-rs 适配版）
+ *
+ * v8.0.9 拖动假失败根治（用户实机：「拖动成功了却提示拖动不成功」）：
+ *   桥 v8.0.9 seek 读回校验升级为三态诚实上报（InfLink 时间线第一读回源 +
+ *   三拍耐心；无读回源=未知≠失败，ne.seekAckKnown=false）。本版配套：
+ *   ①PLUGIN_VER_MIN 8.0.8→8.0.9（旧桥必须升级）；
+ *   ②cleanNe 透传 seekAckKnown（旧桥缺字段视为已验证，维持旧行为）；
+ *   ③「拖动未生效」芯片仅在 known=true 且 ok=false（验证过的真失败）时亮。
+ *   配套核心引擎 seek 护航窗（sandbox.js v8.0.9）：拖动后真值收敛窗内
+ *   忽略旧轨迹陈旧拍——进度条回弹与歌词乱跳同根治；暂停/播放校准不变。
  *
  * v8.0.8 排空 JSON 根因修复配套 + 链路自证透传（hubsim 协议级复现实锢）：
  *   控制失效真正根因 = hub dataDrainCmds 漏写收尾 '}'（v8.0.0~v8.0.7 八代
@@ -72,8 +81,8 @@ export const SMTC_PORTS: readonly number[] = [26901, 26902, 26903];
 
 const HUB_NAME = "chushi-music-hub";
 const HUB_VER_MIN = "8.0.0";
-const PLUGIN_VER_MIN = "8.0.8";
-const CLIENT_VER = "8.0.8";
+const PLUGIN_VER_MIN = "8.0.9";
+const CLIENT_VER = "8.0.9";
 const POLL_MS = 1000;
 const RETRY_MS = 1500;
 const TIMEOUT_MS = 2200;
@@ -234,6 +243,9 @@ function cleanNe(raw: unknown) {
     v: clipStr(o.v, 16),
     seekAckId: clipStr(o.seekAckId, 40),
     seekAckOk: o.seekAckOk === true,
+    /* v8.0.9 三态诚实律：旧桥无此字段（undefined）→ 视为已验证（维持旧
+       判定行为）；新桥 ok=null（无读回源）→ known=false → 不亮失败芯片 */
+    seekAckKnown: o.seekAckKnown !== false,
     seekAckAt: clipNum(o.seekAckAt),
   };
 }
@@ -288,6 +300,7 @@ function cleanPoll(raw: unknown): SmtcState["poll"] {
   const o = raw as Record<string, unknown>;
   return {
     drains: clipNum(o.drains),
+    delivered: clipNum(o.delivered),
     emptyStreak: clipNum(o.emptyStreak),
     lastCount: clipNum(o.lastCount),
     lastGetAt: clipNum(o.lastGetAt),
@@ -630,8 +643,10 @@ class SmtcClient {
         coverUrl = ne.pic || null;
       }
 
-      /* seekAck 诚实提示（桥读回校验失败的回执） */
-      if (ne && ne.seekAckId && ne.seekAckAt > 0 && now - ne.seekAckAt < 3200 && !ne.seekAckOk) {
+      /* seekAck 诚实提示（桥读回校验失败的回执；v8.0.9 三态：无读回源的
+         未知结果不算失败——拖动假失败芯片根治） */
+      if (ne && ne.seekAckId && ne.seekAckAt > 0 && now - ne.seekAckAt < 3200 &&
+          !ne.seekAckOk && ne.seekAckKnown) {
         this.seekNote = "拖动未生效：网易云未响应";
         this.seekNoteAt = now;
       }
