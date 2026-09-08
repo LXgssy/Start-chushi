@@ -23,8 +23,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / 'bridge/v8/plugins'
 NATIVE_DLL = ROOT / 'bridge/v8/native/hub.dll'
-OUT = ROOT / 'download/v8.0.0'
-VER = '8.0.0'
+OUT = ROOT / 'download/v8.0.1'
+VER = '8.0.1'
 LYRIC_VER = '7.0.0'
 
 PASS = 0
@@ -216,8 +216,11 @@ def main():
             check('hub.dll 必须导入 WS2_32', b'WS2_32' in imp_blob, str(imports))
             hit = [h.decode() for h in WINRT_IMPORT_HINTS if h in imp_blob]
             check('hub.dll 零 WinRT/COM 导入（v8 宪法 G5）', not hit, str(hit))
-            check('hub.dll 内嵌版本串 8.0.0', b'8.0.0' in dll)
+            check('hub.dll 内嵌版本串 8.0.1', b'8.0.1' in dll)
             check('hub.dll 非占位（>30KB）', len(dll) > 30000, str(len(dll)))
+            check('hub.dll 导出表仅 BetterNCMPluginMain（def 收敛）', exports == ['BetterNCMPluginMain'], str(exports))
+            check('hub.dll 防阻塞三律在位（select 快关/NODELAY/500ms）',
+                  all(s in dll for s in (b'preconnect guard', b'[seh] connection path')), '')
 
             old_hits = [s for s in OLD_SYMBOLS if s in js]
             check('music-bridge 零老 SMTC 符号（G6）', not old_hits, str(old_hits))

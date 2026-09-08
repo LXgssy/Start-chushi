@@ -1,5 +1,5 @@
 /* ============================================================================
- * ChuShi Music Hub 8.0.0 —— 纯 winsock HTTP 中继（v8 全新实现）
+ * ChuShi Music Hub 8.0.1 —— 纯 winsock HTTP 中继（v8 全新实现）
  *
  * v8 架构律（本代宪法）：
  *   1. 零 WinRT / 零 COM / 零 SMTC——系统媒体卡片完全由 InfLink-rs（第三方
@@ -19,6 +19,12 @@
  *      持锁至进程退出）；Renderer/GPU/Utility 全静默。
  *   5. 诚实落盘——hub-log.txt 记录 boot/elect/listen/自愈全链，超 1.5MB 重建；
  *      接受循环整体 SEH，异常自愈（关套接字→重建→继续监听）。
+ *   6. 双架构律——主架 hub.dll 必须 x86（用户主流网易云 2.x 为 32 位进程，
+ *      x64 DLL 塞入 32 位进程 = ERROR_BAD_EXE_FORMAT，BetterNCM 报
+ *      "dll doesn't exists or is not adapted to this arch"）；x64 变体
+ *      命名必须是 hub.dll.x64.dll（BetterNCM v2 加载序列：先试 manifest
+ *      native_plugin，失败后追加 ".x64.dll" 后缀重试，与 InfLink-rs
+ *      backend.dll/backend.dll.x64.dll 同约定）。
  * ==========================================================================*/
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -28,7 +34,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define PLUGIN_VERSION "8.0.0"
+#define PLUGIN_VERSION "8.0.1"
 #define HUB_NAME_S "chushi-music-hub"
 #define HUB_MUTEX_NAMEW L"ChuShi-Music-Hub-8-Singleton"
 
@@ -402,6 +408,63 @@ static SOCKET createListener(int port) {
     return ls;
 }
 
+/* ------------------------------------------------------------------ */
+/* 单连接服务（v8.0.1 防阻塞三律）                                        */
+/*   1. recv 超时 3000→500ms：请求都是环回小包，500ms 已富余；              */
+/*   2. accept 后 select 探 400ms，无数据立即关——浏览器预连接池/竞态      */
+/*      败者连接会 connect 后不发数据，串行接受循环曾被它卡 3s，           */
+/*      页面 1.4s 超时 ×2 连败即误判「掉线」（间歇断连根因）；             */
+/*   3. TCP_NODELAY：响应立刻推平，杜绝 Nagle×延迟 ACK 叠加延迟。          */
+/* ------------------------------------------------------------------ */
+static void hub_conn_serve(SOCKET ls, char* req) {
+    SOCKET cs;
+    /* 接受路径整体 SEH：任何 AV 自愈（关套接字→继续） */
+    __try {
+        cs = accept(ls, NULL, NULL);
+        if (cs == INVALID_SOCKET) {
+            Sleep(50);
+            return;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        logf_line("[seh] accept AV 0x%08X — self-heal", (unsigned)GetExceptionCode());
+        Sleep(200);
+        return;
+    }
+
+    __try {
+        /* 空连接快关：400ms 内无首字节即视为预连接/探测，直接释放 */
+        fd_set rs;
+        struct timeval tv;
+        FD_ZERO(&rs);
+        FD_SET(cs, &rs);
+        tv.tv_sec = 0;
+        tv.tv_usec = 400 * 1000;
+        int ready = select((int)cs + 1, &rs, NULL, NULL, &tv);
+        if (ready <= 0) {
+            logf_line("[http] idle conn dropped (preconnect guard)");
+            closesocket(cs);
+            return;
+        }
+
+        BOOL nd = TRUE;
+        setsockopt(cs, IPPROTO_TCP, TCP_NODELAY, (const char*)&nd, sizeof(nd));
+        DWORD timeoutMs = 500;
+        setsockopt(cs, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeoutMs, sizeof(timeoutMs));
+        setsockopt(cs, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeoutMs, sizeof(timeoutMs));
+
+        DWORD n = readRequest(cs, req, REQ_MAX);
+        if (n > 0) {
+            req[n] = 0;
+            handleRequest(cs, req, n);
+        }
+        closesocket(cs);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        logf_line("[seh] connection path AV 0x%08X — self-heal", (unsigned)GetExceptionCode());
+        __try { closesocket(cs); } __except (EXCEPTION_EXECUTE_HANDLER) { }
+        Sleep(100);
+    }
+}
+
 static DWORD WINAPI hub_thread(LPVOID arg) {
     (void)arg;
     WSADATA wsa;
@@ -427,29 +490,7 @@ static DWORD WINAPI hub_thread(LPVOID arg) {
     logf_line("[http] listening on %d (loopback only)", port);
 
     for (;;) {
-        SOCKET cs;
-        /* 接受循环整体 SEH：任何 AV 自愈（关套接字→重建→继续） */
-        __try {
-            cs = accept(ls, NULL, NULL);
-            if (cs == INVALID_SOCKET) {
-                Sleep(50);
-                __leave;
-            }
-            DWORD timeoutMs = 3000;
-            setsockopt(cs, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeoutMs, sizeof(timeoutMs));
-            setsockopt(cs, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeoutMs, sizeof(timeoutMs));
-
-            DWORD n = readRequest(cs, req, REQ_MAX);
-            if (n > 0) {
-                req[n] = 0;
-                handleRequest(cs, req, n);
-            }
-            closesocket(cs);
-        } __except (EXCEPTION_EXECUTE_HANDLER) {
-            logf_line("[seh] connection path AV 0x%08X — self-heal", (unsigned)GetExceptionCode());
-            __try { closesocket(cs); } __except (EXCEPTION_EXECUTE_HANDLER) { }
-            Sleep(200);
-        }
+        hub_conn_serve(ls, req);
     }
     /* 不可达 */
     return 0;

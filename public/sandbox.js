@@ -698,7 +698,7 @@ function pageMode() {
       inner.setAttribute("title", "初始自定义页面");
       inner.style.cssText =
         "position:fixed;inset:0;width:100vw;height:100vh;border:0;background:transparent";
-      inner.srcdoc = shim + m.html;
+      inner.srcdoc = withShimAfterDoctype(shim, m.html);
       document.body.appendChild(inner);
       window.addEventListener("message", function (ev) {
         if (!inner || ev.source !== inner.contentWindow) return;
@@ -717,6 +717,22 @@ function pageMode() {
     }
   });
   post({ type: "hello" });
+}
+
+/* v8.0.1 标准模式律：shim 必须插在 doctype 之后——srcdoc 里任何先于
+ * <!doctype> 的元素都会让 doctype 失效 → 文档落入 quirks 模式（百分比
+ * 高度/图片尺寸解析全变，曾致部件封面 img width:100% 铺满整面板）。
+ * 无 doctype 的裸 HTML 保持旧拼接（本来就没标准模式可言）。 */
+function withShimAfterDoctype(shim, html) {
+  if (typeof html !== "string") return shim;
+  var m = html.match(/^(\s*<!--[\s\S]*?-->\s*|<!doctype[^>]*>\s*)/i);
+  if (m && m[1]) return m[1] + shim + html.slice(m[1].length);
+  var lt = html.match(/<html[^>]*>/i);
+  if (lt && lt.index !== undefined) {
+    var at = lt.index + lt[0].length;
+    return html.slice(0, at) + shim + html.slice(at);
+  }
+  return shim + html;
 }
 
 /* ---------- 沙箱小部件模式（?mode=widget，v1.0.7 角落磁贴 / v1.8.2 dock 弹出面板）----------
@@ -810,7 +826,7 @@ function widgetMode() {
       inner.setAttribute("title", "初始自定义小部件");
       inner.style.cssText =
         "position:fixed;inset:0;width:100%;height:100%;border:0;background:transparent";
-      inner.srcdoc = widgetShim(theme, accent, m.panelMode === true) + m.html;
+      inner.srcdoc = withShimAfterDoctype(widgetShim(theme, accent, m.panelMode === true), m.html);
       document.body.appendChild(inner);
       window.addEventListener("message", function (ev) {
         if (!inner || ev.source !== inner.contentWindow) return;

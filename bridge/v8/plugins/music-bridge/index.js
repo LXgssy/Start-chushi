@@ -1,5 +1,10 @@
 /* ============================================================================
- * ChuShi Music Bridge 8.0.0 — 网易云 InfLink-rs 适配桥（v8 全新实现，纯 JS）
+ * ChuShi Music Bridge 8.0.1 — 网易云 InfLink-rs 适配桥（v8.0.1 修复版）
+ *   v8.0.1：①命令解析兼容 hub 实物协议 {"_id",raw:{...}}（raw 对象/字符串双兼容，
+ *   旧代码 JSON.parse(对象) 必抛 → 所有控制命令被静默丢弃 = 面板无法控制的根因）；
+ *   ②jpost 加 2.5s 超时（无超时 + beatBusy 闸 = 一次挂起永久哑掉）；
+ *   ③toggle/play/pause 方向判定优先取 InfLink getPlaybackStatus 真值（audio 元素
+ *   与 InfLink redux 脱同步时按了没反应）。
  *
  * v8 架构律（本代宪法）：
  *   1. 零自写 SMTC——系统媒体卡片（元数据/封面/时间线/媒体键/拖动）完全由
@@ -28,7 +33,7 @@
   'use strict';
   if (window.__chushiMusicBridge) return;
 
-  var VER = '8.0.0';
+  var VER = '8.0.1';
   var HUB_NAME = 'chushi-music-hub';
   var HUB_PORTS = [26901, 26902, 26903];
   var BEAT_MS = 1000;
@@ -504,16 +509,30 @@
 
   function jpost(url, bodyObj) {
     return new Promise(function (resolve) {
+      var done = false;
+      var ctl = null;
+      try { ctl = new AbortController(); } catch (e) { ctl = null; }
+      var timer = setTimeout(function () {
+        if (done) return; done = true; resolve(null);
+        try { if (ctl) ctl.abort(); } catch (e) { }
+      }, 2500);
       try {
         fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(bodyObj)
+          body: JSON.stringify(bodyObj),
+          signal: ctl ? ctl.signal : undefined
         })
           .then(function (r) { return r.json(); })
-          .then(function (j) { resolve(j); })
-          .catch(function () { resolve(null); });
-      } catch (e) { resolve(null); }
+          .then(function (j) {
+            if (done) return; done = true; clearTimeout(timer); resolve(j);
+          })
+          .catch(function () {
+            if (done) return; done = true; clearTimeout(timer); resolve(null);
+          });
+      } catch (e) {
+        if (!done) { done = true; clearTimeout(timer); resolve(null); }
+      }
     });
   }
 
@@ -561,6 +580,7 @@
   function execCommand(cmd) {
     if (!cmd || typeof cmd !== 'object') return;
     var type = clip(cmd.cmd || cmd.type, 16);
+    if (!type) return; /* 坏命令（raw 解析失败等）直接丢 */
     if (lastCmdDone[cmd._id]) return; /* 幂等闸：同一条命令只执行一次 */
     lastCmdDone[cmd._id] = true;
     var keys = Object.keys(lastCmdDone);
@@ -568,7 +588,16 @@
 
     probeInflight(); /* 双保险：执行前刷新 InfLinkApi 在场状态 */
     var el = getAudio();
-    var playingNow = el ? (!el.paused && !el.ended) : truth.playing;
+    /* v8.0.1：方向真值优先取 InfLink（audio 元素可能与 InfLink redux 脱同步，
+       按老逻辑会用错方向/被 alreadyOk 短路成「按了没反应」） */
+    var playingNow = null;
+    if (inflink.api && typeof inflink.api.getPlaybackStatus === 'function') {
+      try {
+        var stNow = inflink.api.getPlaybackStatus();
+        if (typeof stNow === 'string' && stNow) playingNow = (stNow === 'Playing' || stNow === 'Loading');
+      } catch (e0) { /* 状态缺席 → 落到元素 */ }
+    }
+    if (playingNow === null) playingNow = el ? (!el.paused && !el.ended) : truth.playing;
 
     if (type === 'play' || type === 'pause' || type === 'toggle') {
       /* v8：主路 InfLinkApi（与系统卡片按钮同路的 redux 派发）；备路元素方法 */
@@ -813,12 +842,22 @@
          （首拍/InfLink 重载后，命令执行不得落在空探针上） */
       probeInflight();
 
-      /* 3) 拉页面命令（v8：无系统侧事件——媒体键全由 InfLink 直达网易云） */
+      /* 3) 拉页面命令（v8：无系统侧事件——媒体键全由 InfLink 直达网易云）
+         v8.0.1 协议律：hub 实物返回 [{"_id":N,"raw":{...}}]，raw 是对象；
+         旧代码 JSON.parse(item.raw) 把对象转 "[object Object]" 必抛 →
+         全部命令被静默丢弃（e2e mock 与实物协议分叉漏网）。双形兼容： */
       var cmds = await jget(hub.url('/api/cmd'), 2000);
       if (Array.isArray(cmds)) {
         for (var c = 0; c < cmds.length; c++) {
           var item = cmds[c];
-          try { execCommand(item && item.raw ? JSON.parse(item.raw) : item); } catch (e) { /* 坏命令跳过 */ }
+          try {
+            var obj = item;
+            if (item && item.raw != null) {
+              obj = (typeof item.raw === 'string') ? JSON.parse(item.raw) : item.raw;
+            }
+            if (obj && obj._id == null && item && item._id != null) obj._id = item._id;
+            execCommand(obj);
+          } catch (e) { /* 坏命令跳过 */ }
         }
       }
 

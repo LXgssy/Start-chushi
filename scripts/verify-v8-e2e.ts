@@ -45,17 +45,17 @@ const server = Bun.serve({
     const path = url.pathname;
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors() });
     if (path === '/api/ping') {
-      return Response.json({ ok: true, name: 'chushi-music-hub', version: '8.0.0', host: true }, { headers: cors() });
+      return Response.json({ ok: true, name: 'chushi-music-hub', version: '8.0.1', host: true }, { headers: cors() });
     }
     if (path === '/api/state' && req.method === 'GET') {
       return Response.json({
-        ok: true, name: 'chushi-music-state', v: '8.0.0', ts: Date.now(),
-        version: '8.0.0', hubVer: '8.0.0', inflinkVer: inflinkVerServed, smtcVer: inflinkVerServed,
+        ok: true, name: 'chushi-music-state', v: '8.0.1', ts: Date.now(),
+        version: '8.0.1', hubVer: '8.0.1', inflinkVer: inflinkVerServed, smtcVer: inflinkVerServed,
         ne: {
           songId: 186016, title: '晴天', artist: '周杰伦', album: '叶惠美',
           pic: 'https://p1.music.126.net/x.jpg?param=500y500',
           position: 12.3, duration: 269.3, playing: true, ts: Date.now() - 300,
-          v: '8.0.0', src: 'inflink',
+          v: '8.0.1', src: 'inflink',
           seekAckId: 's-1', seekAckOk: true, seekAckAt: Date.now() - 1000,
         },
       }, { headers: cors() });
@@ -65,7 +65,7 @@ const server = Bun.serve({
       return Response.json({ ok: true }, { headers: cors() });
     }
     if (path === '/api/lyric' && req.method === 'GET') {
-      return Response.json({ ok: true, lyric: { songId: 186016, title: '晴天', yrc: '[00:01.00]晴(100,200)天', lrc: '[00:01.00]晴天', tlyric: '', ytlrc: '', source: 'eapi-yrc', rev: '186016-8.0.0' } }, { headers: cors() });
+      return Response.json({ ok: true, lyric: { songId: 186016, title: '晴天', yrc: '[00:01.00]晴(100,200)天', lrc: '[00:01.00]晴天', tlyric: '', ytlrc: '', source: 'eapi-yrc', rev: '186016-8.0.1' } }, { headers: cors() });
     }
     if (path === '/api/lyric' && req.method === 'POST') {
       hub.lyricPosts.push(await req.json());
@@ -100,8 +100,11 @@ function makeBridgeCtx(withInflink: boolean) {
   const calls = { play: 0, pause: 0, next: 0, previous: 0, seek: [] as number[] };
   const statePosts: any[] = [];
   const cmdServed: any[] = [
-    { _id: 'w-seek-1', cmd: 'seek', position: 100 },
-    { _id: 'w-next-1', cmd: 'next' },
+    /* v8.0.1 协议律：与 hub.dll 实物同形 —— {"_id":N,"raw":{...}}（raw 为对象） */
+    { _id: 'w-seek-1', raw: { cmd: 'seek', position: 100 } },
+    { _id: 'w-next-1', raw: { cmd: 'next' } },
+    /* 字符串形态兼容（备用路径） */
+    { _id: 'w-prev-1', raw: '{"cmd":"prev"}' },
   ];
   const sandbox: any = {
     console,
@@ -115,7 +118,7 @@ function makeBridgeCtx(withInflink: boolean) {
         return { json: async () => ({ ok: true }), ok: true };
       }
       if (u.includes('/api/ping')) {
-        return { json: async () => ({ ok: true, name: 'chushi-music-hub', version: '8.0.0', host: true }), ok: true };
+        return { json: async () => ({ ok: true, name: 'chushi-music-hub', version: '8.0.1', host: true }), ok: true };
       }
       if (u.includes('/api/state') && init && init.method === 'POST') {
         statePosts.push(JSON.parse(init.body));
@@ -197,9 +200,9 @@ describe('v8 e2e', () => {
     await new Promise((r) => setTimeout(r, 2600));
     const s = m.smtc.getSnapshot();
     ok('connected=true', s.connected === true);
-    ok('hubVer=8.0.0', s.version === '8.0.0', s.version);
+    ok('hubVer=8.0.1', s.version === '8.0.1', s.version);
     ok('needsBridge=false（v8 身份命中）', s.needsBridge === false);
-    ok('needsPlugin=false（ne.v=8.0.0）', s.needsPlugin === false);
+    ok('needsPlugin=false（ne.v=8.0.1）', s.needsPlugin === false);
     ok('needsUpdate=false', s.needsUpdate === false);
     ok('smtcVer=InfLink-rs 版本', s.smtcVer === '3.2.11', s.smtcVer);
     ok('track 真值直显', s.track && s.track.title === '晴天' && s.track.artist === '周杰伦');
@@ -213,7 +216,7 @@ describe('v8 e2e', () => {
     const m = await import('/home/z/my-project/.wt-v7/src/lib/startpage/smtc.ts');
     const s = m.smtc.getSnapshot();
     ok('歌词已装配', !!s.lyric && s.lyric.yrc.includes('晴') && s.lyric.source === 'eapi-yrc');
-    ok('lyricRev=186016', s.lyricRev === '186016-8.0.0' || s.lyricRev === '186016', s.lyricRev);
+    ok('lyricRev=186016', s.lyricRev === '186016-8.0.1' || s.lyricRev === '186016', s.lyricRev);
   });
 
   test('A4 控制下发', async () => {
@@ -236,7 +239,7 @@ describe('v8 e2e', () => {
     ok('桥至少推一次状态', statePosts.length >= 1, String(statePosts.length));
     const blob = statePosts[0];
     ok('blob 名字 chushi-music-state', blob && blob.name === 'chushi-music-state');
-    ok('blob v=8.0.0', blob && blob.v === '8.0.0');
+    ok('blob v=8.0.1', blob && blob.v === '8.0.1');
     ok('ne.title 来自 InfLink', blob && blob.ne.title === '晴天', blob && blob.ne.title);
     ok('ne.artist 来自 InfLink', blob && blob.ne.artist === '周杰伦');
     ok('ne.position=ms→s（12.345）', blob && Math.abs(blob.ne.position - 12.345) < 0.01, blob && blob.ne.position);
@@ -245,10 +248,11 @@ describe('v8 e2e', () => {
     ok('inlinkVer=3.2.11', blob && blob.inflinkVer === '3.2.11', blob && blob.inflinkVer);
     ok('smtcVer=3.2.11', blob && blob.smtcVer === '3.2.11', blob && blob.smtcVer);
     ok('ne.src=inflink', blob && String(blob.ne.src).indexOf('inflink') === 0, blob && blob.ne.src);
-    /* 命令执行：主路 InfLinkApi */
-    await new Promise((r) => setTimeout(r, 1200));
-    ok('seek 主路 = InfLinkApi.seekTo(100000ms)', calls.seek.includes(100000), JSON.stringify(calls.seek));
-    ok('next 主路 = InfLinkApi.next()', calls.next >= 1, String(calls.next));
+    /* 命令执行：主路 InfLinkApi（v8.0.1 含 raw 对象/字符串双形协议验证） */
+    await new Promise((r) => setTimeout(r, 1500));
+    ok('seek 主路 = InfLinkApi.seekTo(100000ms)【raw 对象形】', calls.seek.includes(100000), JSON.stringify(calls.seek));
+    ok('next 主路 = InfLinkApi.next()【raw 对象形】', calls.next >= 1, String(calls.next));
+    ok('prev 主路 = InfLinkApi.previous()【raw 字符串形】', calls.previous >= 1, String(calls.previous));
     /* 控制主路：state POST 无关，直接验证 InfLinkApi 收到 play */
     const playApi = calls.play + calls.pause;
     ok('InfLinkApi 控制面被调用', playApi >= 0 || calls.seek.length > 0);
