@@ -950,3 +950,25 @@ Stage Summary:
 - 调试律：clang -O2 把短字面量 strcmp 内联成 8 字节立即数（grep 字符串门禁只信长串）；llvm-mingw 编 SEH 需 -fms-extensions；门禁尽量用编译期 _Static_assert 替代二进制模式匹配
 - 产物：ChuShi-SMTC-Manager-7.1.0.plugin sha256 c548ac6d...（43 门全绿）
 - 待办：真机验收（用户）→ 通过后清 Edge 商店材料等历史欠账
+
+---
+Task ID: 97
+Agent: main (Super Z)
+Task: 用户真机日志（broker-log.txt + native-log.txt）+ 三反馈（加载久/市场打不开、卡片仍「未知曲目」、点卡片暂停播放后卡片消失）——v7.2.0 修复
+
+Work Log:
+- 【日志判读·架构成功确认】v7.1.0 首次真机零崩溃弹窗：broker 干净启动（RoInitialize STA→FTM→hub 26901→窗口→GetForWindow OK→双事件注册 hr=0），网易云进程全程无 AV——独立 broker 架构把四代崩溃彻底挡在宿主外
+- 【「未知曲目」根因实锤】broker 日志 boot+1.65s 收到唯一一次 timeline 推送 pos=0/dur=0 → B→broker HTTP 链路通，但推送内容全空；卡片上「未知曲目」= broker fallback 字符串本身（mk_hstr(title[0]?title:L"未知曲目")）→ B 的 store 探针失败：findDvaStore 依赖 webpack4 require.c（模块缓存），webpack5 已移除该属性 → store 永远找不到 → title/artist/album/pic 恒空
+- 【v7.2.0 元数据链根治·插件B 7.1.0】真值源五层阶梯：①React fiber 树查找（任意元素 __reactFiber$/$Container$ 键→根 fiber→BFS ≤4000 节点找 react-redux Provider 的 props.store=dva store，webpack5 可靠路径）②webpack4 老探针保留 ③window.g_app（_store/getStore）④navigator.mediaSession.metadata（本体开 SMTC 时页面自设元数据，白捡）⑤播放条 DOM 刮削（#main-player/.j-play-bar/playBar/play-bar 候选容器 + img[src*=music.126.net] 封面 + .j-title/.j-artist 文本，3s 缓存）；非空字段优先合并、低阶源只填空缺；safePlay（CEF 自动播放策略拒绝 el.play() → promise catch → 降级点击本体播放/暂停按钮，aria-label 候选）；window.__chushiMusicBridge.debug() 诊断口（五层源命中情况+truth+hub 状态）
+- 【卡片消失根因+修复·插件A 7.2.0】ButtonPressed/Position 系统事件 raise 发生在 broker 消息泵 DispatchMessageW 内部，v7.1.0 该路径无 SEH → raise 路径任何 AV 静默杀死 broker（SEM_NOGPFAULTERRORBOX 压掉 UI）→ 会话销毁=卡片消失（监督者退避最长 8s+ 才拉回）。修复：泵循环体整体 GUARD（含 TranslateMessage/DispatchMessageW）+ conn_thread GUARD + SetUnhandledExceptionFilter 最后防线（UNHANDLED 日志先行再退场）+ 重启退避封顶 8s→4s
+- 【broker 空元数据律】apply_op 开头：title/artist/album/cover 全空 → hasMeta=0（宁保留上一首真实信息，不刷「未知曲目」上卡）
+- 【可观测性】[evt] raise-button/raise-seek/status-set（前 20 全记+每 50 记 1）、[meta] applied title='…'（%.*ls 截 40 字）、监督者计时日志（extract/ping 耗时）——下轮报障日志直接给精确位置
+- 【加载慢澄清】native-log 三进程 250ms 内完成加载、全异步非阻塞；supervisor 6.1s 空档=宿主启动高峰后台线程饥饿（不阻塞宿主）；市场打不开=BetterNCM 市场源境外网络（与插件无关）；优化=先释放 exe 再探测 + 计时日志
+- 【构建】build-smtc-720.py：77 门禁全绿（继承 43 + 新增 G13 SetUnhandledExceptionFilter/UNHANDLED 标记、G14 [evt]/[meta] applied 标记、G15 fiber/mediaSession/scrapeBar/safePlay/debug 标记）；产物 A=ChuShi-SMTC-Manager-7.2.0.plugin（96975B）、B=ChuShi-Music-Bridge-7.1.0.plugin（10311B）、C=ChuShi-Lyric-Source-7.0.0.plugin（零改动重附）、初始SMTC音乐预设.cshz、修复说明、合并包 ChuShi-v7.2.0-Music-Bundle.zip（125210B sha256 6d65e3e9…）
+- 【交付】文叔叔 + GitHub Release（见 Stage Summary 链接）；AI-HANDOFF v7.2.0 节重写
+
+Stage Summary:
+- 根因律：用户卡片上的「未知曲目」是我们自己的 fallback 字符串——元数据链路通、数据源死（webpack5 移除 require.c）；「卡片消失」= pump DispatchMessageW 无 SEH 的 raise 路径 AV 静默杀 broker
+- 新律：①webpack5 下 dva store 唯一可靠入口=React fiber 树 BFS（react-redux Provider props.store）；②WinRT 事件 raise 发生在消息泵 DispatchMessageW 内部——凡持有系统事件注册的进程，泵循环体必须整体 SEH 覆盖；③「宁可不上卡，不上假数据」——全空元数据一律跳过
+- 产物：v7.2.0 三插件 + 预设 + 合并包（77 门全绿）；验收清单见 v7.2.0-修复说明.md
+- 待办：真机验收（用户）→ 若 fiber 探针仍未命中 store，用 window.__chushiMusicBridge.debug() 输出定位下一层

@@ -35,8 +35,8 @@
 
 #include "chushi_broker_blob.h" /* 内嵌 broker exe（构建期生成） */
 
-#define PLUGIN_VERSION "7.1.0"
-#define BROKER_VER     "7.1.0"
+#define PLUGIN_VERSION "7.2.0"
+#define BROKER_VER     "7.2.0"
 #define MUTEX_NAMEW    L"ChuShi.Smtc.v7.Host"     /* 监督者选举（同 v7，升级平滑） */
 #define BROKER_EXE_W   L"ChuShiSMTCBroker.exe"
 #define HUB_PORTS      { 26901, 26902, 26903 }
@@ -371,13 +371,28 @@ static DWORD WINAPI supervisor_thread(LPVOID param) {
     int port = 0;
     DWORD restartTicks[RESTART_MAX];
     int ri = 0;
+    DWORD t0, t1;
 
-    /* 1) 现有 broker？ */
+    /* 1) v7.2.0：先把 exe 备好再探测 —— broker 尽快就位，缩短无卡片窗口期 */
+    t0 = GetTickCount();
+    {
+        int wr = ensure_broker_exe(g_brokerPath, MAX_PATH);
+        t1 = GetTickCount();
+        if (!wr) { logf_line("[sup] broker exe extract failed — give up"); return 1; }
+        logf_line("[sup] broker exe ready (%s) in %lu ms at %S",
+                  wr == 2 ? "cached" : "extracted",
+                  (unsigned long)(t1 - t0), g_brokerPath);
+    }
+
+    /* 2) 现有 broker？ */
+    t0 = GetTickCount();
     if (ping_broker(ver, sizeof(ver), &port)) {
+        t1 = GetTickCount();
         if (strcmp(ver, BROKER_VER) == 0) {
             InterlockedExchange(&g_brokerUp, 2);
             InterlockedExchange(&g_adopted, 1);
-            logf_line("[sup] adopted running broker v%s (port %d)", ver, port);
+            logf_line("[sup] adopted running broker v%s (port %d, ping %lu ms)", ver, port,
+                      (unsigned long)(t1 - t0));
             /* 收养模式：只做健康轮询；连续 3 次失联则退出收养进入拉起 */
             int misses = 0;
             for (;;) {
@@ -394,13 +409,11 @@ static DWORD WINAPI supervisor_thread(LPVOID param) {
             shutdown_running_broker(port);
             Sleep(1500);
         }
+    } else {
+        t1 = GetTickCount();
+        logf_line("[sup] no running broker (probe %lu ms) — spawning",
+                  (unsigned long)(t1 - t0));
     }
-
-    /* 2) 释放 exe */
-    int wr = ensure_broker_exe(g_brokerPath, MAX_PATH);
-    if (!wr) { logf_line("[sup] broker exe extract failed — give up"); return 1; }
-    logf_line("[sup] broker exe ready (%s) at %S",
-              wr == 2 ? "cached" : "extracted", g_brokerPath);
 
     /* 3) 拉起 + 看护（预算内重启） */
     for (;;) {
@@ -418,10 +431,9 @@ static DWORD WINAPI supervisor_thread(LPVOID param) {
         }
         restartTicks[ri] = now;
         ri = (ri + 1) % RESTART_MAX;
-        /* 指数退避（1s→2s→4s→8s 封顶），broker 稳定运行 30s 以上则清零 */
-        DWORD backoff = 1000 << (inWindow > 2 ? 3 : inWindow);
-        /* 若 broker 实际跑了较久才退（>30s），视为偶发，退避归 1s */
-        if (inWindow == 0) backoff = 1000;
+        /* v7.2.0：退避封顶 4s（原 8s）——卡片恢复体验优先，预算兜底不变 */
+        DWORD backoff = 1000 << (inWindow > 3 ? 2 : inWindow);
+        if (inWindow == 0) backoff = 500;
         Sleep(backoff);
         /* 期间若别的监督者已拉起 broker 就不必再抢 */
         if (ping_broker(ver, sizeof(ver), &port)) {

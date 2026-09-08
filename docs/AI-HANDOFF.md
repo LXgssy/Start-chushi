@@ -1,6 +1,6 @@
 # AI-HANDOFF — 给下一个读这个仓库的 AI / 开发者
 
-> 最后更新：v7.1.0（2026-09-08，独立 broker 进程架构）。写给你的：无论你是人类贡献者还是 AI 助手，
+> 最后更新：v7.2.0（2026-09-08，raise 路径 SEH 全覆盖 + 元数据链根治）。写给你的：无论你是人类贡献者还是 AI 助手，
 > 这一页是项目的「当前状态 + 下一步该干什么」的单一事实来源。
 > 动手前请先读完本页，不要凭想象改架构。
 
@@ -8,7 +8,7 @@
 
 「初始 / Start-chushi」：Next.js 15 新标签页（网页 + Edge MV3 扩展双形态），
 其中 SMTC 音乐面板显示网易云播放真值（进度/逐字歌词）并可控播。
-**v7.1.0 = 三插件 + 独立 broker 进程架构**：SMTC 由独立进程
+**v7.2.0 = 三插件 + 独立 broker 进程架构 + 全路径 SEH + 多阶梯元数据源**：SMTC 由独立进程
 `ChuShiSMTCBroker.exe` 直接持有（真 Windows 系统会话 + HTTP 枢纽全在 broker），
 插件 A 的原生 DLL 只是监督者（释放/拉起/看护 broker）；插件 B/C 与页面音乐
 API 纯 JS 零 Node。v5 起五层零复用原则延续：三插件/页面音乐 API 每代全部从零新写。
@@ -24,7 +24,35 @@ API 纯 JS 零 Node。v5 起五层零复用原则延续：三插件/页面音乐
    零 SMTC 代码（构建门 G8 断言导入表无 combase/winrt、自身代码无 SMTC IID
    字节）。SMTC 一律由独立 broker 进程承载。违反此律 = 复蹈 v7.0.x 四代崩溃。
 
-## v7.1.0（当前版）：独立 broker 进程——四代崩溃的终局答案
+## v7.2.0（当前版）：raise 路径 SEH 全覆盖 + 「未知曲目」根治
+
+用户真机日志（broker-log + native-log）证明 v7.1.0 架构成功：零崩溃弹窗，
+broker 干净启动、会话注册成功、B→broker HTTP 链路通。剩余两问题定位与修复：
+
+- **「未知曲目」真相**：卡片上那四个字就是 broker 的 fallback 字符串——
+  插件B 的 dva store 探针依赖 webpack4 的 `require.c`（模块缓存），
+  **webpack5 已移除该属性** → store 永远找不到 → 歌名全空 → 空 title 走
+  `L"未知曲目"` fallback 上卡。修复（插件B 7.1.0）= 真值源五层阶梯：
+  ① React fiber 树查找（任意元素 `__reactFiber$` → 根 fiber → BFS 找
+  react-redux Provider 的 `props.store` = dva store，webpack5 可靠路径）
+  ② webpack4 老探针（兼容） ③ `window.g_app` ④ `navigator.mediaSession.metadata`
+  ⑤ 播放条 DOM 刮削（封面/标题/歌手，3s 缓存）。broker 侧：全空元数据一律
+  不上卡（保留上一首真实信息）。另有 safePlay：CEF 自动播放策略拒绝
+  el.play() 时降级点击本体播放/暂停按钮。诊断口：
+  控制台 `window.__chushiMusicBridge.debug()` 返回五层源命中情况。
+- **卡片消失（点按钮后）**：ButtonPressed/Position 系统事件 raise 发生在
+  broker 消息泵 `DispatchMessageW` 内部，v7.1.0 该路径无 SEH——系统回调
+  路径任何 AV 会静默杀死 broker（SEM_NOGPFAULTERRORBOX 压掉 UI）→ 会话
+  销毁 = 卡片消失。修复（插件A 7.2.0）= 泵循环体整体 GUARD + conn 线程
+  GUARD + `SetUnhandledExceptionFilter` 最后防线（先落 UNHANDLED 日志再退场）
+  + 重启退避封顶 8s→4s（卡片 5 秒内自愈）。
+- **可观测性**：`[evt] raise-button/raise-seek/status-set`（前 20 条全记 +
+  每 50 条记 1）、`[meta] applied title='…'`（每次元数据变更含歌名前 40 字）、
+  监督者计时日志（extract/ping 耗时）。下轮报障日志直接给精确位置。
+- **加载慢澄清**：三进程 250ms 内完成加载、全异步非阻塞；市场打不开 =
+  BetterNCM 市场源境外网络问题（与插件无关）。监督者改为先释放 exe 再探测。
+
+## v7.1.0（独立 broker 进程——四代崩溃的终局答案）
 
 四代崩溃因果链：v7.0.0 缺 RoInitialize（combase AV）→ v7.0.1 TimelineProperties
 误判值类型栈传（WMM AV）→ v7.0.2 ABI 全对（windows-rs 逐槽核实）仍崩：反汇编实锤

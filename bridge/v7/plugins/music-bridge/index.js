@@ -1,14 +1,14 @@
 /* ============================================================================
- * ChuShi Music Bridge 7.0.0 — 网易云 API 桥（第七代全新实现，纯 JS）
+ * ChuShi Music Bridge 7.1.0 — 网易云 API 桥（第七代全新实现，纯 JS）
  *
  * 架构律（v7 宪法）：
  *   1. 零 Node——BetterNCM v2 是 CEF 渲染环境，没有 require/Node；
  *      本文件全部能力来自页面 JS（audio 元素、window 事件、fetch、localStorage）。
  *   2. 只读律——对网易云内部状态只读不写；唯一写点是 audio.currentTime
  *      的 seek 单次写入。绝不 dispatch 到 dva store，绝不干扰本体播放器。
- *   3. 单次执行律——每条控制命令只执行一次：play/pause=元素方法，
- *      next/prev=网易云自家可见按钮点击，seek=currentTime 单写+双读回校验，
- *      读回失败以 seekAck 诚实上报，绝不静默假装成功。
+ *   3. 单次执行律——每条控制命令只执行一次：play/pause=元素方法（被自动播放
+ *      策略拒绝时降级点击本体播放/暂停按钮），next/prev=网易云自家可见按钮点击，
+ *      seek=currentTime 单写+双读回校验，读回失败以 seekAck 诚实上报。
  *   4. 枢纽客户位——原生 DLL（ChuShi SMTC Manager）的 HTTP 枢纽
  *      （127.0.0.1:26901/26902/26903）是唯一对外通道：
  *        · 拉命令  GET  /api/cmd           （页面控制，排空）
@@ -17,18 +17,48 @@
  *        · 推SMTC  POST /api/smtc/update   （1Hz，表单编码，驱动系统卡片）
  *        · 推歌词  POST /api/lyric         （歌词源插件产物中继）
  *   5. 诚实降级——任一环节失败都在状态里如实标注，绝不假装在线。
+ *
+ * v7.1.0 元数据链根治（「未知曲目」终局修复）：
+ *   v7.0.0 的 store 探针只在 webpack4 下可用（模块缓存挂 require.c，
+ *   webpack5 已移除）→ store 永远找不到 → 歌名全空 → 系统卡片被 broker
+ *   的 fallback 字符串「未知曲目」刷屏。本版真值源阶梯：
+ *     ① React fiber 树查找（webpack5 可靠：任意元素 __reactFiber$ →
+ *        根 fiber → BFS 找 react-redux Provider 的 props.store=dva store）
+ *     ② webpack4 老探针（保留，老版本兼容）
+ *     ③ window.g_app（dva 全局应用，若有）
+ *     ④ navigator.mediaSession.metadata（本体若已开 SMTC，页面自己会设）
+ *     ⑤ 播放条 DOM 刮削（封面/标题/歌手，最后兜底）
  * ==========================================================================*/
 (function () {
   'use strict';
   if (window.__chushiMusicBridge) return;
 
-  var VER = '7.0.0';
+  var VER = '7.1.0';
   var HUB_NAME = 'chushi-smtc-hub';
   var HUB_PORTS = [26901, 26902, 26903];
   var BEAT_MS = 1000;
   var EVT_STALE_MS = 8000;
 
   window.__chushiMusicBridge = { ver: VER };
+  /* v7.1.0 诊断口：控制台 window.__chushiMusicBridge.debug() 一眼看全真值链 */
+  window.__chushiMusicBridge.debug = function () {
+    return {
+      ver: VER,
+      hubPort: hub.port,
+      hubVer: (hub.smtc && hub.smtc.version) || '',
+      truth: JSON.parse(JSON.stringify(truth)),
+      sources: {
+        webpackStore: !!(storeProbe.found),
+        fiberStore: !!(fiberProbe.store),
+        fiberTried: fiberProbe.tried,
+        webpackTried: storeProbe.tried,
+        mediaSession: !!(readMediaSession()),
+        domScrape: !!(scrapeBar())
+      },
+      smtcReadyNow: smtcReadyNow,
+      seekAck: JSON.parse(JSON.stringify(seekAck))
+    };
+  };
 
   /* ------------------------------------------------------------------ */
   /* 小工具                                                              */
@@ -81,7 +111,149 @@
   }
 
   /* ------------------------------------------------------------------ */
-  /* 真值源二：dva store 只读探针（webpack 模块缓存扫描）                    */
+  /* 真值源二a：React fiber store 探针（webpack5 可靠路径，v7.1.0 新增）    */
+  /* ------------------------------------------------------------------ */
+  var fiberProbe = { tried: 0, lastScan: 0, store: null };
+
+  function fiberKeyOf(el) {
+    var keys;
+    try { keys = Object.keys(el); } catch (e) { return null; }
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      if (k.indexOf('__reactFiber$') === 0 || k.indexOf('__reactContainer$') === 0) return k;
+    }
+    return null;
+  }
+
+  function storeOk(s) {
+    try {
+      var st = s.getState();
+      return !!(st && st.player && typeof st.player === 'object');
+    } catch (e) { return false; }
+  }
+
+  function findStoreViaFiber(force) {
+    if (fiberProbe.store) {
+      if (storeOk(fiberProbe.store)) return fiberProbe.store;
+      fiberProbe.store = null;
+    }
+    var t = nowMs();
+    if (!force && t - fiberProbe.lastScan < 15000) return null;
+    if (fiberProbe.tried > 8) return null; /* 有限重试，不无限扫描 */
+    fiberProbe.lastScan = t;
+    fiberProbe.tried++;
+    var body = document.body;
+    if (!body) return null;
+    /* 找任意 fiber 入口（body + 前 4000 个后代） */
+    var entry = null;
+    var nodes = [body];
+    try {
+      var list = body.querySelectorAll('*');
+      for (var i = 0; i < list.length && i < 4000; i++) nodes.push(list[i]);
+    } catch (e) { /* DOM 异常跳过 */ }
+    for (var j = 0; j < nodes.length; j++) {
+      var k = fiberKeyOf(nodes[j]);
+      if (k) { entry = nodes[j][k]; break; }
+    }
+    if (!entry) return null;
+    /* 走到根 fiber */
+    var root = entry, guard = 0;
+    while (root && root.return && guard++ < 500) root = root.return;
+    if (!root) return null;
+    /* BFS：react-redux Provider 把 dva store 放在 props.store */
+    var queue = [root], seen = 0;
+    while (queue.length && seen < 4000) {
+      var f = queue.shift();
+      seen++;
+      try {
+        var p = f.memoizedProps;
+        if (p && p.store && typeof p.store.getState === 'function' && storeOk(p.store)) {
+          fiberProbe.store = p.store;
+          return fiberProbe.store;
+        }
+        if (f.stateNode && f.stateNode.props && f.stateNode.props.store &&
+            typeof f.stateNode.props.store.getState === 'function' &&
+            storeOk(f.stateNode.props.store)) {
+          fiberProbe.store = f.stateNode.props.store;
+          return fiberProbe.store;
+        }
+      } catch (e2) { /* 单节点异常忽略 */ }
+      if (f.child) queue.push(f.child);
+      if (f.sibling) queue.push(f.sibling);
+    }
+    return null;
+  }
+
+  /* 真值源二b：dva 全局应用（若有） */
+  function findStoreViaGApp() {
+    try {
+      var g = window.g_app;
+      var s = g && (g._store || (typeof g.getStore === 'function' && g.getStore()));
+      if (s && typeof s.getState === 'function' && storeOk(s)) return s;
+    } catch (e) { /* 忽略 */ }
+    return null;
+  }
+
+  /* 真值源三：navigator.mediaSession.metadata（本体开了 SMTC 时页面自会设置） */
+  function readMediaSession() {
+    try {
+      var md = navigator.mediaSession && navigator.mediaSession.metadata;
+      if (md && (md.title || md.artist || md.album)) {
+        var pic = '';
+        try {
+          if (md.artwork && md.artwork.length) {
+            var a = md.artwork[md.artwork.length - 1];
+            pic = (a && a.src) || '';
+          }
+        } catch (e1) { /* artwork 异常忽略 */ }
+        return {
+          title: typeof md.title === 'string' ? md.title : '',
+          artist: typeof md.artist === 'string' ? md.artist : '',
+          album: typeof md.album === 'string' ? md.album : '',
+          pic: pic
+        };
+      }
+    } catch (e) { /* mediaSession 缺席 */ }
+    return null;
+  }
+
+  /* 真值源四：播放条 DOM 刮削（3 秒缓存） */
+  var barProbe = { lastAt: 0, cache: null };
+
+  function scrapeBar() {
+    var t = nowMs();
+    if (barProbe.cache && t - barProbe.lastAt < 3000) return barProbe.cache;
+    barProbe.lastAt = t;
+    var out = null;
+    try {
+      var bar = document.querySelector('#main-player')
+        || document.querySelector('.j-play-bar')
+        || document.querySelector('[class*="playBar"]')
+        || document.querySelector('[class*="play-bar"]');
+      if (bar) {
+        var scope = bar.parentElement && bar.parentElement !== document.body ? bar.parentElement : bar;
+        var img = scope.querySelector('img[src*="music.126.net"]');
+        var title = '', artist = '';
+        var tEls = scope.querySelectorAll('.j-title, [class*="title"] a, [class*="title"] span, [class*="title"]');
+        for (var i = 0; i < tEls.length && i < 8; i++) {
+          var tx = String(tEls[i].textContent || '').trim();
+          if (tx && tx.length <= 60) { title = tx; break; }
+        }
+        var aEls = scope.querySelectorAll('.j-artist, [class*="artist"], [class*="singer"]');
+        for (var j2 = 0; j2 < aEls.length && j2 < 8; j2++) {
+          var ax = String(aEls[j2].textContent || '').trim();
+          if (ax && ax.length <= 80) { artist = ax; break; }
+        }
+        var pic = img ? (img.getAttribute('src') || '') : '';
+        if (title || artist || pic) out = { title: title, artist: artist, album: '', pic: pic };
+      }
+    } catch (e) { /* 刮削异常按无处理 */ }
+    barProbe.cache = out;
+    return out;
+  }
+
+  /* ------------------------------------------------------------------ */
+  /* 真值源二：dva store 只读探针（webpack4 老路径，保留兼容）                */
   /* ------------------------------------------------------------------ */
   var storeProbe = { tried: 0, found: null, lastScan: 0, song: null, playing: null, position: -1, failStreak: 0 };
 
@@ -149,7 +321,8 @@
   function readStore() {
     var out = { song: null, playing: null, position: -1, ok: false };
     try {
-      var store = findDvaStore(false);
+      /* v7.1.0：webpack4 老探针 → fiber 探针 → g_app，任一命中即用 */
+      var store = findDvaStore(false) || findStoreViaFiber(false) || findStoreViaGApp();
       if (!store) return out;
       var st = store.getState();
       var pl = st && st.player ? st.player : null;
@@ -362,18 +535,40 @@
 
     if (type === 'play' || type === 'pause' || type === 'toggle') {
       var el = getAudio();
-      if (!el) return;
+      if (!el) { toggleViaBarButton(type); return; }
       var wantPlay = type === 'play' ? true : type === 'pause' ? false : !!el.paused;
       try {
-        if (wantPlay && el.paused) el.play();
+        if (wantPlay && el.paused) safePlay(el);
         else if (!wantPlay && !el.paused) el.pause();
-      } catch (e) { /* 元素异常 */ }
+      } catch (e) { toggleViaBarButton(type); /* 元素异常 → 本体按钮兑底 */ }
     } else if (type === 'next' || type === 'prev') {
       clickTransport(type === 'next' ? 'next' : 'prev');
     } else if (type === 'seek') {
       var pos = clampNum(Number(cmd.position), 0, 86400);
       doSeek(pos);
     }
+  }
+
+  /* v7.1.0：CEF 自动播放策略拒绝 el.play() 时，降级点击本体播放/暂停按钮 */
+  function safePlay(el) {
+    try {
+      var pr = el.play();
+      if (pr && typeof pr.catch === 'function') {
+        pr.catch(function () {
+          var b = visibleBtn(['.btn-p-play', '#btn-play', '.j-play', '[data-action="play"]',
+            '[aria-label*="播放"]', '[aria-label*="暂停"]']);
+          if (b) { try { b.click(); } catch (e2) { } }
+        });
+      }
+    } catch (e) {
+      var b2 = visibleBtn(['.btn-p-play', '#btn-play', '.j-play', '[data-action="play"]']);
+      if (b2) { try { b2.click(); } catch (e3) { } }
+    }
+  }
+
+  function toggleViaBarButton(type) {
+    var b = visibleBtn(['.btn-p-play', '#btn-play', '.j-play', '[data-action="play"]']);
+    if (b) { try { b.click(); } catch (e) { /* 点击异常 */ } }
   }
 
   function visibleBtn(cands) {
@@ -436,7 +631,12 @@
       if (b === 'play' || b === 'pause') {
         var el = getAudio();
         if (el) {
-          try { if (b === 'play' && el.paused) el.play(); else if (b === 'pause' && !el.paused) el.pause(); } catch (e) { }
+          try {
+            if (b === 'play' && el.paused) safePlay(el);
+            else if (b === 'pause' && !el.paused) el.pause();
+          } catch (e) { toggleViaBarButton(b); }
+        } else {
+          toggleViaBarButton(b);
         }
       } else if (b === 'next') { clickTransport('next'); }
       else if (b === 'prev') { clickTransport('prev'); }
@@ -484,13 +684,23 @@
       playing = true;
     }
 
-    /* 元数据：store 优先 */
+    /* v7.1.0 元数据阶梯：store → mediaSession → DOM 刮削 → 保持上次真值；
+     * 非空字段优先，低阶源只填空缺 */
     var song = store.song;
+    var msMeta = song ? null : readMediaSession();
+    var domMeta = (song || msMeta) ? null : scrapeBar();
+    var metaSrc = song ? 'store' : (msMeta ? 'ms' : (domMeta ? 'dom' : ''));
+    function pick(a, b, c) {
+      if (a) return a;
+      if (b) return b;
+      if (c) return c;
+      return '';
+    }
     var songId = song && song.songId ? song.songId : (truth.songId || 0);
-    var title = song ? song.title : truth.title;
-    var artist = song ? song.artist : truth.artist;
-    var album = song ? song.album : truth.album;
-    var pic = song && song.pic ? song.pic : truth.pic;
+    var title = pick(song && song.title, msMeta && msMeta.title, domMeta && domMeta.title) || truth.title;
+    var artist = pick(song && song.artist, msMeta && msMeta.artist, domMeta && domMeta.artist) || truth.artist;
+    var album = pick(song && song.album, msMeta && msMeta.album, domMeta && domMeta.album) || truth.album;
+    var pic = pick(song && song.pic, msMeta && msMeta.pic, domMeta && domMeta.pic) || truth.pic;
     if (pic && pic.indexOf('?param=') < 0) pic = pic + '?param=500y500';
     if (duration <= 0 && song && song.durationMs > 0) duration = song.durationMs / 1000;
 
@@ -503,7 +713,7 @@
     truth.artist = artist || '';
     truth.album = album || '';
     truth.pic = pic || '';
-    truth.src = el ? (store.song ? 'element+store' : 'element') : (store.song ? 'store' : 'none');
+    truth.src = el ? (metaSrc ? 'element+' + metaSrc : 'element') : (metaSrc || 'none');
     truth.updatedAt = t;
 
     if (changedSong) requestLyric(truth.songId);
