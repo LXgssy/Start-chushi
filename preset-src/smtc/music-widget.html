@@ -70,11 +70,10 @@ body{
 .cs-x svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2;
   stroke-linecap:round;stroke-linejoin:round}
 .cs-x:hover{transform:scale(1.08)}
-.cs-seek{margin-top:13px;height:14px;display:flex;align-items:center;cursor:pointer;touch-action:none}
-.cs-rail{position:relative;width:100%;height:4px;border-radius:4px;background:var(--pr)}
+/* v8.0.3 进度条被动化：网页端不提供拖动调节，去滑块/去交互，只留只读进度条 */
+.cs-seek{margin-top:13px;height:14px;display:flex;align-items:center}
+.cs-rail{position:relative;width:100%;height:4px;border-radius:4px;background:var(--pr);overflow:hidden}
 .cs-rail i{position:absolute;left:0;top:0;height:100%;width:0%;border-radius:4px;background:var(--acc)}
-.cs-rail u{position:absolute;left:0;top:50%;width:10px;height:10px;border-radius:var(--r9);background:#fff;
-  border:2px solid var(--acc);transform:translate(-50%,-50%);pointer-events:none}
 .cs-tm{display:flex;justify-content:space-between;margin-top:2px;font-size:10.5px;
   color:var(--ink3);font-variant-numeric:tabular-nums}
 .cs-b{appearance:none;border:0;background:transparent;color:var(--ink2);width:38px;height:38px;
@@ -84,6 +83,11 @@ body{
   stroke-linecap:round;stroke-linejoin:round}
 .cs-b svg.fi{fill:currentColor;stroke:none}
 .cs-b:hover{background:var(--card2);color:var(--ink);transform:scale(1.06)}
+/* v8.0.3 主键悬停律：.cs-b:hover 的 card2 半透暗底/ink 深色前景/scale 与主键
+   accent 白图标三重冲突（同特异性按序胜出=悬停变黑+图标视觉位移），
+   主键悬停恒保 accent 底白图标，仅提亮不加位移 */
+.cs-bmain,.cs-bmain:hover{color:#fff;background:var(--acc)}
+.cs-bmain:hover{filter:brightness(1.12);transform:none}
 /* 主播放键：双图标绝对堆叠同圆心（布局零位移），切换 = opacity+scale 交叉过渡
    ——细线框▶与实心⏸流内排布 + display 硬切换曾被真机读作「按钮位移」，此法根治 */
 .cs-bmain{width:46px;height:46px;color:#fff;background:var(--acc);position:relative;
@@ -163,7 +167,7 @@ body{
     </div>
     <button class="cs-x" id="csClose" title="收起"><svg><use href="#cs-i-chev"/></svg></button>
     <div class="cs-seek" id="csSeek">
-      <div class="cs-rail"><i id="csFill"></i><u id="csThumb"></u></div>
+      <div class="cs-rail"><i id="csFill"></i></div>
       <div class="cs-chip" id="csNote"><svg><use href="#cs-i-warn"/></svg><span id="csNoteTxt"></span></div>
     </div>
     <div class="cs-chip warn" id="csUpd" style="top:8px"><svg><use href="#cs-i-warn"/></svg><span id="csUpdTxt"></span></div>
@@ -189,17 +193,19 @@ body{
 <script>
 (function () {
   "use strict";
-  /* ================= ChuShi music widget v5.0.0（全新实现）=================
-     纯渲染层：解析/插值/对齐/淡入淡出全部由宿主 chushi.music API 预计算，
+  /* ================= ChuShi music widget v8.0.3（纯渲染层）=================
+     解析/插值/对齐/淡入淡出全部由宿主 chushi.music API 预计算，
      本层每帧只做取数 + 写样式。布局零位移三律：主键双 SVG 同圆心堆叠、
-     歌词高度迟滞（歌词短暂缺失不塌面板）、无逐帧布局读写。 */
+     歌词高度迟滞（歌词短暂缺失不塌面板）、无逐帧布局读写。
+     v8.0.3：主键悬停修复 + 进度条被动化（去滑块/去拖动）
+     + 控制失败诚实提示（悬停/点击均有反馈，不再静默）。 */
   var H = { fl: 248, em: 92 }, LY_H = 124, W = 340;
   var DEF = "asset:cover.svg"; /* v8.0.1：asset 在生产宿主实测可用；失联时 onerror 藏 img 露渐变底，绝不破图 */
   function $(id) { return document.getElementById(id); }
 
   var root = $("csCard"), pic = $("csPic"), img = $("csCoverImg");
   var t1 = $("csT1"), t2 = $("csT2"), t3 = $("csT3");
-  var seekBox = $("csSeek"), fill = $("csFill"), thumb = $("csThumb");
+  var seekBox = $("csSeek"), fill = $("csFill");
   var chipNote = $("csNote"), noteTxt = $("csNoteTxt");
   var chipUpd = $("csUpd"), updTxt = $("csUpdTxt");
   var tCur = $("csTCur"), tDur = $("csTDur");
@@ -224,10 +230,11 @@ body{
   var lyKey = "", lyRef = null, lyMode = 0;
   var lineEls = [];            /* [{el, words:[{ov}], line}] */
   var activeLine = -2;
-  var drag = false, dragRatio = 0;
   var optP = false, optAt = 0; /* 播放/暂停乐观翻转窗口 */
   var trackKey = "";
   var prevShownPlaying = null;
+  /* v8.0.3 控制诚实反馈：命令下达后验证真值是否翻转，未翻转则亮芯片 */
+  var ctlNote = "", ctlNoteAt = 0, ctlTimer = 0;
 
   function fmt(s) {
     s = Math.max(0, Math.floor(s || 0));
@@ -272,14 +279,38 @@ body{
     img.classList.add("on");
   }
 
-  /* ---------- 芯片与页脚（诚实归因文案） ---------- */
-  function renderChips(s) {
-    if (s.seekNote) {
-      chipNote.classList.add("on");
-      noteTxt.textContent = s.seekNote;
-    } else {
-      chipNote.classList.remove("on");
+  /* ---------- 芯片与页脚（诚实归因文案；v8.0.3 兼顾控制未生效提示） ---------- */
+  function pluginOld() {
+    var v = String((snap && snap.pluginVer) || "").split("."), need = [8, 0, 3];
+    for (var i = 0; i < 3; i++) {
+      var x = parseInt(v[i], 10) || 0, y = need[i];
+      if (x !== y) return x < y;
     }
+    return false;
+  }
+  function ctlFailText() {
+    return pluginOld()
+      ? "音乐桥插件 v" + ((snap && snap.pluginVer) || "?") + " 控制能力不足 · 请更新 ChuShi Music Bridge 插件并完全重启网易云"
+      : "控制已下发但网易云未响应 · 请完全退出并重启网易云后重试";
+  }
+  function noteCtl(txt) {
+    if (ctlTimer) { clearTimeout(ctlTimer); ctlTimer = 0; }
+    ctlNote = txt || "";
+    ctlNoteAt = Date.now();
+    if (snap) renderChips(snap);
+  }
+  /* 点击后的验证窗口：3200ms 内真值未达预期 → 亮「控制未生效」芯片（版本归因） */
+  function armCtlVerify(passed) {
+    if (ctlTimer) { clearTimeout(ctlTimer); ctlTimer = 0; }
+    ctlNote = "";
+    if (typeof passed !== "function") return;
+    ctlTimer = setTimeout(function () {
+      ctlTimer = 0;
+      if (!passed()) return;
+      noteCtl(ctlFailText());
+    }, 3200);
+  }
+  function renderChips(s) {
     if (s.needsUpdate) {
       chipUpd.classList.add("on");
       updTxt.textContent = s.needsBridge
@@ -289,13 +320,20 @@ body{
         : (!s.pluginVer
           ? "音乐桥未就绪 · 确认 ChuShi Music Bridge 插件在网易云插件列表中已启用"
           : "组件待更新 · 请更新三个 .plugin 至最新版并重启网易云");
+    } else if (ctlNote && Date.now() - ctlNoteAt < 6000) {
+      chipUpd.classList.add("on");
+      updTxt.textContent = ctlNote;
     } else {
       chipUpd.classList.remove("on");
     }
-    footTxt.textContent = s.seekNote
-      ? s.seekNote
-      : ("已连接 · " + (s.pluginVer ? "API v" + s.pluginVer : "") +
-        (s.smtcVer ? " · InfLink-rs v" + s.smtcVer : ""));
+    if (s.seekNote) {
+      chipNote.classList.add("on");
+      noteTxt.textContent = s.seekNote;
+    } else {
+      chipNote.classList.remove("on");
+    }
+    footTxt.textContent = "已连接 · " + (s.pluginVer ? "API v" + s.pluginVer : "") +
+      (s.smtcVer ? " · InfLink-rs v" + s.smtcVer : "");
   }
 
   /* ---------- 歌词 DOM 构建（歌词键 + 对象引用双判定才重建） ---------- */
@@ -425,7 +463,7 @@ body{
     renderCover(s);
     renderChips(s);
     playVisual(effPlaying());
-    if (optAt && Date.now() - optAt >= 2500 && s.playing === optP) { /* 真值已确认，窗口自然过期 */ }
+    if (optAt && Date.now() - optAt >= 2500 && s.playing === optP) { optAt = 0; } /* 真值确认，乐观窗口退役 */
   }
   function replay(el) {
     el.classList.remove("cs-swin");
@@ -437,60 +475,37 @@ body{
   $("csClose").addEventListener("click", function () {
     if (window.chushi && typeof window.chushi.close === "function") chushi.close();
   });
-  $("csPrev").addEventListener("click", function () { mus.prev(); });
-  $("csNext").addEventListener("click", function () { mus.next(); });
+  function ctlFail(okPromise, passed) {
+    armCtlVerify(passed);
+    if (okPromise && typeof okPromise.then === "function") {
+      okPromise.then(function (ok) {
+        if (ok !== true) noteCtl("音乐桥未连接 · 控制未送达");
+      });
+    }
+  }
+  function songUnchanged() { var k0 = trackKey; return function () { return trackKey === k0; }; }
+  $("csPrev").addEventListener("click", function () {
+    ctlFail(mus.prev(), songUnchanged());
+  });
+  $("csNext").addEventListener("click", function () {
+    ctlFail(mus.next(), songUnchanged());
+  });
   $("csPlay").addEventListener("click", function () {
     var cur = effPlaying();
     optP = !cur;
     optAt = Date.now();
     playVisual(optP);
-    mus.toggle();
+    /* 失败条件 = 验证窗口到期时真值仍 ≠ 期望态（armCtlVerify 语义：条件成立即亮芯片） */
+    ctlFail(mus.toggle(), function () { return effPlaying() !== optP; });
   });
 
-  function ratioOf(e) {
-    var r = seekBox.getBoundingClientRect();
-    return clamp01((e.clientX - r.left) / Math.max(1, r.width));
-  }
-  function showDragVisual() {
-    var pct = (dragRatio * 100).toFixed(2) + "%";
-    fill.style.width = pct;
-    thumb.style.left = pct;
-    if (snap && snap.duration > 0) tCur.textContent = fmt(dragRatio * snap.duration);
-  }
-  seekBox.addEventListener("pointerdown", function (e) {
-    if (!(snap && snap.duration > 0)) return;
-    drag = true;
-    dragRatio = ratioOf(e);
-    try { seekBox.setPointerCapture(e.pointerId); } catch (err) { }
-    showDragVisual();
-  });
-  seekBox.addEventListener("pointermove", function (e) {
-    if (!drag) return;
-    dragRatio = ratioOf(e);
-    showDragVisual();
-  });
-  seekBox.addEventListener("pointerup", function (e) {
-    if (!drag) return;
-    drag = false;
-    dragRatio = ratioOf(e);
-    showDragVisual();
-    mus.seek(dragRatio * (snap ? snap.duration : 0));
-  });
-  seekBox.addEventListener("pointercancel", function () { drag = false; });
-
-  /* ---------- rAF 主循环（永不停止；拖动中优先显示拖动值） ---------- */
+  /* ---------- rAF 主循环（永不停止；v8.0.3 进度条只读，无拖拽分支） ---------- */
   function loop() {
-    if (drag) {
-      showDragVisual();
-    } else {
-      var n = mus.now();
-      var pct = (n.progress * 100).toFixed(2) + "%";
-      fill.style.width = pct;
-      thumb.style.left = pct;
-      tCur.textContent = fmt(n.position);
-      tDur.textContent = n.duration > 0 ? fmt(n.duration) : "--:--";
-      lyricFrame(n);
-    }
+    var n = mus.now();
+    fill.style.width = (n.progress * 100).toFixed(2) + "%";
+    tCur.textContent = fmt(n.position);
+    tDur.textContent = n.duration > 0 ? fmt(n.duration) : "--:--";
+    lyricFrame(n);
     requestAnimationFrame(loop);
   }
 

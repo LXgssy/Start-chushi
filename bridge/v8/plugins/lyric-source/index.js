@@ -3,10 +3,13 @@
  *
  * 职责：按需提供完整歌词（逐字 yrc + 逐字翻译 ytlrc + 行级 lrc + 行级翻译）。
  *
- * 取词阶梯（三层回退）：
- *   1. eapi /api/song/lyric/v1（自实现 MD5 + AES-128-ECB，纯 JS，协议常量级实现）
- *   2. 网易云内部 channel 桥（track.lyric.getinfo，宿主环境自带则用）
- *   3. 直连旧公开接口 /api/song/lyric（lrc/tlyric）
+ * 取词阶梯（v7.1.0 五层回退）：
+ *   1. eapi /eapi/song/lyric/v1 带登录凭据（credentials include，yrc 逐字主源）
+ *   2. 同源 web v1 /api/song/lyric/v1（music.163.com 自带 cookie，免加密免 CORS）
+ *   3. 匿名 eapi（旧路径保底 lrc）
+ *   4. 网易云内部 channel 桥（track.lyric.getinfo，宿主环境自带则用）
+ *   5. 直连旧公开接口 /api/song/lyric（lrc/tlyric）
+ *   klyric 一律转真 yrc 时间轴（[s,d](s,d,0)词）——中文歌逐字渲染根修。
  *
  * 协作协议（与音乐桥）：
  *   收 cc:lyric-req {songId, reqId} → 应答 cc:lyric-res {songId, reqId, payload}
@@ -17,7 +20,7 @@
   'use strict';
   if (window.__chushiLyricSource) return;
 
-  var VER = '7.0.0';
+  var VER = '7.1.0';
   window.__chushiLyricSource = { ver: VER };
 
   /* ------------------------------------------------------------------ */
@@ -228,7 +231,7 @@
     return bytesToHex(enc).toUpperCase();
   }
 
-  function eapiFetch(path, paramsObj) {
+  function eapiFetch(path, paramsObj, withCreds) {
     var paramsJson = JSON.stringify(paramsObj);
     var payload = eapiEncrypt(path, paramsJson);
     var body = 'params=' + payload;
@@ -245,6 +248,9 @@
           'os': 'pc', 'appver': '2.10.13', 'version': '2.10.13'
         },
         body: body,
+        /* v7.1.0：带登录凭据跨域调用（官方 web 播放器同款）——yrc 逐字/翻译字段
+           只对登录会话下发；凭据被 CORS 拒时捕获后走下一梯队 */
+        credentials: withCreds ? 'include' : 'omit',
         signal: ctl ? ctl.signal : undefined
       }).then(function (r) { clearTimeout(timer); return r.json(); })
         .catch(function () { clearTimeout(timer); return tryHost(i + 1); });
@@ -275,30 +281,45 @@
   }
 
   function klyricToYrc(klyricJson) {
-    /* klyric {version, content:[{time:{...ms 累积键}, line:[{time:{ms}, word}]}]} → 逐字行 */
+    /* v7.1.0 根修：klyric → 真 yrc 时间轴（[行起,行长](词起,词长,0)词…）。
+       旧版发的是 LRC 式逐词时间戳，逐字渲染器 parseWordLine 不认 →
+       中文歌（klyric 为主力逐字源）整首退化成行级歌词——「中文歌无逐字」根因。
+       klyric time 键：totalMT 总毫秒 或 mt(分)/st(秒)/et(毫秒) 累积。 */
     try {
       var lines = klyricJson.content || [];
       var out = [];
+      function wMs(wd) {
+        var t = wd && wd.time ? wd.time : {};
+        var v = t.totalMT;
+        if (!isFinite(v) || v <= 0) v = (t.mt || 0) * 60 * 1000 + (t.st || 0) * 1000 + (t.et || 0);
+        return isFinite(v) ? v : 0;
+      }
       for (var i = 0; i < lines.length; i++) {
-        var line = lines[i];
-        var lineStart = null;
-        var words = line.line || [];
-        var parts = [];
+        var words = lines[i].line || [];
+        var ws = [];
         for (var w = 0; w < words.length; w++) {
-          var wd = words[w];
-          var t = wd.time || {};
-          var ms = t.totalMT || (t.mt || 0) * 60 * 1000 + (t.st || 0) * 1000 + (t.et || 0);
-          if (lineStart === null) lineStart = ms;
-          parts.push('[' + fmt(ms) + ']' + (wd.word || ''));
+          var ms = wMs(words[w]);
+          var txt = String((words[w] && words[w].word) || '');
+          if (txt && ms >= 0) ws.push({ ms: ms, t: txt });
         }
-        if (lineStart === null) lineStart = 0;
-        out.push('[' + fmt(lineStart) + ']' + parts.join(''));
+        if (!ws.length) continue;
+        var s0 = ws[0].ms;
+        var lineDur = 0;
+        if (i + 1 < lines.length) {
+          var nxt = (lines[i + 1].line || [])[0];
+          var nms = nxt ? wMs(nxt) : 0;
+          if (nms > s0) lineDur = nms - s0;
+        }
+        if (lineDur <= 0) lineDur = Math.max(800, ws[ws.length - 1].ms - s0 + 400);
+        var parts = [];
+        for (var k = 0; k < ws.length; k++) {
+          var d = k + 1 < ws.length ? Math.max(0, ws[k + 1].ms - ws[k].ms)
+            : Math.max(200, lineDur - (ws[k].ms - s0));
+          parts.push('(' + ws[k].ms + ',' + d + ',0)' + ws[k].t);
+        }
+        out.push('[' + s0 + ',' + lineDur + ']' + parts.join(''));
       }
       return out.join('\n');
-      function fmt(ms) {
-        var m = Math.floor(ms / 60000), s = Math.floor((ms % 60000) / 1000), f = Math.floor(ms % 1000 / 10);
-        return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s + '.' + (f < 10 ? '0' : '') + f;
-      }
     } catch (e) { return ''; }
   }
 
@@ -351,9 +372,23 @@
               source: 'channel-lrc', rev: id + '-' + VER
             });
           } catch (e) { resolve(null); }
-        }, { id: id, cp: false, tv: 0, lv: 0, rv: 0, kv: 0, yv: 0, ytv: 0 });
+        }, { id: id, cp: false, tv: 0, lv: 0, rv: 0, kv: 0, yv: 0, ytv: 0, yrv: 0 });
       } catch (e) { resolve(null); }
     });
+  }
+
+  /* v7.1.0 同源 v1 备路：网易云渲染器源即 music.163.com，此请求同源自带登录
+     cookie（含 MUSIC_U），无需加密/CORS，登录后 yrc/klyric 均可下发 */
+  function fetchViaWebV1(id) {
+    var url = 'https://music.163.com/api/song/lyric/v1?id=' + id +
+      '&cp=false&tv=0&lv=0&rv=0&kv=0&yv=0&ytv=0&yrv=0';
+    var ctl = null;
+    try { ctl = new AbortController(); } catch (e) { }
+    var timer = setTimeout(function () { try { if (ctl) ctl.abort(); } catch (e) { } }, 6000);
+    return fetch(url, { credentials: 'include' })
+      .then(function (r) { clearTimeout(timer); return r.json(); })
+      .then(function (j) { return extractLyric(j, id, 'web-v1'); })
+      .catch(function () { clearTimeout(timer); return null; });
   }
 
   function fetchViaDirect(id) {
@@ -377,14 +412,23 @@
       saveCache();
       return Promise.resolve(hit.payload);
     }
-    var params = { id: id, cp: false, lv: 0, tv: 0, rv: 0, kv: 0, yv: 0, ytv: 0 };
-    return eapiFetch('/eapi/song/lyric/v1', params)
+    var params = { id: id, cp: false, lv: 0, tv: 0, rv: 0, kv: 0, yv: 0, ytv: 0, yrv: 0 };
+    /* v7.1.0 五层取词阶梯：带凭据 eapi（登录会话，yrc 主源）→ 同源 web v1（自带
+       cookie）→ 匿名 eapi（旧路径，保底 lrc）→ 内部 channel → 公开旧接口 */
+    return eapiFetch('/eapi/song/lyric/v1', params, true)
       .then(function (j) {
         var p = extractLyric(j, id, 'eapi-yrc');
         if (p) return p;
-        return fetchViaChannel(id).then(function (p2) {
-          if (p2) return p2;
-          return fetchViaDirect(id);
+        return fetchViaWebV1(id).then(function (p1) {
+          if (p1) return p1;
+          return eapiFetch('/eapi/song/lyric/v1', params, false).then(function (j2) {
+            var p2 = extractLyric(j2, id, 'eapi-yrc');
+            if (p2) return p2;
+            return fetchViaChannel(id).then(function (p3) {
+              if (p3) return p3;
+              return fetchViaDirect(id);
+            });
+          });
         });
       })
       .catch(function () { return null; })
