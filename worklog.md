@@ -1021,3 +1021,20 @@ Work Log:
 Stage Summary:
 - 新律：①e2e/mock 断言必须用「实物协议同形」——mock 自己造的形状只会证明 mock 正确；②行内元素上的 width/height 无效——组件树降级（flex 子元素→嵌套 span）即静默失效，尺寸关键元素必须 display:block 显式块化；③srcdoc 拼 shim 必须在 doctype 之后，否则全文档 quirks 模式；④单线程 accept 循环对「connect 不发数据」的连接必须限时快关（浏览器预连接池是常态行为不是攻击）；⑤zip 打包字节不稳定，SHA256 门只能比对「同一次构建」的产物
 - 待办：用户侧验收（换 8.0.1 桥插件 + **重新导入预设 cshz**（旧部件 HTML 是坏的必须重导）+ 面板控制/长挂观察）；x86 hub.dll 线暂停（clang i686 SEH 后端缺陷，若确认有 32 位用户再启，方案=去 __leave 重构+升 llvm-mingw）
+
+---
+Task ID: 100
+Agent: main (Super Z)
+Task: 用户导入 v8.0.1 预设包被拒——「widgets[0]: html 超过 18000 字符上限（当前 18867）」，修复导入链路
+
+Work Log:
+- 【根因】Task 99 重建的部件 HTML 18867 字符 > 宿主导入校验 widgetHtmlLen=18000（preset.ts VALID_LEN，v1.9.0 定）；Task 99 只放宽了打包器门限（18000→19200），漏了宿主侧同名校验——两道门不同步
+- 【修复策略】双管齐下：①包压回 ≤18000（用户当前宿主立即能导，不依赖页面/扩展更新）②宿主上限 18000→19200（未来余量，Pages+扩展同步）
+- 【瘦身三刀】18867→17943：a) 兜底封面从内联 data-URI SVG 回归 asset:cover.svg——用户截图实锤生产宿主 asset 协议可用，data-URI 是为 file:// 台架发明的过度防御；onerror 改藏 img 露 .cs-pic 渐变底（优雅降级，仍绝不破图），省 ~690；b) 构建端剥离 srcdoc 固定 iframe 用不到的 <meta viewport>/<title>/lang（-~100）；c) SVG 紧凑化未单独生效但保留净源
+- 【门禁同步】build-smtc-preset.py：asset 引用门改回 =={cover.svg}（Task 99 曾改空集）；minify_html 增文档头剥离
+- 【发版】cshz 17943（新旧宿主双兼容）+ 宿主 19200 + 扩展 zip 重建 + Pages 部署（线上 chunk d7f4b5b4 含 19200 已核验）+ Release 384565121 四资产替换（cshz/NewTab/AllInOne/SHA256SUMS，逐个 sha256 核验）+ Release body 补 v8.0.1b 说明 + 文叔叔重传 https://c.wss.ink/f/ktpv2k8d1r9 + e2e 40/40 复跑
+- 【导入模拟】chushi 标记/widgets 数/html≤18000(旧)/≤19200(新)/封面块化/优雅降级/零 data-URI 七项 ALL PASS
+
+Stage Summary:
+- 新律：①凡「打包器门限」必须与「消费端校验」同源对齐——两道数字门分处两文件必生漂移（本次 18000 双写漂移的第三次发生）；②防御性内联（data-URI）先证实生产确实需要再上——为测试台架缺陷发明的兜底会反噬真实交付尺寸
+- 待办：用户重下 cshz 导入（旧包 18867 已不可用）；x86 hub.dll 线仍暂停
