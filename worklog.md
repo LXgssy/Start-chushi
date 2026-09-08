@@ -997,3 +997,27 @@ Stage Summary:
 - 新律：①凡用 window.XxxApi 型第三方全局 API，beat 类命令消费路径必须「探针先行」——首拍命令不得落在空探针上（幂等闸会把丢命令永久标记为已执行）；②bun 大模块原始值 export 绑定缺陷=测试环境绕开（对象/函数导出正常），不做产品侧适配；③.plugin 内嵌原生 DLL 的导入表断言（零 WinRT）是比源码审查更强的架构门——PE 解析 10 行代码换架构级保证
 - 产物：ChuShi-Music-Bridge-8.0.0.plugin（含 hub.dll）/ ChuShi-Lyric-Source-7.0.0.plugin / ChuShi-NewTab-v8.0.0.zip / ChuShi-Music-Preset-8.0.0.cshz / SHA256SUMS / AllInOne 12.3MB
 - 待办：真机验收（删 SMTC-Manager→装 Music-Bridge 8.0.0→完全重启网易云；卡片看 InfLink-rs，面板数据看 chushi-music-hub 26901）→ Edge 商店材料仍欠
+
+---
+Task ID: 99
+Agent: main (Super Z)
+Task: 用户报障「音乐桥无效，网页没有反应」→ 补充截图后改为三问题：①「初始」页音乐面板显示异常（封面铺满/无标题）②面板无法控制网易云 ③一会连上一会断开——定位根因、修复、发版 v8.0.1、全链自检
+
+Work Log:
+- 【log.log 判读】8×"[ChuShi-Music-Bridge] Plugin Native Plugin load Error: dll doesn't exists or is not adapted to this arch."→ 拉 BetterNCM v2 源码实锤：该错=LoadLibrary 两次尝试（native_plugin → 追加 .x64.dll）全败的统一文案，文件缺失/架构不符/依赖缺失都会触发
+- 【架构考古·铁证】下载 InfLink-rs 3.2.11 官方 .plugin 解包：backend.dll=x86(32位) + backend.dll.x64.dll=x64 双架约定——x86 主架直证主流网易云 2.x=32 位进程；v7 自研 smtc_native.dll 与 v8 hub.dll 均只发 x64 → 从未在用户机加载成功过（v7 时代的卡片症状实为网易云自带 SMTC 的病态表现，四轮误诊的历史闭环）
+- 【x86 构建尝试·暂停】llvm-mingw i686 编 chushi_hub.c 触发 clang 23 后端崩溃（hub_thread 的 SEH×DWARF EH 在 SelectionDAG HandlePHINodesInSuccessorBlocks 崩）；最小 SEH 复现可过 → __leave+PHI 结构触发；重构去 __leave 悬置后用户改向（「不用解决了」），x86 线暂停，chushi_hub.def（导出名收敛）保留入仓
+- 【真机事实刷新】用户截图显示面板能连能显（进度 0:10/1:54）→ 用户机 hub 已实际加载（NCM3/64 位或重装后），三问题转向纯软件缺陷定位
+- 【根因①控制失效·实锤】hub.c dataDrainCmds 返回 [{"_id":N,"raw":{...}}]（raw=对象内嵌），桥 index.js 执行 JSON.parse(item.raw)——对象→"[object Object]"→SyntaxError→catch 跳过→**全部控制命令被静默丢弃**；e2e mock 竟是扁平 {_id,cmd,...} 无 raw 包装（mock 与实物协议分叉，测试全绿假象）——面板无法控制的头号根因
+- 【根因②间歇掉线·实锤】hub.c 单线程 accept 循环 + SO_RCVTIMEO 3000ms：浏览器预连接池/竞态败者连接 connect 后不发数据 → accept 后 recv 空等 3s 卡死全队列；页面 smtc.ts TIMEOUT 1400ms × 连败 2 次即 goOffline →「一会连上一会断开」；次因：桥 jpost 无超时 + beatBusy 闸 = 一次挂起永久哑掉（状态/命令全停）
+- 【根因③显示异常·实锤（渲染台架复现）】pw-lab 台架（真实 sandbox.js 链路+mock chushi.music）复现：v6+ 部件 HTML 把 .cs-pic 从 flex 直接子元素降级为嵌套 span——CSS width/height 对行内元素无效 → img width:100% 按包含块解析 → 封面铺满整面板（461×463 正方形）+ .cs-meta flex:1 被挤成 0 宽（无标题）；放大用户截图确认绿点(cs-dot)在封面右上=封面确实全幅；历史 v1.8.2 截图证明 v2 代 .he 直属 flex 时 96px 正常——v6 重构引入的纯回归；叠加 sandbox.js shim 前置 doctype → srcdoc 全代 quirks 模式放大 img 百分比尺寸解析
+- 【修复①桥 index.js 8.0.1】命令解析双形兼容（raw 对象/字符串都认+坏命令幂等闸前直丢）；jpost 加 2.5s AbortController 超时；execCommand playingNow 优先 InfLink getPlaybackStatus 真值（audio 元素与 redux 脱同步时 alreadyOk 短路成「按了没反应」一并根治）
+- 【修复②hub.c 8.0.1】hub_conn_serve 单连接服务：accept 后 select 400ms 空连接快关（preconnect guard 日志）+ recv/send 超时 3000→500ms + TCP_NODELAY；最坏阻塞 3s→0.5s < 页面 2.2s 超时；SEH 双段覆盖保留；.def 收敛导出表仅 BetterNCMPluginMain
+- 【修复③smtc.ts 8.0.1】TIMEOUT 1400→2200 / RETRY 2400→1500 / 掉线判定 2→3 连败 / 端口重探 4→6；control() POST 补 2.5s 超时
+- 【修复④部件+sandbox】music-widget.html：.cs-cov/.cs-pic 显式 display:block（96px 无条件生效）+ DEF 改内联 data-URI SVG + img.onerror 回退兜底（asset: 失联不再破图）；public/sandbox.js：withShimAfterDoctype()——shim 注入 doctype 之后（widget/page 两模式），全部件升标准模式
+- 【发版 v8.0.1】插件门 33/33（新增：导出表 def 收敛断言+防阻塞三律字节断言）+ e2e 40/40（mock 改实物协议同形，新增 raw 对象/字符串双形断言：seek/next 走 raw 对象、prev 走 raw 字符串）+ 渲染台架修复前后截图对比（96px 封面+标题列恢复）+ Next 扩展构建 out 核验（新 sandbox.js md5=5133dbe2、smtc chunk 含 2200/1500）+ cshz 18867 字符重建（门限 18000→19200；外链门排除 xmlns 命名空间；asset 引用门改断言空集）+ AllInOne/SHA256SUMS + Release id=384565121（6 资产逐个 sha256 上传核验 ALL OK）+ 文叔叔 https://c.wss.ink/f/ktpq0guvg9x + Pages 部署并线上核验（smtc chunk 196a824c 含新参数、sandbox.js 含 withShimAfterDoctype 3 处）
+- 【git 纪律】本地 UUID 自动提交与 origin/main 分叉（82ef7fa worklog+rel-v8.py）→ v801-sync 分支基于 origin/main 重建单提交 506ad6b 推送（首次推送被拒后查清 parent 关系重推成功）；main 对齐 506ad6b
+
+Stage Summary:
+- 新律：①e2e/mock 断言必须用「实物协议同形」——mock 自己造的形状只会证明 mock 正确；②行内元素上的 width/height 无效——组件树降级（flex 子元素→嵌套 span）即静默失效，尺寸关键元素必须 display:block 显式块化；③srcdoc 拼 shim 必须在 doctype 之后，否则全文档 quirks 模式；④单线程 accept 循环对「connect 不发数据」的连接必须限时快关（浏览器预连接池是常态行为不是攻击）；⑤zip 打包字节不稳定，SHA256 门只能比对「同一次构建」的产物
+- 待办：用户侧验收（换 8.0.1 桥插件 + **重新导入预设 cshz**（旧部件 HTML 是坏的必须重导）+ 面板控制/长挂观察）；x86 hub.dll 线暂停（clang i686 SEH 后端缺陷，若确认有 32 位用户再启，方案=去 __leave 重构+升 llvm-mingw）

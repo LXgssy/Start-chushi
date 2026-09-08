@@ -7,44 +7,45 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 
 ROOT = Path(__file__).resolve().parents[1]
-TOKEN = (ROOT.parent / '.pkgtmp/gh-token').read_text().strip()
+TOKEN = (ROOT / '.pkgtmp/gh-token').read_text().strip()
 REPO = 'LXgssy/Start-chushi'
-TAG = 'v8.0.0'
-OUT = ROOT / 'download/v8.0.0'
+TAG = 'v8.0.1'
+OUT = ROOT / 'download/v8.0.1'
 
 ASSETS = [
-    'ChuShi-Music-Bridge-8.0.0.plugin',
+    'ChuShi-Music-Bridge-8.0.1.plugin',
     'ChuShi-Lyric-Source-7.0.0.plugin',
-    'ChuShi-NewTab-v8.0.0.zip',
-    'ChuShi-Music-Preset-8.0.0.cshz',
-    'ChuShi-v8.0.0-AllInOne.zip',
+    'ChuShi-NewTab-v8.0.1.zip',
+    'ChuShi-Music-Preset-8.0.1.cshz',
+    'ChuShi-v8.0.1-AllInOne.zip',
     'SHA256SUMS.txt',
 ]
 
-BODY = '''## v8.0.0 · 自研 SMTC 退役 · InfLink-rs 适配版
+BODY = r'''## v8.0.1 · 音乐链路三连修（控制 / 掉线 / 显示）
 
 **本代指令**：InfLink-rs 插件有 SMTC 功能，直接舍弃自写的 SMTC，音乐桥和 API 都去适配它。
 
-### 架构变化
-- **ChuShi-SMTC-Manager 整体退役**（原生 DLL/broker/WinRT 全删，构建门断言零 WinRT 导入）——v7.0.x 四代崩溃永久终结
-- **系统媒体卡片归 InfLink-rs**（第三方 Rust 插件，网易云插件市场可装，需 3.2.11+）：封面/标题/进度/媒体键/拖动全由它提供
-- **ChuShi Music Bridge 8.0.0 全新重写**：`window.InfLinkApi` 第一真值源（毫秒时间线/播客 throw 诚实降级），缺席时五层只读阶梯补位；控制主路走 InfLinkApi（与系统卡片按钮同路），seek 毫秒制+读回校验回执
-- 内置**零 WinRT 纯 winsock hub.dll** 数据枢纽（127.0.0.1:26901-26903，CORS+PNA，SEH 自愈）——「初始」页面唯一数据通道
-- smtc.ts v8：公开面字段级兼容零改动；`smtcVer` 字段 v8 语义 = InfLink-rs 版本；枢纽身份 `chushi-music-hub`、版本门 8.0.0
-- 预设部件文案同步（安装指引 / 页脚 InfLink-rs 版本芯片）
+### 修了什么（对应用户反馈三问题）
 
-### 验证
-- 插件门 31/31（含 hub.dll PE 导出解析 + 导入表零 WinRT/COM 断言 + 零老 SMTC 符号）
-- e2e 39/39（mock 枢纽真客户端 + 桥 vm 白盒 InfLinkApi 全链 + v7 老身份否定门）
-- Next 生产构建（TS 门）+ 线上指纹核验
+| 问题 | 根因 | 修复 |
+|---|---|---|
+| **面板无法控制网易云** | 桥解析枢纽命令对实物协议 `{"_id",raw:{...}}` 误用 `JSON.parse`（对象→`"[object Object]"` 必抛）→ **所有控制命令被静默丢弃**（e2e mock 与实物协议分叉漏网） | 命令解析双形兼容（raw 对象/字符串都认）；e2e mock 改用实物协议同形 + 新增双形断言 |
+| **一会连上一会断开** | hub.dll 单线程接受循环被浏览器预连接（connect 后不发数据的空连接）阻塞最长 3s > 页面 1.4s 超时 ×2 连败即判掉线 | hub：空连接 400ms select 快关 + recv 500ms + TCP_NODELAY；页面：超时 2.2s / 掉线 3 连败 / 重探 1.5s；桥 jpost 补 2.5s 超时（防 beatBusy 永久哑掉） |
+| **面板显示异常**（封面铺满/无标题） | v6+ 部件封面 span 非 flex 直接子元素 → CSS 行内宽高失效 → 封面铺满整面板、标题列 0 宽；沙箱 shim 前置 doctype 致 quirks 模式放大问题 | 封面显式 `display:block`；默认封面内联 data-URI 兜底（破图根治）；sandbox shim 移至 doctype 之后（标准模式） |
+
+另：toggle/play/pause 方向判定改用 InfLink `getPlaybackStatus` 真值（audio 元素与 redux 脱同步时「按了没反应」一并修复）。
 
 ### 升级（务必照做）
-1. 网易云插件目录（`C:\\betterncm\\plugins`）：**删除 `ChuShi-SMTC-Manager-*.plugin`**
-2. 放入 `ChuShi-Music-Bridge-8.0.0.plugin`（`ChuShi-Lyric-Source-7.0.0.plugin` 不动）
-3. **完全退出并重启网易云**（托盘右键退出）；InfLink-rs 保持启用
-4. 扩展解压覆盖 + 「初始」页重导 `ChuShi-Music-Preset-8.0.0.cshz`
+1. 关网易云，`C:\betterncm\plugins`：**删 ChuShi-Music-Bridge-8.0.0.plugin**，放入 `ChuShi-Music-Bridge-8.0.1.plugin`
+2. **完全退出并重启网易云**（托盘右键退出）；InfLink-rs 不动
+3. 「初始」扩展更新到 v8.0.1（线上 Pages 已同步；扩展用户解压覆盖）
+4. **「初始」页重新导入 `ChuShi-Music-Preset-8.0.1.cshz`**（旧预设部件 HTML 是坏的，必须重导入）
 
-详细步骤与排障见 `ChuShi-v8.0.0-Usage-Notes.md`（AllInOne 包内含全部资产）。
+### 验证
+- 插件门 33/33（含 hub.dll 导出表 def 收敛断言 + 防阻塞三律字节断言 + 零 WinRT）
+- e2e 40/40（新增 raw 对象/字符串双形协议断言）
+- 渲染复现台架：修复前后截图对比（封面 96px + 标题列恢复）
+- Pages 已部署：https://lxgssy.github.io/Start-chushi/
 '''
 
 def api(path, data=None, method='GET', raw=False, headers=None):

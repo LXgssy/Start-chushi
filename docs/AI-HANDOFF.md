@@ -1,6 +1,6 @@
 # AI-HANDOFF — 给下一个读这个仓库的 AI / 开发者
 
-> 最后更新：v8.0.0（2026-09-08，自研 SMTC 退役 · InfLink-rs 适配版）。写给你的：无论你是人类贡献者还是 AI 助手，
+> 最后更新：v8.0.1（2026-09-08，音乐链路三连修：控制/掉线/显示）。写给你的：无论你是人类贡献者还是 AI 助手，
 > 这一页是项目的「当前状态 + 下一步该干什么」的单一事实来源。
 > 动手前请先读完本页，不要凭想象改架构。
 
@@ -28,6 +28,15 @@ ChuShi Music Bridge 8.0.0 以 `window.InfLinkApi` 为第一真值源、控制主
 6. **【v8.0.0 新增】数据枢纽是不可删的结构性必需件**——CEF 渲染进程无法监听端口
   （v7.0.0 实锤），网易云↔浏览器的唯一可行通道 = 本地 HTTP 枢纽；v8 起枢纽载体
    = 音乐桥内置 hub.dll（纯 winsock，零 WinRT 结构性无崩溃面）。
+
+## v8.0.1（当前版）：音乐链路三连修
+
+用户真机三反馈的根因与修复（细节见 worklog Task 99）：
+
+1. **控制失效** = 桥对 hub 实物命令协议 `{"_id",raw:{...}}` 误用 `JSON.parse`（raw 是对象，parse 必抛）→ 全部控制命令被静默丢弃。**e2e mock 曾用扁平形状（无 raw 包装）——mock 与实物协议分叉使测试全绿假象**。修：双形兼容；e2e mock 改实物同形。新律：mock 必须实物协议同形。
+2. **间歇掉线** = hub 单线程 accept 循环被浏览器预连接空连接阻塞 3s > 页面 1.4s×2 连败判掉线。修：hub 空连接 400ms select 快关 + recv 500ms + TCP_NODELAY；页面超时 2.2s/3 连败；桥 jpost 补 2.5s 超时（无超时+beatBusy 闸=一次挂起永久哑掉）。
+3. **面板显示异常**（封面铺满/无标题）= v6+ 部件把 .cs-pic 从 flex 直接子元素降级为嵌套 span，行内宽高失效 → img width:100% 按包含块解析铺满全板、标题列 0 宽；sandbox shim 前置 doctype 致全代 quirks 模式放大。修：.cs-pic display:block + 默认封面 data-URI 内联 + shim 移 doctype 后。新律：尺寸关键元素必须显式块化；srcdoc 拼 shim 必须在 doctype 之后。
+4. **架构考古**：InfLink-rs 官方包 = backend.dll(x86) + backend.dll.x64.dll 双架——主流网易云 2.x 为 32 位进程；本仓 v7/v8 原生 dll 只发过 x64（在 32 位机从未加载成功）。BetterNCM v2 的 "dll doesn't exists or is not adapted to this arch" = LoadLibrary 两连败统一文案。x86 hub.dll 构建暂停（clang i686 SEH×DWARF EH 后端崩溃，见 worklog Task 99）。
 
 ## v8.0.0（当前版）：自研 SMTC 退役 · InfLink-rs 适配
 
