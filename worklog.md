@@ -1150,3 +1150,25 @@ Work Log:
 Stage Summary:
 - 新律：①「系统卡片可控」类外部证据必须下探到源码级汇聚点——两条链路汇聚同一函数时，入口正确≠执行正确，备路同构才是保险；②store 合法性判定必须与上游框架的真实 state 结构（v2 player/v3 playing）逐版本核对，单一结构假设会让全部备路静默失效；③「执行后验证」绝不能复用「执行前方向判定」的仲裁器——heal/补偿类标记只该影响方向选择，不该影响效果评估；④e2e mock 的状态翻转必须模拟真实方向（控制调用→状态变化），只翻状态不调控制会掩盖验证链的误判；⑤凡依赖「自增 id 去重」的跨进程幂等闸，必须处理对端重启 id 回退
 - 待办：用户侧验收（换 Bridge 8.0.6.plugin→完全重启→重导 cshz→按键/进度条拖动/系统卡片三向同步）；若仍失效请 cmdTrace 输出——现在每次调用都有 link:* 遥测可直接定位；x86 hub.dll 线仍暂停
+
+---
+Task ID: 106
+Agent: main (Super Z)
+Task: 用户复测「音乐面板所有控制还是无效」+ cmdTrace 截图（9 条 POST 全 ok:true、横幅「音乐桥未执行命令」、/api/state 曾 ERR_CONNECTION_REFUSED）——取证定位「命令被第二个轮询者抢排」根因并发布 v8.0.7
+
+Work Log:
+- 【取证判读】截图 cmdTrace 条目形 {t,cmd,ok,port} = v8.0.4 页面侧 POST 轨迹（ok:true 仅代表 hub 受理）；横幅文案=归因三态之「无回执」（cmdLast.at 从未 ≥ clickedAt-800）；底部「API v8.0.6」=ne.v 心跳活着 → 桥状态链路健康。三证据合取 → 桥 beat 循环在跑但每次 GET /api/cmd 拿到空队列（beat 内 cmd GET 与 state POST 同环，state 活则 GET 必通）→ 排空式先到先得被第二轮询者截胡
+- 【发布包考古】六代发布包（v8.0.1~v8.0.6）hub.dll 全部 x64-only（PE machine 0x8664）且无 .x64.dll 变体——双架构律六代未兑现，32 位网易云用户从未加载成功过新 hub（用户机 hub 在线 → 本机为 64 位，故用户案发不在此，但属必修欠账）
+- 【根因定性】GET /api/cmd 排空式 + 第二轮询者（网易云残留进程旧版桥 JS / BetterNCM 多进程注入同一 JS——window.__chushiMusicBridge 守卫仅单进程有效）→ 命令随机被旧实例分走 → 新桥空手无回执 + 旧实例执行全灭 → 「POST ok+状态活+控制死+无回执」四证据同时成立
+- 【修复①hub 8.0.7 轮询租约】POST /api/poll 认领端点：粘性持有者（TTL 4s，GetTickCount 有符号差防回绕；持有者沉默超时才许接管）；GET /api/cmd?id= 租约门控，非持有者拦 []（结构性杜绝抢占）；g_pollSeen=0 时 legacy 模式放行旧桥（升级窗口双向兼容）；持有者变更写 [poll] holder 日志（残留进程在 hub-log.txt 现形）
+- 【修复②x86 主架回归】hub_conn_serve 两段 __try/__except 改 #ifdef HUB_NO_SEH 条件编译，x86 用 -DHUB_NO_SEH 绕开 llvm-mingw i686 SEH×DWARF 后端崩溃（历史挂起项解决）——hub.dll(x86 主架)+hub.dll.x64.dll 双架构打包（BetterNCM 失败追加 .x64.dll 重试，与 InfLink-rs 同约定）
+- 【修复③桥 8.0.7】每拍先 POST /api/poll {id:POLL_ID} 认领；未持有=备胎待命（不拉命令/不推状态/不写歌词，早退在 beat 探针后）；cmd GET 携 ?id=；state 透出 cmd.trace(20 条环形)/who/lease(holder|standby|legacy)——浏览器诊断口从此可见桥内部每一步
+- 【修复④smtc.ts 8.0.7】PLUGIN_VER_MIN 8.0.6→8.0.7（旧桥亮「组件待更新」强制升级）；cleanCmd 扩展解析 trace/who/lease；debug() 新增 cmdTrace（桥侧执行轨迹）+ postTrace（页面侧 POST 轨迹，原 cmdTrace 改名）+ who + lease
+- 【门禁 54/54】build-v8-plugins.py：双架构 PE machine 断言（主架必须 0x14c、变体必须 0x8664——六代欠账起强制）+ x64 SEH 串门 + x86 无 SEH 串门 + v8.0.7 租约/轨迹符号门；pe_export/import 解析改 magic 感知（PE32+ 0x20b 与 PE32 0x10b 数据目录基址分叉）；x64 租约端点断言踩 v8.0.5 老坑（GCC -O2 把 strncmp 路由字面量展开成立即数比较不落 .rdata）改断言运行时响应串 {"ok":true,"lease":
+- 【e2e 65/65】mock hub 同构升级（版本 8.0.7+trace/who/lease 字段）；新增 B6 双桥实例租约场景（同时刻恰一持有者/备胎零执行零状态/命令唯一执行/持有者死亡→TTL 滞留→备胎接管，killHolder 仿真需真实语义——死亡实例停止一切 HTTP 而非只清 TTL，首版 expire() 只清 TTL 被活实例抢先续租抓包）+ B7 legacy 回退（404→全权照常+lease=legacy 诚实标注）
+- 【调试实录】①工具输出显示层吞 [h 字节序列制造「源码损坏」假象——AST 解析证伪（门禁 hit=[h.decode... 行完好），教训：显示层异常时以 compile/AST/字节级 python 检查为准；②rel-v807.py 两翻车：api() path 前导斜杠拼出 //releases 404、upload_url 被再拼 api.github.com 前缀——补 path.lstrip + 绝对 URL 直通；③线上核验首轮 FAIL 是 PLUGIN_VER_MIN 常量名被压缩器改名，放宽为值特征（8.0.7+postTrace）后命中
+- 【发版 v8.0.7】EXTENSION_MODE 构建（chunk 0a74531c 含 8.0.7 门）+ 扩展 zip 11.7MB（7 内联外置）+ cshz 原样复用（部件零改动免重导）+ AllInOne 12.3MB + SHA256SUMS + Usage-Notes（杀净进程三步法 + debug() 三态判读表）；Release id=384897614 六资产逐个 sha256 回读 ALL OK；gh-pages 部署线上核验 HTTP 200+chunk 8.0.7；main f8af2fe 推送
+
+Stage Summary:
+- 新律：①「排空式队列」必须配「唯一消费者凭据」——任何先到先得的消费端点，只要有第二个合法客户端存在就会随机丢件，跨进程幂等守卫（JS 全局变量）对多进程注入无效，唯一解是服务端租约；②「死亡接管」仿真必须让死亡方停止一切请求而非只清 TTL——活实例 1Hz 续租会抢先回填；③工具输出显示层可能吞特定字节序列制造「源码损坏」假象，裁决权在 compile/AST；④GCC -O2 strncmp 字面量展开老坑第二次咬人（v8.0.5 /api/native → v8.0.7 /api/poll），二进制符号门一律断言运行时格式化串；⑤六代「宪法写了但门禁没断言」的欠账（双架构）说明：架构律必须当天变成构建门，否则等于没写
+- 待办：用户侧验收（任务管理器杀净网易云→换 Bridge 8.0.7.plugin→重启→按键/seek 验收；若仍无效按 debug() 三态判读表取证——cmdTrace 有条目=桥侧路径失败可见，空+standby=残留进程未杀净，legacy=插件没换对）；若 cmdTrace 显示四路全灭仍需下一层方案（桥 8.0.7 的轨迹透传已把定位成本降到一张截图）；x86 hub.dll 实机无验证渠道（本环境无 32 位 Windows），首报问题需关注
