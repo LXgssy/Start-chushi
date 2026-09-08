@@ -23,8 +23,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / 'bridge/v8/plugins'
 NATIVE_DLL = ROOT / 'bridge/v8/native/hub.dll'
-OUT = ROOT / 'download/v8.0.1'
-VER = '8.0.1'
+OUT = ROOT / 'download/v8.0.2'
+VER = '8.0.2'
 LYRIC_VER = '7.0.0'
 
 PASS = 0
@@ -216,7 +216,7 @@ def main():
             check('hub.dll 必须导入 WS2_32', b'WS2_32' in imp_blob, str(imports))
             hit = [h.decode() for h in WINRT_IMPORT_HINTS if h in imp_blob]
             check('hub.dll 零 WinRT/COM 导入（v8 宪法 G5）', not hit, str(hit))
-            check('hub.dll 内嵌版本串 8.0.1', b'8.0.1' in dll)
+            check('hub.dll 内嵌版本串 8.0.2', b'8.0.2' in dll)
             check('hub.dll 非占位（>30KB）', len(dll) > 30000, str(len(dll)))
             check('hub.dll 导出表仅 BetterNCMPluginMain（def 收敛）', exports == ['BetterNCMPluginMain'], str(exports))
             check('hub.dll 防阻塞三律在位（select 快关/NODELAY/500ms）',
@@ -229,6 +229,15 @@ def main():
                     'getPlaybackStatus', 'getTimeline', 'getCurrentSong', 'seekTo']
             missing = [s for s in need if s not in js]
             check('music-bridge v8 契约符号齐备（G7）', not missing, str(missing))
+
+        if native and d == 'music-bridge':
+            # v8.0.2 实机对症门：验证+三级备路 + 时间线自愈 + 封面升级必须全部在位
+            v802_marks = ['jump2Track', 'playing/resume', 'playing/pause',
+                          'setPlayingPosition', 'inflink+heal', 'cmdTrace',
+                          'music\\.126\\.net']
+            miss2 = [s for s in v802_marks if s.replace('\\\\', '\\') not in js]
+            check('music-bridge v8.0.2 备路/自愈/封面升级符号在位', not miss2, str(miss2))
+            check('music-bridge cmdTrace 上限 12', 'cmdTrace.length > 12' in js)
 
     check('slug 唯一', len(slugs) == 2, str(slugs))
 
