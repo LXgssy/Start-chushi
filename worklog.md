@@ -1172,3 +1172,25 @@ Work Log:
 Stage Summary:
 - 新律：①「排空式队列」必须配「唯一消费者凭据」——任何先到先得的消费端点，只要有第二个合法客户端存在就会随机丢件，跨进程幂等守卫（JS 全局变量）对多进程注入无效，唯一解是服务端租约；②「死亡接管」仿真必须让死亡方停止一切请求而非只清 TTL——活实例 1Hz 续租会抢先回填；③工具输出显示层可能吞特定字节序列制造「源码损坏」假象，裁决权在 compile/AST；④GCC -O2 strncmp 字面量展开老坑第二次咬人（v8.0.5 /api/native → v8.0.7 /api/poll），二进制符号门一律断言运行时格式化串；⑤六代「宪法写了但门禁没断言」的欠账（双架构）说明：架构律必须当天变成构建门，否则等于没写
 - 待办：用户侧验收（任务管理器杀净网易云→换 Bridge 8.0.7.plugin→重启→按键/seek 验收；若仍无效按 debug() 三态判读表取证——cmdTrace 有条目=桥侧路径失败可见，空+standby=残留进程未杀净，legacy=插件没换对）；若 cmdTrace 显示四路全灭仍需下一层方案（桥 8.0.7 的轨迹透传已把定位成本降到一张截图）；x86 hub.dll 实机无验证渠道（本环境无 32 位 Windows），首报问题需关注
+
+---
+Task ID: 54
+Agent: main (Super Z)
+Task: 用户报告「还是无法正常通信」并附 debug() 截图（postTrace:7 全 ok / cmdTrace:[] / lease:holder）——彻底定位并修复音乐面板控制全灭
+
+Work Log:
+- 【证据解读】截图四证据（POST 全 ok + cmdTrace 空 + lease holder + 状态活）锁死断点在「hub 队列→桥排空」之间；静态分析穷尽后放弃再猜，转入协议级复现
+- 【hubsim 复现】scripts/hubsim.c = chushi_hub.c 请求处理逻辑逐行 POSIX 移植（readRequest/handleRequest/pollClaim/queryIdMatches/dataEnqueueCmd/dataDrainCmds 1:1）；gcc 编译后跑 test-hub-protocol.cjs
+- 【根因铁证】排空数组每条命令缺外层对象收尾 '}'：[{"_id":1,"raw":{"cmd":"toggle"} ← 非法 JSON；桥 r.json() 必抛→catch resolve(null)→Array.isArray(null)=false→循环永不执行→execCommand 永不调用→cmdTrace 永远空、命令随排空灰飞烟灭。git 考古 + 发布二进制反汇编（0x7d 存储指令计数=0）证实 v8.0.0~v8.0.7 八代发布全部中招；mock e2e 自拼正确 JSON 永远测不出（mock 假绿第二课）
+- 【hub 修复】dataDrainCmds raw 体后补写 out[used++]='}'（need 预算原本就含此字节，纯漏写）；新增 GET /api/hublog 环形请求日志 48 条（enqueue 含体头 60B / drain 含交付 n 与 JSON 头 / poll 租约变更 / gate 拦截），行内引号净化防破坏 JSON；hubLogAdd 锁外记账律（Windows 互斥体递归、POSIX 非递归，hubsim 复现时踩出死锁后双边统一改锁外）
+- 【桥 v8.0.8】拉取 null/非数组不再静默（pull-fail 轨迹+poll.lastNullAt）；回路自证——每 8s POST {cmd:'_selftest'} 到自己队列并验证 4s 内从自己排空收回（连续 2 败强制 hub.port=0 全端口重发现），selftest.ok/failStreak 透传 state；pollStat drains/delivered/emptyStreak/lastCount/lastGetAt/lastNullAt 透传 state.poll；execCommand 头部 _selftest 分支（只记账不执行）
+- 【页面 v8.0.8】PLUGIN_VER_MIN/CLIENT_VER 升 8.0.8；stateAge（桥状态 ts 年龄，>8s×4 拍自动 activePort=null 全端口重探）；selftest/poll/hubLog(每3拍拉 /api/hublog 尾 12 条) 透传诊断口；postTrace recv 标记（POST ok 后 6s 内无桥侧 'cmd' 轨迹 → recv:false）
+- 【测试范式补课】test-hub-protocol.cjs 21 断言（交付/双形/拦截/时序/收据）；verify-v808-e2e.cjs 19 断言 = 真实桥 index.js（vm 沙箱）× 真实 C hub（hubsim）× InfLinkApi spy——修复前必红，修复后 21/21+19/19 全绿；trace 实证 selftest:loop-ok→cmd:toggle#2→link:play-called→cmd:next#3→link:next-called→cmd:seek#4→link:seek-called，spy 计数 play/next=1、seekTo=[30000]
+- 【构建发布】build-hub-v808.sh 重编双架构（x86 -DHUB_NO_SEH + x64，0x7d 指令入体确认）；EXTENSION_MODE=1 next build 出 out/；build-v808-assets.py 组装 .plugin（4 文件平铺）/NewTab zip/复用歌词源 7.2.0 与 cshz 8.0.6/说明/SHA256SUMS/AllInOne；rel-v808.py 发布 GitHub Release v8.0.8 逐资产校验 ALL OK
+- 【提交】87a2601 推 main
+
+Stage Summary:
+- 根因定案：hub dataDrainCmds 自 v8.0.0 起漏写排空 JSON 收尾 '}'，八代发布全中招；控制全灭/trace 全空/POST 全 ok 的完整解释链闭合
+- v8.0.8 已发布：根因修复 + 回路自证 + hublog 证据端点 + 状态新鲜度自愈 + no-recv 标记；未来任何断链，用户一张 debug() 截图即可一屏定层
+- 方法论沉淀：mock 永远测不出实物协议分叉——hub 逻辑必须以逐行移植的实物形态参与 e2e（hubsim 范式已入 scripts/，后续版本沿用）
+- 遗留：歌词三问题（逐字歌词按用户指定管线/渐隐时机/初始定位/切歌竞态）待下一轮；hublog 端点若 48 条环形不够可扩
