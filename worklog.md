@@ -1059,3 +1059,25 @@ Work Log:
 Stage Summary:
 - 新律：①控制命令必须「下发→延时验证→逐级降级」——InfLink 这类「控制面与数据面同源不同命」的依赖，读取正常不代表派发生效（?.dispatch 静默吞）；②播放态真值以「进度是否在走」为最终仲裁——任何状态枚举都可能冻结；③歌词逐字高亮的行离场必须显式回落（保留 100% 遮罩=视觉双高亮）；④e2e 若从快照工作树读源码，发版前必须同步工作树（.wt-v7 漂移差点让假绿复辟）
 - 待办：用户侧验收（换 8.0.2 桥插件 + 删 v7 残留插件 + 重导入 cshz + 按键/图标/双语歌词/封面四项验收）；x86 hub.dll 线仍暂停
+
+---
+Task ID: 102
+Agent: main (Super Z)
+Task: 用户复测反馈四问题——①播放/上下首按键仍无反应 ②主键悬停变黑+图标位移未修 ③中文歌词无逐字效果 ④进度条改只读——v8.0.3 四联修发布
+
+Work Log:
+- 【取证①交付分层判读】用户「歌词问题已经没有了」（v8.0.2 双语修复在部件层=cshz 已重导）+「按键仍死」（v8.0.2 控制修复在桥插件层）→ 特征组合指向「重导了预设但未换插件」，或 NCM 3.x 上四级控制路径全灭；两案并修
+- 【取证②CSS 悬停实锤】.cs-b:hover{background:var(--card2);color:var(--ink);transform:scale(1.06)} 与 .cs-bmain{background:var(--acc);color:#fff}：hover 规则特异性 (0,2,0) 胜主键 (0,1,0) → 暗色主题 card2 半透暗底盖 accent=变黑、图标变色、scale 读作位移——历轮从未修过 hover 态（前轮只修 toggle 态图标位移）
+- 【取证③中文逐字根因】歌词源 klyricToYrc 输出 LRC 式逐词时间戳 [mm:ss.ff]词，音乐核心 parseWordLine 只认 yrc 轴 [s,d](s,d,0)词 → klyric 歌（中文歌主力逐字源）整首退化行级；另 eapiFetch 无 credentials（yrc 只对登录会话下发；匿名 v1 实测无 yrc 字段）；英文歌逐字曾生效=channel/eapi 登录链路兜住
+- 【修复①桥 8.0.3 末端加固】按钮候选扩宽（aria-label/title 中文关键词「播放/暂停/下一首/上一首」+class 模糊匹配；btnLabelOk 列表/队列/清单/歌单误中保护）；clickSeq 完整指针序列（pointerdown→mousedown→pointerup→mouseup→click）；toggle 元素路径 +700ms 复验（el.paused 即算生效，双真值都未达预期才走按钮，防双翻转）
+- 【修复②部件 v8.0.3 控制诚实反馈】点击后 3.2s 验证窗口：toggle 真值≠期望 / 曲目未变 → 亮 csUpd 红芯片按版本归因（pluginVer<8.0.3「控制能力不足」/否则「网易云未响应」）；mus.* Promise ok=false 即亮「音乐桥未连接·控制未送达」；needsUpdate 芯片优先级不变；成功路径零打扰
+- 【修复③部件悬停律+进度条被动化】.cs-bmain,.cs-bmain:hover{color:#fff;background:var(--acc)} 后置覆盖 + :hover{filter:brightness(1.12);transform:none}；csThumb/拖拽四监听/pointer capture 全删，.cs-rail overflow:hidden 只读填充条，seek 交互删而 mus.seek API 保留；seekNote 芯片位让渡控制反馈
+- 【修复④歌词源 7.1.0】klyricToYrc 重写输出真 yrc 时间轴（[行起,行长](词起,词长,0)词，行界取下行首词，词距取次词差）；eapi 阶梯改「带凭据(官方播放器同款)→同源 web v1(自带 cookie 免 CORS)→匿名→channel→旧接口」五层；yrv/ytv/yrv 参数补全
+- 【调试实录】台架 stub 两假象：subscribe 只发首帧致快照永不更新（生产是签名变化即推）→ setSnap 内向订阅者推送；toggle 失败条件写反（成功条件传入 armCtlVerify）→ 修正为「条件成立即亮芯片」语义，toggle 传 effPlaying()!==optP
+- 【版本链】smtc.ts PLUGIN_VER_MIN 8.0.2→8.0.3；hub.c PLUGIN_VERSION 8.0.3 重编 x64（导入表零 WinRT 复核）；双 manifest+描述更新
+- 【验证】插件门 37/37（新增桥 v8.0.3 按钮扩宽/指针序列/元素复验门 + 歌词源凭据/同源v1/真yrc门）；e2e 40/40（.wt-v7 先同步）；渲染台架 17/17（probe-widget-v803.mjs：悬停背景恒 accent/前景恒白/transform none 三断言 + 无滑块/只读走条/非手型三断言 + 控制成功无芯片/卡死亮归因/POST 失败亮未送达三态 + 歌词单高亮回归）；klyric→yrc 往返单测 PASS（真解析器逐行消费）；tsc src 零错
+- 【发布】cshz 18333 字符（≤19200 双兼容）；download/v8.0.3 七件套 + SHA256SUMS；扩展 zip 11.7MB（7 内联脚本外置）；Release id=384686520（6 资产逐个 sha256 上传核验 ALL OK）；文叔叔 https://c.wss.ink/f/ktr2viap0gj；Pages 4d24854 线上核验 HTTP 200；main 4d24854
+
+Stage Summary:
+- 新律：①「修复生效面分布」可用于反推用户实际更新了哪一层——显示修好而控制未好=插件层未更新，反馈话术要按层拆分；②嵌套按钮组 :hover 全局规则必须显式豁免强调色主键（同特异性源码顺序裁决）；③转换器产出必须按消费方解析器格式并做往返单测（klyric→yrc 第三次格式漂移）；④yrc 等登录态数据源：无凭据请求只回公开子集，测试台架必须区分「匿名响应」与「登录响应」两种真值
+- 待办：用户侧验收（换两插件→完全重启→重导 cshz→按键/悬停/中文逐字/进度条四项）；若按键芯片亮「网易云未响应」则需要用户 cmdTrace 输出做下一层定位；x86 hub.dll 线暂停
