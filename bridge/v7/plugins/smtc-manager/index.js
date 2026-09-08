@@ -14,7 +14,7 @@
   'use strict';
   if (window.__chushiSmtcManager) return;
 
-  var VER = '7.1.0';
+  var VER = '7.2.0';
   var state = {
     ver: VER,
     nativeLoaded: false,   // 原生 DLL 是否在渲染进程注册了诊断 API

@@ -41,7 +41,7 @@
 #pragma comment(lib, "ws2_32")
 #pragma comment(lib, "ole32")
 
-#define BROKER_VERSION "7.1.0"
+#define BROKER_VERSION "7.2.0"
 #define HUB_NAME       "chushi-smtc-hub"
 #define MUTEX_NAMEW    L"ChuShi.Smtc.Broker.v1"
 #define WINDOW_CLASSW  L"ChuShiSmtcBrokerWnd"
@@ -116,6 +116,15 @@ void Queue_SmtcEventSeek(double posSec);
 static HSTR_ mk_hstr(const wchar_t* s);
 static double atof_n(const wchar_t* s);
 static int atoi_n(const wchar_t* s);
+
+/* v7.2.0 事件 raise 可观测性：前 20 条全记，之后每 50 条记 1 条 */
+static void logf_line(const char* fmt, ...);
+static volatile LONG_ g_evtSeen = 0;
+static void evt_log(const char* what, int v) {
+    long n = InterlockedIncrement(&g_evtSeen);
+    if (n <= 20 || (n % 50) == 0)
+        logf_line("[evt] %s=%d (seen=%ld)", what, v, n);
+}
 
 /* ------------------------------------------------------------------ */
 /* vtable（槽位序 = windows-rs 投影，逐槽位核实）                          */
@@ -369,6 +378,7 @@ static HRESULT_ WINAPI h_GetTrustLevel(void* self, int* level) {
 }
 static HRESULT_ WINAPI h_InvokeButton(void* self, void* sender, void* args) {
     (void)self; (void)sender;
+    evt_log("raise-button", args ? 1 : 0);
     if (args) {
         ButtonPressedArgsVtbl* v = (ButtonPressedArgsVtbl*)(*(void**)args);
         int btn = -1;
@@ -378,6 +388,7 @@ static HRESULT_ WINAPI h_InvokeButton(void* self, void* sender, void* args) {
 }
 static HRESULT_ WINAPI h_InvokePosition(void* self, void* sender, void* args) {
     (void)self; (void)sender;
+    evt_log("raise-seek", args ? 1 : 0);
     if (args) {
         PositionArgsVtbl* v = (PositionArgsVtbl*)(*(void**)args);
         TimeSpan ts; ts.Duration = 0;
@@ -615,6 +626,24 @@ static LONG WINAPI seh_filter(EXCEPTION_POINTERS* ep) {
     return EXCEPTION_EXECUTE_HANDLER;
 }
 
+/* v7.2.0 最后防线：任何线程任何路径的未处理异常（含 SEH 未覆盖的
+ * raise 回调路径）先落日志再退场——监督者会重启，日志永远说真话。 */
+static LONG WINAPI last_resort_filter(EXCEPTION_POINTERS* ep) {
+    DWORD code = 0;
+    void* addr = NULL;
+    if (ep && ep->ExceptionRecord) {
+        code = ep->ExceptionRecord->ExceptionCode;
+        addr = ep->ExceptionRecord->ExceptionAddress;
+    }
+    logf_line("[seh] UNHANDLED 0x%08lX @ %p — broker 退场(code=2)，监督者将重启",
+              (unsigned long)code, addr);
+    fflush(stderr);
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+static void install_last_resort(void) {
+    SetUnhandledExceptionFilter(last_resort_filter);
+}
+
 #define GUARD(call) \
     __try { call; } \
     __except (seh_filter(GetExceptionInformation())) { \
@@ -676,6 +705,13 @@ static void apply_op(SmtcOp* op, void* smtc, void* smtc2) {
     SMTCVtbl* v = (SMTCVtbl*)(*(void**)smtc);
     HRESULT_ hr;
 
+    /* 0) v7.2.0：全空元数据不推送 —— 卡片上那个「未知曲目」就是空 title
+     *    走了 fallback 字符串上卡；桥插件拿不到歌名时宁可不更新元数据，
+     *    保留上一次真实元数据，也不把「未知曲目」刷上系统卡片。 */
+    if (op->hasMeta && !op->title[0] && !op->artist[0] && !op->album[0] && !op->cover[0]) {
+        op->hasMeta = 0;
+    }
+
     /* 1) 元数据 */
     static wchar_t lastTitle[192], lastArtist[192], lastAlbum[192], lastCover[768];
     static int lastMetaValid = 0;
@@ -714,6 +750,8 @@ static void apply_op(SmtcOp* op, void* smtc, void* smtc2) {
             ((InspectableVtbl*)(*(void**)updater))->Release(updater);
             if (SUCCEEDED_(hr)) {
                 InterlockedIncrement(&g_metaApplied);
+                logf_line("[meta] applied title='%.*ls' artist='%.*ls' album='%.*ls'",
+                          40, op->title, 40, op->artist, 24, op->album);
                 wcsncpy(lastTitle, op->title, 191); lastTitle[191] = 0;
                 wcsncpy(lastArtist, op->artist, 191); lastArtist[191] = 0;
                 wcsncpy(lastAlbum, op->album, 191); lastAlbum[191] = 0;
@@ -731,7 +769,10 @@ static void apply_op(SmtcOp* op, void* smtc, void* smtc2) {
         static int lastStatus = -999;
         if (op->status != lastStatus) {
             hr = v->put_PlaybackStatus(smtc, op->status);
-            if (SUCCEEDED_(hr)) lastStatus = op->status;
+            if (SUCCEEDED_(hr)) {
+                lastStatus = op->status;
+                evt_log("status-set", op->status);
+            }
             else { g_lastHr = hr; logf_line("[st] put_PlaybackStatus(%d) hr=0x%08lX", op->status, (unsigned long)hr); }
         }
     }
@@ -906,20 +947,25 @@ static DWORD WINAPI smtc_thread(LPVOID param) {
 
     SetTimer(g_hwnd, 1, 100, NULL);
     while (GetMessageW(&msg, NULL, 0, 0) > 0) {
-        if (msg.message == WM_TIMER && msg.hwnd == g_hwnd) {
-            SmtcOp local; int has = 0;
-            AcquireSRWLockShared(&g_lock);
-            if (g_op.pending) { local = g_op; has = 1; }
-            ReleaseSRWLockShared(&g_lock);
-            if (has) {
-                AcquireSRWLockExclusive(&g_lock);
-                g_op.pending = 0;
-                ReleaseSRWLockExclusive(&g_lock);
-                GUARD(apply_op(&local, g_smtc, g_smtc2));
+        /* v7.2.0：【raise 路径全覆盖】ButtonPressed/PlaybackPositionChangeRequested
+         * 的系统 raise 发生在 DispatchMessageW 内部 —— 这里若无 SEH，任何
+         * raise 路径异常都会静默杀死 broker → 系统卡片消失。全部包住。 */
+        GUARD({
+            if (msg.message == WM_TIMER && msg.hwnd == g_hwnd) {
+                SmtcOp local; int has = 0;
+                AcquireSRWLockShared(&g_lock);
+                if (g_op.pending) { local = g_op; has = 1; }
+                ReleaseSRWLockShared(&g_lock);
+                if (has) {
+                    AcquireSRWLockExclusive(&g_lock);
+                    g_op.pending = 0;
+                    ReleaseSRWLockExclusive(&g_lock);
+                    apply_op(&local, g_smtc, g_smtc2);
+                }
             }
-        }
-        TranslateMessage(&msg);
-        DispatchMessageW(&msg);
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        });
     }
     return 0;
 }
@@ -1243,7 +1289,7 @@ static DWORD WINAPI http_thread(LPVOID param) {
 
 static DWORD WINAPI conn_thread(LPVOID param) {
     SOCKET c = (SOCKET)(intptr_t)param;
-    handle_client(c);
+    GUARD(handle_client(c));
     shutdown(c, SD_BOTH);
     closesocket(c);
     InterlockedDecrement(&g_activeConns);
@@ -1275,6 +1321,7 @@ int main(int argc, char** argv) {
 
     /* 绝不弹 WER/调试器框 */
     SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+    install_last_resort();
 
     for (int i = 1; i + 1 < argc; i += 2) {
         if (strcmp(argv[i], "--parent") == 0) parentPid = (DWORD)strtoul(argv[i + 1], NULL, 10);
