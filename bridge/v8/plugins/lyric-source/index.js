@@ -1,5 +1,5 @@
 /* ============================================================================
- * ChuShi Lyric Source 7.2.0 — 歌词源（第七代全新实现，纯 JS 零 Node）
+ * ChuShi Lyric Source 7.3.0 — 歌词源（第七代全新实现，纯 JS 零 Node）
  *
  * 职责：按需提供完整歌词（逐字 yrc + 逐字翻译 ytlrc + 行级 lrc + 行级翻译）。
  *
@@ -11,10 +11,13 @@
  *   5. 直连旧公开接口 /api/song/lyric（lrc/tlyric）
  *   klyric 一律转真 yrc 时间轴（[s,d](s,d,0)词）——中文歌逐字渲染根修。
  *
- * v7.2.0（用户指定「暂停时获取 yrc 校准」管线的歌词源侧）：
- *   ①force 参数——桥暂停态校准重查绕过本地缓存（登录态/缓存变化后重取）；
- *   ②带凭据/同源层拿到无逐字结果时追加一发 channel（内部 RPC 可能带 yrc），
- *     尽力升级真逐字；拿不到也不降级已得结果。
+ * v7.2.0：force 参数（桥暂停态校准重查绕过本地缓存）+ 无逐字结果追加一发
+ *   channel 尽力升级真逐字（保留）。
+ * v7.3.0（用户指定「逐字歌词优先 yrc」的取词侧根修）：eapi 信封修正——
+ *   加密消息去 '?'、加密路径去 /eapi 前缀（旧信封服务端 404/空响应，
+ *   eapi 五层阶梯的前两层从未生效过，yrc 一直缺席 → 逐字永远走 lrc 伪
+ *   时间轴降级；实测修正后同参数 yrc 6391 字节返回）；缓存键升代 v8，
+ *   防 lrc-only 旧缓存遮住修复。
  *
  * 协作协议（与音乐桥）：
  *   收 cc:lyric-req {songId, reqId, force?} → 应答 cc:lyric-res {songId, reqId, payload}
@@ -25,7 +28,7 @@
   'use strict';
   if (window.__chushiLyricSource) return;
 
-  var VER = '7.2.0';
+  var VER = '7.3.0';
   window.__chushiLyricSource = { ver: VER };
 
   /* ------------------------------------------------------------------ */
@@ -226,10 +229,15 @@
   var EAPI_SECRET = 'e82ckenh8dichen8'; /* eapi 公开密钥常量 */
 
   function eapiEncrypt(path, paramsJson) {
-    var text = path + '?' + paramsJson;
-    var msg = 'nobody' + path + 'use' + text + 'md5forencrypt';
+    /* v7.3.0 信封根修（实测实锢）：①加密消息不含 '?'（官方规范
+       nobody{path}use{json}md5forencrypt；带 ? 的信封服务端解不开 →
+       历代响应 404/空 → eapi 层从未生效过，逐字歌词一直靠 channel/旧接口
+       降级拿 lrc——「永远看不到真逐字」的根因）；②加密路径必须去 /eapi
+       前缀（POST /eapi/song/lyric/v1 ↔ 加密 /api/song/lyric/v1），
+       实测：修正后同参数 yrc 6391 字节返回，旧信封 404。 */
+    var msg = 'nobody' + path + 'use' + paramsJson + 'md5forencrypt';
     var digest = md5(utf8Bytes(msg));
-    var data = path + '-36cd479b6b5-' + text + '-36cd479b6b5-' + digest;
+    var data = path + '-36cd479b6b5-' + paramsJson + '-36cd479b6b5-' + digest;
     var keyBytes = [];
     for (var i = 0; i < EAPI_SECRET.length; i++) keyBytes.push(EAPI_SECRET.charCodeAt(i) & 255);
     var enc = aesEcbEncryptBytes(utf8Bytes(data), keyBytes);
@@ -237,8 +245,11 @@
   }
 
   function eapiFetch(path, paramsObj, withCreds) {
+    /* 调用方传 URL 路径（/eapi/...），加密用去前缀路径（/api/...）——
+       eapi 约定：POST /eapi/X ↔ 加密体携带 /api/X */
+    var encPath = path.replace(/^\/eapi/, '/api');
     var paramsJson = JSON.stringify(paramsObj);
-    var payload = eapiEncrypt(path, paramsJson);
+    var payload = eapiEncrypt(encPath, paramsJson);
     var body = 'params=' + payload;
     var hosts = ['https://interface3.music.163.com', 'https://music.163.com'];
     function tryHost(i) {
@@ -270,7 +281,9 @@
 
   function loadCache() {
     try {
-      var raw = localStorage.getItem('__chushi_lyric_cache_v7__');
+      /* v7.3.0：缓存键升代——旧代缓存里存的是信封 bug 时代降级拿到的
+         lrc-only 结果，不升代会永远遮住修复后的 yrc */
+      var raw = localStorage.getItem('__chushi_lyric_cache_v8__');
       return raw ? JSON.parse(raw) : {};
     } catch (e) { return {}; }
   }
@@ -281,7 +294,7 @@
         keys.sort(function (a, b) { return (cache[a].at || 0) - (cache[b].at || 0); });
         while (keys.length > 8) { delete cache[keys.shift()]; }
       }
-      localStorage.setItem('__chushi_lyric_cache_v7__', JSON.stringify(cache));
+      localStorage.setItem('__chushi_lyric_cache_v8__', JSON.stringify(cache));
     } catch (e) { /* 存储满则放弃 */ }
   }
 

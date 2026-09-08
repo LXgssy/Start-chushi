@@ -136,6 +136,7 @@
     var parsedRef = null;
     var fadeMs = 0;
     var soft = null;          /* {from,at,dur} 恢复期软重锚（淡入期防漂移） */
+    var guard = null;         /* v8.0.9 seek 护航窗 {from,to,at,dur,song} */
 
     function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
     function rateOf() { return anchor && anchor.rate > 0 ? anchor.rate : 1; }
@@ -413,12 +414,29 @@
     function feed(state) {
       lastSnap = whitelist(state && typeof state === "object" ? state : null);
       var t = state && state.track && typeof state.track === "object" ? state.track : null;
+      /* v8.0.9 护航窗内的快照喂入：换歌（title 变）即弃窗；同曲陈旧快照
+         （位置仍在拖动前轨迹上、距目标 >2s）保位不回锚——seekNote 清空等
+         签名变化会立即触发 feed，不保位就是拖动后的第一记回弹 */
+      var keepPos = null;
+      if (guard && t && typeof t.position === "number" && isFinite(t.position)) {
+        if ((lastSnap ? String(lastSnap.title || "") : "") !== guard.song) {
+          guard = null;
+        } else if (Math.abs(t.position - guard.to) > 2) {
+          var gOld = guard.from + ((Date.now() - guard.at) / 1000) * (t.playing ? rateOf() : 0);
+          if (Math.abs(t.position - gOld) <= 2.5) keepPos = posNow();
+          else guard = null;
+        } else {
+          guard = null; /* 真值已到目标附近，护航完成 */
+        }
+      }
       anchor = {
-        position: t && typeof t.position === "number" && isFinite(t.position) ? Math.max(0, t.position) : 0,
+        position: keepPos != null ? Math.max(0, keepPos)
+          : t && typeof t.position === "number" && isFinite(t.position) ? Math.max(0, t.position) : 0,
         duration: t && typeof t.duration === "number" && isFinite(t.duration) ? Math.max(0, t.duration) : 0,
         playing: !!(t && t.playing),
         rate: t && typeof t.rate === "number" && t.rate > 0 ? t.rate : 1,
-        fetchedAt: t && typeof t.fetchedAt === "number" ? t.fetchedAt : Date.now(),
+        fetchedAt: keepPos != null ? Date.now()
+          : t && typeof t.fetchedAt === "number" ? t.fetchedAt : Date.now(),
       };
       soft = null; /* 新快照全量重锚：软窗口作废 */
       push();
@@ -428,7 +446,14 @@
        v6.1 防漂移管线（用户指定）：暂停→恢复翻转时 SMTC 位置常带淡入期
        偏差（±0.2~0.5s 瞬跳）。偏差 ≤2s 时启动 600ms 软重锚：显示位置从
        旧轨迹 smoothstep 入轨到新锚轨迹——不跳变，窗口结束锚定真值，
-       淡入期偏差不会成为永久漂移；>2s（seek/切歌）仍硬锚。 */
+       淡入期偏差不会成为永久漂移；>2s（seek/切歌）仍硬锚。
+       v8.0.9 seek 护航窗（拖动回弹 + 歌词乱跳同根治）：拖动成功即乐观
+       重锚到目标，而桥真值要 1~3 拍才收敛——期间每拍都携带拖动前的旧
+       位置，旧版 |Δ|≥SLEW 就硬锚回旧值 = 进度条回弹几秒才跳真。
+       护航窗（4.5s）内：仍在旧轨迹上（距目标 >2s）的陈旧拍直接忽略；
+       真值到目标 ±2s 即确认放行；窗口过期还没等到确认就放行正常仲裁
+       （拖动真失败时诚实回锚）。播放态翻转一律放行——暂停/播放时的
+       逐字歌词校准管线原样保留（用户指定「校准方法不变」）。 */
     function tick(tk) {
       if (!anchor) return;
       if (!tk || typeof tk !== "object") return;
@@ -436,6 +461,18 @@
       if (typeof tk.position === "number" && isFinite(tk.position)) {
         var expected = posNow();
         var delta = tk.position - expected;
+        if (guard) {
+          var gEl = Date.now() - guard.at;
+          var gTo = Math.abs(tk.position - guard.to);
+          if (prevPlaying === !!tk.playing && gEl < guard.dur && gTo > 2) {
+            var gOld = guard.from + (gEl / 1000) * rateOf();
+            if (Math.abs(tk.position - gOld) <= 2.5) return; /* 陈旧拍：忽略 */
+            /* 既不在旧轨迹也不在目标（NCM 应用中/中间态）：护航期内同样
+               忽略，目标轨迹继续走；过期后自然放行诚实仲裁 */
+            return;
+          }
+          guard = null; /* 真值到达 / 播放态翻转 / 窗口过期 → 放行 */
+        }
         var reanchor = prevPlaying !== !!tk.playing || !anchor.playing ||
           Math.abs(delta) >= SLEW_SEC;
         if (reanchor) {
@@ -491,11 +528,20 @@
       };
     }
 
-    /* ---- 控制面：seek 成功即乐观重锚（拖完立即生效，不等下一拍） ---- */
+    /* ---- 控制面：seek 成功即乐观重锚（拖完立即生效，不等下一拍） ----
+       v8.0.9：重锚同时开启护航窗（4.5s）——窗内忽略拖动前旧轨迹的
+       陈旧拍，真值到目标±2s 提前收窗；拖动真失败时窗口过期诚实回锚。 */
     function seek(sec) {
       var s = typeof sec === "number" && isFinite(sec) ? Math.max(0, sec) : 0;
       return Promise.resolve(hooks.control("seek", s)).then(function (ok) {
         if (ok === true && anchor) {
+          guard = {
+            from: posNow(),
+            to: s,
+            at: Date.now(),
+            dur: 4500,
+            song: lastSnap ? String(lastSnap.title || "") : "",
+          };
           anchor.position = s;
           anchor.fetchedAt = Date.now();
         }

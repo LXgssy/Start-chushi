@@ -1,5 +1,10 @@
 /* ============================================================================
- * ChuShi Music Bridge 8.0.6 — 网易云 InfLink-rs 适配桥（媒体键退役 + 备路三代修正）
+ * ChuShi Music Bridge 8.0.9 — 网易云 InfLink-rs 适配桥（媒体键退役 + 备路三代修正）
+ *   v8.0.9（用户实机：「拖动成功了却提示拖动不成功 + 回弹几秒才跳转」）：
+ *   ①doSeek 读回校验 v2——InfLink 时间线第一读回源（页面所见即所验）+
+ *     元素备源，420/1000/2200ms 三拍耐心（旧版只读元素且仅两拍，NCM 应用
+ *     seek 异步 + InfLink 回传延迟时两拍必墨）；三态诚实上报：无读回源
+ *     保持 null，ne.seekAckKnown=false，页面端不再亮假失败芯片。
  *   v8.0.1：①命令解析兼容 hub 实物协议 {"_id",raw:{...}}；②jpost 2.5s 超时；
  *   ③toggle 方向判定取 InfLink 真值。
  *   v8.0.2：控制验证+三级备路 / 播放态时间线自愈 / 封面 https 升级。
@@ -82,7 +87,7 @@
   'use strict';
   if (window.__chushiMusicBridge) return;
 
-  var VER = '8.0.8';
+  var VER = '8.0.9';
   var HUB_NAME = 'chushi-music-hub';
   var HUB_PORTS = [26901, 26902, 26903];
   var BEAT_MS = 1000;
@@ -985,21 +990,41 @@
       seekAck.ok = null; seekAck.at = nowMs(); /* 诚实未知，不假装成功 */
       return;
     }
-    /* 读回校验：元素在就双读回（主路 InfLink seek 最终也落到元素） */
-    if (!el) return; /* 无元素且主路已执行 → ok=null（诚实未知，不假装成功） */
-    setTimeout(function () {
-      try {
-        var r1 = el.currentTime;
-        if (Math.abs(r1 - pos) < 2.5) { seekAck.ok = true; seekAck.at = nowMs(); return; }
-      } catch (e) { /* 读回失败 */ }
-      setTimeout(function () {
+    /* v8.0.9 读回校验 v2（用户实机：「拖动成功了却提示拖动不成功」）——
+       旧版只读 audio 元素且仅 420/580ms 两拍：①元素缺席（NCM 3.x 常态）时
+       ok 恒 null，但 ne.seekAckOk 把 null 塞成 false → 页面亮假失败芯片；
+       ②网易云应用 seek 异步且 InfLink 时间线回传有延迟，两拍常常等不到。
+       新版：读回源 = InfLink 时间线第一优先（页面所见即所验）+ 元素备源；
+       耐心三拍 420/1000/2200ms；任一拍 |读回-pos|<2.5 即 ok=true；
+       三拍全墨且存在读回源才 ok=false；全程无读回源保持 null（诚实未知，
+       ne.seekAckKnown=false → 页面不再亮假失败芯片）。 */
+    var tried = 0;
+    function readPos() {
+      var api = inflink.api;
+      if (api && typeof api.getTimeline === 'function') {
         try {
-          var r2 = el.currentTime;
-          seekAck.ok = Math.abs(r2 - pos) < 2.5;
-        } catch (e2) { seekAck.ok = false; }
-        seekAck.at = nowMs();
-      }, 580);
-    }, 420);
+          var tl = api.getTimeline();
+          var cur = tl ? Number(tl.currentTime) : NaN;
+          if (isFinite(cur) && cur >= 0) return cur / 1000;
+        } catch (e0) { /* 时间线缺席，落元素 */ }
+      }
+      if (el) {
+        try {
+          var r = Number(el.currentTime);
+          if (isFinite(r) && r >= 0) return r;
+        } catch (e1) { /* 元素读回失败 */ }
+      }
+      return -1;
+    }
+    function check() {
+      tried++;
+      var r = readPos();
+      if (r >= 0 && Math.abs(r - pos) < 2.5) { seekAck.ok = true; seekAck.at = nowMs(); return; }
+      if (tried < 3) { setTimeout(check, tried === 1 ? 580 : 1200); return; }
+      if (r >= 0) { seekAck.ok = false; seekAck.at = nowMs(); }
+      /* r<0：全程无读回源 → ok 保持 null（诚实未知） */
+    }
+    setTimeout(check, 420);
   }
 
   /* ------------------------------------------------------------------ */
@@ -1133,6 +1158,9 @@
         src: truth.src,
         seekAckId: seekAck.id,
         seekAckOk: seekAck.ok === true,
+        /* v8.0.9 三态诚实律：ok=null（无读回源）≠ 失败——页面端只在
+           known=true 且 ok=false 时才亮「拖动未生效」芯片（假失败根治） */
+        seekAckKnown: seekAck.ok !== null,
         seekAckAt: seekAck.at
       },
       /* v8.0.4 控制可观测：命令回执（面板/页面端直读归因，不再黑盒）
