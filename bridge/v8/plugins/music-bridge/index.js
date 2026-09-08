@@ -25,6 +25,21 @@
  *     lastCmdDone 残留旧 _id 会把新命令当重复静默吞掉）。
  *   ⑤cmdTrace 容量 12→20。
  *
+ *   v8.0.8（hubsim 协议级复现实锢 —— 控制失效真正根因）：
+ *   ①hub dataDrainCmds 拼接排空数组时从未写入外层对象收尾 '}'，
+ *     ["_id":1,"raw":{"cmd":"toggle"}（缺收尾）自 v8.0.0 起每代
+ *     发布二进制皆然（反汇编 0x7d 存储指令计数=0 实锢）→ 桥 r.json()
+ *     必抛 → jget 静默 null → Array.isArray(null)=false → 循环永不执行 →
+ *     cmdTrace 永远空、命令随排空灰飞烟灭。历次 e2e 用自拼正确 JSON 的
+ *     mock hub，永远测不出（mock 假绿第二课）。本版 hub 已修（'"}' 补写），
+ *     桥侧同步加固：拉取 null/非数组不再静默，trace 落 'pull-fail'。
+ *   ②回路自证（loopback selftest）——每 8s 向自己队列投递 {cmd:'_selftest'}
+ *     并验证 4s 内从自己的排空里收回：收不回 = 本桥与 hub 的命令回路断裂
+ *     （端口拓扑漂移/队列被夺/hub 半死），连续 2 败即强制全端口重新发现。
+ *     结果透传 state.selftest = {ok, failStreak, at}，页面诊断口一眼定层。
+ *   ③轮询计数透传 state.poll = {drains, emptyStreak, lastCount, lastGetAt,
+ *     lastNullAt}——「桥在拉但永远空」从猜测变成可见事实。
+ *
  *   v8.0.7（用户实机 cmdTrace 取证：POST 全 ok + 桥状态活 + 回执从未出现）：
  *   ①轮询租约（poller lease）——/api/cmd 排空式先到先得，网易云残留进程/
  *     多进程注入的第二桥实例（window.__chushiMusicBridge 防重入守卫只在
@@ -67,10 +82,13 @@
   'use strict';
   if (window.__chushiMusicBridge) return;
 
-  var VER = '8.0.7';
+  var VER = '8.0.8';
   var HUB_NAME = 'chushi-music-hub';
   var HUB_PORTS = [26901, 26902, 26903];
   var BEAT_MS = 1000;
+  /* v8.0.8 回路自证节律 */
+  var SELFTEST_MS = 8000;
+  var SELFTEST_WAIT_MS = 4000;
   /* v8.0.7 实例身份：本 JS 生命周期内稳定，跨进程唯一——多桥实例同抢
      /api/cmd 的时代结束；who 字段透出后，用户在页面诊断口就能看到
      「现在是谁在当家」 */
@@ -100,6 +118,8 @@
       seekAck: JSON.parse(JSON.stringify(seekAck)),
       cmdLast: JSON.parse(JSON.stringify(cmdLast)),
       cmdTrace: cmdTrace.slice(),
+      selftest: JSON.parse(JSON.stringify(selftest)),
+      poll: JSON.parse(JSON.stringify(pollStat)),
       who: POLL_ID,
       lease: leaseKnown ? (iHold ? 'holder' : 'standby') : 'legacy'
     };
@@ -650,6 +670,9 @@
   var seekAck = { id: '', ok: null, at: 0 };
   var lastCmdDone = {};
   var maxCmdId = 0; /* v8.0.6：hub 重启 _id 回退检测 */
+  /* v8.0.8 回路自证 + 轮询计数：命令回路断裂从猜测变成可见事实 */
+  var selftest = { pendingAt: 0, ok: true, failStreak: 0, lastOkAt: 0, lastFailAt: 0, note: '' };
+  var pollStat = { drains: 0, delivered: 0, emptyStreak: 0, lastCount: 0, lastGetAt: 0, lastNullAt: 0 };
   var cmdSeq = 0;
   var cmdTrace = [];
   /* v8.0.4 命令回执：随 /api/state 透出（控制可观测——面板端直读归因） */
@@ -777,6 +800,16 @@
     if (!cmd || typeof cmd !== 'object') return;
     var type = clip(cmd.cmd || cmd.type, 16);
     if (!type) return; /* 坏命令（raw 解析失败等）直接丢 */
+    /* v8.0.8 回路自证命令：只记账不执行——它是桥自己投给自己队列的探针 */
+    if (type === '_selftest') {
+      selftest.pendingAt = 0;
+      selftest.ok = true;
+      selftest.failStreak = 0;
+      selftest.lastOkAt = nowMs();
+      selftest.note = 'loop';
+      traceCmd('selftest', 'loop-ok');
+      return;
+    }
     /* v8.0.6 幂等闸回退防护：hub 重启后 g_cmdNextId 归零重计，桥侧
        lastCmdDone 残留旧世代 _id 会把新命令当重复静默吞掉（trace 都
        不会留）——检测到 _id 回退即清空旧世代记录 */
@@ -1107,6 +1140,13 @@
          页面侧诊断口从此能看到桥内部每一步，诊断盲区永久消灭 */
       cmd: { last: { id: cmdLast.id, type: cmdLast.type, ok: cmdLast.ok, path: cmdLast.path, at: cmdLast.at },
              trace: cmdTrace.slice() },
+      /* v8.0.8 回路自证 + 轮询计数透传：页面诊断口一键定层 */
+      selftest: { ok: selftest.ok === true, failStreak: selftest.failStreak,
+                  at: selftest.lastOkAt || selftest.lastFailAt, note: selftest.note },
+      poll: { drains: pollStat.drains, delivered: pollStat.delivered,
+              emptyStreak: pollStat.emptyStreak,
+              lastCount: pollStat.lastCount, lastGetAt: pollStat.lastGetAt,
+              lastNullAt: pollStat.lastNullAt },
       who: POLL_ID,
       lease: leaseKnown ? (iHold ? 'holder' : 'standby') : 'legacy',
       /* smtcVer v8 语义 = InfLink-rs 版本（系统卡片提供方）；空 = 未装/未启用 */
@@ -1149,13 +1189,43 @@
       }
       if (!iHold) return;
 
+      /* 2.7) v8.0.8 回路自证：每 8s 向自己队列投一条 _selftest，验证 4s 内
+         能从自己的排空里收回。收不回 = 命令回路断裂（拓扑漂移/队列被夺/
+         hub 半死）→ 连续 2 败强制全端口重新发现 hub。 */
+      var tNow = nowMs();
+      if (selftest.pendingAt && tNow - selftest.pendingAt > SELFTEST_WAIT_MS) {
+        selftest.pendingAt = 0;
+        selftest.ok = false;
+        selftest.failStreak++;
+        selftest.lastFailAt = tNow;
+        selftest.note = 'no-loopback';
+        traceCmd('selftest', 'fail#' + selftest.failStreak);
+        if (selftest.failStreak >= 2) {
+          traceCmd('hub', 'rediscover');
+          hub.port = 0; /* 下一拍全端口重探（discoverHub 粘性重建） */
+          selftest.failStreak = 0;
+        }
+      }
+      if (!selftest.pendingAt && tNow - Math.max(selftest.lastOkAt, selftest.lastFailAt) > SELFTEST_MS) {
+        var stOk = await jpost(hub.url('/api/cmd'), { cmd: '_selftest', t: tNow });
+        if (stOk && stOk.ok === true) selftest.pendingAt = tNow;
+        else { traceCmd('selftest', 'post-fail'); }
+      }
+
       /* 3) 拉页面命令（v8：无系统侧事件——媒体键全由 InfLink 直达网易云）
          v8.0.1 协议律：hub 实物返回 [{"_id":N,"raw":{...}}]，raw 是对象；
          旧代码 JSON.parse(item.raw) 把对象转 "[object Object]" 必抛 →
          全部命令被静默丢弃（e2e mock 与实物协议分叉漏网）。双形兼容：
-         v8.0.7：URL 携带实例 id，hub 租约门校验非持有者拦为 [] */
+         v8.0.7：URL 携带实例 id，hub 租约门校验非持有者拦为 []
+         v8.0.8：拉取失败不再静默——null/非数组落 trace 'pull-fail' +
+         poll.lastNullAt（「桥在拉但永远空」从猜测变成可见事实） */
       var cmds = await jget(hub.url('/api/cmd?id=' + POLL_ID), 2000);
+      pollStat.lastGetAt = nowMs();
       if (Array.isArray(cmds)) {
+        pollStat.drains++;
+        pollStat.lastCount = cmds.length;
+        pollStat.delivered += cmds.length;
+        pollStat.emptyStreak = cmds.length ? 0 : (pollStat.emptyStreak + 1);
         for (var c = 0; c < cmds.length; c++) {
           var item = cmds[c];
           try {
@@ -1165,8 +1235,16 @@
             }
             if (obj && obj._id == null && item && item._id != null) obj._id = item._id;
             execCommand(obj);
-          } catch (e) { /* 坏命令跳过 */ }
+          } catch (e) {
+            /* v8.0.8：坏命令不再纯静默——落 trace 便于诊断（含 raw 解析抛） */
+            traceCmd('badcmd', (item && item._id != null ? '#' + item._id : '?') + ' ' + (e && e.message ? String(e.message).slice(0, 40) : 'parse'));
+          }
         }
+      } else {
+        pollStat.lastNullAt = nowMs();
+        pollStat.emptyStreak++;
+        /* v8.0.8：拉取失败（解析抛/网络空）不再静默——每 5 次落一条防刷屏 */
+        if (pollStat.emptyStreak % 5 === 1) traceCmd('pull-fail', 'non-array');
       }
 
       /* 4) 读真值 → 5) 推状态（页面唯一数据源） */

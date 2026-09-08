@@ -1,5 +1,19 @@
 /* ============================================================================
- * 「初始」音乐面板数据客户端 v8.0.7（第八代，InfLink-rs 适配版）
+ * 「初始」音乐面板数据客户端 v8.0.8（第八代，InfLink-rs 适配版）
+ *
+ * v8.0.8 排空 JSON 根因修复配套 + 链路自证透传（hubsim 协议级复现实锢）：
+ *   控制失效真正根因 = hub dataDrainCmds 漏写收尾 '}'（v8.0.0~v8.0.7 八代
+ *   皆然），桥 r.json() 必抛 → 命令随排空灰飞烟灭；mock e2e 永远测不出。
+ *   桥/hub 8.0.8 已修；本版配套：
+ *   ①PLUGIN_VER_MIN 8.0.7→8.0.8（旧桥必须升级，面板芯片如实提示）；
+ *   ②stateAge 新鲜度透传（桥状态 ts 与本机时差）——「看到的状态是不是
+ *     活的」从猜测变成数字；持续陈旧（>8s×4 拍）自动全端口重探；
+ *   ③桥侧自证（selftest）与轮询计数（poll）透传进诊断口——命令回路
+ *     是否闭合、桥在拉但永远空，一眼定层；
+ *   ④GET /api/hublog 证据端点接入诊断口（环形请求日志尾部），页面 POST
+ *     是否入队、桥是否排空、租约归谁，一屏取证；
+ *   ⑤postTrace 增加 recv 标记——POST ok 但 6s 内无桥侧 'cmd' 轨迹的命令
+ *     标 no-recv（链路断层的页面侧直接证据）。
  *
  * v8.0.7 轮询租约 + 桥侧轨迹透传（用户实机 cmdTrace 取证）：
  *   PLUGIN_VER_MIN 8.0.6→8.0.7 —— 实机证据：页面 POST /api/cmd 全部 ok、
@@ -58,12 +72,17 @@ export const SMTC_PORTS: readonly number[] = [26901, 26902, 26903];
 
 const HUB_NAME = "chushi-music-hub";
 const HUB_VER_MIN = "8.0.0";
-const PLUGIN_VER_MIN = "8.0.7";
-const CLIENT_VER = "8.0.7";
+const PLUGIN_VER_MIN = "8.0.8";
+const CLIENT_VER = "8.0.8";
 const POLL_MS = 1000;
 const RETRY_MS = 1500;
 const TIMEOUT_MS = 2200;
 const TRUTH_STALE_SEC = 6;
+/** v8.0.8 桥状态新鲜度：超过此值（秒）视为冻结嫌疑，连续 staleStreakMax 拍重探 */
+const STATE_STALE_MS = 8000;
+const STATE_STALE_STREAK_MAX = 4;
+/** v8.0.8 控制回执窗口：POST ok 后等桥侧 'cmd' 轨迹的最长时间（ms） */
+const RECV_WAIT_MS = 6000;
 
 /** 单条媒体快照（真值直显产物） */
 export interface SmtcTrack {
@@ -124,6 +143,14 @@ export interface SmtcState {
   cmdTrace: SmtcCmdTraceEntry[]; // 桥侧执行轨迹（v8.0.7，环形 20 条）
   who: string;             // 桥实例身份（v8.0.7 租约持有者标识）
   lease: string;           // 租约态：holder/standby/legacy（v8.0.7）
+  /** v8.0.8 桥状态年龄（秒）：本机时刻 - 桥状态 ts；持续 >8s = 冻结嫌疑 */
+  stateAge: number;
+  /** v8.0.8 桥侧回路自证：ok=false = 命令回路断裂（已自动重探） */
+  selftest: { ok: boolean; failStreak: number; at: number; note: string } | null;
+  /** v8.0.8 桥轮询计数：桥在拉但永远空（emptyStreak 增长 + delivered 恒 0）= 队列断层 */
+  poll: { drains: number; delivered: number; emptyStreak: number; lastCount: number; lastGetAt: number; lastNullAt: number } | null;
+  /** v8.0.8 hub 请求日志尾部（/api/hublog 环形收据，诊断口取证用） */
+  hubLog: string[];
   seekNote: string;        // seek 结果提示（自动消失）
   needsUpdate: boolean;    // needsPlugin || needsBridge
   needsPlugin: boolean;    // 音乐桥插件过旧/缺失
@@ -242,6 +269,32 @@ function cleanCmd(raw: unknown): { last: SmtcCmdLast | null; trace: SmtcCmdTrace
   return { last: outLast, trace };
 }
 
+/** v8.0.8 桥侧回路自证清洗 */
+function cleanSelftest(raw: unknown): SmtcState["selftest"] {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  if (clipNum(o.at) <= 0 && o.ok !== true) return null;
+  return {
+    ok: o.ok === true,
+    failStreak: clipNum(o.failStreak),
+    at: clipNum(o.at),
+    note: clipStr(o.note, 24),
+  };
+}
+
+/** v8.0.8 桥轮询计数清洗 */
+function cleanPoll(raw: unknown): SmtcState["poll"] {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  return {
+    drains: clipNum(o.drains),
+    emptyStreak: clipNum(o.emptyStreak),
+    lastCount: clipNum(o.lastCount),
+    lastGetAt: clipNum(o.lastGetAt),
+    lastNullAt: clipNum(o.lastNullAt),
+  };
+}
+
 async function getJson(url: string): Promise<Record<string, unknown> | null> {
   try {
     const ctrl = new AbortController();
@@ -278,8 +331,14 @@ class SmtcClient {
   private seekNote = "";
   private seekNoteAt = 0;
 
-  /** v8.0.4 控制可观测：页面端命令 POST 轨迹（诊断口消费） */
-  private ctlLog: Array<{ at: number; cmd: string; ok: boolean; port: number }> = [];
+  /** v8.0.4 控制可观测：页面端命令 POST 轨迹（诊断口消费）；v8.0.8 附 recv 标记 */
+  private ctlLog: Array<{ at: number; cmd: string; ok: boolean; port: number; recv?: boolean }> = [];
+  /** v8.0.8 桥状态陈旧连续拍数（冻结嫌疑 → 全端口重探） */
+  private staleStreak = 0;
+  /** v8.0.8 节拍计数（hublog 降频拉取） */
+  private beats = 0;
+  /** v8.0.8 hub 日志尾部环形（诊断口透传） */
+  private hubLogBuf: string[] = [];
 
   private cbs: Cb[] = [];
   private tickCbs: Cb[] = [];
@@ -298,6 +357,10 @@ class SmtcClient {
     cmdTrace: [],
     who: "",
     lease: "",
+    stateAge: -1,
+    selftest: null,
+    poll: null,
+    hubLog: [],
     seekNote: "",
     needsUpdate: true,
     needsPlugin: false,
@@ -360,7 +423,7 @@ class SmtcClient {
     } catch {
       ok = false;
     }
-    this.ctlLog.push({ at: Date.now(), cmd, ok, port });
+    this.ctlLog.push({ at: Date.now(), cmd, ok, port, recv: ok ? false : undefined });
     if (this.ctlLog.length > 12) this.ctlLog.shift();
     return ok;
   }
@@ -381,7 +444,9 @@ class SmtcClient {
             ver: CLIENT_VER,
             note: "页面侧诊断口（桥侧口在网易云主页面；side 字段区分）。" +
               "cmdTrace=桥侧执行轨迹（桥收到命令后走到哪一路）/ " +
-              "postTrace=页面侧控制 POST 轨迹 / who+lease=桥实例身份与租约态",
+              "postTrace=页面侧控制 POST 轨迹（recv:false=POST ok 但桥 6s 内未收到=no-recv 断层证据）/ " +
+              "who+lease=桥实例身份与租约态 / stateAge=桥状态年龄秒（>8=冻结嫌疑）/ " +
+              "selftest=命令回路自证 / poll=桥轮询计数 / hubLog=枢纽请求日志尾部",
             hub: { port: client.activePort, connected: s.connected, version: s.version },
             pluginVer: s.pluginVer,
             smtcVer: s.smtcVer,
@@ -392,6 +457,10 @@ class SmtcClient {
             postTrace: client.ctlLog.slice(),
             who: s.who,
             lease: s.lease,
+            stateAge: s.stateAge,
+            selftest: s.selftest,
+            poll: s.poll,
+            hubLog: s.hubLog.slice(),
             lyricReady: !!(s.lyric && (s.lyric.yrc || s.lyric.lrc)),
             lyricSongId: s.lyric ? s.lyric.songId : 0,
             lyricSource: s.lyric ? s.lyric.source : "",
@@ -438,6 +507,10 @@ class SmtcClient {
       cmdTrace: [],
       who: "",
       lease: "",
+      stateAge: -1,
+      selftest: null,
+      poll: null,
+      hubLog: [],
       needsUpdate: true,
       needsBridge: true,
       engineOld: false,
@@ -480,6 +553,47 @@ class SmtcClient {
       const cmdTrace = cmd.trace;
       const who = clipStr(j.who, 48);
       const lease = clipStr(j.lease, 12);
+      /* v8.0.8 桥状态新鲜度/自证/轮询计数：链路断层一眼定层 */
+      const stateTs = clipNum(j.ts);
+      const now0 = Date.now();
+      const stateAge = stateTs > 0 ? Math.max(0, (now0 - stateTs) / 1000) : -1;
+      const selftest = cleanSelftest(j.selftest);
+      const poll = cleanPoll(j.poll);
+
+      /* v8.0.8 持续陈旧（>8s×4 拍）= 粘住的端口背后是冻结桥/僵尸 hub
+         → 全端口重探（下一拍 discover() 从头开始） */
+      if (stateTs > 0 && now0 - stateTs > STATE_STALE_MS) {
+        this.staleStreak++;
+        if (this.staleStreak >= STATE_STALE_STREAK_MAX && this.activePort !== null) {
+          this.staleStreak = 0;
+          this.activePort = null;
+          throw new Error("state-stale-rediscover");
+        }
+      } else {
+        this.staleStreak = 0;
+      }
+
+      /* v8.0.8 no-recv 标记：POST ok 但 RECV_WAIT_MS 内无桥侧 'cmd' 轨迹 */
+      for (const e of this.ctlLog) {
+        if (e.recv === true || e.ok !== true) continue;
+        const got = cmdTrace.some((t) => t.k === "cmd" && t.d.startsWith(e.cmd + "#") && t.at >= e.at);
+        if (got) e.recv = true;
+        else if (now0 - e.at > RECV_WAIT_MS) e.recv = false;
+      }
+
+      /* v8.0.8 hub 日志尾部：每 3 拍拉一次（证据端点，降频） */
+      this.beats++;
+      if (this.beats % 3 === 0) {
+        const hl = await getJson(`http://127.0.0.1:${port}/api/hublog`);
+        if (hl && hl.ok === true && Array.isArray(hl.log)) {
+          const lines: string[] = [];
+          for (const it of (hl.log as unknown[]).slice(-12)) {
+            if (Array.isArray(it) && it.length >= 2) lines.push(`${String(it[1])}`);
+          }
+          if (lines.length) this.hubLogBuf = lines;
+        }
+      }
+
       /* v8 语义：smtcVer = InfLink-rs 版本（桥心跳携带；空 = 未装/未启用） */
       const smtcVer = clipStr(j.inflinkVer, 16) || clipStr(j.smtcVer, 16);
 
@@ -544,6 +658,10 @@ class SmtcClient {
         cmdTrace: cmdTrace.length ? cmdTrace : this.state.cmdTrace,
         who: who || this.state.who,
         lease: lease || this.state.lease,
+        stateAge,
+        selftest,
+        poll,
+        hubLog: this.hubLogBuf.slice(),
         seekNote: this.seekNote,
         needsUpdate: needsPlugin || needsBridge,
         needsPlugin,

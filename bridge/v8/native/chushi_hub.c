@@ -1,5 +1,16 @@
 /* ============================================================================
- * ChuShi Music Hub 8.0.7 —— 纯 winsock HTTP 中继（轮询租约：命令队列唯一消费者）
+ * ChuShi Music Hub 8.0.8 —— 纯 winsock HTTP 中继（排空 JSON 修复 + 请求日志）
+ *
+ * v8.0.8（hubsim 协议级复现实锢）：dataDrainCmds 拼接排空数组时从未写入
+ *   外层对象的收尾 '}'——每条命令都拼成 {"_id":N,"raw":{...}（缺收尾），
+ *   整个数组非法 → 桥 r.json() 必抛 → 静默 null → Array.isArray(null)=false →
+ *   循环不执行 → cmdTrace 永远空、命令随排空灰飞烟灭。此 bug 自 v8.0.0 起在
+ *   每一代发布二进制里都存在（反汇编 0x7d 存储指令计数 = 0 实锢），历次 e2e
+ *   用的是自拼正确 JSON 的 mock hub，永远测不出（mock 假绿第二课）。
+ *   本版：①每条 raw 体后补写收尾 '}'（need 预算原本就含此字节，纯漏写）；
+ *   ②新增 GET /api/hublog——内存环形请求日志（方法/路径/体长 + 入队/排空/
+ *   租约收据），页面诊断口一键取证，未来任何断链一屏定层；
+ *   ③POST /api/cmd 记录入队收据（体长+体头 60 字节）。
  *
  * v8.0.7（用户实机 cmdTrace 取证：POST 全 ok + 桥状态活 + 回执从未出现）：
  *   GET /api/cmd 排空式先到先得——只要存在第二个轮询者（网易云残留进程里的
@@ -53,7 +64,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define PLUGIN_VERSION "8.0.7"
+#define PLUGIN_VERSION "8.0.8"
 #define HUB_NAME_S "chushi-music-hub"
 #define HUB_MUTEX_NAMEW L"ChuShi-Music-Hub-8-Singleton"
 
@@ -224,7 +235,11 @@ static void dataEnqueueCmd(const char* body, DWORD len) {
     ReleaseMutex(g_dataMutex);
 }
 
-/* 排空：拼成 JSON 数组（每项 {"_id":N,"raw":<原体>}） */
+/* 排空：拼成 JSON 数组（每项 {"_id":N,"raw":<原体>}）
+   v8.0.8 生死修复：raw 体后必须补写收尾 '}'——v8.0.0~v8.0.7 八代
+   全部漏写该字节，整个数组非法 JSON，桥端 r.json() 必抛 → 命令随
+   排空灰飞烟灭（hubsim 协议级复现 + 发布二进制反汇编 0x7d 计数=0 实锢） */
+static DWORD g_drainLastN = 0;   /* 最近一次排空条数（hublog 收据用） */
 static DWORD dataDrainCmds(char* out, DWORD cap) {
     DWORD used = 0;
     out[0] = '[';
@@ -233,24 +248,57 @@ static DWORD dataDrainCmds(char* out, DWORD cap) {
     int drained = g_cmdCount;
     for (int i = 0; i < drained; i++) {
         int idx = (g_cmdHead + i) % CMD_QUEUE_MAX;
-        /* {"_id":4294967295,"raw": } */
+        /* {"_id":4294967295,"raw": →体← } */
         char head[40];
         int hn = _snprintf(head, sizeof(head), "%s{\"_id\":%lu,\"raw\":",
                            i ? "," : "", (unsigned long)g_cmdQueue[idx].id);
         if (hn < 0) hn = 0;
-        DWORD need = (DWORD)hn + g_cmdQueue[idx].len + 1;
+        DWORD need = (DWORD)hn + g_cmdQueue[idx].len + 1; /* +1 = 收尾 '}' */
         if (used + need + 1 > cap) { drained = i; break; } /* 容量守卫 */
         memcpy(out + used, head, (DWORD)hn);
         used += (DWORD)hn;
         memcpy(out + used, g_cmdQueue[idx].body, g_cmdQueue[idx].len);
         used += g_cmdQueue[idx].len;
+        out[used++] = '}'; /* v8.0.8 生死一字：闭合外层对象 */
     }
     g_cmdHead = (g_cmdHead + drained) % CMD_QUEUE_MAX;
     g_cmdCount -= drained;
+    g_drainLastN = (DWORD)drained;
     ReleaseMutex(g_dataMutex);
     out[used++] = ']';
     out[used] = 0;
     return used;
+}
+
+/* ------------------------------------------------------------------ */
+/* v8.0.8 请求日志环形（/api/hublog 证据端点）                           */
+/* ------------------------------------------------------------------ */
+#define HUBLOG_MAX 48
+static char     g_hubLog[HUBLOG_MAX][128];
+static DWORD    g_hubLogTick[HUBLOG_MAX];
+static int      g_hubLogHead = 0;   /* 下一个写入位 */
+static int      g_hubLogCount = 0;
+static DWORD    g_hubLogSeq = 0;
+
+static void hubLogAdd(const char* fmt, ...) {
+    char line[128];
+    va_list args;
+    va_start(args, fmt);
+    int n = _vsnprintf(line, sizeof(line) - 1, fmt, args);
+    va_end(args);
+    if (n < 0) n = 0;
+    if (n > (int)sizeof(line) - 1) n = (int)sizeof(line) - 1;
+    /* 净化：行内双引号换单引号（嵌入 /api/hublog JSON 字符串不破坏结构） */
+    for (int k = 0; k < n; k++) { if (line[k] == '"') line[k] = '\''; if ((unsigned char)line[k] < 0x20) line[k] = ' '; }
+    WaitForSingleObject(g_dataMutex, 200);
+    int slot = g_hubLogHead;
+    memcpy(g_hubLog[slot], line, (size_t)n + 1);
+    g_hubLog[slot][sizeof(g_hubLog[0]) - 1] = 0;
+    g_hubLogTick[slot] = tickNow();
+    g_hubLogHead = (g_hubLogHead + 1) % HUBLOG_MAX;
+    if (g_hubLogCount < HUBLOG_MAX) g_hubLogCount++;
+    g_hubLogSeq++;
+    ReleaseMutex(g_dataMutex);
 }
 
 /* ------------------------------------------------------------------ */
@@ -298,11 +346,13 @@ static int pollClaim(const char* body, DWORD bodyLen, char* resp, int respCap) {
     }
     DWORD now = tickNow();
     int granted = 0;
+    int logKind = 0; /* 0=不记 1=first 2=takeover */
     WaitForSingleObject(g_dataMutex, 1000);
     if (!g_pollSeen || strncmp(id, g_pollId, POLL_ID_MAX) == 0 || !leaseActive(now)) {
         if (!g_pollSeen || strncmp(id, g_pollId, POLL_ID_MAX) != 0) {
             logf_line("[poll] holder <- %s%s", id,
                       g_pollSeen ? " (takeover)" : " (first)");
+            logKind = g_pollSeen ? 2 : 1;
         }
         _snprintf(g_pollId, sizeof(g_pollId), "%s", id);
         g_pollExpires = now + POLL_LEASE_MS;
@@ -310,6 +360,9 @@ static int pollClaim(const char* body, DWORD bodyLen, char* resp, int respCap) {
         granted = 1;
     }
     ReleaseMutex(g_dataMutex);
+    /* v8.0.8：锁外记账（hubLogAdd 内部也持 dataMutex，不依赖递归加锁语义） */
+    if (logKind == 1) hubLogAdd("[poll] holder <- %s (first)", id);
+    else if (logKind == 2) hubLogAdd("[poll] holder <- %s (takeover)", id);
     _snprintf(resp, respCap, "{\"ok\":true,\"lease\":%s,\"ver\":\"%s\"}",
               granted ? "true" : "false", PLUGIN_VERSION);
     return granted;
@@ -386,6 +439,34 @@ static void handleRequest(SOCKET s, const char* req, DWORD reqLen) {
 
     logf_line("[http] %s %s (%lu)", method, path, (unsigned long)bodyLen);
 
+    /* v8.0.8 hublog 端点自身不记环（防自涨淹没） */
+    if (!(_strnicmp(path, "/api/hublog", 11) == 0)) {
+        hubLogAdd("#%lu %s %s (%lu)", (unsigned long)(g_hubLogSeq + 1),
+                  method, path, (unsigned long)bodyLen);
+    }
+
+    if (_stricmp(method, "GET") == 0 && strncmp(path, "/api/hublog", 11) == 0) {
+        /* 证据端点：环形日志 + 队列态 + 租约态，一屏定层 */
+        static char out[16 + HUBLOG_MAX * 160 + 128];
+        int n = _snprintf(out, sizeof(out), "{\"ok\":true,\"ver\":\"%s\",\"seq\":%lu,\"queue\":%d,\"pollId\":\"%s\",\"log\":[",
+                          PLUGIN_VERSION, (unsigned long)g_hubLogSeq,
+                          g_cmdCount, g_pollId);
+        if (n < 0) n = 0;
+        WaitForSingleObject(g_dataMutex, 400);
+        for (int i = 0; i < g_hubLogCount && n < (int)sizeof(out) - 200; i++) {
+            int idx = (g_hubLogHead - g_hubLogCount + i + HUBLOG_MAX * 2) % HUBLOG_MAX;
+            int m = _snprintf(out + n, sizeof(out) - (size_t)n, "%s[\"%lu\",\"%s\"]",
+                              i ? "," : "", (unsigned long)g_hubLogTick[idx], g_hubLog[idx]);
+            if (m < 0) continue;
+            n += m;
+        }
+        ReleaseMutex(g_dataMutex);
+        int m2 = _snprintf(out + n, sizeof(out) - (size_t)n, "]}");
+        if (m2 > 0) n += m2;
+        respondJson(s, 200, out, (DWORD)n);
+        return;
+    }
+
     if (_stricmp(method, "OPTIONS") == 0) {
         respondPreflight(s);
         return;
@@ -433,15 +514,22 @@ static void handleRequest(SOCKET s, const char* req, DWORD reqLen) {
         if (gated) {
             /* v8.0.7 租约模式下的非持有者（旧桥残留/多进程注入的第二实例）：
                回空数组——结构性杜绝抢排，旧实例再也无法偷走命令 */
+            hubLogAdd("[gate] %s -> []", path);
             respondJson(s, 200, "[]", 2);
             return;
         }
         DWORD n = dataDrainCmds(out, sizeof(out) - 2);
+        hubLogAdd("[drain] %s n=%lu json=%.*s", path,
+                  (unsigned long)g_drainLastN,
+                  (int)(n > 80 ? 80 : n), out);
         respondJson(s, 200, out, n);
         return;
     }
 
     if (_stricmp(method, "POST") == 0 && strncmp(path, "/api/cmd", 8) == 0) {
+        /* v8.0.8 入队收据：体长为 0（异常请求）也会在此现形 */
+        hubLogAdd("[enqueue] len=%lu body=%.*s", (unsigned long)bodyLen,
+                  (int)(bodyLen > 60 ? 60 : bodyLen), bodyLen ? body : "");
         dataEnqueueCmd(body, bodyLen);
         const char* ok = "{\"ok\":true}";
         respondJson(s, 200, ok, 11);
