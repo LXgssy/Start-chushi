@@ -908,3 +908,24 @@ Work Log:
 - 【文档】AI-HANDOFF：坑 27 重大纠正（struct 事实+崩溃实锤+判断律「凡 struct/enum/delegate 不可激活」）+ 坑 29（CrashReport 符号化陷阱：非导出函数全归最近导出名，必须 RVA 反汇编定位）+ 坑 30（native-log.txt 通道）；任务 A/B 改为 v7.0.1 验收与日志优先排障
 - 【交付】download/v7.0.1/{ChuShi-SMTC-Manager-7.0.1.plugin, SHA256SUMS.txt, 使用说明-崩溃修复v7.0.1.md}；git 推送；Release v7.0.1；文叔叔
 - 【交付链接实录】文叔叔 https://c.wss.ink/f/ktj46tnrin9（崩溃修复包 zip：plugin+说明+SHA256）；Release https://github.com/LXgssy/Start-chushi/releases/tag/v7.0.1（双资产 SHA-256 ALL OK）；commit 961efec 推送 main
+
+---
+Task ID: 95
+Agent: main (Super Z)
+Task: 用户报告 v7.0.1 依旧崩溃（Windows.Media.MediaControl.dll AV，栈 smtc_native.dll+266E）+ 疑问「是否与网易云自带 SMTC 冲突」——反汇编定位根因并发布 v7.0.2 终修
+
+Work Log:
+- 【现场考古】环境再清理（工具链/.pkgtmp 全丢）：远端 main 14f626d（Task 94 交付线）在位；git worktree 挂 .wt-v7；llvm-mingw 20260826-ucrt 重下（79MB）恢复编译链
+- 【反汇编定位】随包 DLL（.def 仅导出 BetterNCMPluginMain → 崩溃栈 +266E 系「最近导出符号」归因，真实 IP 在 smtc_thread/apply_op）；objdump 精确命中：0x18000266E = `call *0x60(%rax)` 返回地址，后随 apply_op.lastPos 首次日志与 g_updApplied 自增 → 崩溃点 = UpdateTimelineProperties 内部；更早的 GetForWindow/put_IsEnabled*/元数据/状态调用全部已成功（能走到时间线分支即证明会话已建立、插件B 推送链路也通）
+- 【根因实锤·三级证据链】①windows-rs master 投影源（crates/libs/windows/src/Windows/Media/mod.rs）：SystemMediaTransportControlsTimelineProperties = 可激活 runtime class（L2513 IUnknown 结构 + L2520 FactoryCache + L2577 RuntimeName），UpdateTimelineProperties 参数 = ISystemMediaTransportControlsTimelineProperties 接口指针（L1055 vtbl 第 12 槽 + L2254 Param<类>）——v7.0.1「struct 值类型栈上直传」误判实锤：系统把栈结构体前 8 字节（startTime.Duration）当虚表指针解引用 → 必崩，与崩溃栈完全吻合；②Microsoft SDK 原版 SystemMediaTransportControlsInterop.idl（thomasxm/BOAZ_beta 镜像 10.0.22621）核实 Interop IID DDB0472D 与 GetForWindow 签名；③Firefox 官方 WindowsSMTCProvider.cpp 同 IID 实用背书
+- 【全量复核】SMTC/SMTC2/DisplayUpdater/MusicProps(2)/EventArgs vtable 槽位序与全部 IID 对照 windows-rs 逐项吻合（getter 在前/IsStop 在 IsPause 前/PropertyChanged 在末）；两个事件特化 GUID 用 pinterface 官方盐算法独立复算吻合：sha1(bytes({11F47AD5-7B73-42C0-ABAE-878B1E16ADEE}) + "pinterface({9DE1C534-...};rc(...);rc(...))") 后 from_be 组 GUID（过程中三次试错：TypedEventHandler 基 GUID 是 9de1c5**34** 非 c535；版本位在 hash[6] 非 hash[7]；uuid bytes_le 会反转前三组字节序）
+- 【v7.0.2 修复】apply_op 时间线分支重写：RoActivateInstance(CLSID_TIMELINE) → QI IID_TimelineProps({5125316A-C3A2-475B-8507-93534DC88F15}) → 五 putter（Start/End/Min/Max=0, Position=pos）→ UpdateTimelineProperties(接口指针)；激活/QI 失败回退自实现 CCW TpObj（IInspectable+接口 10 槽位全实现+IAgileObject，引用计数 HeapAlloc/HeapFree）；事件 handler QI 增答 IAgileObject（{94EA2B94-E9CC-49E0-C0FF-EE64CA8F5B90}，DirectN 投影实锤，对齐 C++/WinRT 投影行为）；日志加 src=os/ccw 溯源
+- 【构建门】build-smtc-702.py 20/20 全绿：G8a RoInitialize+RoActivateInstance 导入在位 / G8b TimelineProperties 宽字符串 / G8c IID_TimelineProps GUID 字节 / G8d objdump 反汇编断言「连续间接调用子序列 *0x38,*0x48,*0x58,*0x68,*0x78 后接 *0x60」（首版门按全量集合匹配误报，改滑窗子序列后过）；产物 ChuShi-SMTC-Manager-7.0.2.plugin 32427B sha256 295a024d...
+- 【答复用户疑问】与网易云自带 SMTC 无关：崩溃在自己 DLL 的 ABI 传参 bug；多 SMTC 会话可共存（互不干扰），网易云开关状态不影响本插件（建议关掉仅避免系统出现两张重复媒体卡片）
+- 【文档】AI-HANDOFF 坑 27 终局重写（含判断律修正：类 vs struct 查 windows-rs 有无 FactoryCache/RuntimeName）+ 验收任务节 A 更新为 v7.0.2
+
+Stage Summary:
+- 根因（三代崩溃完整因果链）：v7.0.0 未初始化 apartment 激活 TimelineProperties（combase AV）→ v7.0.1 误诊为 struct 栈上直传（Windows.Media.MediaControl.dll AV）→ v7.0.2 以 COM 对象指针传入（os 主路径 + ccw 兜底）= 终修
+- 新律：①WinRT ABI 里「类参数」一律传接口指针（windows-rs Param<类>.abi() = 默认接口指针），手写 vtable 禁止把值类型当对象传；②崩溃栈符号按「最近导出符号」归因，单导出 DLL 的 +offset 必须反汇编定位真实 IP；③pinterface GUID 复算三坑（基 GUID/版本位/字节序）——复核特化 IID 必须按官方盐算法跑，不能靠记忆
+- 产物：ChuShi-SMTC-Manager-7.0.2.plugin（B/C/前端零改动，协议不变）
+- 待办：v7.0.2 真机验收（用户）→ 通过后继续 AI-HANDOFF 任务 B/C（插件列表/前端/预设包既有待办不变）

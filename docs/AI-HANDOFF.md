@@ -159,17 +159,27 @@ ChuShi-v7.0.0-AllInOne.zip / SHA256SUMS.txt。
     ISystemMediaTransportControls 是 get_DisplayUpdater 属性 +
     IsRecordEnabled 在列 + Previous 在 Next 之前——**必须按 SDK 头
     实际槽位序**写 vtable，凭记忆写必死（本代逐槽位对照 16299 头文件）。
-27. **（v7.0.1 重大纠正！）TimelineProperties 是 struct 不是接口**：
-    v7.0.0 曾误判为「接口、RoActivateInstance 后逐 put」——**这个结论是错的，
-    且直接导致真机崩溃**（网易云进程 combase!RoActivateInstance AV，栈
-    smtc_native.dll+0x235F 实锤）。事实：
-    `SystemMediaTransportControlsTimelineProperties` 是 WinRT struct（值类型，
-    5×TimeSpan：StartTime/EndTime/MinSeekTime/MaxSeekTime/Position），没有
-    HSTRING 类名、没有激活工厂、没有接口——只能栈上构造后按 ABI 传指针给
-    `ISystemMediaTransportControls2::UpdateTimelineProperties`（第 12 槽，
-    windows-rs 投影已验证）。判断律：凡 metadata 里的 struct/enum/delegate
-    一律不可激活；RoActivateInstance/RoGetActivationFactory 只对 runtime
-    class 合法。
+27. **（v7.0.2 终局实锤，推翻 v7.0.1 结论！）TimelineProperties 是【可激活 runtime class】，UpdateTimelineProperties 的 ABI 参数是接口指针**：
+    v7.0.0 误判为接口却未初始化 apartment 就 RoActivateInstance（combase AV）；
+    v7.0.1 又误判为「struct 值类型」栈上直传——**这个结论也是错的且继续崩**
+    （网易云 Windows.Media.MediaControl.dll AV，栈 smtc_native.dll+0x266E 实锤，
+    objdump 定位 = apply_op 里 UpdateTimelineProperties 的 call *0x60 内部）。
+    真相（windows-rs master 投影源逐行实锤）：
+    `SystemMediaTransportControlsTimelineProperties` 是【可激活 runtime class】
+    （FactoryCache 默认构造 + RuntimeName），默认接口 =
+    `ISystemMediaTransportControlsTimelineProperties`
+    （{5125316A-C3A2-475B-8507-93534DC88F15}，IInspectable + StartTime/EndTime/
+    MinSeekTime/MaxSeekTime/Position 五对 get/put，getter 在前，无 LastUpdatedTime）；
+    `UpdateTimelineProperties` 参数 = 该接口的 COM 对象指针——传裸栈结构体 =
+    系统把前 8 字节当虚表指针解引用 → 必崩。v7.0.2 正解：RoActivateInstance(类名)
+    → QI → 逐属性 put → UpdateTimelineProperties(接口指针)；激活失败回退自实现
+    CCW（全套 10 槽位 + IAgileObject）。判断律（修正版）：凡 metadata 里的
+    struct/enum/delegate 一律不可激活；但「类 vs struct」不要凭记忆判——查
+    windows-rs 投影源有没有 `FactoryCache`/`RuntimeName`，有则是类、可激活、
+    ABI 传接口指针。v7.0.2 已把全部 IID/vtable 逐项对照 windows-rs master +
+    Microsoft SDK 原版 SystemMediaTransportControlsInterop.idl + pinterface 盐
+    算法（sha1({11F47AD5-7B73-42C0-ABAE-878B1E16ADEE} + 签名串)后 from_be
+    组 GUID）复核通过。
 28. **（v7 新）事件 handler 特化 GUID 必须精确**：
     ITypedEventHandler<SMTC,ButtonPressedArgs> =
     0557e996-7b23-5bae-aa81-ea0d671143a4；
@@ -214,18 +224,19 @@ ChuShi-v7.0.0-AllInOne.zip / SHA256SUMS.txt。
 
 ## 下一步开发任务（按优先级）
 
-### A. v7.0.1 真机验收（最高优先，等用户反馈；本轮 = 崩溃紧急修复）
-0. 前情：用户真机实锤 v7.0.0 播歌必崩（combase!RoActivateInstance AV，
-   smtc_native.dll+0x235F = apply_op 里对 TimelineProperties struct 的非法
-   激活）。v7.0.1 已修复（栈上构造 struct + 全 GUID/vtable 对照 windows-rs
-   验证 + Host 让位自愈 + native-log.txt 日志）。
-1. 只需换插件A：删旧 ChuShi-SMTC-Manager-7.0.0.plugin → 装入
-   7.0.1（B/C 两个 7.0.0 不动）→ **完全重启网易云**。
-2. 播歌不崩；Windows 音量弹层/锁屏出独立卡片（封面/标题/进度每秒走/可拖/
-   媒体键）；「初始」面板真值/逐字/拖动回执。
+### A. v7.0.2 真机验收（最高优先，等用户反馈；本轮 = 时间线 ABI 根因修复）
+0. 前情：v7.0.1 装上后播歌仍崩（Windows.Media.MediaControl.dll AV，
+   smtc_native.dll+0x266E 反汇编实锤 = UpdateTimelineProperties 栈结构体直传）。
+   v7.0.2 已修复：TimelineProperties 以 COM 对象传入（RoActivateInstance 主路径
+   + CCW 兜底），20/20 构建门全绿（含 G8d 反汇编槽位断言）。
+1. 只需换插件A：删旧 ChuShi-SMTC-Manager-7.0.1.plugin → 装入
+   7.0.2（B/C 两个 7.0.0 不动）→ **完全重启网易云**。
+2. 验收点：播歌不崩；Windows 音量弹层/锁屏出独立卡片（封面/标题/进度每秒走/
+   可拖/媒体键）；「初始」面板真值/逐字/拖动回执；网易云自带 SMTC 开关无关。
 3. 若异常：**直接要 native-log.txt**
    （C:\betterncm\plugins_runtime\ChuShi-SMTC-Manager\native-log.txt），
-   boot/host/smtc/http 全链日志都在里面，按行定位，不再盲猜。
+   boot/host/smtc/http/upd 全链日志都在里面（upd 行含 src=os/ccw 溯源），
+   按行定位，不再盲猜。
 4. 页脚仍是 API v7.0.0 · 管理 v7.0.0（本轮未动前端，正常）。
 
 ### B. SMTC 原生 DLL 真机排障路径（若卡片不出；v7.0.1 首选日志文件）

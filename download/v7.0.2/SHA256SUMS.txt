@@ -1,0 +1,1 @@
+295a024d25e8c4ea2c8fb88398299775df7ee5a338b056390362cab922b3b890  ChuShi-SMTC-Manager-7.0.2.plugin
