@@ -2,8 +2,8 @@
 """文叔叔匿名上传 v1.1.2 交付包（基于实测参考实现改造）"""
 import base58, hashlib, json, sys, time, base64
 import requests
-from Cryptodome.Cipher import DES
-from Cryptodome.Util import Padding
+from Crypto.Cipher import DES
+from Crypto.Util import Padding
 
 BASE = "https://www.wenshushu.cn"
 S = requests.Session()
