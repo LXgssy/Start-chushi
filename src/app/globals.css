@@ -126,12 +126,30 @@
     -webkit-user-select: none;
     user-select: none;
     -webkit-touch-callout: none;
-    /* 滚动条槽位常驻（v1.8.0）：磁贴删到行数变少时内容可能从「超出视口」
-       缩回视口内，Windows 经典滚动条出现/消失会改变布局宽度（±15px），
-       整页居中内容随之水平瞬跳——用户口中的「两排变一排时页面抖动」。
-       stable 让槽位常驻，滚动条有无不再改变内容宽度（headless 为 overlay
-       滚动条复现不到，真机 Windows/Chrome 经典滚动条必现）。 */
-    scrollbar-gutter: stable;
+    /* 根滚动条隐藏（v8.1.1，替代 v1.8.0 的 scrollbar-gutter:stable）：
+       防抖目标同源——滚动条出现/消失不再改变布局宽度（无滚动条即无宽度变化，
+       「两排变一排页面抖动」保持根治）；同时根除 gutter 方案的两个代价：
+       ①Windows 经典滚动条槽位常驻露画布底色（壁纸模式下即右侧黑边，
+         且 Chromium 对槽位只画画布背景，元素与根背景图像的绘制均裁剪在
+         ICB——最小页实证，CSS 无解）；
+       ②经典滚动条本身压在壁纸右缘。
+       页面仍可滚（滚轮/触摸/键盘），起始页内容以居中为主，隐藏视觉噪声。
+       旧 CEF（无 scrollbar-width）自动回退经典滚动条，行为同 v8.0 时代。 */
+    scrollbar-width: none;
+    /* 底色基调（v8.1.1）：画布用主题底色，首帧/极露底时不闪白；与 Aurora
+       底层 #f6f5f2/#0a0a0e 严格一致。注意：html 有了底色后 body 背景停止
+       向画布传播，body 必须保持透明（见下），否则会自绘盖住 -z-10 壁纸层 */
+    background-color: #f6f5f2;
+  }
+  html.dark {
+    background-color: #0a0a0e;
+  }
+  /* 老基建路径：Chromium<121 / 旧 CEF 走 ::-webkit-scrollbar（标准属性
+     scrollbar-width 生效时本规则被引擎忽略，二者无冲突） */
+  html::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
   }
   input,
   textarea,
@@ -142,7 +160,10 @@
     user-select: text;
   }
   body {
-    @apply bg-background text-foreground;
+    /* 不可给 body 上不透明底色（v8.1.1 律）：html 画布底色（见上）一旦存在，
+       body 背景停止向画布传播并改为自绘盒背景——会盖住 -z-10 的 Aurora
+       壁纸层（整页变黑实测）。底部基调由 html 画布色 + Aurora 底层承担 */
+    @apply text-foreground;
     font-family:
       var(--font-geist-sans),
       ui-sans-serif,
