@@ -1253,3 +1253,22 @@ Stage Summary:
 - 结论：v8.1.1 正式发布——https://github.com/LXgssy/Start-chushi/releases/tag/v8.1.1；用户侧升级口诀：老用户四件全换（桥 8.1.0/歌词源 7.3.0/NewTab v8.1.1/cshz 8.1.0），网页版 gh-pages 已是 v8.1.1 无需动作
 - 新律：①发版前先 git fetch 考古——环境清理后本地 HEAD 可远落后于远端（本次落后 11 个提交含两个版本线）；「提交了」≠「发布了」，Release/tag/gh-pages 三处都要逐一核验；②未变组件随新版发布时保留真实版本号（v8.0.8 先例），Release Notes 用组件版本表+分档升级路径消解用户困惑；③产物组装脚本必须内嵌特征自检门（CSS 特征/basePath 反门/完整性三查）——把 Task 107 假绿教训从部署侧前移到构建侧
 - 待办：用户侧验收 v8.1.1（壁纸右缘无黑边/歌词稳/面板不闪）；Edge 商店提交材料仍未做
+
+---
+Task ID: 109
+Agent: main (Super Z)
+Task: 用户两条实机反馈——①「8.1.1 版本的预设包直接就没有办法接入，8.0.9 都可以，你是不是写出问题了」②「连续快速点击切换两个 tab 栏功能时，选框的切换动效会变成液态玻璃时期的切换动效，修复」→ v8.1.2 发版
+
+Work Log:
+- 【①接入根治】截图诊断：面板「系统媒体待接入」但桥 debug 全健康（hub connected/selftest ok/song The Nights/pluginVer 8.1.0）→ 断点必在部件层；v8.0.9↔8.1.0 部件 diff 锁定防闪断宽限新增行——`offSince = 0` 误写（offSince 从未声明，声明的是 offT），部件 IIFE 首行 "use strict" → 严格模式对未声明变量赋值必抛 ReferenceError，且该行在 setMode("fl") 之前 → 每次 connected 渲染必炸 → 永久卡空态；首帧无快照走 !connected 分支不抛（3s 宽限后转空态），连接到达后才开始抛——与「8.0.9 正常/8.1.0+ 全灭」完全吻合
+- 【①验证闭环】verify-v811a-widget.mjs（真 cshz 产物 + iframe 注入 stub 宿主）：修复包 PASS（cs-mode-fl + 「已连接 · API v8.1.0」页脚 + 零异常）；git HEAD 旧包阴性对照 FAIL 复现（ReferenceError: offSince is not defined ×2 + 永久空态）——根因实锢
+- 【②动效取证】probe-pill-rapid.mjs 逐帧 rAF 采样：基线慢切=干净滑移（x 495→549 插值）；110ms×6 连点=选框 scale 0.44~0.59 / opacity 0.11~0.46 反复泵动——根因=AnimatePresence 下新选框继承旧选框「退场进行中」的投影再弹回；用户观感「液态玻璃时期动效」实锢
+- 【②根治】dock 选框单实例化：nav 级常驻选框（首子元素+pointer-events-none），开面板挂载一次，切换=同一元素 x/width 弹簧滑移（任意点击速度零交接零泵动），关闭才退场缩回；DockButton 减重（去 layoutId/pillPop），5 内建按钮+dock 部件按钮上报 ref（registerBtn Map）；几何=useLayoutEffect 测 offsetLeft/Width + ResizeObserver 逐帧跟随（徽标/番茄分钟数宽度动画）；Q 弹出场修复=跃迁帧捕获 pillPopRef（选框晚一帧挂载等几何测量，直接重算 pillPop 会因 prevPanelRef 已同步而误 false——实测首帧即全亮）；≤450ms 快开滑移=初始 x/width 种旧盒
+- 【②验证】复验五例：基线滑移 ✓ / 连点 scale 恒 1 opacity 恒 1 纯滑移 ✓ / Q 弹 0.6→1.066 过冲→1 ✓ / 退场中 60ms 快开连续复活滑移 ✓ / 退场后 250ms 快开滑移落位 ✓；tsc src 零错误；lint 净减 1（4→3 全历史遗留）；verify-v812-dock 冒烟 9/9 + 控制台零报错
+- 【发布】cshz 重建（8065B，offSince 清零核验）；gh-pages EXPORT_MODE 部署 f6c2243 + 线上三件套核验（主 CSS c3d6549 与本地一致 + scrollbar-width:none + sandbox 200）；EXTENSION_MODE 组装 7 件（build-v812-assets.py 含 dock/pill 特征门+basePath 反门）；Release v8.1.2（id 385309900）6 资产 SHA 6/6 OK；README v8.1.2 注记
+- 【tag 事故】Release API target_commitish=main 按远端 HEAD 建 tag——本地修复提交未推送，tag 曾指旧提交 b3034ef；推 main 后删远端 tag 重指最终提交
+
+Stage Summary:
+- 结论：v8.1.2 发布——https://github.com/LXgssy/Start-chushi/releases/tag/v8.1.2；用户侧动作：更新 NewTab v8.1.2 + 重导 ChuShi-Music-Preset-8.1.2.cshz（接入修复在预设包里，必换）；网易云侧三件不动
+- 新律：①「改一行更要跑阴性对照」——同环境旧包复现 ReferenceError/新包 PASS 才算实锢（mock 假绿律的部件版）；②strict 模式 IIFE 里「连接路径上的任何未声明赋值」都是全灭级 bug，宽限/恢复类补丁必须过 connected 快照用例；③AnimatePresence+layoutId 跨元素交接在打断期会继承退场投影——高频交互的选择指示器一律单实例化（同一元素动画，无交接即无投影继承）；④晚一帧挂载的元素读「渲染期推导的挂载标志」会拿到过期值——跃迁帧捕获进 ref；⑤Release tag 随远端 main——发版提交必须先推再建 Release，或建后重指 tag
+- 待办：用户侧验收（重导预设即接入 / 连点选框纯滑移）；Edge 商店提交材料仍未做
