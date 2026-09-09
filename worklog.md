@@ -1419,3 +1419,22 @@ Stage Summary:
 - 结论：v8.2.1 发布；用户侧动作两件必换：NewTab v8.2.1 + 桥 8.2.1（重启网易云）；cshz 8.2.0/歌词源 7.3.0 沿用
 - 新律：①「写文件必须试写探测」——权限不足时 CreateFileW 失败是静默的，用户「找不到文件」第一嫌疑是写盘路径不可写而非代码没写；②「closed shadow 的编程级取证在隔离世界不可达」——主世界原型 hook 拦不到内容脚本世界，elementFromPoint 命中 retarget 到 host 是唯一可靠的编程级外部探针（宽度带判态）；③「e2e profile 必须一次性」——storage 残留 + 态切换 clampPos 改写位置会让硬编码坐标全废，坐标必须从探测结果动态推算；④「占位断言（true /* 人眼 */）不是断言」——行为链断言若无条件真，真实回归只能靠截图人眼兜底，必须让机器说出真值；⑤gh-pages 构建会覆盖 out/（两种形态共用一个输出目录），打包前必须抽查 basePath 残留
 - 待办：用户侧验收（三态/歌词/禁拖/日志位置）；Edge 商店提交材料仍未做；真机 WASAPI 律动效果待用户实测
+
+---
+Task ID: 116
+Agent: main (Super Z)
+Task: 用户实机反馈六连——①chushi-spectrum 没在跑+日志改放 %LOCALAPPDATA%\ChuShi ②逐字高光提前消失（浮窗+面板）③浮窗歌词乱跳（疑影响面板）+掉帧 ④点歌名跳「初始」→浮窗零跳转 ⑤封面禁拖失败+封面态要能长按拖动 ⑥标准态按钮太挤——v8.2.2 发版
+
+Work Log:
+- 【乱跳根因确诊】浮窗数据面无防锯齿管线：v8.2.1 ext-bg cleanTrack 把 fetchedAt 写成 SW 收包时刻（吞掉桥采样→收包的主力时钟年龄），ext-card 每秒真值硬换锚 → 显示位置每秒向后锯齿 → align 行界来回跥（乱跳+transition 反复重目标=掉帧感）；面板侧 sandbox.js 早有恒源钉守/软重锚/回退熔断全家族——浮窗本轮 1:1 精简移植（baseNowOf/posNowOf/softA + ingestTrack 分带仲裁 + backStreak 回退熔断 + seekGuard 4.5s 护航 + send('seek') 乐观重锚），先自建 node 行为级七场景测试（±0.8s 锯齿逐帧单调/系统滞后收敛/暂停冻结/seek 硬跟随/切歌），首版「微抖带保留旧锚」被测出永久滞留缺陷→改「噪声带 0.15s 直接贴真值+其余一律 800ms 软窗」→再补熔断/护航成终版
+- 【高光提前消失根治】v8.1.4「扫完 250ms 自动进 done 渐隐」是对「唱完等过了这句再渐变消失」的误实现——用户令废弃：唱完高光挂住直到行切换才 done 渐隐；间奏自然流入（activeLine===lastLine）DOM 不动高光挂到下一句，seek 跨间奏落入按已唱界对账（reconcileLines(active,ref) 抽取共用）；顺手修 v8.1.4 clean 标记漏洞（曾 done 行转 future 时 clean=true 跳过 restore → --p 定格 100% 白残）；浮窗 ext-card.js + 面板 music-widget.html 同律双改
+- 【浮窗交互整改】openPanel 全拆（卡主体点击/SW 转发一并删——用户令浮窗零跳转「初始」）；封面态整卡即把手（pointerdown+moved>4px 拖动/单击展开，coverClickBlock 350ms 拖后防误触 click）；img ghost 禁拖双保险（draggable="false"+-webkit-user-drag:none+host dragstart preventDefault，面板同律）；标准态钮组独立顶带（padding-top 30px，钮组 y≈T+18 与行区 T+52/进度条 T+88 明确分行，完全体 meta 加 padding-right 避让）；写值防抖（词 --p 0.25% 量化/时间字符串缓存，暂停帧零样式写入）
+- 【频谱保活与日志】chushi_spectrum.c v8.2.2：日志固定 %LOCALAPPDATA%\ChuShi\spectrum-log.txt（用户指定唯一位置，exe 目录回退链作废）+ 启动最先留痕（互斥体占用/WSA 失败/端口全忙全有日志）；chushi_hub.c v8.2.2：hub-log.txt 回退链（DLL 目录只读→同目录）+ specEnsure 主动保活（/api/state GET/POST 附带，20s 冷却+探测在前，不再依赖扩展触发 boot）+ 助手退出码留痕（0xC0000135=缺 DLL 等，boot/ensure 双点）+ specSpawn 带全路径
+- 【构建链】build-hub-v822.sh（宪法门双架构过：hub 导入表仅 ws2_32+kernel32）；cshz 8.2.2 重建（reconcileLines/user-drag 特征门——压缩器剥注释，「高光保持律」中文特征门必挂的教训）；build-extension.py v8.2.2（+ingestTrack/reconcileLines/coverClickBlock/seekGuard/backStreak/dragstart 特征门+openPanel 反向门）；build-v822-assets.py 七件（宽字符教训再+1：hub-log.txt/spectrum-log.txt 是 UTF-16，ASCII 特征只能搜窄文案串）
+- 【e2e 适配】verify-v822-ext.mjs：btns 坐标全面更新（顶带布局）+F10 封面拖动移窗（949→1048，宽不变）+F11 点歌名零跳转（3→3 页）+F5c 拖后 450ms 再点击（过 350ms 闸）；17/17 全绿+截图人眼终审（标准态分行清晰/完全体歌词高光翻译行全对）；verify-v814-lyric L2 改判高光保持律（24/24）；v808-e2e 过期版本钉子放宽（桥 JS 自报 8.1.3 是沿律事实，19/19）
+- 【发版】4a5e65c 推 main + tag v8.2.2 + Release id=385722290 资产 6/6 SHA 回读一致
+
+Stage Summary:
+- 结论：v8.2.2 发布——https://github.com/LXgssy/Start-chushi/releases/tag/v8.2.2；用户侧动作三件必换：NewTab v8.2.2 + 桥 8.2.2（重启网易云）+ cshz 8.2.2（⌘K 重新导入）；歌词源沿用
+- 新律：①「无防锯齿管线的真值消费端，每拍硬换锚=锯齿源」——面板三年迭代出的 sandbox.js 管线（软重锚/熔断/护航）就是为此而生，新数据面消费端必须同律装配；②「行为级测试要模拟消费端真实节奏（60fps 逐帧采样+每拍摄入），合成时钟跳变会造伪失败」；③「压缩器剥注释」——cshz/zip 特征门只能选存活物（函数名/属性/CSS）；④「宽字符字符串 ASCII 搜不到」二度实锢（LOCALAPPDATA→hub-log.txt→spectrum-log.txt）；⑤「日志路径让用户指定」——回退链多档位=让用户到处找，固定用户目录一处才是解
+- 待办：用户实机验收（日志两件在 %LOCALAPPDATA%\ChuShi\、助手常驻、乱跳/高光/拖动/分行/零跳转五项体验）；Edge 商店提交材料仍未做；真机 WASAPI 律动待用户实测
