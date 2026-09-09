@@ -80,7 +80,9 @@ async function main() {
     // ---- 4) 桥自启（1500ms 延迟 → 压缩为即时；等待首拍 + 自证投递） ----
     await sleep(2500);
     const d0 = bridgeDebug();
-    ok(d0 && d0.ver === '8.0.8', '桥已注入且版本 8.0.8', JSON.stringify(d0 && d0.ver));
+    /* v8.2.2：桥 JS 自 8.1.3 起未改（版本沿律：hub/助手变更不 bump 桥 JS
+       自报版本）——断言放宽为 ≥8.0.8 的已知自报值集合 */
+    ok(d0 && ['8.0.8', '8.1.3'].includes(d0.ver), '桥已注入且版本已知（8.0.8 时代钉子放宽）', JSON.stringify(d0 && d0.ver));
     ok(d0.hubPort === PORT, '桥已发现 hub（粘住测试端口）', String(d0.hubPort));
     ok(d0.lease === 'holder' || d0.lease === 'legacy', '桥已持有租约/legacy', d0.lease);
     ok(d0.inflink && d0.inflink.present === true && d0.inflink.ver === '3.2.11', 'InfLinkApi 探针命中', JSON.stringify(d0.inflink));
