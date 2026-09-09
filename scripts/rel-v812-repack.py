@@ -58,6 +58,10 @@ import re, zipfile
 z = zipfile.ZipFile(REPLACE['ChuShi-NewTab-v8.1.2.zip'])
 names = z.namelist()
 assert 'manifest.json' in names and '_locales/zh_CN/messages.json' in names and 'icons/icon128.png' in names, 'NewTab zip 不是规范扩展包'
+RESERVED_OK = {'_locales', '_platform_specific', '_metadata'}
+for n in names:
+    for c in n.split('/'):
+        assert not (c and c.startswith('_') and c not in RESERVED_OK), f'保留名违规: {n}'
 html = z.read('index.html').decode('utf-8')
 assert not [s for s in re.findall(r'<script>(.*?)</script>', html, re.S) if s.strip()], 'index.html 含内联脚本'
 print('防呆门通过（manifest/_locales/icons/零内联）')

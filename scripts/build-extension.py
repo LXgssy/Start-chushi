@@ -48,6 +48,42 @@ for code in scripts:
 (STAGE / "index.html").write_text(html, encoding="utf-8")
 print(f"index.html: 外置 {n} 个内联脚本")
 
+# 2.5) Chromium 保留名改造：「加载已解压的扩展程序」拒绝任何 `_` 开头的路径组件
+# （Chromium 规则：下划线开头组件仅允许 _locales/_platform_specific/_metadata；
+#   ⚠ --load-extension 命令行路径不校验——冒烟必须另加保留名校验门，不能只信真浏览器）。
+# Next.js 导出的 _next/、_not-found*、_buildManifest.js 等必须改名并同步全部文本引用；
+# __next.*.txt Flight 预取回退在单页扩展中永不 fetch（无客户端导航），直接删除。
+RESERVED_OK = {"_locales", "_platform_specific", "_metadata"}
+TEXT_EXT = {".html", ".js", ".css", ".json", ".txt", ".svg", ".webmanifest", ".map"}
+REPL = [
+    (b"/_next", b"/next"),    # 绝对路径（覆盖 /_next/… 与串尾 "/_next"）
+    (b"_next/", b"next/"),    # 拼接串形态；__next_f 等全局变量不含 "_next/" 不受影响
+    (b"_buildManifest", b"buildManifest"),
+    (b"_ssgManifest", b"ssgManifest"),
+    (b"_clientMiddlewareManifest", b"clientMiddlewareManifest"),
+    (b"_not-found", b"not-found"),
+]
+touched = 0
+for p in STAGE.rglob("*"):
+    if p.is_file() and p.suffix in TEXT_EXT:
+        raw = p.read_bytes()
+        new = raw
+        for a, b in REPL:
+            new = new.replace(a, b)
+        if new != raw:
+            p.write_bytes(new)
+            touched += 1
+print(f"保留名改造: 文本引用替换 {touched} 个文件")
+for p in STAGE.glob("__next.*"):
+    p.unlink()
+renamed = 0
+for p in sorted(STAGE.rglob("*"), key=lambda x: len(x.parts), reverse=True):
+    if not p.exists() or p.name in RESERVED_OK or not p.name.startswith("_"):
+        continue
+    p.rename(p.parent / p.name.lstrip("_"))
+    renamed += 1
+print(f"保留名改造: 目录/文件改名 {renamed} 个")
+
 # 3) manifest.json（相对路径引用，扩展根即站点根）
 manifest = {
     "manifest_version": 3,
@@ -85,7 +121,26 @@ manifest = {
 shutil.copytree(REF / "_locales", STAGE / "_locales", dirs_exist_ok=True)
 shutil.copytree(REF / "icons", STAGE / "icons", dirs_exist_ok=True)
 
-# 5) zip（ext-script 引用为绝对路径 /ext-script-N.js，zip 根 = 扩展根）
+# 5) 防呆门：保留名 0 违规（UI 加载路径的硬校验）+ 扩展结构完整性
+bad = sorted(
+    "/".join(p.relative_to(STAGE).parts)
+    for p in STAGE.rglob("*")
+    if any(c.startswith("_") and c not in RESERVED_OK for c in p.relative_to(STAGE).parts)
+)
+if bad:
+    sys.exit(f"保留名违规（Chromium UI 加载必拒）: {bad[:5]}")
+for must in ("manifest.json", "_locales/zh_CN/messages.json", "icons/icon128.png",
+             "index.html", "sandbox.html", "sandbox.js"):
+    if not (STAGE / must).exists():
+        sys.exit(f"缺 {must}——产物不完整")
+_html = (STAGE / "index.html").read_text(encoding="utf-8")
+if [s for s in re.findall(r"<script>(.*?)</script>", _html, re.S) if s.strip()]:
+    sys.exit("index.html 残留内联脚本（MV3 CSP 必拦）")
+if '"/_next' in _html or "/_next/" in _html:
+    sys.exit("index.html 残留 /_next 引用——替换漏网")
+print("防呆门通过: 保留名 0 违规 + 结构完整 + 零内联 + 零 /_next 残留")
+
+# 6) zip（ext-script 引用为绝对路径 /ext-script-N.js，zip 根 = 扩展根）
 DEST.parent.mkdir(parents=True, exist_ok=True)
 if DEST.exists():
     DEST.unlink()
