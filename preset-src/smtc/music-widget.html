@@ -490,7 +490,10 @@ body{
       setMode("em");
       return;
     }
-    offSince = 0;
+    offT = 0; /* v8.1.2 修复：原稿误写 offSince（未声明变量，strict 模式必抛
+                 ReferenceError）且在本行之前已进入 connected 分支——每次连接
+                 渲染必炸在 setMode("fl") 之前，面板永久卡死「系统媒体待接入」
+                 空态（8.0.9 预设正常/8.1.0 预设全灭的实锢根因） */
     setMode("fl");
     var key = [s.title, s.artist, s.album, s.app].join("|");
     if (key !== trackKey) {
