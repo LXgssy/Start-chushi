@@ -55,7 +55,8 @@ export type SandboxEvent =
  *  的语义薄糖（固定挂载 id "material"），无新增消息类型。 */
 import { fxHost } from "./fx";
 import { validateSettingSchema, type PresetSettingsSchema } from "./preset-settings";
-import { smtc, SMTC_COMMANDS } from "./smtc";
+import { smtc, smtcSpectrum, SMTC_COMMANDS } from "./smtc";
+import type { SmtcSpectrum } from "./smtc";
 
 const FX_OPS = new Set(["fxMount", "fxUnmount", "fxSubscribe", "fxUnsubscribe"]);
 
@@ -131,10 +132,30 @@ class SandboxBridge {
   /** SMTC 媒体作用面（v1.8.0）：订阅了媒体快照推送的脚本集合。
    *  广播出口随单例构造即挂（smtc.subscribe），推送时逐脚本定向 smtcPush。 */
   private smtcSubs = new Set<string>();
+  /** v8.2.0 频谱转发订阅句柄（首个媒体订阅者出现即挂，清零即卸） */
+  private specUnsub: (() => void) | null = null;
 
   constructor() {
     smtc.subscribe(this.pushSnapshots);
     smtc.onTick(this.pushAnchors);
+  }
+
+  /** v8.2.0 频谱帧转发：30Hz 已包络 {on,bass,bands,t} 定向推送订阅脚本。
+   *  生命周期跟随媒体订阅集合（首个订阅者挂，清零卸）。 */
+  private pushSpectrum = (sp: SmtcSpectrum) => {
+    if (this.smtcSubs.size === 0) return;
+    for (const key of this.smtcSubs) {
+      this.post({ type: "smtcSpectrum", scriptKey: key, sp });
+    }
+  };
+
+  private specSync() {
+    const want = this.smtcSubs.size > 0;
+    if (want && !this.specUnsub) this.specUnsub = smtcSpectrum.subscribe(this.pushSpectrum);
+    else if (!want && this.specUnsub) {
+      this.specUnsub();
+      this.specUnsub = null;
+    }
   }
 
   /** 快照通道：签名变化才触发，歌词大载荷随包定向推送订阅脚本 */
@@ -233,6 +254,7 @@ class SandboxBridge {
     fxHost.stop();
     this.settingsSchemas.clear();
     this.smtcSubs.clear();
+    this.specSync(); /* v8.2.0：订阅清零同步卸频谱转发 */
     if (this.watchdog != null) {
       clearTimeout(this.watchdog);
       this.watchdog = null;
@@ -258,6 +280,7 @@ class SandboxBridge {
         fxHost.cleanup(k);
         this.settingsSchemas.delete(k);
         this.smtcSubs.delete(k);
+        this.specSync(); /* v8.2.0：订阅回收同步频谱转发 */
       }
     }
     if (typeof window === "undefined" || scripts.length === 0) return;
@@ -364,6 +387,7 @@ class SandboxBridge {
     fxHost.cleanup(script.key);
     this.settingsSchemas.delete(script.key);
     this.smtcSubs.delete(script.key);
+    this.specSync(); /* v8.2.0 */
     const rest = this.scripts.filter((x) => x.key !== script.key);
     this.signature = JSON.stringify(rest.map((x) => [x.key, x.code]));
     this.reboot(rest);
@@ -448,6 +472,7 @@ class SandboxBridge {
         if (!sk || !this.scripts.some((x) => x.key === sk)) return;
         smtc.start();
         this.smtcSubs.add(sk);
+        this.specSync(); /* v8.2.0：首个订阅者挂频谱转发 */
         this.post({ type: "smtcPush", scriptKey: sk, state: smtc.getSnapshot() });
         break;
       }

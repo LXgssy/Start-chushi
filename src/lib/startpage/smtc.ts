@@ -91,7 +91,7 @@ export const SMTC_PORTS: readonly number[] = [26901, 26902, 26903];
 const HUB_NAME = "chushi-music-hub";
 const HUB_VER_MIN = "8.0.0";
 const PLUGIN_VER_MIN = "8.1.0";
-const CLIENT_VER = "8.1.4";
+const CLIENT_VER = "8.2.0";
 const POLL_MS = 1000;
 const RETRY_MS = 1500;
 const TIMEOUT_MS = 2200;
@@ -783,7 +783,146 @@ class SmtcClient {
     };
     attempt();
   }
+  /** v8.2.0 频谱助手惰性拉起（hub /api/spectrum-boot：助手不在且未被拉起时
+   *  由 hub 侧 CreateProcess；boot 只保证「在场」，数据面在助手端口。 */
+  async bootSpectrum(): Promise<boolean> {
+    const port = this.activePort;
+    if (!port || !this.state.connected) return false;
+    const j = await getJson(`http://127.0.0.1:${port}/api/spectrum-boot`);
+    return !!(j && j.ok === true);
+  }
 }
 
 /** 全局单例（页面/沙箱桥/部件层共用） */
 export const smtc = new SmtcClient();
+
+/* ---------------------------------------------------------------------- */
+/* v8.2.0 频谱管线（律动高光数据面）                                        */
+/*   独立助手进程 chushi-spectrum.exe（WASAPI loopback + FFT，26911-3）：  */
+/*   - 发现：直接探测 26911-3 身份（chushi-spectrum）；不在且已连 hub 时    */
+/*     每 ~5s 打一次 /api/spectrum-boot 惰性拉起，冷启动 ≤5s 自愈；        */
+/*   - 30Hz 轮询只在：有订阅者 + 页面可见；数据端点连续 3 败 → 弃端口缓存；*/
+/*   - 包络：快攻慢放（攻 .55 / 放 .14 per 帧），暂停/失联自然衰减到 0；   */
+/*   - 旧 hub（无助手）如实 on:false —— 高光保持静态，零降级噪声。         */
+/* 公开面：smtcSpectrum.subscribe(cb) / smtcSpectrum.last                  */
+/* ---------------------------------------------------------------------- */
+
+export const SPECTRUM_PORTS: readonly number[] = [26911, 26912, 26913];
+const SPEC_NAME = "chushi-spectrum";
+const SPEC_FRAME_MS = 33;       /* 30Hz */
+const SPEC_FAILS_MAX = 3;
+const SPEC_BOOT_EVERY = 150;    /* 发现重试节拍（×33ms ≈ 5s） */
+const SPEC_ATTACK = 0.55;       /* 包络：快攻（跟拍） */
+const SPEC_RELEASE = 0.14;      /* 包络：慢放（不闪） */
+
+export interface SmtcSpectrum {
+  on: boolean;        // 助手在场且采集链路 ok（cap=1）
+  bass: number;       // 0..1 已包络（低三段加权，鼓点驱动源）
+  bands: number[];    // 16 段 0..1 已包络；on=false 时为衰减尾
+  t: number;          // 帧到达时刻（Date.now()）
+}
+
+type SpecCb = (sp: SmtcSpectrum) => void;
+
+class SpectrumClient {
+  private timer: ReturnType<typeof setInterval> | null = null;
+  private busy = false;
+  private port: number | null = null;
+  private fails = 0;
+  private bootBeats = 0;
+  private envBass = 0;
+  private envBands: number[] = new Array(16).fill(0);
+  private subs: SpecCb[] = [];
+
+  /** 最近一帧（一次性消费用；on=false = 无助手/暂停衰减中） */
+  last: SmtcSpectrum = { on: false, bass: 0, bands: [], t: 0 };
+
+  subscribe(cb: SpecCb): () => void {
+    if (typeof cb !== "function") return () => undefined;
+    this.subs.push(cb);
+    try { cb(this.last); } catch { /* 单订阅方异常互不干扰 */ }
+    this.start();
+    return () => {
+      const i = this.subs.indexOf(cb);
+      if (i >= 0) this.subs.splice(i, 1);
+      if (this.subs.length === 0) this.stop();
+    };
+  }
+
+  private start() {
+    if (this.timer || typeof window === "undefined") return;
+    void this.discover();
+    this.timer = setInterval(() => { void this.tick(); }, SPEC_FRAME_MS);
+  }
+
+  private stop() {
+    if (this.timer) { clearInterval(this.timer); this.timer = null; }
+    this.port = null;
+    this.bootBeats = 0;
+  }
+
+  private async discover() {
+    for (const p of SPECTRUM_PORTS) {
+      const j = await getJson(`http://127.0.0.1:${p}/api/ping`);
+      if (j && j.ok === true && j.name === SPEC_NAME) {
+        this.port = p;
+        this.fails = 0;
+        return;
+      }
+    }
+    await smtc.bootSpectrum(); /* 不在 → hub 惰性拉起；端口靠下轮探测确认 */
+  }
+
+  private decay() {
+    this.envBass *= 0.9;
+    if (this.envBass < 0.005) this.envBass = 0;
+    for (let i = 0; i < 16; i++) this.envBands[i] *= 0.9;
+    this.last = { on: false, bass: this.envBass, bands: this.envBands.slice(), t: Date.now() };
+    this.publish();
+  }
+
+  private publish() {
+    for (const cb of this.subs) {
+      try { cb(this.last); } catch { /* 互不干扰 */ }
+    }
+  }
+
+  private async tick() {
+    if (this.busy || this.subs.length === 0) return;
+    this.busy = true;
+    try {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      if (this.port === null) {
+        this.decay();
+        if (++this.bootBeats >= SPEC_BOOT_EVERY) {
+          this.bootBeats = 0;
+          void this.discover();
+        }
+        return;
+      }
+      const j = await getJson(`http://127.0.0.1:${this.port}/api/spectrum`);
+      if (!j || j.ok !== true) {
+        if (++this.fails >= SPEC_FAILS_MAX) { this.port = null; this.fails = 0; }
+        this.decay();
+        return;
+      }
+      this.fails = 0;
+      const cap = j.cap === true || j.cap === 1;
+      const playing = !!(smtc.getSnapshot().track && smtc.getSnapshot().track!.playing);
+      const tgtBass = cap && playing ? clipNum(j.bass) : 0;
+      const raw = Array.isArray(j.bands) ? (j.bands as unknown[]) : [];
+      this.envBass += (tgtBass - this.envBass) * (tgtBass > this.envBass ? SPEC_ATTACK : SPEC_RELEASE);
+      for (let i = 0; i < 16; i++) {
+        const tv = cap && playing ? clipNum(raw[i]) : 0;
+        this.envBands[i] += (tv - this.envBands[i]) * (tv > this.envBands[i] ? SPEC_ATTACK : SPEC_RELEASE);
+      }
+      this.last = { on: cap, bass: this.envBass, bands: this.envBands.slice(), t: Date.now() };
+      this.publish();
+    } finally {
+      this.busy = false;
+    }
+  }
+}
+
+/** 频谱单例（面板沙箱/部件帧订阅；SW 不用本面，ext-bg 自带同语义实现） */
+export const smtcSpectrum = new SpectrumClient();

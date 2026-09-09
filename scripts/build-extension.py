@@ -5,8 +5,11 @@
 ⚠ v8.0.8~v8.1.1 发版回归：build-v8xx-assets.py 直接 zip out/，漏掉本脚本
 全部注入步骤（manifest/_locales/icons/内联外置）→ 发布包无法全新安装。
 v8.1.2 起恢复本流程作为扩展包唯一产出门。
+v8.2.0 新增：extension-src/ext-bg.js（SW 状态中继）+ ext-card.js（悬浮
+音乐卡内容脚本）注入 + manifest background/content_scripts/频谱助手端口
+26911-26913（律动高光数据面）。
 用法: python3 scripts/build-extension.py
-输出: download/v8.1.4/ChuShi-NewTab-v8.1.4.zip
+输出: download/v8.2.0/ChuShi-NewTab-v8.2.0.zip
 """
 import json
 import pathlib
@@ -19,8 +22,9 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
-VERSION = "8.1.4"
-DEST = ROOT / "download/v8.1.4/ChuShi-NewTab-v8.1.4.zip"
+EXT_SRC = ROOT / "extension-src"    # v8.2.0 SW/内容脚本源
+VERSION = "8.2.0"
+DEST = ROOT / f"download/v{VERSION}/ChuShi-NewTab-v{VERSION}.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():
     sys.exit("out/index.html 不存在——先跑 EXTENSION_MODE=1 bun run build:extension")
@@ -99,6 +103,7 @@ manifest = {
     # 同时放行三端口（缺了它扩展版所有 127.0.0.1 请求被浏览器拦截，音乐
     # 面板在扩展里完全离线；web 版靠枢纽的 CORS * 响应头，不受影响）。
     # v6 渲染进程内 require("http") 枢纽在 CEF 环境不可用（无 Node），已退役。
+    # v8.2.0：+26911/26912/26913（独立频谱助手 chushi-spectrum.exe，律动高光）。
     "host_permissions": [
         "https://www.baidu.com/*",
         "https://weather.cma.cn/*",
@@ -109,6 +114,24 @@ manifest = {
         "http://127.0.0.1:26901/*",
         "http://127.0.0.1:26902/*",
         "http://127.0.0.1:26903/*",
+        "http://127.0.0.1:26911/*",
+        "http://127.0.0.1:26912/*",
+        "http://127.0.0.1:26913/*",
+    ],
+    # v8.2.0 悬浮音乐卡（想法一三件套之二/之三）：SW 状态中继 + <all_urls>
+    # 内容脚本。卡片在自家新标签页不出现（内容脚本不匹配 chrome-extension://），
+    # chrome:// 等特权页浏览器规则性无法注入（诚实边界，发版说明已告知）。
+    # permissions：storage（卡片位置/药丸/按站隐藏持久化）+ tabs（openPanel
+    # 的 tabs.query(url) 聚焦已有面板页；create 不需要权限，query 需要）。
+    "permissions": ["storage", "tabs"],
+    "background": {"service_worker": "ext-bg.js"},
+    "content_scripts": [
+        {
+            "matches": ["http://*/*", "https://*/*"],
+            "js": ["ext-card.js"],
+            "run_at": "document_idle",
+            "all_frames": False,
+        }
     ],
     "sandbox": {"pages": ["sandbox.html"]},
     "content_security_policy": {
@@ -117,9 +140,15 @@ manifest = {
 }
 (STAGE / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
-# 4) _locales 与 icons（素材沿用 v1.1.2）
+# 4) _locales 与 icons（素材沿用 v1.1.2）+ v8.2.0 SW/内容脚本注入
 shutil.copytree(REF / "_locales", STAGE / "_locales", dirs_exist_ok=True)
 shutil.copytree(REF / "icons", STAGE / "icons", dirs_exist_ok=True)
+for ext_file in ("ext-bg.js", "ext-card.js"):
+    src = EXT_SRC / ext_file
+    if not src.exists():
+        sys.exit(f"缺 {src} —— v8.2.0 扩展部件源缺失")
+    shutil.copy2(src, STAGE / ext_file)
+print("扩展部件注入: ext-bg.js (SW 中继) + ext-card.js (悬浮卡)")
 
 # 5) 防呆门：保留名 0 违规（UI 加载路径的硬校验）+ 扩展结构完整性
 bad = sorted(
@@ -130,15 +159,28 @@ bad = sorted(
 if bad:
     sys.exit(f"保留名违规（Chromium UI 加载必拒）: {bad[:5]}")
 for must in ("manifest.json", "_locales/zh_CN/messages.json", "icons/icon128.png",
-             "index.html", "sandbox.html", "sandbox.js"):
+             "index.html", "sandbox.html", "sandbox.js", "ext-bg.js", "ext-card.js"):
     if not (STAGE / must).exists():
         sys.exit(f"缺 {must}——产物不完整")
+# v8.2.0 门：SW/内容脚本语法自检（node --check；发版前拦语法手滑）
+for ext_file in ("ext-bg.js", "ext-card.js"):
+    r = subprocess.run(["node", "--check", str(STAGE / ext_file)], capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.exit(f"{ext_file} 语法门 FAIL: {r.stderr[:300]}")
 _html = (STAGE / "index.html").read_text(encoding="utf-8")
 if [s for s in re.findall(r"<script>(.*?)</script>", _html, re.S) if s.strip()]:
     sys.exit("index.html 残留内联脚本（MV3 CSP 必拦）")
 if '"/_next' in _html or "/_next/" in _html:
     sys.exit("index.html 残留 /_next 引用——替换漏网")
-print("防呆门通过: 保留名 0 违规 + 结构完整 + 零内联 + 零 /_next 残留")
+# v8.2.0 门：manifest 必含 background + content_scripts + 频谱端口
+_m = json.loads((STAGE / "manifest.json").read_text(encoding="utf-8"))
+if "background" not in _m or "service_worker" not in _m["background"]:
+    sys.exit("manifest 缺 background.service_worker——悬浮卡数据面缺失")
+if not _m.get("content_scripts") or "ext-card.js" not in _m["content_scripts"][0].get("js", []):
+    sys.exit("manifest 缺 content_scripts(ext-card.js)——悬浮卡缺失")
+if "http://127.0.0.1:26911/*" not in _m.get("host_permissions", []):
+    sys.exit("manifest 缺频谱助手端口 26911 host_permissions")
+print("防呆门通过: 保留名 0 违规 + 结构完整 + 零内联 + 零 /_next 残留 + SW/悬浮卡/频谱端口在位")
 
 # 6) zip（ext-script 引用为绝对路径 /ext-script-N.js，zip 根 = 扩展根）
 DEST.parent.mkdir(parents=True, exist_ok=True)
