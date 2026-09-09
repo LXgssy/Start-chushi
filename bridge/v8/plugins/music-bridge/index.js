@@ -1,5 +1,15 @@
 /* ============================================================================
- * ChuShi Music Bridge 8.1.0 — 网易云 InfLink-rs 适配桥（媒体键退役 + 备路三代修正）
+ * ChuShi Music Bridge 8.1.3 — 网易云 InfLink-rs 适配桥（媒体键退役 + 备路三代修正）
+ *   v8.1.3（真机录屏 18:28：歌词卡死——部件时间 1:06↔1:08 两秒闪烁、
+ *   歌词行恒驻不前，肉眼即「歌词冻住」；页面诊断 stateAge 11.5s）：
+ *   ① 状态推送先行——旧序里 /api/state 排在 poll/selftest/cmds 三次往返
+ *     之后，hub 半死（响应秒级迟滞）时最坏 ~7s/拍，页面拿到的位置长期
+ *     恒定（陈旧真值 +6s 封顶）→ 引擎熔断拒/放循环 = 2s 闪烁；现读真值
+ *     → 推状态紧跟租约认领，页面数据源不再为命令链路让路；
+ *   ② 超时收紧：poll 2.5→1.2s / state 2.5→1.5s / selftest 2.5→1.2s /
+ *     cmds 2.0→1.2s——hub 半死时单拍最坏 ~5s（旧 ~9.5s），stateAge 峰值
+ *     腰斩；配套页面端 sandbox.js v8.1.3 恒源钉守（重现拒收值即封顶保持）
+ *     双层根治显示闪烁。
  *   v8.1.0（用户实机录屏：歌曲正常播放但歌词乱跳 1:05↔1:06 锯齿）：
  *   ① 位置单源化——旧版 InfLink 时间线（SMTC 上报滞后 ~1s）与元素真值
  *     空缺交替补位，两源逐拍交替 → 页面每拍硬锚 → 进度/歌词秒级锯齿；
@@ -91,7 +101,7 @@
   'use strict';
   if (window.__chushiMusicBridge) return;
 
-  var VER = '8.1.0';
+  var VER = '8.1.3';
   var HUB_NAME = 'chushi-music-hub';
   var HUB_PORTS = [26901, 26902, 26903];
   var BEAT_MS = 1000;
@@ -623,7 +633,7 @@
     });
   }
 
-  function jpost(url, bodyObj) {
+  function jpost(url, bodyObj, timeoutMs) {
     return new Promise(function (resolve) {
       var done = false;
       var ctl = null;
@@ -631,7 +641,7 @@
       var timer = setTimeout(function () {
         if (done) return; done = true; resolve(null);
         try { if (ctl) ctl.abort(); } catch (e) { }
-      }, 2500);
+      }, timeoutMs || 2500);
       try {
         fetch(url, {
           method: 'POST',
@@ -1220,7 +1230,7 @@
          认领失败 = 备胎待命：不拉命令、不推状态、不写歌词
          （hub 侧同步把非持有者的 GET /api/cmd 拦为 []，双保险）。
          旧 hub 无 /api/poll（404 → ok!==true）→ legacy 全权模式。 */
-      var pl = await jpost(hub.url('/api/poll'), { id: POLL_ID });
+      var pl = await jpost(hub.url('/api/poll'), { id: POLL_ID }, 1200);
       if (pl && pl.ok === true) {
         leaseKnown = true;
         iHold = pl.lease === true;
@@ -1230,7 +1240,23 @@
       }
       if (!iHold) return;
 
-      /* 2.7) v8.0.8 回路自证：每 8s 向自己队列投一条 _selftest，验证 4s 内
+      /* 3) v8.1.3 状态推送先行：读真值 → 推状态提到命令链路之前——
+         hub 半死时（响应秒级迟滞）旧序里状态推送排在 poll/selftest/cmds
+         三次往返之后（最坏 ~7s/拍 → 页面 stateAge 长期 >6s → 恒定位置喂
+         引擎 → 显示 2s 闪烁，真机录屏 18:28 实锤）；现页面数据源不再为
+         命令链路让路，命令拉取延后的代价可控（命令低频且页面会重试）。 */
+      readTruth();
+      /* v8.0.4 暂停校准（用户指定管线）：当前词无逐字（纯行级/伪逐字降级）时，
+         趁暂停每 30s 重查逐字源（至多 3 次/曲），拿到 yrc 即升级真逐字 */
+      if (!truth.playing && lyric.payload && !lyric.payload.yrc && lyric.songId &&
+          nowMs() - lyric.refineAt > 30000 && lyric.refineTries < 3) {
+        lyric.refineAt = nowMs();
+        lyric.refineTries++;
+        requestLyric(lyric.songId, truth.title, truth.artist, true);
+      }
+      await jpost(hub.url('/api/state'), buildStateBlob(), 1500);
+
+      /* 4) v8.0.8 回路自证：每 8s 向自己队列投一条 _selftest，验证 4s 内
          能从自己的排空里收回。收不回 = 命令回路断裂（拓扑漂移/队列被夺/
          hub 半死）→ 连续 2 败强制全端口重新发现 hub。 */
       var tNow = nowMs();
@@ -1248,19 +1274,20 @@
         }
       }
       if (!selftest.pendingAt && tNow - Math.max(selftest.lastOkAt, selftest.lastFailAt) > SELFTEST_MS) {
-        var stOk = await jpost(hub.url('/api/cmd'), { cmd: '_selftest', t: tNow });
+        var stOk = await jpost(hub.url('/api/cmd'), { cmd: '_selftest', t: tNow }, 1200);
         if (stOk && stOk.ok === true) selftest.pendingAt = tNow;
         else { traceCmd('selftest', 'post-fail'); }
       }
 
-      /* 3) 拉页面命令（v8：无系统侧事件——媒体键全由 InfLink 直达网易云）
+      /* 5) 拉页面命令（v8：无系统侧事件——媒体键全由 InfLink 直达网易云；
+         v8.1.3：命令拉取让位状态推送后置，超时收紧 2000→1200ms）
          v8.0.1 协议律：hub 实物返回 [{"_id":N,"raw":{...}}]，raw 是对象；
          旧代码 JSON.parse(item.raw) 把对象转 "[object Object]" 必抛 →
          全部命令被静默丢弃（e2e mock 与实物协议分叉漏网）。双形兼容：
          v8.0.7：URL 携带实例 id，hub 租约门校验非持有者拦为 []
          v8.0.8：拉取失败不再静默——null/非数组落 trace 'pull-fail' +
          poll.lastNullAt（「桥在拉但永远空」从猜测变成可见事实） */
-      var cmds = await jget(hub.url('/api/cmd?id=' + POLL_ID), 2000);
+      var cmds = await jget(hub.url('/api/cmd?id=' + POLL_ID), 1200);
       pollStat.lastGetAt = nowMs();
       if (Array.isArray(cmds)) {
         pollStat.drains++;
@@ -1287,19 +1314,6 @@
         /* v8.0.8：拉取失败（解析抛/网络空）不再静默——每 5 次落一条防刷屏 */
         if (pollStat.emptyStreak % 5 === 1) traceCmd('pull-fail', 'non-array');
       }
-
-      /* 4) 读真值 → 5) 推状态（页面唯一数据源） */
-      readTruth();
-      /* v8.0.4 暂停校准（用户指定管线）：当前词无逐字（纯行级/伪逐字降级）时，
-         趁暂停每 30s 重查逐字源（至多 3 次/曲），拿到 yrc 即升级真逐字 */
-      if (!truth.playing && lyric.payload && !lyric.payload.yrc && lyric.songId &&
-          nowMs() - lyric.refineAt > 30000 && lyric.refineTries < 3) {
-        lyric.refineAt = nowMs();
-        lyric.refineTries++;
-        requestLyric(lyric.songId, truth.title, truth.artist, true);
-      }
-      var blob = buildStateBlob();
-      await jpost(hub.url('/api/state'), blob);
     } catch (e) {
       hub.failStreak++;
     } finally {

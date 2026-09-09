@@ -148,6 +148,14 @@
     var guardGraceAt = 0;     /* v8.1.0 护航窗收窗豁免期起点（真值跟随回退不算锯齿） */
     /* v8.1.0 回退熔断：上游源交替/快照滞后的回退拍拒收（乱跳防线纵深） */
     var backStreak = 0;
+    /* v8.1.3 恒源钉守：8s 窗口内重现近似拒收值 = 上游停滞（桥停推/hub 半死
+       /SMTC 时间线冻结，真机录屏 18:28：页面把陈旧真值 +6s 封顶后每拍喂
+       恒定值，熔断「拒 1 拍→第 2 拍硬锚回跳」循环成 1:06↔1:08 两秒闪烁；
+       age 锯齿源则两值交替重现——重现本身才是停滞的铁证，单次拒收不触发）。
+       rejHist=近期拒收值史(≤4条/8s)；capPos/capAt=显示上限（拒收值+0.75，
+       仍在拒收带内）与刷新时刻——显示最多超前真值 0.75s，不再向前虚构再拽回。 */
+    var rejHist = [];
+    var capPos = 0, capAt = 0;
 
     function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
     function rateOf() { return anchor && anchor.rate > 0 ? anchor.rate : 1; }
@@ -174,6 +182,21 @@
     }
     function posNow() {
       var p = baseNow();
+      /* v8.1.3 恒源钉守：封顶 3s 内显示不得超前钉守值+0.75（软重锚出轨道
+         同样受束）——上游恢复/封顶过期后自然释放 */
+      if (capPos > 0 && Date.now() - capAt < 3000) {
+        if (p > capPos) p = capPos;
+        if (soft) { /* 软窗混合输出同样受束（防淡入期越过钉守值） */
+          var el0 = Date.now() - soft.at;
+          if (el0 < soft.dur) {
+            var fromP0 = soft.from + (el0 / 1000) * rateOf();
+            var t0 = el0 / soft.dur;
+            var k0 = t0 * t0 * (3 - 2 * t0);
+            var out0 = fromP0 + (p - fromP0) * k0;
+            if (out0 > capPos) p = capPos;
+          }
+        }
+      }
       if (soft) {
         var el = Date.now() - soft.at;
         if (el >= soft.dur) { soft = null; return p; }
@@ -457,6 +480,8 @@
           guard = null; /* 真值已到目标附近，护航完成 */
         }
       }
+      /* v8.1.3：全量重锚即解除恒源钉守（新快照自带最新真值） */
+      rejHist = []; capPos = 0;
       anchor = {
         position: keepPos != null ? Math.max(0, keepPos)
           : t && typeof t.position === "number" && isFinite(t.position) ? Math.max(0, t.position) : 0,
@@ -491,6 +516,8 @@
       if (!tk || typeof tk !== "object") return;
       var prevPlaying = anchor.playing;
       if (typeof tk.position === "number" && isFinite(tk.position)) {
+        /* v8.1.3 恒源钉守：播放态翻转即解除钉守（暂停/恢复校准管线优先） */
+        if (prevPlaying !== !!tk.playing) { rejHist = []; capPos = 0; }
         var expected = posNow();
         var delta = tk.position - expected;
         if (guard) {
@@ -512,12 +539,42 @@
             delta < -0.6 && delta > -6 &&
             Date.now() - guardGraceAt > 6000) {
           backStreak++;
-          if (backStreak < 2) return;
+          /* v8.1.3 恒源钉守：本次拒收值与 8s 内历史拒收值重现（|Δ|<0.15）
+             = 上游停滞铁证 → 显示封顶在拒收值+0.75（仍在拒收带内），不重锚
+             不回跳；每次拒收都刷新封顶时效（否则过期瞬间 baseNow 冲高、
+             下拍 delta 出带硬锚重置，4 拍周期循环——首版实测）。 */
+          var matched = -1;
+          for (var rh = 0; rh < rejHist.length; rh++) {
+            if (Date.now() - rejHist[rh].at < 8000 &&
+                Math.abs(tk.position - rejHist[rh].v) < 0.15) { matched = rh; break; }
+          }
+          if (matched >= 0) {
+            capPos = tk.position + 0.75;
+            capAt = Date.now();
+            rejHist[matched].at = Date.now();
+          } else {
+            rejHist.push({ v: tk.position, at: Date.now() });
+            if (rejHist.length > 4) rejHist.shift();
+          }
+          if (backStreak < 2) return; /* v8.1.0 语义：首记拒收只记史不重锚 */
+          /* 连续 2 拍回退且值在变 = 真值慢爬：第 2 拍诚实放行（下方重锚） */
+        } else if (prevPlaying === !!tk.playing || !anchor.playing) {
+          /* 非熔断拍到达（前进/翻转/暂停）：历史过期不清理也无碍——
+             钉守保持/解除交由下方 capFresh 仲裁 */
         }
         backStreak = 0;
+        var capFresh = capPos > 0 && Date.now() - capAt < 3000;
         var reanchor = prevPlaying !== !!tk.playing || !anchor.playing ||
           Math.abs(delta) >= SLEW_SEC;
+        /* v8.1.3 钉守保持：封顶新鲜时，非前进拍（delta < +0.35）一律不重锚
+           ——age 锯齿源的边界拍（-0.55/+0.35）不再把显示拽回 0.5s；
+           真前进（≥+0.35）照常重锚并解除钉守 */
+        if (reanchor && capFresh && prevPlaying === !!tk.playing &&
+            anchor.playing && delta < 0.35) {
+          reanchor = false;
+        }
         if (reanchor) {
+          capPos = 0; /* 重锚即解除钉守；rejHist 保留——重现证据靠 8s 窗口自然过期 */
           if (prevPlaying === false && tk.playing === true &&
               Math.abs(delta) > 0.05 && Math.abs(delta) <= 2) {
             soft = { from: posNow(), at: Date.now(), dur: SOFT_MS };
@@ -577,6 +634,7 @@
       var s = typeof sec === "number" && isFinite(sec) ? Math.max(0, sec) : 0;
       return Promise.resolve(hooks.control("seek", s)).then(function (ok) {
         if (ok === true && anchor) {
+          rejHist = []; capPos = 0; /* v8.1.3：拖动即解除钉守 */
           guard = {
             from: posNow(),
             to: s,
