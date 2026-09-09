@@ -1398,3 +1398,24 @@ Stage Summary:
 - 结论：v8.2.0 发布——https://github.com/LXgssy/Start-chushi/releases/tag/v8.2.0；用户侧动作三件必换：NewTab v8.2.0 + 桥 8.2.0（hub+助手 exe，替换后重启网易云）+ cshz 8.2.0；歌词源沿用
 - 新律：①「宪法与能力冲突时，把违禁物关进进程隔离的独立载体」——频谱 COM 没有回填 hub.dll，而是 hub 拉起独立助手（导入表门不破，崩溃域隔离）；②「hub 侧只做保障（在场），数据面永远客户端直连」——boot 只保证助手存在，端口发现由客户端探测（hub 半死不拖累 30Hz 数据面）；③「closed Shadow DOM 的 e2e 取证」——外部判据=宿主节点 computed display + elementFromPoint 命中 + 全页截图，不接受"应该渲染了"；④「内容脚本 chrome.storage.session 默认不可用」——须 SW setAccessLevel TRUSTED_AND_UNTRUSTED；⑤「tabs.query(url) 需要 tabs 权限，create 不需要」——权限最小集=[storage,tabs]；⑥测试桩必须尊重被测语义（effPlaying 走快照）——桩错=假红不丢人，改桩不改码前先读码
 - 遗留：真机 WASAPI 路径（loopback 采集）Linux 侧不可测，用户实机验收律动效果（spectrumsim 只验协议链路）；卡片在 Edge 需实测（MV3 同构理论兼容）；Edge 商店提交材料仍未做；hub 单线程"半死"疑因未深挖（频谱助手已把最重的采集/FFT 挪出 hub 进程，间接减压）
+
+---
+Task ID: 115
+Agent: main (Super Z)
+Task: 用户三条实机反馈——①spectrum-log.txt 找不到 ②浮窗要三态（封面收起/标准/完全体歌词，× 改放大钮、进度条点击展开完全体不跳「初始」）③封面禁拖——v8.2.1 发版
+
+Work Log:
+- 【①日志根治】spectrum-log.txt 代码在（logf_line 写 exe 同目录）但**写失败静默**——网易云插件目录常在 Program Files 下普通权限不可写；chushi_spectrum.c v8.2.1 日志回退链：exe 同目录 CreateFileW 试写探测失败 → %LOCALAPPDATA%\ChuShi\（GetEnvironmentVariableW 直取，免 shell32 依赖）→ 都败则档位 disabled；启动首行自证 `[boot] log file (exe-dir|local-appdata): 路径`；懒初始化 CS 保护无嵌套锁定
+- 【②三态重构】ext-card.js 重写（333→~700 行）：封面态（48px 整卡即封面+播放绿点，单击展开，不可拖）/标准态（× 退役→[收起成封面][放大到完全体]钮组，点主体回面板保留，点进度条→完全体）/完全体（324px：yrc 真逐字扫光+lrc 逐行、翻译行、句尾渐隐 250ms、回退还原、间奏 lastLine、暂停淡出、时间显示、可 seek 进度条）；旧 cardPill 存储迁移→cover 态；按站隐藏改右键卡片（× 位让给放大钮）；clampPos 按当前态宽度钳制（full 948 上限——这行为后来成为 e2e 坐标偏移的根因之一）
+- 【歌词引擎】ext-lyric.js 新建：sandbox.js 解析层 1:1 移植（parseWordLine/parseLineText/joinTranslation/unitizeLine 伪逐字估算律/align 二分含间奏 lastLine/fadeMs），纯函数 node 可测；build-extension.py 拼接注入（内容脚本无 importScripts）
+- 【数据面】ext-bg.js lyric case：SW 代理 hub GET /api/lyric?songId=（超时放宽 4s），归属校验在卡侧（songId 不符=未就绪继续重试，smtc.ts 同款单槽缓存律）；卡侧有限重试 5 次×2.5s + 4s busy 超时释放
+- 【③禁拖】dragHandleOK：button/.cov/.rail/.flyr 一律不启动拖动，封面态整卡禁拖；把手=主体空白
+- 【e2e 取证两课】①主世界 attachShadow hook 拦不到内容脚本隔离世界——closed shadow 取证回到外部判据：elementFromPoint 命中 retarget 到 host，扫描得卡片实际渲染区间（宽度带 cover 45/mini 261/full 321 判态）+ 截图终审；②profile 复用致 storage 残留位置 + clampPos 态切换改写 pos.x（984→948）→ 硬编码坐标系统性偏 36px 全废——改全新 mkdtemp profile + 动态坐标（先探测 left/top 再推算按钮位），占位断言（true /*截图终审*/）全改真断言
+- 【环境坑】out/ 曾被 gh-pages 构建（EXPORT_MODE basePath=/Start-chushi）覆盖——直接打包致扩展资源 404（Start-chushi/next/...）；EXTENSION_MODE=1 重建 out/ 后复跑 build-extension.py 即愈；新律：打包前 rg 抽查 out/index.html 无 basePath 前缀
+- 【测试】v821-lyric 36/36 + v821-ext 15/15（三态往返 261→321→261→321→45→261 全真断言+截图终审：完全体歌词区已唱灰/当前行白/翻译行/遮罩渐隐全对）+ 回归 v814-core 15/v814-lyric 23/v813 18/v810 12/v809 21/lyricapi 11/v820-glow 9 全绿；tsc src 零错误（examples/scripts 历史噪音除外）；hub 双架构+助手编译+宪法门过
+- 【发版】build-v821-assets.py 七件（桥 .plugin 8.2.1 门：助手 exe 特征 8.2.1/log file/local-appdata——LOCALAPPDATA 是 UTF-16 宽字符 ASCII 搜不到的教训；NewTab 五重门+cshz 沿用门）；main 推送+tag v8.2.1 先推；Release v8.2.1 资产 6/6 SHA 回读一致
+
+Stage Summary:
+- 结论：v8.2.1 发布；用户侧动作两件必换：NewTab v8.2.1 + 桥 8.2.1（重启网易云）；cshz 8.2.0/歌词源 7.3.0 沿用
+- 新律：①「写文件必须试写探测」——权限不足时 CreateFileW 失败是静默的，用户「找不到文件」第一嫌疑是写盘路径不可写而非代码没写；②「closed shadow 的编程级取证在隔离世界不可达」——主世界原型 hook 拦不到内容脚本世界，elementFromPoint 命中 retarget 到 host 是唯一可靠的编程级外部探针（宽度带判态）；③「e2e profile 必须一次性」——storage 残留 + 态切换 clampPos 改写位置会让硬编码坐标全废，坐标必须从探测结果动态推算；④「占位断言（true /* 人眼 */）不是断言」——行为链断言若无条件真，真实回归只能靠截图人眼兜底，必须让机器说出真值；⑤gh-pages 构建会覆盖 out/（两种形态共用一个输出目录），打包前必须抽查 basePath 残留
+- 待办：用户侧验收（三态/歌词/禁拖/日志位置）；Edge 商店提交材料仍未做；真机 WASAPI 律动效果待用户实测
