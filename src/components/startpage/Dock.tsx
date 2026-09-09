@@ -533,15 +533,18 @@ export default function Dock({
   const undone = todos.filter((t) => !t.done).length;
 
   /* 选框出场只在「无面板 → 打开面板」时播 Q 弹（null→panel）；面板间切换时
-     新按钮的选框不重播 initial（否则 Q 弹会重新出现——正是用户点名要退回去的
-     「切换动画」），layoutId 从旧按钮位置纯滑移，即基线（v1.1.x）手感。
+     选框从旧按钮位置纯滑移（基线 v1.1.x 手感）。
      渲染期同步 prevPanel（React 官方「渲染期间调整 state」模式，不用 effect）。
      v1.8.0 补充：面板刚关闭（退场动画中，≤450ms 窗口）快速点开另一个功能，
-     视觉上旧选框还在退场——此刻应延续「切换」语言（layoutId 从旧位置纯滑移），
-     不重新播 Q 弹出场（用户点名：此时的动画不是打开动画，是切换动画）
-     v2.0.1 补充：dock 部件（音乐面板）开着时切到内建面板也算「切换」——
-     否则选框在音乐按钮上播关闭、在目标按钮上重新 Q 弹，而不是滑移
-     （真机：选框走了两段式开/关动画的根因之一，与互斥两帧化同批修复） */
+     此刻应延续「切换」语言（从旧位置纯滑移），不重播 Q 弹出场。
+     v2.0.1 补充：dock 部件（音乐面板）开着时切到内建面板也算「切换」。
+     v8.1.2 选框单实例化（用户实机：快速连点两功能时选框反复缩小淡出泵动，
+     动效回退成液态玻璃时期）：旧实现选框在各按钮内条件挂载（AnimatePresence
+     + layoutId 跨按钮交接），连点快于退场+弹簧收敛时，新选框继承旧选框
+     「退场进行中」的 scale/opacity 投影再弹回（实测 scale 0.44~0.59 /
+     opacity 0.11~0.46 反复泵动）。现改为 nav 级单实例常驻选框：开面板时
+     挂载一次，切换 = 同一元素 x/width 弹簧滑移（任意点击速度零交接零泵动），
+     关闭才退场缩回；三段动效语言全部保留（Q弹出场/基线滑移/缩回淡出） */
   const prevPanelRef = useRef<PanelId>(null);
   const prevWidgetOpenRef = useRef<string | null>(dockWidgetOpen);
   /** 最近一次面板关闭时刻（switchTo(null) / closePanel / 部件关闭 统一记录） */
@@ -553,8 +556,57 @@ export default function Dock({
     prevPanelRef.current == null &&
     prevWidgetOpenRef.current == null &&
     Date.now() - lastCloseRef.current > PILL_SWITCH_WINDOW_MS;
+  /* v8.1.2 选框晚一帧挂载（等几何测量），此时 prevPanelRef 已同步完成——
+     pillPop 直接重算会误判为 false（Q 弹出场丢失，实测首帧即全亮）。
+     跃迁帧捕获：仅在 panel/部件态发生变化的渲染帧捕获一次 pillPop，
+     选框挂载帧读取捕获值 */
+  const pillPopRef = useRef(false);
+  if (prevPanelRef.current !== panel || prevWidgetOpenRef.current !== dockWidgetOpen) {
+    pillPopRef.current = pillPop;
+  }
   if (prevPanelRef.current !== panel) prevPanelRef.current = panel;
   if (prevWidgetOpenRef.current !== dockWidgetOpen) prevWidgetOpenRef.current = dockWidgetOpen;
+
+  /* ---- v8.1.2 常驻选框：几何测量（active 按钮相对 nav padding 缘） ---- */
+  const reduceMotion = useReducedMotion();
+  const navRef = useRef<HTMLElement | null>(null);
+  const btnRefs = useRef(new Map<string, HTMLButtonElement>());
+  const registerBtn = useCallback(
+    (id: string) => (el: HTMLButtonElement | null) => {
+      if (el) btnRefs.current.set(id, el);
+      else btnRefs.current.delete(id);
+    },
+    []
+  );
+  const [pillBox, setPillBox] = useState<{ x: number; w: number } | null>(null);
+  /** 最近一次选框盒（关闭后保留）——450ms 内快开另一功能时从旧位滑移（切换语言） */
+  const pillPrevBoxRef = useRef<{ x: number; w: number } | null>(null);
+  const activeId: string | null =
+    panel ?? (dockWidgetOpen ? `widget:${dockWidgetOpen}` : null);
+  useLayoutEffect(() => {
+    const nav = navRef.current;
+    if (!nav) return;
+    const measure = () => {
+      const btn = activeId != null ? btnRefs.current.get(activeId) : null;
+      if (!btn) {
+        setPillBox((p) => (p == null ? p : null));
+        return;
+      }
+      const x = btn.offsetLeft;
+      const w = btn.offsetWidth;
+      setPillBox((p) =>
+        p && Math.abs(p.x - x) < 0.5 && Math.abs(p.w - w) < 0.5 ? p : { x, w }
+      );
+      pillPrevBoxRef.current = { x, w };
+    };
+    measure();
+    /* 徽标/番茄分钟数宽度动画期间逐帧跟随；窗口缩放/字体就绪由 nav RO 兑底 */
+    const ro = new ResizeObserver(measure);
+    const btn = activeId != null ? btnRefs.current.get(activeId) : null;
+    if (btn) ro.observe(btn);
+    ro.observe(nav);
+    return () => ro.disconnect();
+  });
 
   /* dock 番茄钟：运行中或暂停中在按钮旁显示剩余分钟 + 呼吸灯 */
   const pomoText = useSyncExternalStore(subscribePomo, getPomoSnapshot, () => null);
@@ -595,13 +647,54 @@ export default function Dock({
       )}
 
       <nav
+        ref={navRef}
         aria-label="快捷操作"
         className="glass-pill backdrop-blur-2xl backdrop-saturate-150 dock-intro zen-dock cl-dock fixed bottom-[max(1.25rem,env(safe-area-inset-bottom))] left-1/2 z-40 flex -translate-x-1/2 items-center gap-0.5 rounded-full p-1.5 shadow-lg"
       >
+        {/* v8.1.2 常驻选框（单实例，首子元素 → 按钮内容绘制其上；pointer-events-none
+            不拦点击）。x/width 弹簧承担切换滑移——同一元素动画，任意连点速度零交接；
+            出场：真首次开面板 Q 弹原地 pop；≤450ms 快开另一功能从旧位滑移（切换语言） */}
+        <AnimatePresence>
+          {activeId != null && pillBox != null && (
+            <motion.span
+              key="dock-pill"
+              initial={
+                reduceMotion
+                  ? false
+                  : pillPopRef.current
+                    ? { opacity: 0, scale: 0.6, x: pillBox.x, width: pillBox.w }
+                    : Date.now() - lastCloseRef.current <= PILL_SWITCH_WINDOW_MS &&
+                      pillPrevBoxRef.current
+                      ? {
+                          opacity: 1,
+                          scale: 1,
+                          x: pillPrevBoxRef.current.x,
+                          width: pillPrevBoxRef.current.w,
+                        }
+                      : false
+              }
+              animate={{ opacity: 1, scale: 1, x: pillBox.x, width: pillBox.w }}
+              exit={{
+                opacity: 0,
+                scale: 0.6,
+                transition: { duration: 0.16, ease: EXIT_EASE },
+              }}
+              transition={{
+                x: motionProfile === "playful" ? POPPING : MOTION_PROFILES.standard,
+                width: motionProfile === "playful" ? POPPING : MOTION_PROFILES.standard,
+                opacity: POPPING,
+                scale: POPPING,
+              }}
+              className="pointer-events-none absolute inset-y-1.5 left-0 rounded-full bg-[var(--pill-seg)] ring-1 ring-[color:var(--pill-seg-ring)]"
+              aria-hidden
+            />
+          )}
+        </AnimatePresence>
         {/* 天气 */}
         <DockButton
           motionProfile={motionProfile}
-          pillPop={pillPop}
+          btnId="weather"
+          registerRef={registerBtn}
           active={panel === "weather"}
           label={weather.temp != null ? `${weather.temp}° ${weatherText(weather.code)}` : "天气"}
           onClick={() => switchTo(panel === "weather" ? null : "weather")}
@@ -624,7 +717,8 @@ export default function Dock({
         {/* 待办 */}
         <DockButton
           motionProfile={motionProfile}
-          pillPop={pillPop}
+          btnId="todo"
+          registerRef={registerBtn}
           active={panel === "todo"}
           label="待办"
           badge={undone > 0 ? undone : undefined}
@@ -641,7 +735,8 @@ export default function Dock({
         {/* 便签 */}
         <DockButton
           motionProfile={motionProfile}
-          pillPop={pillPop}
+          btnId="note"
+          registerRef={registerBtn}
           active={panel === "note"}
           label="便签"
           onClick={() => switchTo(panel === "note" ? null : "note")}
@@ -659,7 +754,8 @@ export default function Dock({
             数字 digit-slot 必须带 overflow-hidden（盒底=基线模型前提）+ leading-none，否则墨迹悬低 */}
         <DockButton
           motionProfile={motionProfile}
-          pillPop={pillPop}
+          btnId="pomodoro"
+          registerRef={registerBtn}
           active={panel === "pomodoro"}
           label={pomoText ? `番茄钟 剩余 ${pomoText} 分钟` : "番茄钟"}
           onClick={() => switchTo(panel === "pomodoro" ? null : "pomodoro")}
@@ -706,7 +802,7 @@ export default function Dock({
         <Divider />
 
         {/* 命令面板 */}
-        <DockButton motionProfile={motionProfile} pillPop={false} active={false} label="指令 ⌘K" onClick={openPalette} presetIcon={presetIcons.command}>
+        <DockButton motionProfile={motionProfile} active={false} label="指令 ⌘K" onClick={openPalette} presetIcon={presetIcons.command}>
           {presetIcons.command ? (
             <PresetGlyph spec={presetIcons.command} />
           ) : (
@@ -722,7 +818,8 @@ export default function Dock({
         {/* 设置 */}
         <DockButton
           motionProfile={motionProfile}
-          pillPop={pillPop}
+          btnId="settings"
+          registerRef={registerBtn}
           active={panel === "settings"}
           label="设置"
           onClick={() => switchTo(panel === "settings" ? null : "settings")}
@@ -743,7 +840,6 @@ export default function Dock({
             <DockButton
               key={d.key}
               motionProfile={motionProfile}
-              pillPop={false}
               active={false}
               label={d.title}
               onClick={() => onRunAction(d.action)}
@@ -766,7 +862,8 @@ export default function Dock({
           <DockButton
             key={w.key}
             motionProfile={motionProfile}
-            pillPop={false}
+            btnId={`widget:${w.key}`}
+            registerRef={registerBtn}
             active={dockWidgetOpen === w.key}
             label={w.name}
             onClick={() => {
@@ -846,7 +943,8 @@ function DockButton({
   badge,
   presetIcon,
   motionProfile,
-  pillPop,
+  btnId,
+  registerRef,
 }: {
   children: React.ReactNode;
   label: string;
@@ -857,20 +955,16 @@ function DockButton({
   presetIcon?: string;
   /** 动效语言档位：切换滑移 playful 档用 Q 弹，其余档位用基线标准弹簧 */
   motionProfile: MotionProfile;
-  /** 本次挂载是否播 Q 弹出场（无面板→打开面板时为 true；面板间切换为 false → 纯滑移） */
-  pillPop: boolean;
+  /** v8.1.2 选框单实例化：active 按钮由宿主 nav 级常驻选框测量定位，
+   *  本按钮只上报 ref（选框不再在按钮内挂载——快速连点时 layoutId 交接
+   *  会继承退场中的 scale/opacity 投影，选框反复缩小淡出泵动，已根治） */
+  btnId?: string;
+  registerRef?: (id: string) => (el: HTMLButtonElement | null) => void;
 }) {
-  const reduceMotion = useReducedMotion();
-  /* 选框三段动效（v1.7.1）：
-   *  - 出现（开面板首次挂载）：Q 弹 scale .6→1（POPPING，固定不变）；
-   *  - 切换（layoutId 跨按钮滑移）：恢复基线手感 standard 弹簧（420/34，与 v1.1.x 一致），
-   *    仅 playful 档（示例预设）换成 Q 弹滑移；
-   *  - 消失（关闭面板）：快速缩回 + 淡出（退场加速曲线，与出场对称）。 */
-  const pillSwitchSpring =
-    motionProfile === "playful" ? POPPING : MOTION_PROFILES.standard;
   return (
     <button
       type="button"
+      ref={btnId && registerRef ? registerRef(btnId) : undefined}
       onClick={onClick}
       aria-label={label}
       title={label}
@@ -882,31 +976,6 @@ function DockButton({
           : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
       }`}
     >
-      <AnimatePresence>
-        {active && (
-          /* 选框：layoutId 承担按钮间滑移（transition.layout）；出场/消失由
-             opacity/scale 承担。pillPop=false（面板间切换）时不播 initial，
-             新选框从旧按钮位置纯滑移（基线手感）；出场 Q 弹只在真首次出现时可见；
-             reduceMotion 下不播出场 */
-          <motion.span
-            layoutId="dock-active-pill"
-            initial={reduceMotion || !pillPop ? false : { opacity: 0, scale: 0.6 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{
-              opacity: 0,
-              scale: 0.6,
-              transition: { duration: 0.16, ease: EXIT_EASE },
-            }}
-            transition={{
-              layout: pillSwitchSpring,
-              opacity: POPPING,
-              scale: POPPING,
-            }}
-            className="absolute inset-0 rounded-full bg-[var(--pill-seg)] ring-1 ring-[color:var(--pill-seg-ring)]"
-            aria-hidden
-          />
-        )}
-      </AnimatePresence>
       <span className="relative flex items-center">{children}</span>
       <AnimatePresence initial={false}>
         {typeof badge === "number" && (
