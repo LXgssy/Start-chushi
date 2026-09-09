@@ -1272,3 +1272,22 @@ Stage Summary:
 - 结论：v8.1.2 发布——https://github.com/LXgssy/Start-chushi/releases/tag/v8.1.2；用户侧动作：更新 NewTab v8.1.2 + 重导 ChuShi-Music-Preset-8.1.2.cshz（接入修复在预设包里，必换）；网易云侧三件不动
 - 新律：①「改一行更要跑阴性对照」——同环境旧包复现 ReferenceError/新包 PASS 才算实锢（mock 假绿律的部件版）；②strict 模式 IIFE 里「连接路径上的任何未声明赋值」都是全灭级 bug，宽限/恢复类补丁必须过 connected 快照用例；③AnimatePresence+layoutId 跨元素交接在打断期会继承退场投影——高频交互的选择指示器一律单实例化（同一元素动画，无交接即无投影继承）；④晚一帧挂载的元素读「渲染期推导的挂载标志」会拿到过期值——跃迁帧捕获进 ref；⑤Release tag 随远端 main——发版提交必须先推再建 Release，或建后重指 tag
 - 待办：用户侧验收（重导预设即接入 / 连点选框纯滑移）；Edge 商店提交材料仍未做
+
+---
+Task ID: 110
+Agent: main (Super Z)
+Task: 用户问「本地怎么安装扩展版本」——排查发现 v8.0.8~v8.1.2 发布的 NewTab zip 全部不是规范扩展包（缺 manifest/_locales/icons + 内联脚本），重建规范 v8.1.2 扩展包 + 真浏览器冒烟 + 本地安装指导
+
+Work Log:
+- 【发版回归实锢】v8.0.8 起组装脚本（build-v808/809/811/812-assets.py）直接 zip EXTENSION_MODE 纯网页导出 out/，漏掉 build-extension.py 全部注入步骤：zip 内无 manifest.json（Chrome 报 Manifest missing 无法加载）、无 _locales/icons（manifest 引用悬空）、index.html 含 7 个内联 script（MV3 CSP 禁内联）。逐版本核验：v8.0.8/v8.0.9/v8.1.1/v8.1.2 四个已发布 zip 全中（v8.1.0 未发 NewTab）。老用户一直能用 = 「解压覆盖旧扩展目录」路径：manifest/_locales/icons/ext-script 沿用旧文件，Next router fetch index.txt 兜底内联 payload 缺失
+- 【规范包重建】EXTENSION_MODE=1 next build（产物四门：无 basePath/.nojekyll/scrollbar-width:none/dock-btn 特征全过）→ build-extension.py 升 8.1.2（外置 7 内联脚本 + manifest v8.1.2 注入 + /tmp/ext-ref 重建自 v1.1.2 zip 解压）→ ChuShi-NewTab-v8.1.2.zip 11.7MB
+- 【静态自检 20/20】manifest MV3/version 8.1.2/newtab 覆盖/hub 三端口 host_permissions/sandbox CSP 声明、零内联 + 7 外置引用在位、zh_CN+en messages、icons 16/48/128、sandbox.js/sw.js/.nojekyll
+- 【真浏览器冒烟 10/10】verify-v812-ext-load.mjs（playwright 1.62）：调试三课——①默认 headless 用 chromium_headless_shell 不支持扩展（静默不加载），必须 channel:"chromium"+launchPersistentContext；②该扩展无 background（与 v1.1.2 完好包同构），拿 id 不能等 service worker；③headless 下 chrome:// 导航 ERR_INVALID_URL、CDP Extensions.loadUnpacked 受限——最终 id 用确定性算法 sha256(abs_path) 前 16 字节 hex 每 nibble %26+'a'（jkanbbcimgoijfefaogihgeohbkhlekd），xvfb headed 实测扩展接受、newtab 页完整渲染（title/时钟/问候/快捷链接/⌘K）、sandbox.html 可达无 CSP 违规、控制台零致命项（仅 hub 26901-26903 探测 CONNECTION_REFUSED = 本环境无网易云枢纽预期，反证 host_permissions 放行生效）；截图 scripts/pw-lab/shots/v812-ext-newtab.png 视觉确认
+- 【交付物同步】fix-v812-sums.py（重算 SHA256SUMS.txt + 重建 AllInOne.zip + 内嵌规范包防呆门：manifest 存在/零内联断言）跑通：防呆门通过、AllInOne 5/5 SHA 回读一致
+- 【沙箱冒烟判据修正】sandbox.html 是空壳宿主（innerText 空属正常，改判脚本宿主结构 + 无 CSP 违规）；裸 console "Failed to load resource" 无 URL，与 reqfail 的 hub 探测一一对应（CSP 违规报错走 "Refused to" 字样不受白名单影响）
+- 【工具会话故障一轮】Bash 连续 3 次 + Edit 1 次失败（用户重启会话后恢复，收尾脚本即重启后跑成）
+
+Stage Summary:
+- 结论：download/v8.1.2/ChuShi-NewTab-v8.1.2.zip 已重建为规范扩展包（真浏览器全绿），本地安装 = 解压 → chrome://extensions → 开发者模式 → 加载已解压的扩展程序（选解压目录，目录需永久保留）；升级 = 新 zip 覆盖目录 → 扩展页点刷新
+- 新律：①组装脚本复用是发版回归温床——build-v8xx-assets.py 绕过 build-extension.py 产物注入流程，五个版本带病发布而 SHA 校验 6/6 全绿（校验的是「与本地一致」不是「正确」）——规范产出门必须内嵌进组装脚本（防呆门范式）；②headless_shell 静默吞扩展（不报错不加载）——扩展冒烟必须 channel:"chromium"；③无 background 扩展拿 id 用路径哈希确定性算法，不依赖 chrome:// 页面 DOM；④SHA 校验只能证「传输一致」，产物正确性要靠特征断言门（manifest 存在/零内联/特征串）
+- 待办：①Release v8.1.2 的 NewTab zip/SHA256SUMS/AllInOne 三资产仍为坏包（GitHub 未替换），v8.0.8/v8.0.9/v8.1.1 历史资产同病——待用户拍板是否补传；②Edge 商店提交材料仍未做
