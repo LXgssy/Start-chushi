@@ -1,5 +1,9 @@
 /* ============================================================================
- * ChuShi Music Bridge 8.0.9 — 网易云 InfLink-rs 适配桥（媒体键退役 + 备路三代修正）
+ * ChuShi Music Bridge 8.1.0 — 网易云 InfLink-rs 适配桥（媒体键退役 + 备路三代修正）
+ *   v8.1.0（用户实机录屏：歌曲正常播放但歌词乱跳 1:05↔1:06 锯齿）：
+ *   ① 位置单源化——旧版 InfLink 时间线（SMTC 上报滞后 ~1s）与元素真值
+ *     空缺交替补位，两源逐拍交替 → 页面每拍硬锚 → 进度/歌词秒级锯齿；
+ *     现一律以 el.currentTime 为位置唯一源，InfLink 时间线仅元素缺席兑底。
  *   v8.0.9（用户实机：「拖动成功了却提示拖动不成功 + 回弹几秒才跳转」）：
  *   ①doSeek 读回校验 v2——InfLink 时间线第一读回源（页面所见即所验）+
  *     元素备源，420/1000/2200ms 三拍耐心（旧版只读元素且仅两拍，NCM 应用
@@ -87,7 +91,7 @@
   'use strict';
   if (window.__chushiMusicBridge) return;
 
-  var VER = '8.0.9';
+  var VER = '8.1.0';
   var HUB_NAME = 'chushi-music-hub';
   var HUB_PORTS = [26901, 26902, 26903];
   var BEAT_MS = 1000;
@@ -1078,14 +1082,23 @@
       if (duration <= 0 && song && song.durationMs > 0) duration = song.durationMs / 1000;
       if (!linkOut.song && song) linkOut.song = song; /* 供下方统一取值 */
     } else {
-      /* InfLink 在场：时间线/状态缺失的空缺由元素补（时间线 1Hz 节流间隙） */
+      /* InfLink 在场：元数据/时长用 InfLink；位置单源化取元素真值。
+         v8.1.0 锯齿根治：旧版「InfLink 时间线优先、空缺由元素补」——而
+         InfLink getTimeline 上游（SMTC 位置上报）滞后元素真值 ~1s，且
+         节流间隙/瞬时缺席时落到元素值，两源相差 ~1s 逐拍交替，页面端
+         每拍 |Δ|≥0.35s 硬锚 → 进度 1 秒锯齿来回、歌词行边界反复横跳
+         （真机录屏 1:05↔1:06 实锤）。现一律以 el.currentTime（帧级连续
+         真值）为位置唯一源；元素缺席才回落 InfLink 时间线（源恒定单一，
+         不再交替）。 */
       if (el) {
-        if (position < 0) position = Number(el.currentTime) || 0;
+        var elCur = Number(el.currentTime);
+        if (isFinite(elCur) && elCur > 0) position = elCur;
         if (duration <= 0) {
           var d2 = Number(el.duration) || 0;
           if (isFinite(d2) && d2 > 0) duration = d2;
         }
       }
+      if (position < 0 && linkOut.position >= 0) position = linkOut.position;
       if (duration <= 0 && linkOut.song && linkOut.song.durationMs > 0) duration = linkOut.song.durationMs / 1000;
       /* v8.0.2 状态自愈：InfLink playState 冻结为 Paused 但时间线仍在推进
          （≥1.2s/拍、同曲、拍间陈旧 <4s）→ 按播放处理。只治假暂停，

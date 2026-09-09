@@ -193,7 +193,7 @@ body{
   <section class="cs-empty" id="csEmpty">
     <svg class="cs-eic" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><use href="#cs-i-note"/></svg>
     <div class="cs-e1" id="csE1">系统媒体待接入</div>
-    <div class="cs-e2" id="csE2">安装 InfLink-rs 与初始三个插件并播放音乐即自动接入</div>
+    <div class="cs-e2" id="csE2">安装 InfLink-rs 与初始插件并播放音乐即自动接入</div>
   </section>
 </div>
 
@@ -211,7 +211,8 @@ body{
      与「网易云未响应」，用户在浏览器里也能定位按键失效断点）。
      v8.0.6：进度条拖动跳转恢复（InfLink seekTo 同源通路）+ 版本门 8.0.6。
      v8.0.9：拖动假失败芯片根治（宿主三态 seekAckKnown）+ 悬停高光渐显
-     （进度条/播放/关闭键全缓动）+ 关闭面板先淡出再收起 + 版本门 8.0.9。 */
+     （进度条/播放/关闭键全缓动）+ 关闭面板先淡出再收起 + 版本门 8.0.9。
+     v8.1.0：防闪断宽限（瞬断保内容 3s）+ 版本门 8.1.0。 */
   var H = { fl: 248, em: 92 }, LY_H = 124, W = 340;
   var DEF = "asset:cover.svg"; /* v8.0.1：asset 在生产宿主实测可用；失联时 onerror 藏 img 露渐变底，绝不破图 */
   function $(id) { return document.getElementById(id); }
@@ -239,6 +240,8 @@ body{
 
   var snap = mus.snapshot() || null;
   var mode = "em";
+  /* v8.1.0 防闪断宽限：connected 瞬断保内容亮黄灯 3s 才降级空态 */
+  var offT = 0;
   var lyHold = false;          /* 歌词高度迟滞：短暂缺失不塌面板（按钮不跳） */
   var lyKey = "", lyRef = null, lyMode = 0;
   var lineEls = [];            /* [{el, words:[{ov}], line, sung}] */
@@ -293,7 +296,7 @@ body{
 
   /* ---------- 芯片与页脚（诚实归因文案；v8.0.3 兼顾控制未生效提示） ---------- */
   function pluginOld() {
-    var v = String((snap && snap.pluginVer) || "").split("."), need = [8, 0, 9];
+    var v = String((snap && snap.pluginVer) || "").split("."), need = [8, 1, 0];
     for (var i = 0; i < 3; i++) {
       var x = parseInt(v[i], 10) || 0, y = need[i];
       if (x !== y) return x < y;
@@ -308,13 +311,13 @@ body{
     var bridgeRan = !!(cl && cl.at && clickedAt && cl.at >= clickedAt - 800);
     if (!bridgeRan) {
       return pluginOld()
-        ? "桥插件 v" + ((snap && snap.pluginVer) || "?") + " 过旧 · 请更新桥插件并重启网易云"
-        : "音乐桥未执行命令 · 请更新桥插件并重启网易云";
+        ? "桥插件 v" + ((snap && snap.pluginVer) || "?") + " 过旧 · 请更新并重启网易云"
+        : "桥未执行命令 · 请更新桥插件并重启网易云";
     }
     if (cl.ok === false) {
-      return "网易云未响应控制（" + (cl.path || "按钮") + "）· 请完全退出并重启网易云";
+      return "网易云未响应（" + (cl.path || "按钮") + "）· 请重启网易云";
     }
-    return "控制已下发但未生效 · 请完全退出并重启网易云";
+    return "控制已下发未生效 · 请重启网易云";
   }
   function noteCtl(txt) {
     if (ctlTimer) { clearTimeout(ctlTimer); ctlTimer = 0; }
@@ -337,11 +340,11 @@ body{
       chipUpd.classList.add("on");
       updTxt.textContent = s.needsBridge
         ? (s.engineOld
-          ? "音乐桥版本过旧 · 请更新插件并重启网易云"
-          : "音乐桥未连接 · 请安装插件并重启网易云")
+          ? "桥版本过旧 · 请更新插件并重启网易云"
+          : "桥未连接 · 请安装插件并重启网易云")
         : (!s.pluginVer
-          ? "音乐桥未就绪 · 请在网易云插件列表启用它"
-          : "组件待更新 · 请更新三个 .plugin 并重启网易云");
+          ? "桥未就绪 · 请在插件列表启用它"
+          : "组件待更新 · 请更新 .plugin 并重启网易云");
     } else if (ctlNote && Date.now() - ctlNoteAt < 6000) {
       chipUpd.classList.add("on");
       updTxt.textContent = ctlNote;
@@ -476,11 +479,18 @@ body{
   function render() {
     var s = snap;
     if (!s || !s.connected) {
-      /* e1/e2 空态文案初始化时已设，不再重复写 DOM */
+      /* v8.1.0 宽限降级：先保内容亮黄灯，超 3s 才切空态 */
+      if (!offT) offT = Date.now();
+      if (Date.now() - offT < 3e3) {
+        led.classList.add("pz");
+        footTxt.textContent = "重连中…";
+        return;
+      }
       footTxt.textContent = "未连接";
       setMode("em");
       return;
     }
+    offSince = 0;
     setMode("fl");
     var key = [s.title, s.artist, s.album, s.app].join("|");
     if (key !== trackKey) {
