@@ -1234,3 +1234,22 @@ Stage Summary:
 - 结论：gh-pages 黑屏 = EXTENSION_MODE 产物误部署（Task 107 假绿核验），已重建部署并核验资源 200；歌词乱跳 = 桥双源交替锯齿 + 页面硬锚放大 + 护航窗中间态漏洞 + 面板无宽限硬切换四层串联，v8.1.0 四层全修
 - 新律：①「时间线类接口有 1Hz 节流/上游滞后」——位置值永远优先帧级连续源（audio.currentTime），快照类接口只做兜底；②行为契约测试（T5 暂停取真值）是护栏，新守卫必须与旧契约共存而非覆盖；③熔断/护航窗类「拦截型守卫」必须有豁免通道（grace/连续拍/翻转），否则把正常路径也拦死；④Pages 部署核验必须查资源状态码而非仅首页（Task 55 律的补充：首页 200 + 资源 200 + chunk 特征三件套）
 - 待办：用户侧验收（桥 8.1.0 + NewTab 8.1.0 + 重导 cshz 8.1.0 → 锯齿消失/seek 后歌词对位/面板不闪）；桥 manifest 描述 v8.1.0 段已附；Release 产物已组本地 download/v8.1.0/（GitHub Release 上传待用户 PAT 流程或下轮补行）
+
+---
+Task ID: 108
+Agent: main (Super Z)
+Task: 用户指令「推送v8.1.1」——v8.1.1 GitHub Release 发版（v8.1.0 未单独发版一并交付）+ 环境重建后本地仓与远端对齐
+
+Work Log:
+- 【现场重建】环境清理致本地仓落后（HEAD 停在 2159fb9/v1.2.0 线）：git fetch 后确认远端 main=34ef353（v8.1.1 提交已在，含 62fe7b5 v8.1.0），reset --hard 对齐；.pkgtmp/gh-token 由 remote URL 内嵌 PAT 重建（.gitignore:72 已覆盖）；gh-pages 已是 v8.1.1 部署（a4817c6），线上三件套核验过：index 200 + 主 CSS 396ff3bb 200 + scrollbar-width:none 特征命中 ✓ 无需重推
+- 【版本考古】Release 线停 v8.0.9：v8.1.0/v8.1.1 均无 tag 无 Release（worklog Task 107 尾注「Release 上传待下轮补行」实锢）；组件版本现状：桥 manifest/VER=8.1.0、歌词源 7.3.0、cshz 8.1.0、hub.dll 8.0.9（PLUGIN_VERSION），v8.1.1 提交仅动 src/app/globals.css（黑边修复）+ 探针/验证脚本
+- 【版本策略】v8.1.1 唯一新内容 = NewTab 黑边修复；桥/歌词源/cshz 自 8.1.0 零改动 → 按 v8.0.8 先例（Preset-8.0.6.cshz 随 v8.0.8 发布）未变组件保留真实版本号，Release tag=v8.1.1、NewTab zip=v8.1.1、桥插件=8.1.0、AllInOne=v8.1.1
+- 【构建】EXTENSION_MODE=1 next build → out/；产物自检四门全过：主 CSS 含 scrollbar-width:none + html.dark 底色、index.html 无 /Start-chushi basePath（EXPORT_MODE 误用事故律的构建侧反门）、.nojekyll/sandbox.js/sw.js 在位
+- 【组装】scripts/build-v811-assets.py（build-v809 模板 + 三道产物自检门）：ChuShi-Music-Bridge-8.1.0.plugin 75703B（与 v8.1.0 构建字节级同大——零改动实锢）+ Lyric-Source-7.3.0 8365B + NewTab-v8.1.1.zip 12255359B + Preset-8.1.0.cshz 8070B + Usage-Notes.md + SHA256SUMS（覆盖 5 件）+ AllInOne.zip 12348551B（6 件）
+- 【发版】scripts/rel-v811.py：Release v8.1.1 创建 id=385271875（HTTP 201，target_commitish=main），6 资产全传 201/uploaded，逐资产 SHA-256 回读校验 6/6 OK；Body 覆盖 v8.1.0+8.1.1 双段根因表 + 分档升级路径（v8.0.9 及更早四件全换 / 内测 8.1.0 只换 NewTab）；tag v8.1.1 由 GitHub 自动落至 34ef353，ls-remote 核验 ✓
+- 【文档】README 版本注记插入 v8.1.0–v8.1.1 合并行（v8.0.0 之前，倒序律）；本 worklog
+
+Stage Summary:
+- 结论：v8.1.1 正式发布——https://github.com/LXgssy/Start-chushi/releases/tag/v8.1.1；用户侧升级口诀：老用户四件全换（桥 8.1.0/歌词源 7.3.0/NewTab v8.1.1/cshz 8.1.0），网页版 gh-pages 已是 v8.1.1 无需动作
+- 新律：①发版前先 git fetch 考古——环境清理后本地 HEAD 可远落后于远端（本次落后 11 个提交含两个版本线）；「提交了」≠「发布了」，Release/tag/gh-pages 三处都要逐一核验；②未变组件随新版发布时保留真实版本号（v8.0.8 先例），Release Notes 用组件版本表+分档升级路径消解用户困惑；③产物组装脚本必须内嵌特征自检门（CSS 特征/basePath 反门/完整性三查）——把 Task 107 假绿教训从部署侧前移到构建侧
+- 待办：用户侧验收 v8.1.1（壁纸右缘无黑边/歌词稳/面板不闪）；Edge 商店提交材料仍未做
