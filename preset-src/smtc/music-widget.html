@@ -73,10 +73,14 @@ body{
    → seekNote 芯片诚实呈现，成功由宿主乐观重锚） */
 .cs-seek{margin-top:13px;height:14px;display:flex;align-items:center;cursor:pointer;
   touch-action:none}
-.cs-seek:hover .cs-rail{height:6px}
-/* v8.0.9 悬停放大过渡律：轨道 4→6px 加缓动，不再瞬变 */
-.cs-rail{position:relative;width:100%;height:4px;border-radius:4px;background:var(--pr);
-  overflow:hidden;transition:height .2s ease}
+/* v8.0.9 悬停放大过渡律：轨道 4→6px 加缓动，不再瞬变
+   v8.1.4 帧率根治：height 过渡每帧触发 layout（backdrop-filter 卡片内
+   代价极高），改 scaleY 合成层动画——轨道恒 6px，默认压至 4px 视觉高，
+   悬停弹回 6px；transform 只走 compositor，掉帧根除 */
+.cs-rail{position:relative;width:100%;height:6px;border-radius:4px;background:var(--pr);
+  overflow:hidden;transform:scaleY(.667);transform-origin:50% 50%;
+  transition:transform .2s var(--ez);will-change:transform}
+.cs-seek:hover .cs-rail{transform:scaleY(1)}
 .cs-rail i{position:absolute;left:0;top:0;height:100%;width:0%;border-radius:4px;background:var(--acc)}
 .cs-tm{display:flex;justify-content:space-between;margin-top:2px;font-size:10.5px;
   color:var(--ink3);font-variant-numeric:tabular-nums}
@@ -129,6 +133,12 @@ body{
 .cs-foot{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--ink3);margin-top:auto}
 .cs-led{width:6px;height:6px;border-radius:var(--r9);background:var(--ok);flex:none;transition:background .3s}
 .cs-led.pz{background:#fbbf24}
+/* v8.1.4 强行逐字开关（伪逐字降级选择；宿主 storage 持久化，默认关） */
+.cs-wbw{appearance:none;border:1px solid var(--line);background:transparent;color:var(--ink3);
+  font-size:10px;font-weight:550;line-height:1;padding:3px 9px;border-radius:var(--r9);
+  cursor:pointer;margin-left:auto;flex:none;transition:color .25s,background-color .25s,border-color .25s}
+.cs-wbw:hover{color:var(--ink)}
+.cs-wbw.on{color:#fff;background:var(--acc);border-color:var(--acc)}
 /* ---------- 提示芯片 ---------- */
 .cs-chip{position:absolute;left:50%;transform:translateX(-50%);z-index:4;display:none;
   align-items:center;gap:5px;padding:4px 10px;border-radius:var(--r9);
@@ -188,7 +198,7 @@ body{
       <button class="cs-b" id="csNext" title="下一首"><svg><use href="#cs-i-next"/></svg></button>
     </div>
     <div class="cs-lyr cs-hide" id="csLyr"><div class="cs-lyr-in" id="csLyrIn"></div></div>
-    <div class="cs-foot"><span class="cs-led" id="csLed"></span><span id="csFootTxt">未连接</span></div>
+    <div class="cs-foot"><span class="cs-led" id="csLed"></span><span id="csFootTxt">未连接</span><button class="cs-wbw" id="csWbw" type="button" title="强行逐字歌词：为没有逐字时间轴的歌词按估算添加逐字效果，准确率低；关闭时使用逐行歌词">强行逐字</button></div>
   </section>
   <section class="cs-empty" id="csEmpty">
     <svg class="cs-eic" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><use href="#cs-i-note"/></svg>
@@ -200,19 +210,19 @@ body{
 <script>
 (function () {
   "use strict";
-  /* ================= ChuShi music widget v8.0.4（纯渲染层）=================
+  /* ================= ChuShi music widget v8.1.4（纯渲染层）=================
      解析/插值/对齐/淡入淡出全部由宿主 chushi.music API 预计算，
      本层每帧只做取数 + 写样式。布局零位移三律：主键双 SVG 同圆心堆叠、
      歌词高度迟滞（歌词短暂缺失不塌面板）、无逐帧布局读写。
-     v8.0.3：主键悬停修复 + 进度条被动化（去滑块/去拖动）
-     + 控制失败诚实提示（悬停/点击均有反馈，不再静默）。
-     v8.0.4：已唱行渐隐律（唱完保持全亮到离场，再 opacity 渐变到灰，
-     不再瞬消）+ 控制归因读桥命令回执（cmdLast：区分「桥未执行命令」
-     与「网易云未响应」，用户在浏览器里也能定位按键失效断点）。
-     v8.0.6：进度条拖动跳转恢复（InfLink seekTo 同源通路）+ 版本门 8.0.6。
-     v8.0.9：拖动假失败芯片根治（宿主三态 seekAckKnown）+ 悬停高光渐显
-     （进度条/播放/关闭键全缓动）+ 关闭面板先淡出再收起 + 版本门 8.0.9。
-     v8.1.0：防闪断宽限（瞬断保内容 3s）+ 版本门 8.1.0。 */
+     v8.1.4 歌词高光三律根治（用户实机反馈）：
+     ① 句尾渐隐律——扫光到 100% 后保持 250ms 收尾即进已唱态渐隐，
+        不再等下一句开始（lrc 行 e = 下一行 s，旧行为句尾高亮挂满行距）；
+     ② 回退残留根治——行切换后「未来行」（已唱界之后）无条件还原未唱态：
+        曾 on 行的 --p 扫光残留（旧逻辑只还原曾 done 的行）与间奏误标
+        已唱（旧 ref=回退前行号）一并清除；当前歌曲位置之后零高光；
+     ③ 强行逐字开关——伪逐字（lrc 估算）可降级逐行，真逐字（yrc）
+        永不降级；状态持久化在宿主 storage，默认关。
+     ④ 进度条悬停放大改 scaleY 合成层动画（height 过渡掉帧根治）。 */
   var H = { fl: 248, em: 92 }, LY_H = 124, W = 340;
   var DEF = "asset:cover.svg"; /* v8.0.1：asset 在生产宿主实测可用；失联时 onerror 藏 img 露渐变底，绝不破图 */
   function $(id) { return document.getElementById(id); }
@@ -244,8 +254,10 @@ body{
   var offT = 0;
   var lyHold = false;          /* 歌词高度迟滞：短暂缺失不塌面板（按钮不跳） */
   var lyKey = "", lyRef = null, lyMode = 0;
-  var lineEls = [];            /* [{el, words:[{ov}], line, sung}] */
+  var lineEls = [];            /* [{el, words, line, sung, clean}] */
   var activeLine = -2;
+  var sungAt = 0;              /* v8.1.4 扫光到 100% 的时刻（句尾渐隐宽限起点） */
+  var forceWord = false;       /* v8.1.4 强行逐字开关（宿主 storage 持久化，默认关） */
   var optP = false, optAt = 0; /* 播放/暂停乐观翻转窗口 */
   var trackKey = "";
   var prevShownPlaying = null;
@@ -369,11 +381,14 @@ body{
     lyKey = key;
     lyRef = l;
     activeLine = -2;
+    sungAt = 0;
     lyInr.innerHTML = "";
     lineEls = [];
-    lyMode = 0;
+    /* v8.1.4 逐字/逐行判定：真逐字（yrc，宿主 src 标记）恒逐字；
+       伪逐字（lrc 估算 / 旧宿主无标记）只在「强行逐字」开时逐字，
+       否则逐行渲染（用户指定：开关默认关） */
     if (l && l.lines && l.lines.length) {
-      lyMode = l.mode || 0;
+      lyMode = (l.mode === 1 && (forceWord || l.src === "yrc")) ? 1 : 0;
       lyBox.classList.remove("cs-hide");
       for (var i = 0; i < l.lines.length; i++) {
         var ln = l.lines[i];
@@ -403,38 +418,62 @@ body{
           row.appendChild(sub);
         }
         lyInr.appendChild(row);
-        lineEls.push({ el: row, words: words, line: ln });
+        lineEls.push({ el: row, words: words, line: ln, sung: false, clean: true });
       }
       lyHold = true;
     } else {
       /* 歌词缺席：只藏 DOM，lyHold 不动（高度迟滞由切歌时重算） */
+      lyMode = 0;
       lyBox.classList.add("cs-hide");
     }
     if (window.chushi && typeof window.chushi.resize === "function") chushi.resize(W, hFor());
   }
 
-  /* ---------- 逐帧歌词渲染：行切换 + 当前词扫色 + 暂停淡入淡出 ---------- */
+  /* ---------- 逐帧歌词渲染：行切换 + 当前词扫色 + 句尾渐隐 + 暂停淡入淡出 ---------- */
   function lyricFrame(n) {
-    if (!lyMode) return;
+    /* v8.1.4 行切换与逐字写词解耦：逐行模式（强行逐字关，lyMode=0）
+       同样需要行高亮（on/done/间奏 ref）——早退只挡逐字写词块 */
+    if (!lineEls.length) return;
     if (n.lineIndex !== activeLine) {
       var prev = activeLine;
       activeLine = n.lineIndex;
+      sungAt = 0;
       /* v8.0.4 行离场渐隐律：done 行遮罩定格 100%，靠 .ov opacity .6s 渐隐
-         + 行色渐变到已唱灰（不再瞬消）；倒回（seek 后回退）退出 done 的行
-         由 restoreLine 重置未唱态；间奏（-1）维持已唱进度 */
-      var ref = activeLine >= 0 ? activeLine : prev;
+         + 行色渐变到已唱灰（不再瞬消）。
+         v8.1.4 ref 修正：间奏（-1）用宿主 lastLine（已唱界，回退落间奏
+         时它才是真界）——旧 ref=回退前行号会把回退后未唱的行误标已唱；
+         旧宿主无 lastLine 时退回 prev（v8.0.4 行为）。 */
+      var ref = activeLine >= 0 ? activeLine
+        : (typeof n.lastLine === "number" && n.lastLine >= 0 ? n.lastLine : (prev >= 0 ? prev : -1));
       for (var i = 0; i < lineEls.length; i++) {
         var on = i === activeLine;
         var was = lineEls[i].el.classList.contains("done");
         var done = ref >= 0 && i <= ref && !on;
         lineEls[i].el.classList.toggle("on", on);
         lineEls[i].el.classList.toggle("done", done);
-        if (on) lineEls[i].sung = true;
-        if (done && !was) {
-          /* 唱过的行定格全亮渐隐（用户指定）；seek 跳中段的未唱行直接灰 */
-          if (lineEls[i].sung) finalizeLine(i); else restoreLine(i);
+        if (on) {
+          lineEls[i].sung = true;
+          lineEls[i].clean = false; /* 重新扫光：清定格标记 */
+          continue;
         }
-        else if (!done && was) restoreLine(i);
+        if (done) {
+          if (!was) {
+            /* 唱过的行定格全亮渐隐；seek 跳中段的未唱行直接灰 */
+            if (lineEls[i].sung) {
+              finalizeLine(i);
+              lineEls[i].clean = true;
+            } else {
+              restoreLine(i);
+              lineEls[i].clean = true;
+            }
+          }
+        } else {
+          /* v8.1.4 回退高光残留根治：未来行（已唱界之后）无条件还原
+             未唱态——曾 on 行的 --p 扫光残留（旧逻辑只还原曾 done 的行）
+             与间奏误标已唱一并清除；sung 一并复位。clean 跳过幂等重写。 */
+          if (!lineEls[i].clean) { restoreLine(i); lineEls[i].clean = true; }
+          lineEls[i].sung = false;
+        }
       }
       if (activeLine >= 0 && activeLine < lineEls.length) {
         var el = lineEls[activeLine].el;
@@ -445,6 +484,26 @@ body{
     /* 逐帧只写当前行的词（性能律：其余行在离场时一次性定稿） */
     if (lyMode === 1 && activeLine >= 0 && activeLine < lineEls.length) {
       var ws = lineEls[activeLine].words;
+      var last = n.wordIndex >= 0 && n.wordIndex >= ws.length - 1 && n.wordProgress >= 1;
+      if (last && !sungAt) {
+        /* v8.1.4 句尾渐隐律：扫光到 100% 后保持 250ms 收尾即进已唱态
+           渐隐，不再等下一句开始（lrc 行 e=下一行 s，旧行为句尾高亮
+           挂满行距/间奏）；行切换/重扫由 sungAt 复位撤销。 */
+        sungAt = Date.now();
+      } else if (last && sungAt && Date.now() - sungAt >= 250 &&
+        !lineEls[activeLine].el.classList.contains("done")) {
+        lineEls[activeLine].el.classList.add("done");
+        finalizeLine(activeLine);
+        lineEls[activeLine].clean = true;
+      } else if (!last) {
+        sungAt = 0;
+        var cel2 = lineEls[activeLine].el;
+        if (cel2.classList.contains("done")) {
+          cel2.classList.remove("done");
+          restoreLine(activeLine);
+          lineEls[activeLine].clean = false;
+        }
+      }
       for (var j = 0; j < ws.length; j++) {
         var p = j < n.wordIndex ? 1 : j > n.wordIndex ? 0 : (n.wordIndex >= 0 ? n.wordProgress : 0);
         ws[j].ov.style.setProperty("--p", (p * 100).toFixed(1) + "%");
@@ -514,6 +573,25 @@ body{
   }
 
   /* ---------- 交互 ---------- */
+  /* v8.1.4 强行逐字开关：状态持久化在宿主 storage；切换即强制重建歌词
+     DOM（mode 重判：伪逐字↔逐行），真逐字（yrc）不受影响。默认关。 */
+  var wbwBtn = $("csWbw");
+  function applyWbw(r) {
+    wbwBtn.classList.toggle("on", forceWord);
+    if (r) { lyKey = "\u0000force"; buildLyric(); }
+  }
+  wbwBtn.onclick = function () {
+    forceWord = !forceWord;
+    applyWbw(true);
+    if (window.chushi && chushi.storage) chushi.storage.set("csForceWord", forceWord);
+  };
+  if (window.chushi && chushi.storage) {
+    chushi.storage.get("csForceWord").then(function (v) {
+      if ((v === true) !== forceWord) { forceWord = v === true; applyWbw(true); }
+      else applyWbw(false);
+    }).catch(function () { });
+  } else applyWbw(false);
+
   /* v8.0.9 关闭动画：先淡出面板（复用 .cs-live 自带 opacity 过渡）再收起，
      不再瞬间消失（用户指定「关闭动画同理」） */
   $("csClose").onclick = function () {

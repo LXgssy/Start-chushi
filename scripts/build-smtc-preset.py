@@ -2,7 +2,7 @@
 # 源：preset-src/smtc/music-widget.html + music-commands.js + assets/cover.svg
 # 出：examples/初始SMTC音乐预设.cshz（zip：manifest.json + assets/cover.svg，
 #     与 src/lib/startpage/pack.ts parsePack 的白名单结构一一对应）
-# 校验：widget html ≤20000（v8.1.0 与宿主 widgetHtmlLen 同步放宽）、script code ≤16000
+# 校验：widget html ≤22000（v8.1.4 与宿主 widgetHtmlLen 同步放宽）、script code ≤16000
 # ⚠ html 里的 "asset:cover.svg" 引用只能在 .cshz 导入时被内联 —— 本包不再产单 JSON 形态
 import json, re, pathlib, zipfile
 
@@ -55,7 +55,7 @@ html = minify_html((SRC / "music-widget.html").read_text(encoding="utf-8"))
 code = minify_js((SRC / "music-commands.js").read_text(encoding="utf-8"))
 cover_svg = (SRC / "assets" / "cover.svg").read_text(encoding="utf-8")
 
-assert len(html) <= 20000, f"widget html 超限: {len(html)} > 20000"
+assert len(html) <= 22000, f"widget html 超限: {len(html)} > 22000"
 assert len(code) <= 16000, f"script code 超限: {len(code)} > 16000"
 # widget html 不能含外链脚本/资源（iframe 不透明源本就加载不了，这里防手滑）
 # v8.0.1：data-URI 兜底封面合法；xmlns 命名空间标识（w3.org）不是外链资源，剔除后再查
