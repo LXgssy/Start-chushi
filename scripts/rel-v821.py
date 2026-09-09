@@ -13,7 +13,7 @@ TAG = 'v8.2.1'
 OUT = ROOT / 'download/v8.2.1'
 
 ASSETS = [
-    'ChuShi-Music-Bridge-8.2.0.plugin',
+    'ChuShi-Music-Bridge-8.2.1.plugin',
     'ChuShi-Lyric-Source-7.3.0.plugin',
     'ChuShi-NewTab-v8.2.1.zip',
     'ChuShi-Music-Preset-8.2.0.cshz',
