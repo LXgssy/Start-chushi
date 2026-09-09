@@ -1291,3 +1291,18 @@ Stage Summary:
 - 结论：download/v8.1.2/ChuShi-NewTab-v8.1.2.zip 已重建为规范扩展包（真浏览器全绿），本地安装 = 解压 → chrome://extensions → 开发者模式 → 加载已解压的扩展程序（选解压目录，目录需永久保留）；升级 = 新 zip 覆盖目录 → 扩展页点刷新
 - 新律：①组装脚本复用是发版回归温床——build-v8xx-assets.py 绕过 build-extension.py 产物注入流程，五个版本带病发布而 SHA 校验 6/6 全绿（校验的是「与本地一致」不是「正确」）——规范产出门必须内嵌进组装脚本（防呆门范式）；②headless_shell 静默吞扩展（不报错不加载）——扩展冒烟必须 channel:"chromium"；③无 background 扩展拿 id 用路径哈希确定性算法，不依赖 chrome:// 页面 DOM；④SHA 校验只能证「传输一致」，产物正确性要靠特征断言门（manifest 存在/零内联/特征串）
 - 待办：①Release v8.1.2 的 NewTab zip/SHA256SUMS/AllInOne 三资产仍为坏包（GitHub 未替换），v8.0.8/v8.0.9/v8.1.1 历史资产同病——待用户拍板是否补传；②Edge 商店提交材料仍未做
+
+---
+Task ID: 110-b
+Agent: main (Super Z)
+Task: 用户指令「补传」——Release v8.1.2 三坏资产（NewTab zip/SHA256SUMS/AllInOne）替换为规范扩展包
+
+Work Log:
+- 【补传】rel-v812-repack.py：GET release（id 385309900，6 资产）→ 删旧三件（#552256475/#552256573/#552256644）→ 同名上传新件（#552361767 NewTab 12264798B / #552361875 AllInOne 12351376B / #552361970 SHA256SUMS 481B，上传前重跑防呆门）→ 逐资产 API 下载回读 SHA-256：3/3 OK（NewTab f8802e9a… / AllInOne 5da55aa0… / SUMS 2ca42de1…）
+- 【注记】rel-v812-note.py 给 Release body 追加「2025-09-09 资产修复」段（旧包缺 manifest 说明 + 请重新下载指引 + 解压安装三步；幂等防重），body 1612→1938 字符
+- 【提交】本地两个 UUID 自动提交（08:21 构建产物+脚本 / 08:41 收尾+worklog——环境自动提交机制所为）随本次 scripts 两脚本一并推送：main 357965c→7e9ae9a；tag v8.1.2 仍指 357965c（发版点，正确）
+- 【线上核验】browser_download_url 抽验：NewTab zip 302→200 且 content-length=12264798 ✓；线上 SHA256SUMS.txt 内容 = 本地新版（NewTab 行 f8802e9a 与回读一致）✓
+
+Stage Summary:
+- 结论：Release v8.1.2 资产修复闭环——老下载链接不失效（同名替换），新包真浏览器冒烟 10/10 + 线上 SHA 三重一致；从旧链接下载过坏包的用户需重新下载
+- 遗留：v8.0.8/v8.0.9/v8.1.1 三个历史 Release 的 NewTab zip 同病（缺 manifest）——修复需逐版本 checkout+EXTENSION_MODE 构建+build-extension.py（版本号各自升级）+补传，待用户拍板；Edge 商店提交材料仍未做
