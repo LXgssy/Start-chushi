@@ -156,6 +156,10 @@
        仍在拒收带内）与刷新时刻——显示最多超前真值 0.75s，不再向前虚构再拽回。 */
     var rejHist = [];
     var capPos = 0, capAt = 0;
+    /* v8.2.0 频谱（律动高光数据面）：最近一帧 {on,bass,bands,t}；
+       setSpectrum 由沙箱通道（smtcSpectrum）与部件通道（widgetSmtcSpectrum）
+       双通道同源喂数，now() 随帧携带 bass/bands —— 部件零计算取用 */
+    var spec = null;
 
     function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
     function rateOf() { return anchor && anchor.rate > 0 ? anchor.rate : 1; }
@@ -624,6 +628,10 @@
         lineText: a.lineText,
         lineTr: a.lineTr,
         wordText: a.wordText,
+        /* v8.2.0 律动数据：旧宿主无此字段 → 部件守卫降级静态高光 */
+        bass: spec && typeof spec.bass === "number" && isFinite(spec.bass)
+          ? clamp(spec.bass, 0, 1) : 0,
+        bands: spec && spec.on && Array.isArray(spec.bands) ? spec.bands : null,
       };
     }
 
@@ -672,6 +680,7 @@
     return {
       feed: feed, tick: tick, now: now, snapshot: snapshot, lyrics: lyrics,
       subscribe: subscribe, seek: seek,
+      setSpectrum: function (sp) { spec = sp && typeof sp === "object" ? sp : null; },
       play: simple("play"), pause: simple("pause"), toggle: simple("toggle"),
       next: simple("next"), prev: simple("prev"),
     };
@@ -1050,7 +1059,9 @@ function widgetShim(theme, accent, panelMode) {
     "__music.tick(tk);" +
     "for(var i=smtcCbs.length-1;i>=0;i--){try{smtcCbs[i](lastSmtc)}catch(e){}}}};" +
     "if(d.type==='widgetTheme'){document.documentElement.dataset.theme=d.theme==='dark'?'dark':'light';" +
-    "if(d.accent)document.documentElement.style.setProperty('--w-accent',d.accent)}});" +
+    "if(d.accent)document.documentElement.style.setProperty('--w-accent',d.accent)};" +
+    /* v8.2.0 频谱帧：部件通道同源喂数（setSpectrum 与沙箱通道同一核心实例） */
+    "if(d.type==='widgetSmtcSpectrum'){__music.setSpectrum(d.sp&&typeof d.sp==='object'?d.sp:null)}});" +
     "})();</script>"
   );
 }
@@ -1266,6 +1277,15 @@ window.addEventListener("message", function (e) {
         } catch (err) {
           post({ type: "runtimeError", message: errMsg(err) });
         }
+      }
+      return;
+    }
+
+    if (m.type === "smtcSpectrum" && typeof m.scriptKey === "string") {
+      /* v8.2.0 频谱帧（30Hz）：定向喂数音乐核心，now() 随帧携带 */
+      var coreS = musicCores.get(m.scriptKey);
+      if (coreS && typeof coreS.setSpectrum === "function") {
+        coreS.setSpectrum(m.sp && typeof m.sp === "object" ? m.sp : null);
       }
       return;
     }

@@ -210,7 +210,7 @@ body{
 <script>
 (function () {
   "use strict";
-  /* ================= ChuShi music widget v8.1.4（纯渲染层）=================
+  /* ================= ChuShi music widget v8.2.0（纯渲染层）=================
      解析/插值/对齐/淡入淡出全部由宿主 chushi.music API 预计算，
      本层每帧只做取数 + 写样式。布局零位移三律：主键双 SVG 同圆心堆叠、
      歌词高度迟滞（歌词短暂缺失不塌面板）、无逐帧布局读写。
@@ -222,7 +222,10 @@ body{
         已唱（旧 ref=回退前行号）一并清除；当前歌曲位置之后零高光；
      ③ 强行逐字开关——伪逐字（lrc 估算）可降级逐行，真逐字（yrc）
         永不降级；状态持久化在宿主 storage，默认关。
-     ④ 进度条悬停放大改 scaleY 合成层动画（height 过渡掉帧根治）。 */
+     ④ 进度条悬停放大改 scaleY 合成层动画（height 过渡掉帧根治）。
+   v8.2.0 律动高光：宿主 now().bass（独立频谱助手 → 30Hz 已包络）驱动
+   封面高光 opacity/scale —— 只写合成器友好属性；旧宿主无 bass 字段
+   守卫降级静态高光；prefers-reduced-motion 用户不弹。 */
   var H = { fl: 248, em: 92 }, LY_H = 124, W = 340;
   var DEF = "asset:cover.svg"; /* v8.0.1：asset 在生产宿主实测可用；失联时 onerror 藏 img 露渐变底，绝不破图 */
   function $(id) { return document.getElementById(id); }
@@ -648,6 +651,28 @@ body{
   };
   seekBox.onpointercancel = function () { scrub.on = 0; };
 
+  /* ---------- v8.2.0 律动高光：bass 驱动封面高光（快攻慢放已由宿主包络完成）
+     写入只碰 opacity/transform（合成器友好，v8.1.4 帧率律同源）；
+     退出态恢复样式表控制（类切换的基态过渡不受干扰）。 ---------- */
+  var glowEl = document.querySelector(".cs-glow");
+  var glowOn = 0;
+  var calmMotion = !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
+  function beatFrame(n) {
+    if (!glowEl) return;
+    var b = !calmMotion && n && typeof n.bass === "number" ? n.bass : 0;
+    if (b > 0.012 && effPlaying()) {
+      glowEl.style.transition = "none";
+      glowEl.style.opacity = (0.24 + b * 0.3).toFixed(3);
+      glowEl.style.transform = "scale(" + (1 + b * 0.055).toFixed(4) + ")";
+      glowOn = 1;
+    } else if (glowOn) {
+      glowOn = 0;
+      glowEl.style.transition = "";
+      glowEl.style.opacity = "";
+      glowEl.style.transform = "";
+    }
+  }
+
   /* ---------- rAF 主循环（永不停止；拖动中用本地预览，不覆盖） ---------- */
   function loop() {
     var n = mus.now();
@@ -659,6 +684,7 @@ body{
     }
     tDur.textContent = n.duration > 0 ? fmt(n.duration) : "--:--";
     lyricFrame(n);
+    beatFrame(n);
     requestAnimationFrame(loop);
   }
 

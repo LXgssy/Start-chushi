@@ -21,6 +21,7 @@ import { memo, useEffect, useRef } from "react";
 import { sandboxWidgetSrc } from "@/lib/startpage/sandbox";
 import { smtc, SMTC_COMMANDS } from "@/lib/startpage/smtc";
 import { postToWidget, widgetFrameGet, widgetFrameSet, widgetThemeBroadcast } from "@/lib/startpage/widget-frames";
+import { smtcSpectrum, type SmtcSpectrum } from "@/lib/startpage/smtc";
 
 export interface ActiveWidget {
   /** 运行时复合键 `${presetId}:${widgetId}` */
@@ -111,6 +112,8 @@ function PresetWidgets(props: {
   const framesRef = useRef<Map<string, HTMLIFrameElement>>(new Map());
   /** SMTC 通道（v1.8.0）：订阅了快照推送的部件 key 集合（回调期读 ref，见下方 widgetsRef 同模式） */
   const smtcSubsRef = useRef<Set<string>>(new Set());
+  /** v8.2.0 频谱转发句柄（首个媒体订阅部件出现即挂，卸载/清零即卸） */
+  const specUnsubRef = useRef<(() => void) | null>(null);
   /* 消息监听器只挂一次 → 经 ref 读取最新值；ref 写入放 effect（React Compiler 律：
      渲染期不可触 ref，与 page.tsx contentHRef 镜像同模式） */
   const widgetsRef = useRef(props.widgets);
@@ -159,8 +162,20 @@ function PresetWidgets(props: {
     return () => {
       offTick();
       offSub();
+      /* v8.2.0：部件帧宿主卸载同步卸频谱转发 */
+      if (specUnsubRef.current) {
+        specUnsubRef.current();
+        specUnsubRef.current = null;
+      }
     };
   }, []);
+
+  /** v8.2.0 频谱帧 → 部件帧（30Hz 已包络，{on,bass,bands,t}） */
+  const sendSpectrum = (sp: SmtcSpectrum) => {
+    for (const wkey of smtcSubsRef.current) {
+      postToWidget(wkey, { type: "widgetSmtcSpectrum", widgetKey: wkey, sp });
+    }
+  };
 
   function onMessage(e: MessageEvent) {
     const m = e.data as WidgetApiMsg | null;
@@ -205,6 +220,10 @@ function PresetWidgets(props: {
       case "smtcSubscribe": {
         smtc.start();
         smtcSubsRef.current.add(wkey);
+        /* v8.2.0：首个订阅部件挂频谱转发（惰性拉起律：无部件订阅不轮询不 boot） */
+        if (smtcSubsRef.current.size === 1 && !specUnsubRef.current) {
+          specUnsubRef.current = smtcSpectrum.subscribe(sendSpectrum);
+        }
         pushSmtcSnapshot(wkey, m.reqId);
         break;
       }

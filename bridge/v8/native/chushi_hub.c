@@ -1,5 +1,15 @@
 /* ============================================================================
- * ChuShi Music Hub 8.0.8 —— 纯 winsock HTTP 中继（排空 JSON 修复 + 请求日志）
+ * ChuShi Music Hub 8.2.0 —— 纯 winsock HTTP 中继（排空 JSON 修复 + 请求日志 + 频谱助手监护）
+ *
+ * v8.2.0（频谱管线，架构律延伸条）：GET /api/spectrum-boot——惰性拉起
+ *   独立频谱助手 chushi-spectrum.exe（WASAPI loopback+FFT，COM 全部关在
+ *   助手自己的进程里，崩溃域隔离）。本 DLL 只做 CreateProcess + Job
+ *   Object 监护（纯 kernel32，宪法不破：导入表仍仅 ws2_32+kernel32）：
+ *     ① 助手进程挂在 KILL_ON_JOB_CLOSE 的 Job 上——网易云退出即杀；
+ *     ② boot 先探测 26911-3 身份（chushi-spectrum），在即收养不重拉
+ *       （hub 同进程重载/助手残留场景）；
+ *     ③ 探测失败冷却 3s（陌生服务占口时 boot 不反复空转 750ms）；
+ *     ④ 端口发现由客户端自主探测（boot 只保证“在场”，不挡数据面）。
  *
  * v8.0.8（hubsim 协议级复现实锢）：dataDrainCmds 拼接排空数组时从未写入
  *   外层对象的收尾 '}'——每条命令都拼成 {"_id":N,"raw":{...}（缺收尾），
@@ -64,7 +74,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define PLUGIN_VERSION "8.0.9"
+#define PLUGIN_VERSION "8.2.0"
 #define HUB_NAME_S "chushi-music-hub"
 #define HUB_MUTEX_NAMEW L"ChuShi-Music-Hub-8-Singleton"
 
@@ -369,6 +379,134 @@ static int pollClaim(const char* body, DWORD bodyLen, char* resp, int respCap) {
 }
 
 /* ------------------------------------------------------------------ */
+/* v8.2.0 频谱助手监护（out-of-process COM，宪法延伸条）                   */
+/*   COM 全部关在助手自己进程里；本 DLL 只做拉起/收养/存活监护。           */
+/* ------------------------------------------------------------------ */
+#define SPEC_EXE_NAMEW L"chushi-spectrum.exe"
+#define SPEC_NAME_S "chushi-spectrum"
+#define SPEC_PORT_A 26911
+#define SPEC_PORT_B 26912
+#define SPEC_PORT_C 26913
+#define SPEC_PROBE_COOLDOWN_MS 3000
+
+static HANDLE g_specProc = NULL;   /* 助手进程句柄（存活监护） */
+static HANDLE g_specJob = NULL;    /* KILL_ON_JOB_CLOSE：宿主进程退出即杀 */
+static int    g_specPort = 0;      /* 已确认应答的助手端口（探测确认后才写） */
+static DWORD  g_specProbeAt = 0;   /* 探测冷却（陌生服务占口防反复空转） */
+
+/* 探测一个端口是否为频谱助手身份（GET /api/ping 带 name 断言） */
+static int specProbePort(int port, int* outPort) {
+    SOCKET s = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (s == INVALID_SOCKET) return 0;
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = htons((u_short)port);
+    if (connect(s, (struct sockaddr*)&addr, sizeof(addr)) != 0) {
+        closesocket(s);
+        return 0;
+    }
+    DWORD timeoutMs = 250;
+    setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeoutMs, sizeof(timeoutMs));
+    setsockopt(s, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeoutMs, sizeof(timeoutMs));
+    const char* req = "GET /api/ping HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n";
+    int ok = 0;
+    if (send(s, req, (int)strlen(req), 0) > 0) {
+        char buf[1024];
+        int n = recv(s, buf, (int)sizeof(buf) - 1, 0);
+        if (n > 0) {
+            buf[n] = 0;
+            if (strstr(buf, SPEC_NAME_S)) { *outPort = port; ok = 1; }
+        }
+    }
+    closesocket(s);
+    return ok;
+}
+
+static int specProbeAny(int* outPort) {
+    int ports[3] = { SPEC_PORT_A, SPEC_PORT_B, SPEC_PORT_C };
+    for (int i = 0; i < 3; i++) {
+        if (specProbePort(ports[i], outPort)) return 1;
+    }
+    return 0;
+}
+
+/* 惰性拉起助手（请求线程内执行：CreateProcess ~几十 ms，非 DllMain 无加载锁问题） */
+static void specSpawn(void) {
+    HMODULE hSelf = NULL;
+    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                            GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            (LPCWSTR)&specSpawn, &hSelf)) return;
+    wchar_t dllPath[MAX_PATH + 2] = {0};
+    if (!GetModuleFileNameW(hSelf, dllPath, MAX_PATH)) return;
+    wchar_t* slash = wcsrchr(dllPath, L'\\');
+    if (!slash) return;
+    *slash = 0;
+    wchar_t exePath[MAX_PATH + 48];
+    _snwprintf(exePath, ARRAYSIZE(exePath), L"%s\\" SPEC_EXE_NAMEW, dllPath);
+    exePath[ARRAYSIZE(exePath) - 1] = 0;
+    if (GetFileAttributesW(exePath) == INVALID_FILE_ATTRIBUTES) {
+        logf_line("[spec] helper exe missing next to hub.dll");
+        return;
+    }
+    if (!g_specJob) {
+        g_specJob = CreateJobObjectW(NULL, NULL);
+        if (g_specJob) {
+            JOBOBJECT_EXTENDED_LIMIT_INFORMATION li;
+            memset(&li, 0, sizeof(li));
+            li.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            SetInformationJobObject(g_specJob, JobObjectExtendedLimitInformation, &li, sizeof(li));
+        }
+    }
+    STARTUPINFOW si;
+    PROCESS_INFORMATION pi;
+    memset(&si, 0, sizeof(si));
+    si.cb = sizeof(si);
+    memset(&pi, 0, sizeof(pi));
+    if (!CreateProcessW(exePath, NULL, NULL, NULL, FALSE,
+                        CREATE_NO_WINDOW, NULL, dllPath, &si, &pi)) {
+        logf_line("[spec] CreateProcess failed %lu", (unsigned long)GetLastError());
+        return;
+    }
+    if (g_specJob) AssignProcessToJobObject(g_specJob, pi.hProcess);
+    if (g_specProc) CloseHandle(g_specProc);
+    g_specProc = pi.hProcess;
+    CloseHandle(pi.hThread);
+    g_specPort = 0;
+    logf_line("[spec] helper spawned pid=%lu (job-bound)", (unsigned long)pi.dwProcessId);
+}
+
+/* boot 语义：在→收养（报 port）；存活但未应答→starting；都不在→拉起→starting。
+   冷却期内沿用缓存认知不重复探测。 */
+static void specBoot(char* resp, int respCap) {
+    DWORD now = tickNow();
+    int port = 0;
+    int found = 0;
+    if (now - g_specProbeAt > SPEC_PROBE_COOLDOWN_MS) {
+        g_specProbeAt = now;
+        found = specProbeAny(&port);
+        if (found) g_specPort = port;
+    } else {
+        port = g_specPort;
+        found = port != 0;
+    }
+    if (found) {
+        _snprintf(resp, respCap, "{\"ok\":true,\"spectrum\":true,\"port\":%d,\"ver\":\"%s\"}",
+                  port, PLUGIN_VERSION);
+        return;
+    }
+    if (g_specProc && WaitForSingleObject(g_specProc, 0) == WAIT_TIMEOUT) {
+        _snprintf(resp, respCap, "{\"ok\":true,\"spectrum\":false,\"starting\":true,\"ver\":\"%s\"}",
+                  PLUGIN_VERSION);
+        return;
+    }
+    specSpawn();
+    _snprintf(resp, respCap, "{\"ok\":true,\"spectrum\":false,\"starting\":true,\"ver\":\"%s\"}",
+              PLUGIN_VERSION);
+}
+
+/* ------------------------------------------------------------------ */
 /* HTTP 响应小工具                                                       */
 /* ------------------------------------------------------------------ */
 static const char* CORS_HEADERS =
@@ -548,6 +686,15 @@ static void handleRequest(SOCKET s, const char* req, DWORD reqLen) {
         dataStoreLyric(body, bodyLen);
         const char* ok = "{\"ok\":true}";
         respondJson(s, 200, ok, 11);
+        return;
+    }
+
+    /* v8.2.0 频谱助手 boot（惰性拉起 + 身份探测收养；数据面在助手端口） */
+    if (_stricmp(method, "GET") == 0 && strncmp(path, "/api/spectrum-boot", 18) == 0) {
+        char resp[160];
+        specBoot(resp, sizeof(resp));
+        hubLogAdd("[spec] boot -> %s", resp);
+        respondJson(s, 200, resp, (DWORD)strlen(resp));
         return;
     }
 

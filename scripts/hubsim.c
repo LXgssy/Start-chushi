@@ -19,7 +19,7 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 
-#define PLUGIN_VERSION "8.0.8"
+#define PLUGIN_VERSION "8.2.0"
 #define HUB_NAME_S "chushi-music-hub"
 #define REQ_MAX (256 * 1024)
 #define STATE_MAX (1024 * 1024)
@@ -336,6 +336,27 @@ static void handleRequest(int s, const char* req, DWORD reqLen) {
 
     if (strcasecmp(method, "OPTIONS") == 0) {
         respondPreflight(s);
+        return;
+    }
+
+
+    /* v8.2.0 频谱助手 boot 桩（协议 1:1）：POSIX 无 CreateProcess——
+       env CHUSHI_SPECTRUM_PORT 在场 = 外部 spectrumsim 已由测试拉起，
+       如实报端口；否则报 spectrum:false（诚实不在）。e2e 据此断言。 */
+    if (strcasecmp(method, "GET") == 0 && strncmp(path, "/api/spectrum-boot", 18) == 0) {
+        char body2[160];
+        const char* envPort = getenv("CHUSHI_SPECTRUM_PORT");
+        int n;
+        if (envPort && atoi(envPort) > 0) {
+            n = snprintf(body2, sizeof(body2),
+                "{\"ok\":true,\"spectrum\":true,\"port\":%d,\"ver\":\"%s\"}",
+                atoi(envPort), PLUGIN_VERSION);
+        } else {
+            n = snprintf(body2, sizeof(body2),
+                "{\"ok\":true,\"spectrum\":false,\"ver\":\"%s\"}", PLUGIN_VERSION);
+        }
+        if (n < 0) n = 0;
+        respondJson(s, 200, body2, (DWORD)n);
         return;
     }
 
