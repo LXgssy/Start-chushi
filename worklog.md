@@ -1360,3 +1360,24 @@ Stage Summary:
 - 结论：v8.1.3 发布——https://github.com/LXgssy/Start-chushi/releases/tag/v8.1.3；用户侧动作：NewTab v8.1.3 + 桥 8.1.3 两件必换（歌词源/cshz/hub 沿用）；歌词卡死三层根因（桥停滞→恒定位置→熔断闪烁）全链闭环
 - 新律：①「DevTools 对象预览是展开瞬间的快照」——console 里展开的 debug 对象不实时刷新，跨帧比对预览字段=比对同一张快照，连续性证据要用像素/时间线取证；②「像素差分相同」≠「冻结」——周期锯齿在整数倍周期间隔上采样必然相同，差分取证前先估运动周期；③「拒收的拍也携带信息」——熔断拒收说明上游声称位置=X，显示却 Extrapolate 到 X+2 再回跳；把拒收值用作显示上限（+容差）即消灭虚构回跳；④「重现」才是停滞铁证——单次回退可能是双源交替（必须放行），8s 窗口内值重现才可钉守；⑤跨层修复要留一层作双向保险：引擎钉守（显示侧兜底任何上游停滞）+桥先行（治根因），只改桥则引擎在新停滞形态下复发；⑥worklog 追加严禁 cat 新旧同文件重定向（truncate 竞态），用 git show 基线 + 独立段文件 cat 合并
 - 待办：用户侧验收（NewTab v8.1.3 + 桥 8.1.3 → 歌词/时间不再 2s 闪烁）；Edge 商店提交材料仍未做；hub.dll 半死根因（8.0.9 单线程阻塞?）未深挖——桥先行+引擎钉守已双层兜底，若用户再报 stateAge 异常再开 hub 线
+
+---
+Task ID: 113
+Agent: main (Super Z)
+Task: 用户四条实机反馈——①逐字歌词播完一句持续高亮（要立刻渐隐）②回退进度后未来歌词高光残留③面板加「强行逐字歌词」开关（默认关）④进度条悬停放大帧率低——v8.1.4 发版
+
+Work Log:
+- 【①宿主根因】public/sandbox.js unitizeLine 伪逐字时长铺满行距——parseLineText 对纯 lrc 行 e=下一行 s（末行 s+8000），词时间轴匀速铺满整段行距=唱完后扫光仍爬行/停 100% 直到下一句；修为按显示单元权重估算演唱时长（sum×130：CJK 字 w=2→260ms/字、拉丁词 w=1→130ms/词），下限 1.2s、上限仍行距；v814-core U1-U3 断言末词结束=估算值（2600ms 而非 8000ms）
+- 【①部件根因+句尾渐隐律】music-widget.html 行离场渐隐只挂 lineIndex 切换（lrc 行尾不切=永不隐）；新增扫光完成检测：当前行最后词 wordProgress>=1 起 250ms 宽限即 add done+finalize（.ov opacity .6s 渐隐+行色渐灰）；行内回退重扫撤销 done 重新扫光（sungAt 复位）
+- 【②回退残留根治】行切换循环旧行为只还原「曾 done」的行（!done&&was）——on 行的 --p 扫光残留直接带过（L7 旧包阴性对照实锢）；修为「当前歌曲位置之后零高光」律：非 on 非 done 行无条件 restore+sung 复位（clean 标记防幂等重写）；间奏 ref 修正：宿主 alignAt none 返回携带 lastLine（已唱界，二分 idx），部件 ref=lastLine 替代回退前行号，旧宿主无字段 fallback prev
+- 【③强行逐字开关】部件 foot 右侧 csWbw 小药丸（accent 底 on 态），chushi.storage("csForceWord") 持久化默认关；buildLyric 判定 lyMode=(mode===1&&(forceWord||src==="yrc"))?1:0——伪逐字可降级逐行、真 yrc 恒逐字；宿主 ensureParsed parsed 加 src 标记（yrc/lrc）+whitelist 透传；widgetHtmlLen 20000→22000（preset.ts+build-smtc-preset.py 同步，先例 v8.1.0；旧宿主导入新 cshz 会被拒=配套升级语义）；新律：lyricFrame 早退与逐字写词解耦——逐行模式（lyMode=0）同样要行高亮（L5a2 用例防回归）
+- 【④进度条帧率】.cs-rail 悬停放大 height 4→6px 过渡每帧触发 layout（backdrop-filter 卡片内代价极高）→ 恒 6px+scaleY(.667→1) transform-origin center + will-change:transform，合成层动画零布局
+- 【双源发现】根目录 sandbox.js 是 v8.1.0 旧副本（v8.1.3 恒源钉守只在 public/sandbox.js——Task 112 改动落点），首批修改误落旧副本后移植到 public 真源并 cp 同步双源（md5 一致 35ce3a9a）
+- 【测试】v814-core 15/15（U5 场景两修：lrc 行尾后即下一行无行间间奏——间奏 lastLine 须用 yrc 真 gap 验证；回退用 delta=-6.0 越过熔断带一次放行）+ v814-lyric 23/23（playwright iframe 驱动打包产物：L1 回退残留根治/L2 句尾渐隐 400ms/L3 行内重扫/L4 间奏 ref/L5 开关六态含 storage 记忆/L6 scaleY 三断言/L7 旧包阴性对照复现残留/L8 零异常）+ 既有回归 v813 18/v810 12/v809 21/lyricapi 11 全绿 + tsc src 零错
+- 【冒烟判据修订】verify-v812-ext-load.mjs 问候语判据漏「中午好/凌晨好/夜深了」——13 点跑冒烟误 FAIL，补全 greetingFor 全部分支后 10/10 PASS（扩展 id jkanbbcimgoijfefaogihgeohbkhlekd）
+- 【发版】EXTENSION_MODE 构建+build-extension.py（防呆门：保留名 0/零内联/零 /_next 残留）→ build-v814-assets.py 七件（NewTab 特征门加 lastLine+伪逐字估算+src 标记三特征；cshz 门 csWbw+scaleY+csForceWord）→ main 先推再建 Release v8.1.4（Task 109 tag 律）→ 资产 6/6 SHA 回读一致；gh-pages 部署+线上核验
+
+Stage Summary:
+- 结论：v8.1.4 发布——https://github.com/LXgssy/Start-chushi/releases/tag/v8.1.4；用户侧动作：NewTab v8.1.4 + cshz 8.1.4 两件必换（句尾渐隐/回退残留/开关/进度条四项在 NewTab 引擎与预设部件两处），桥 8.1.3/歌词源 7.3.0/hub 沿用
+- 新律：①「lrc 行 e=下一行 s」意味着纯 lrc 歌不存在行间间奏——间奏/尾声/lastLine 语义只能用 yrc 真 gap 或末行尾声验证；②「只还原 X 曾有过的状态」类清理逻辑必须覆盖「正在拥有」的行（on 行残留 = 本次残留 bug 本体），终态判定应按目标状态无条件收敛而非按迁移边；③开关降级（mode 0/1 分叉）引入的新路径要在主渲染循环里逐一排查早退——lyricFrame !lyMode 早退曾把逐行模式的行高亮一并吞掉；④仓库存在双源文件（根目录/public sandbox.js）时以 git log 最新提交方为真源，改前先考古断代
+- 待办：用户侧验收（唱完即渐隐/回退零残留/开关三态/悬停顺滑）；Edge 商店提交材料仍未做

@@ -299,7 +299,9 @@
       var yrcLines = parseWordText(ly.yrc);
       if (yrcLines.length) {
         joinTranslation(yrcLines, ly.ytlrc, 800);
-        parsed = { mode: 1, lines: yrcLines };
+        /* v8.1.4 src 标记：真逐字（yrc 词级时间轴）/伪逐字（lrc 估算）
+           可区分——部件「强行逐字」开关只降级伪逐字，真逐字永不降级 */
+        parsed = { mode: 1, lines: yrcLines, src: "yrc" };
         return parsed;
       }
       var lrcLines = parseLineText(ly.lrc);
@@ -309,7 +311,7 @@
            行内按显示单元加权均分生成伪逐字时间轴，时间基准取 SMTC 锚点
            （暂停态可用桥侧 yrc 校准重查升级真逐字）。mode 置 1 走逐字渲染。 */
         for (var u = 0; u < lrcLines.length; u++) unitizeLine(lrcLines[u]);
-        parsed = { mode: 1, lines: lrcLines };
+        parsed = { mode: 1, lines: lrcLines, src: "lrc" };
         return parsed;
       }
       parsed = null;
@@ -334,8 +336,14 @@
       }
       flush();
       if (!toks.length) return;
-      var dur = Math.max(400, ln.e - ln.s), sum = 0, j;
+      /* v8.1.4 伪逐字时长估算律：不再铺满行距——行距含行间呼吸/间奏
+         （lrc 行 e = 下一行 s、末行 s+8000），铺满 = 唱完后扫光仍爬行、
+         句尾持续高亮直到下一句。改按显示单元权重估实际演唱时长
+         （CJK 字 w=2→~260ms/字、拉丁词 w=1→~130ms/词），下限 1.2s，
+         上限仍为行距；扫完即被部件渐隐律收尾，间奏段干净。 */
+      var span = Math.max(400, ln.e - ln.s), sum = 0, j;
       for (j = 0; j < toks.length; j++) sum += toks[j].w;
+      var dur = Math.min(span, Math.max(1200, Math.round(sum * 130)));
       var at = ln.s;
       ln.w = [];
       for (j = 0; j < toks.length; j++) {
@@ -348,7 +356,7 @@
     /* ---- 逐行/逐词二分定位 ---- */
     function alignAt(ms) {
       var data = ensureParsed(lastSnap && lastSnap._lyricRaw);
-      var none = { lineIndex: -1, wordIndex: -1, wordProgress: 0, lineProgress: 0, lineText: "", lineTr: "", wordText: "" };
+      var none = { lineIndex: -1, lastLine: -1, wordIndex: -1, wordProgress: 0, lineProgress: 0, lineText: "", lineTr: "", wordText: "" };
       if (!data || !data.lines.length) return none;
       var lines = data.lines;
       var lo = 0, hi = lines.length - 1, idx = -1;
@@ -362,7 +370,12 @@
         var l0 = lines[0];
         return { lineIndex: 0, wordIndex: -1, wordProgress: 0, lineProgress: 0, lineText: l0.t, lineTr: l0.tr, wordText: "" };
       }
-      if (ms > lines[idx].e + 200) return none;
+      if (ms > lines[idx].e + 200) {
+        /* v8.1.4 间奏携带 lastLine（已唱到哪一行）：回退落在间奏时，部件
+           用它作「已唱界」替代回退前行号——回退后未唱行不再被误标已唱 */
+        none.lastLine = idx;
+        return none;
+      }
       var ln = lines[idx];
       var lp = clamp((ms - ln.s) / Math.max(1, ln.e - ln.s), 0, 1);
       if (!ln.w) {
@@ -443,7 +456,7 @@
         var stale = songId > 0 && lyId > 0 && lyId !== songId;
         var data = stale ? null : ensureParsed(ly);
         if (data) {
-          out.lyric = { mode: data.mode, lines: data.lines, songId: lyId };
+          out.lyric = { mode: data.mode, lines: data.lines, songId: lyId, src: data.src || "" };
           out._lyricRaw = ly; /* 内部字段：定位/淡入淡出用 */
         }
       }
@@ -604,6 +617,7 @@
         playing: anchor ? anchor.playing : false,
         fadeMs: fadeMs,
         lineIndex: a.lineIndex,
+        lastLine: a.lastLine,
         wordIndex: a.wordIndex,
         wordProgress: a.wordProgress,
         lineProgress: a.lineProgress,

@@ -46,7 +46,7 @@ if (reachable) {
   chk("页面 title 正确", title.includes("初始"));
   const txt = (await tab.evaluate(() => document.body.innerText).catch(() => "")) || "";
   chk("时钟渲染（\\d+:\\d+）", /\d{1,2}\s*\d{2}|\d{1,2}:\d{2}/.test(txt));
-  chk("问候语渲染", /早上好|上午好|下午好|晚上好|你好/.test(txt));
+  chk("问候语渲染", /早上好|上午好|中午好|下午好|晚上好|凌晨好|夜深了|你好/.test(txt));
   chk("快捷链接渲染", /谷歌|GitHub/.test(txt));
   chk("⌘K 提示渲染", txt.includes("⌘K"));
 

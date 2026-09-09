@@ -6,7 +6,7 @@
 全部注入步骤（manifest/_locales/icons/内联外置）→ 发布包无法全新安装。
 v8.1.2 起恢复本流程作为扩展包唯一产出门。
 用法: python3 scripts/build-extension.py
-输出: download/v8.1.3/ChuShi-NewTab-v8.1.3.zip
+输出: download/v8.1.4/ChuShi-NewTab-v8.1.4.zip
 """
 import json
 import pathlib
@@ -19,8 +19,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
-VERSION = "8.1.3"
-DEST = ROOT / "download/v8.1.3/ChuShi-NewTab-v8.1.3.zip"
+VERSION = "8.1.4"
+DEST = ROOT / "download/v8.1.4/ChuShi-NewTab-v8.1.4.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():
     sys.exit("out/index.html 不存在——先跑 EXTENSION_MODE=1 bun run build:extension")
