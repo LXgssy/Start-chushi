@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""扩展打包：EXTENSION_MODE 导出产物 → MV3 扩展 zip（v1.7.1）。
+"""扩展打包：EXTENSION_MODE 导出产物 → MV3 扩展 zip（v1.7.1，v8.1.2 复用）。
 步骤：index.html 内联 <script> 外置为 ext-script-N.js（MV3 CSP 兼容）→
 写入 manifest.json（版本号此处维护）→ 复制 _locales/icons → zip。
+⚠ v8.0.8~v8.1.1 发版回归：build-v8xx-assets.py 直接 zip out/，漏掉本脚本
+全部注入步骤（manifest/_locales/icons/内联外置）→ 发布包无法全新安装。
+v8.1.2 起恢复本流程作为扩展包唯一产出门。
 用法: python3 scripts/build-extension.py
-输出: download/v1.7.4/ChuShi-NewTab-v1.7.4.zip
+输出: download/v8.1.2/ChuShi-NewTab-v8.1.2.zip
 """
 import json
 import pathlib
@@ -16,8 +19,8 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
-VERSION = "8.0.7"
-DEST = ROOT / "download/v8.0.7/ChuShi-NewTab-v8.0.7.zip"
+VERSION = "8.1.2"
+DEST = ROOT / "download/v8.1.2/ChuShi-NewTab-v8.1.2.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():
     sys.exit("out/index.html 不存在——先跑 EXTENSION_MODE=1 bun run build:extension")
