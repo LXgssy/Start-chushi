@@ -34,7 +34,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define SPEC_VERSION "8.2.0"
+#define SPEC_VERSION "8.2.1"
 #define SPEC_NAME_S "chushi-spectrum"
 #define SPEC_MUTEX_NAMEW L"ChuShi-Spectrum-Singleton"
 
@@ -66,19 +66,61 @@ static const GUID kSUBTYPE_IEEE_FLOAT =
     {0x00000003, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xAA, 0x00, 0x38, 0x9B, 0x71}};
 
 /* ------------------------------------------------------------------ */
-/* 日志（exe 同目录 spectrum-log.txt，环形重建）                          */
+/* 日志（spectrum-log.txt：v8.2.1 起带回退链——exe 同目录试写失败
+ *   （网易云插件目录常在 Program Files 下，普通权限进程不可写）则退
+ *   %LOCALAPPDATA%\ChuShi\；启动首行自证实际路径，用户永远找得到）  */
 /* ------------------------------------------------------------------ */
 static CRITICAL_SECTION g_logCs;
+static wchar_t g_logPath[MAX_PATH + 48] = {0};
+static int     g_logMode = -1;   /* -1 未定 / 0=exe旁 / 1=LOCALAPPDATA / 2=无处可写 */
+
+/* 试写探测：打开成功即算该位置可写（句柄即关） */
+static int logProbe(const wchar_t* path) {
+    HANDLE f = CreateFileW(path, FILE_APPEND_DATA, FILE_SHARE_READ, NULL,
+                           OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (f == INVALID_HANDLE_VALUE) return 0;
+    CloseHandle(f);
+    return 1;
+}
+
+static void logPathResolveLocked(void) {
+    /* ① exe 同目录（与 hub.dll 同目录，最直觉的位置） */
+    wchar_t exePath[MAX_PATH + 2] = {0};
+    if (GetModuleFileNameW(NULL, exePath, MAX_PATH)) {
+        wchar_t* slash = wcsrchr(exePath, L'\\');
+        if (slash) {
+            *slash = 0;
+            _snwprintf(g_logPath, ARRAYSIZE(g_logPath), L"%s\\spectrum-log.txt", exePath);
+            g_logPath[ARRAYSIZE(g_logPath) - 1] = 0;
+            if (logProbe(g_logPath)) { g_logMode = 0; return; }
+        }
+    }
+    /* ② %LOCALAPPDATA%\ChuShi\（用户目录几乎必然可写；环境变量直取，
+       免 shell32 依赖——导入表越素净越好） */
+    wchar_t local[MAX_PATH + 2] = {0};
+    DWORD ln = GetEnvironmentVariableW(L"LOCALAPPDATA", local, MAX_PATH);
+    if (ln > 0 && ln < MAX_PATH) {
+        wchar_t dir[MAX_PATH + 16];
+        _snwprintf(dir, ARRAYSIZE(dir), L"%s\\ChuShi", local);
+        dir[ARRAYSIZE(dir) - 1] = 0;
+        CreateDirectoryW(dir, NULL); /* 已存在则静默 */
+        _snwprintf(g_logPath, ARRAYSIZE(g_logPath), L"%s\\spectrum-log.txt", dir);
+        g_logPath[ARRAYSIZE(g_logPath) - 1] = 0;
+        if (logProbe(g_logPath)) { g_logMode = 1; return; }
+    }
+    g_logMode = 2; /* 无处可写：日志静默禁用（采集/HTTP 主路不受影响） */
+}
+
+static const char* logModeText(void) {
+    if (g_logMode == 0) return "exe-dir";
+    if (g_logMode == 1) return "local-appdata";
+    return "disabled";
+}
 
 static void logf_line(const char* fmt, ...) {
-    wchar_t exePath[MAX_PATH + 2] = {0};
-    if (!GetModuleFileNameW(NULL, exePath, MAX_PATH)) return;
-    wchar_t* slash = wcsrchr(exePath, L'\\');
-    if (!slash) return;
-    *slash = 0;
-    wchar_t logPath[MAX_PATH + 32];
-    _snwprintf(logPath, ARRAYSIZE(logPath), L"%s\\spectrum-log.txt", exePath);
-    logPath[ARRAYSIZE(logPath) - 1] = 0;
+    EnterCriticalSection(&g_logCs);
+    if (g_logMode < 0) logPathResolveLocked();
+    if (g_logMode == 2) { LeaveCriticalSection(&g_logCs); return; }
 
     char line[512];
     SYSTEMTIME st;
@@ -98,14 +140,13 @@ static void logf_line(const char* fmt, ...) {
     line[n++] = '\n';
     line[n] = 0;
 
-    EnterCriticalSection(&g_logCs);
     /* 超 512KB 重建 */
     WIN32_FILE_ATTRIBUTE_DATA fa;
-    if (GetFileAttributesExW(logPath, GetFileExInfoStandard, &fa)) {
+    if (GetFileAttributesExW(g_logPath, GetFileExInfoStandard, &fa)) {
         LONGLONG sz = ((LONGLONG)fa.nFileSizeHigh << 32) | fa.nFileSizeLow;
-        if (sz > 512 * 1024) DeleteFileW(logPath);
+        if (sz > 512 * 1024) DeleteFileW(g_logPath);
     }
-    HANDLE f = CreateFileW(logPath, FILE_APPEND_DATA, FILE_SHARE_READ, NULL,
+    HANDLE f = CreateFileW(g_logPath, FILE_APPEND_DATA, FILE_SHARE_READ, NULL,
                            OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (f != INVALID_HANDLE_VALUE) {
         DWORD written = 0;
@@ -521,7 +562,13 @@ int main(void) {
 
     HANDLE capTh = CreateThread(NULL, 0, cap_thread, NULL, 0, NULL);
     if (capTh) CloseHandle(capTh);
+    /* v8.2.1 日志自证：先定路径（CS 内），再打行——无嵌套锁定 */
+    EnterCriticalSection(&g_logCs);
+    if (g_logMode < 0) logPathResolveLocked();
+    LeaveCriticalSection(&g_logCs);
     logf_line("[boot] ChuShi Spectrum Helper v%s (WASAPI loopback, own process)", SPEC_VERSION);
+    logf_line("[boot] log file (%s): %ls", logModeText(),
+              g_logMode == 2 ? L"<unavailable>" : g_logPath);
 
     SOCKET ls = INVALID_SOCKET;
     int port = 0;

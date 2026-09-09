@@ -12,9 +12,9 @@
  *      /api/spectrum-boot 惰性拉起（companion: chushi-spectrum.exe）。
  * 消息面（runtime Port，name="chushi-card"）：
  *   SW→卡：{type:"state",track,at} / {type:"spec",on,bass,bands,t}
- *          / {type:"cmdOk",id,ok}
+ *          / {type:"cmdOk",id,ok} / {type:"lyric",key,ok,lyric}
  *   卡→SW：{type:"cmd",cmd,position,id} / {type:"spec",on} / {type:"ping"}
- *          / {type:"openPanel"}
+ *          / {type:"openPanel"} / {type:"lyric",songId,title,key}
  * ==========================================================================*/
 
 "use strict";
@@ -212,6 +212,26 @@ chrome.runtime.onConnect.addListener((port) => {
         const want = m.on === true;
         if (want && !port.__spec) { port.__spec = true; ensureSpecLoop(); }
         else if (!want && port.__spec) { port.__spec = false; stopSpecLoop(); }
+        break;
+      }
+      case "lyric": {
+        /* 完全体歌词代理：hub /api/lyric?songId=（单槽缓存，归属校验在
+           卡侧做——SW 零仲裁律）。歌词体可达 200KB，超时放宽 4s。 */
+        const songId = String(m.songId || "");
+        if (!/^\d+$/.test(songId) || songId === "0") {
+          try { port.postMessage({ type: "lyric", key: m.key, ok: false }); } catch { /* 卡已走 */ }
+          break;
+        }
+        if (!hubPort && !(await discoverHub())) {
+          try { port.postMessage({ type: "lyric", key: m.key, ok: false }); } catch { /* 卡已走 */ }
+          break;
+        }
+        const j = await getJson(
+          `http://127.0.0.1:${hubPort}/api/lyric?songId=${encodeURIComponent(songId)}`, 4000);
+        const ly = j && j.ok === true && j.lyric && typeof j.lyric === "object" ? j.lyric : null;
+        try {
+          port.postMessage({ type: "lyric", key: m.key, ok: !!ly, lyric: ly });
+        } catch { /* 卡已走 */ }
         break;
       }
       case "openPanel": {
