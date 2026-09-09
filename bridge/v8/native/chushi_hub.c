@@ -1,5 +1,15 @@
 /* ============================================================================
- * ChuShi Music Hub 8.2.0 —— 纯 winsock HTTP 中继（排空 JSON 修复 + 请求日志 + 频谱助手监护）
+ * ChuShi Music Hub 8.2.2 —— 纯 winsock HTTP 中继（排空 JSON 修复 + 请求日志 + 频谱助手监护）
+ *
+ * v8.2.2（实机反馈：助手根本没在跑 + 日志找不到）：
+ *   ① 日志回退链——hub-log.txt 写 DLL 同目录失败（插件目录常在 Program
+ *      Files 下只读）→ 退 %LOCALAPPDATA%\ChuShi\hub-log.txt，诊断不再静默消失；
+ *   ② 助手主动保活 specEnsure——/api/state GET/POST（桥 1Hz 推、页面 1Hz 拉）
+ *      附带保障助手在场（20s 冷却 + 探测在前，在位零开销），不再依赖扩展
+ *      先打 /api/spectrum-boot；
+ *   ③ 助手退出码留痕——上次拉起的进程已死时记录 GetExitCodeProcess
+ *      （0xC0000135=缺 DLL / 0xC0000022=权限 / 0x1=正常退）；
+ *   ④ specSpawn 日志带 exe 全路径。
  *
  * v8.2.0（频谱管线，架构律延伸条）：GET /api/spectrum-boot——惰性拉起
  *   独立频谱助手 chushi-spectrum.exe（WASAPI loopback+FFT，COM 全部关在
@@ -74,7 +84,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define PLUGIN_VERSION "8.2.0"
+#define PLUGIN_VERSION "8.2.2"
 #define HUB_NAME_S "chushi-music-hub"
 #define HUB_MUTEX_NAMEW L"ChuShi-Music-Hub-8-Singleton"
 
@@ -91,10 +101,49 @@
 #define LOG_MAX (1536 * 1024)     /* 日志重建阈值 */
 
 /* ------------------------------------------------------------------ */
-/* 日志（DLL 同目录 hub-log.txt）                                        */
+/* 日志（v8.2.2：DLL 同目录试写失败（插件目录常只读）→ 退
+   %LOCALAPPDATA%\ChuShi\hub-log.txt——诊断不再静默消失）              */
 /* ------------------------------------------------------------------ */
 static HANDLE g_logMutex = NULL;
 static volatile LONG g_logSize = 0;
+static wchar_t g_logPathRes[MAX_PATH + 48] = {0};
+static int     g_logMode = -1;   /* -1 未定 / 0=dll目录 / 1=LOCALAPPDATA / 2=禁用 */
+
+static void hub_logPathResolve(void) {
+    HMODULE hSelf = NULL;
+    if (GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                            GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                            (LPCWSTR)&hub_logPathResolve, &hSelf)) {
+        wchar_t dllPath[MAX_PATH + 2] = {0};
+        if (GetModuleFileNameW(hSelf, dllPath, MAX_PATH)) {
+            wchar_t* slash = wcsrchr(dllPath, L'\\');
+            if (slash) {
+                *slash = 0;
+                _snwprintf(g_logPathRes, ARRAYSIZE(g_logPathRes), L"%s\\hub-log.txt", dllPath);
+                g_logPathRes[ARRAYSIZE(g_logPathRes) - 1] = 0;
+                HANDLE f = CreateFileW(g_logPathRes, FILE_APPEND_DATA, FILE_SHARE_READ,
+                                       NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+                if (f != INVALID_HANDLE_VALUE) { CloseHandle(f); g_logMode = 0; return; }
+            }
+        }
+    }
+    {
+        wchar_t local[MAX_PATH + 2] = {0};
+        DWORD ln = GetEnvironmentVariableW(L"LOCALAPPDATA", local, MAX_PATH);
+        if (ln > 0 && ln < MAX_PATH) {
+            wchar_t dir[MAX_PATH + 16];
+            _snwprintf(dir, ARRAYSIZE(dir), L"%s\\ChuShi", local);
+            dir[ARRAYSIZE(dir) - 1] = 0;
+            CreateDirectoryW(dir, NULL);
+            _snwprintf(g_logPathRes, ARRAYSIZE(g_logPathRes), L"%s\\hub-log.txt", dir);
+            g_logPathRes[ARRAYSIZE(g_logPathRes) - 1] = 0;
+            HANDLE f = CreateFileW(g_logPathRes, FILE_APPEND_DATA, FILE_SHARE_READ,
+                                   NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+            if (f != INVALID_HANDLE_VALUE) { CloseHandle(f); g_logMode = 1; return; }
+        }
+    }
+    g_logMode = 2;
+}
 
 static void hub_logRotate(const wchar_t* logPath) {
     /* 超 LOG_MAX 时重建（先删旧） */
@@ -105,18 +154,9 @@ static void hub_logRotate(const wchar_t* logPath) {
 }
 
 static void logf_line(const char* fmt, ...) {
-    HMODULE hSelf = NULL;
-    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                            GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                            (LPCWSTR)&logf_line, &hSelf)) return;
-    wchar_t dllPath[MAX_PATH + 2] = {0};
-    if (!GetModuleFileNameW(hSelf, dllPath, MAX_PATH)) return;
-    wchar_t* slash = wcsrchr(dllPath, L'\\');
-    if (!slash) return;
-    *slash = 0;
-    wchar_t logPath[MAX_PATH + 24];
-    _snwprintf(logPath, ARRAYSIZE(logPath), L"%s\\hub-log.txt", dllPath);
-    logPath[ARRAYSIZE(logPath) - 1] = 0;
+    if (g_logMode < 0) hub_logPathResolve();
+    if (g_logMode == 2) return;
+    wchar_t* logPath = g_logPathRes;
 
     char line[1024];
     SYSTEMTIME st;
@@ -393,6 +433,7 @@ static HANDLE g_specProc = NULL;   /* 助手进程句柄（存活监护） */
 static HANDLE g_specJob = NULL;    /* KILL_ON_JOB_CLOSE：宿主进程退出即杀 */
 static int    g_specPort = 0;      /* 已确认应答的助手端口（探测确认后才写） */
 static DWORD  g_specProbeAt = 0;   /* 探测冷却（陌生服务占口防反复空转） */
+static DWORD  g_specEnsureAt = 0;  /* v8.2.2 主动保活冷却 */
 
 /* 探测一个端口是否为频谱助手身份（GET /api/ping 带 name 断言） */
 static int specProbePort(int port, int* outPort) {
@@ -474,7 +515,35 @@ static void specSpawn(void) {
     g_specProc = pi.hProcess;
     CloseHandle(pi.hThread);
     g_specPort = 0;
-    logf_line("[spec] helper spawned pid=%lu (job-bound)", (unsigned long)pi.dwProcessId);
+    logf_line("[spec] helper spawned pid=%lu (job-bound) from %ls",
+              (unsigned long)pi.dwProcessId, exePath);
+}
+
+/* v8.2.2 主动保活：任意 /api 请求（桥 1Hz 推状态）附带保障助手在场——
+   不再依赖扩展先打 /api/spectrum-boot 才拉起。20s 冷却 + 探测在前：
+   助手在位零开销；闲置场景由助手自身 60s 空闲自退收敛（spawn/退/再拉
+   的慢循环有日志可查，进程体量 ~百KB，可接受）。 */
+static void specEnsure(void) {
+    DWORD now = tickNow();
+    if (now - g_specEnsureAt < 20000) return;
+    g_specEnsureAt = now;
+    int port = 0;
+    if (specProbeAny(&port)) { g_specPort = port; return; } /* 在位：收养 */
+    if (g_specProc) {
+        DWORD ec = 0;
+        if (WaitForSingleObject(g_specProc, 0) != WAIT_TIMEOUT) {
+            GetExitCodeProcess(g_specProc, &ec);
+            logf_line("[spec] helper exited code=%lu (0x%08lx) — respawn",
+                      (unsigned long)ec, (unsigned long)ec);
+            CloseHandle(g_specProc);
+            g_specProc = NULL;
+        } else {
+            return; /* 已拉起，仍在初始化/监听中——不重复拉 */
+        }
+    } else {
+        logf_line("[spec] auto-ensure: helper absent — spawning");
+    }
+    specSpawn();
 }
 
 /* boot 语义：在→收养（报 port）；存活但未应答→starting；都不在→拉起→starting。
@@ -500,6 +569,16 @@ static void specBoot(char* resp, int respCap) {
         _snprintf(resp, respCap, "{\"ok\":true,\"spectrum\":false,\"starting\":true,\"ver\":\"%s\"}",
                   PLUGIN_VERSION);
         return;
+    }
+    if (g_specProc) {
+        /* 上一次拉起的进程已死：退出码留痕（0xC0000135=缺 DLL、
+           0xC0000022=权限、0x1=正常退——「助手根本没跑」的第一证据） */
+        DWORD ec = 0;
+        GetExitCodeProcess(g_specProc, &ec);
+        logf_line("[spec] helper exited code=%lu (0x%08lx) — boot respawn",
+                  (unsigned long)ec, (unsigned long)ec);
+        CloseHandle(g_specProc);
+        g_specProc = NULL;
     }
     specSpawn();
     _snprintf(resp, respCap, "{\"ok\":true,\"spectrum\":false,\"starting\":true,\"ver\":\"%s\"}",
@@ -621,6 +700,7 @@ static void handleRequest(SOCKET s, const char* req, DWORD reqLen) {
     }
 
     if (_stricmp(method, "GET") == 0 && strncmp(path, "/api/state", 10) == 0) {
+        specEnsure(); /* v8.2.2：页面/SW 拉状态时附带保障频谱助手在场 */
         static char out[STATE_MAX + 2];
         DWORD n = dataReadState(out, STATE_MAX);
         if (n == 0) n = (DWORD)_snprintf(out, STATE_MAX, "{\"ok\":false,\"name\":\"%s\",\"version\":\"%s\",\"ne\":null}", HUB_NAME_S, PLUGIN_VERSION);
@@ -629,6 +709,7 @@ static void handleRequest(SOCKET s, const char* req, DWORD reqLen) {
     }
 
     if (_stricmp(method, "POST") == 0 && strncmp(path, "/api/state", 10) == 0) {
+        specEnsure(); /* v8.2.2：桥 1Hz 推状态即保活——不依赖扩展触发 boot */
         dataStoreState(body, bodyLen);
         const char* ok = "{\"ok\":true}";
         respondJson(s, 200, ok, 11);

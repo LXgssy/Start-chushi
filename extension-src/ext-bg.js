@@ -1,5 +1,5 @@
 /* ============================================================================
- * 「初始」ext-bg v8.2.0 —— MV3 Service Worker：跨页面音乐卡状态中继
+ * 「初始」ext-bg v8.2.2 —— MV3 Service Worker：跨页面音乐卡状态中继
  *
  * 想法一（悬浮音乐卡置顶所有网页）的数据面。架构律：
  *   1. 播放永远在网易云——本 SW 只做「hub 真值 → 卡片」中继与「卡片 → hub」
@@ -77,7 +77,10 @@ async function discoverSpec() {
   return false;
 }
 
-/* /api/state → 卡片轨（与页面端 cleanNe 同义的最小清洗） */
+/* /api/state → 卡片轨（与页面端 cleanNe 同义的最小清洗）
+   v8.2.2 锯齿根治：fetchedAt 必须是桥采样时刻（ne.ts）——旧版写 SW 收包时刻，
+   采样→收包间的主力时钟年龄被吞掉，卡片每秒锚定一次就向后锯齿一次，
+   逐字歌词在行界来回跥（乱跳根因）。与页面端 smtc.ts 年龄补偿同律。 */
 function cleanTrack(j) {
   const ne = j && j.ne;
   if (!ne || typeof ne !== "object") return null;
@@ -86,6 +89,8 @@ function cleanTrack(j) {
   const pos = Number.isFinite(position) && position > 0 ? position : 0;
   if (!title && !(pos > 0)) return null;
   const pic = String(ne.pic || "");
+  const ts = Number(ne.ts);
+  const now = Date.now();
   return {
     songId: Number(ne.songId) || 0,
     title,
@@ -96,7 +101,7 @@ function cleanTrack(j) {
     duration: Number(ne.duration) || 0,
     rate: 1,
     pic: /^https:\/\//.test(pic) ? pic.slice(0, 500) : "",
-    fetchedAt: Date.now(),
+    fetchedAt: ts > 0 && ts <= now + 2000 ? ts : now,
   };
 }
 
@@ -234,19 +239,8 @@ chrome.runtime.onConnect.addListener((port) => {
         } catch { /* 卡已走 */ }
         break;
       }
-      case "openPanel": {
-        try {
-          const url = chrome.runtime.getURL("index.html");
-          const tabs = await chrome.tabs.query({ url: url + "*" });
-          if (tabs && tabs.length) {
-            await chrome.tabs.update(tabs[0].id, { active: true });
-            if (tabs[0].windowId) await chrome.windows.update(tabs[0].windowId, { focused: true });
-          } else {
-            await chrome.tabs.create({ url });
-          }
-        } catch { /* 特权窗口等场景静默 */ }
-        break;
-      }
+      /* v8.2.2：openPanel 转发已拆——浮窗任何位置点击都不跳转「初始」
+         （用户明确不要），SW 不再承载开面板逻辑 */
       default:
         break;
     }

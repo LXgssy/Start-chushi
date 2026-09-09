@@ -137,8 +137,8 @@ ok(bad.length === 0, "L1b 回退后行2-5 零高光（旧逻辑此处残留 60% 
 ok(rows[1].on && !rows[1].done && rows[1].ps[0] > 0, "L1c 行1 on 重新扫光", JSON.stringify(rows[1]));
 ok(rows[0].done && rows[0].ps.every((p) => p === 0), "L1d 行0 已唱界内 done 灰且零扫色", JSON.stringify(rows[0]));
 
-/* ---------- L2 句尾渐隐：扫光 100% + 400ms（>250ms 宽限）→ done 渐隐 ---------- */
-console.log("L2 句尾渐隐：行2 扫光到 100%，400ms 后应进已唱态（不等下一句）");
+/* ---------- L2 高光保持律（v8.2.2 用户令：唱完挂住到行切换） ---------- */
+console.log("L2 高光保持：行2 扫光到 100%，400ms 后高光必须仍挂住（250ms 自动渐隐已废弃）");
 await mount(HTML_NEW, { src: "yrc" });
 await setNow(nowState(2, 2, 1));
 await wait(60);
@@ -146,8 +146,13 @@ rows = await readRows();
 ok(rows[2].on && !rows[2].done, "L2a 扫光完成瞬间仍在唱态（宽限 250ms 内）", JSON.stringify(rows[2]));
 await wait(400);
 rows = await readRows();
-ok(rows[2].done && rows[2].ps.every((p) => p === 100),
-  "L2b 250ms 宽限后进已唱态渐隐（旧逻辑挂到下一句开始）", JSON.stringify(rows[2]));
+ok(!rows[2].done && rows[2].on && rows[2].ps.every((p) => p === 100),
+  "L2b 唱完后高光挂住（done 不出现，下一句开始前不渐隐）", JSON.stringify(rows[2]));
+await setNow(nowState(3, 0, 0));
+await wait(120);
+rows = await readRows();
+ok(rows[2].done && rows[2].ps.every((p) => p === 100) && rows[3].on,
+  "L2c 行切换离开才进 done 渐隐（定格 100% → .ov 渐隐）", JSON.stringify([rows[2], rows[3].on]));
 
 /* ---------- L3 行内回退重扫撤销 ---------- */
 console.log("L3 行内回退重扫：已进渐隐的行回退重扫应撤销 done 重新扫光");

@@ -29,6 +29,8 @@ body{
   border:1px solid var(--line);border-radius:18px;overflow:hidden;
   box-shadow:0 10px 34px rgba(0,0,0,.13),0 1px 0 rgba(255,255,255,.14) inset;
   }
+/* v8.2.2 封面原生拖拽 ghost 禁止（用户实机反馈：面板与浮窗同律） */
+img{-webkit-user-drag:none;user-select:none}
 /* ---------- 展开面板（dock 形态）：数据全部来自宿主 chushi.music API ---------- */
 .cs-live{position:absolute;inset:0;display:flex;flex-direction:column;padding:14px 16px 11px;
   opacity:0;pointer-events:none;transition:opacity .32s ease}
@@ -173,7 +175,7 @@ body{
     <div class="cs-head">
       <div class="cs-cov" id="csCov">
         <span class="cs-glow"></span>
-        <span class="cs-pic cs-pz" id="csPic"><img id="csCoverImg" alt=""></span>
+        <span class="cs-pic cs-pz" id="csPic"><img id="csCoverImg" alt="" draggable="false"></span>
         <span class="cs-dot"></span>
       </div>
       <div class="cs-meta">
@@ -210,7 +212,7 @@ body{
 <script>
 (function () {
   "use strict";
-  /* ================= ChuShi music widget v8.2.0（纯渲染层）=================
+  /* ================= ChuShi music widget v8.2.2（纯渲染层）=================
      解析/插值/对齐/淡入淡出全部由宿主 chushi.music API 预计算，
      本层每帧只做取数 + 写样式。布局零位移三律：主键双 SVG 同圆心堆叠、
      歌词高度迟滞（歌词短暂缺失不塌面板）、无逐帧布局读写。
@@ -257,13 +259,14 @@ body{
   var offT = 0;
   var lyHold = false;          /* 歌词高度迟滞：短暂缺失不塌面板（按钮不跳） */
   var lyKey = "", lyRef = null, lyMode = 0;
+  var forceWord = false;       /* v8.1.4 强行逐字开关（宿主 storage 持久化，默认关） */
   var lineEls = [];            /* [{el, words, line, sung, clean}] */
   var activeLine = -2;
-  var sungAt = 0;              /* v8.1.4 扫光到 100% 的时刻（句尾渐隐宽限起点） */
-  var forceWord = false;       /* v8.1.4 强行逐字开关（宿主 storage 持久化，默认关） */
   var optP = false, optAt = 0; /* 播放/暂停乐观翻转窗口 */
   var trackKey = "";
   var prevShownPlaying = null;
+  /* v8.2.2 封面 ghost 拖拽双保险：dragstart 全局拦（img draggable=false 之外） */
+  document.addEventListener("dragstart", function (e) { e.preventDefault(); });
   /* v8.0.3 控制诚实反馈：命令下达后验证真值是否翻转，未翻转则亮芯片 */
   var ctlNote = "", ctlNoteAt = 0, ctlTimer = 0;
 
@@ -384,7 +387,6 @@ body{
     lyKey = key;
     lyRef = l;
     activeLine = -2;
-    sungAt = 0;
     lyInr.innerHTML = "";
     lineEls = [];
     /* v8.1.4 逐字/逐行判定：真逐字（yrc，宿主 src 标记）恒逐字；
@@ -408,7 +410,7 @@ body{
             ov.appendChild(document.createTextNode(ln.w[w].t));
             sp.appendChild(ov);
             row.appendChild(sp);
-            words.push({ ov: ov });
+            words.push({ ov: ov, p: -1 });
           }
         } else {
           row.textContent = ln.t || "·";
@@ -432,53 +434,55 @@ body{
     if (window.chushi && typeof window.chushi.resize === "function") chushi.resize(W, hFor());
   }
 
-  /* ---------- 逐帧歌词渲染：行切换 + 当前词扫色 + 句尾渐隐 + 暂停淡入淡出 ---------- */
+  /* ---------- 逐帧歌词渲染：行切换 + 当前词扫色 + 高光保持 + 暂停淡入淡出 ----------
+     v8.1.4 行切换与逐字写词解耦：逐行模式（强行逐字关，lyMode=0）
+     同样需要行高亮（on/done/间奏 ref）——早退只挡逐字写词块。
+     v8.2.2 高光保持律（用户实机反馈，浮窗同律）：
+     · 唱完的行扫到 100% 后高光挂住，直到行切换离开才进 done 渐隐
+       （v8.1.4「扫完 250ms 自动渐隐」废弃——那是在下一句开始前就把
+       高光撤了，用户明确不要）；
+     · 间奏自然流入（activeLine === lastLine）DOM 不动，高光挂到下一句；
+       seek 跨间奏落入按已唱界对账；
+     · 未来行无条件还原未唱态——含曾 done 行（类移除后 --p 定格残留
+       必须归零，v8.1.4 clean 标记漏洞修复）；
+     · 词扫光写值防抖：进度量化 0.25%，不变不写（暂停帧零样式写入）。 */
+  function reconcileLines(active, ref) {
+    for (var i = 0; i < lineEls.length; i++) {
+      var on = i === active;
+      var was = lineEls[i].el.classList.contains("done");
+      var done = ref >= 0 && i <= ref && !on;
+      lineEls[i].el.classList.toggle("on", on);
+      lineEls[i].el.classList.toggle("done", done);
+      if (on) {
+        lineEls[i].sung = true;
+        lineEls[i].clean = false; /* 重新扫光：清定格标记 */
+        continue;
+      }
+      if (done) {
+        if (!was) {
+          /* 唱过的行定格全亮渐隐；seek 跳中段的未唱行直接灰 */
+          if (lineEls[i].sung) { finalizeLine(i); lineEls[i].clean = true; }
+          else { restoreLine(i); lineEls[i].clean = true; }
+        }
+      } else {
+        if (was || !lineEls[i].clean) restoreLine(i);
+        lineEls[i].clean = true;
+        lineEls[i].sung = false;
+      }
+    }
+  }
   function lyricFrame(n) {
-    /* v8.1.4 行切换与逐字写词解耦：逐行模式（强行逐字关，lyMode=0）
-       同样需要行高亮（on/done/间奏 ref）——早退只挡逐字写词块 */
     if (!lineEls.length) return;
     if (n.lineIndex !== activeLine) {
-      var prev = activeLine;
-      activeLine = n.lineIndex;
-      sungAt = 0;
-      /* v8.0.4 行离场渐隐律：done 行遮罩定格 100%，靠 .ov opacity .6s 渐隐
-         + 行色渐变到已唱灰（不再瞬消）。
-         v8.1.4 ref 修正：间奏（-1）用宿主 lastLine（已唱界，回退落间奏
-         时它才是真界）——旧 ref=回退前行号会把回退后未唱的行误标已唱；
-         旧宿主无 lastLine 时退回 prev（v8.0.4 行为）。 */
-      var ref = activeLine >= 0 ? activeLine
-        : (typeof n.lastLine === "number" && n.lastLine >= 0 ? n.lastLine : (prev >= 0 ? prev : -1));
-      for (var i = 0; i < lineEls.length; i++) {
-        var on = i === activeLine;
-        var was = lineEls[i].el.classList.contains("done");
-        var done = ref >= 0 && i <= ref && !on;
-        lineEls[i].el.classList.toggle("on", on);
-        lineEls[i].el.classList.toggle("done", done);
-        if (on) {
-          lineEls[i].sung = true;
-          lineEls[i].clean = false; /* 重新扫光：清定格标记 */
-          continue;
-        }
-        if (done) {
-          if (!was) {
-            /* 唱过的行定格全亮渐隐；seek 跳中段的未唱行直接灰 */
-            if (lineEls[i].sung) {
-              finalizeLine(i);
-              lineEls[i].clean = true;
-            } else {
-              restoreLine(i);
-              lineEls[i].clean = true;
-            }
-          }
-        } else {
-          /* v8.1.4 回退高光残留根治：未来行（已唱界之后）无条件还原
-             未唱态——曾 on 行的 --p 扫光残留（旧逻辑只还原曾 done 的行）
-             与间奏误标已唱一并清除；sung 一并复位。clean 跳过幂等重写。 */
-          if (!lineEls[i].clean) { restoreLine(i); lineEls[i].clean = true; }
-          lineEls[i].sung = false;
-        }
-      }
-      if (activeLine >= 0 && activeLine < lineEls.length) {
+      if (n.lineIndex < 0) {
+        /* 间奏：自然流入（activeLine === lastLine）高光保持不动；
+           跨间奏跳入按已唱界对账。activeLine 保持行号，下一句开始时
+           走正常行切换路径渐灰。 */
+        var ref = typeof n.lastLine === "number" && n.lastLine >= 0 ? n.lastLine : -1;
+        if (ref !== activeLine) reconcileLines(-1, ref);
+      } else {
+        activeLine = n.lineIndex;
+        reconcileLines(activeLine, activeLine);
         var el = lineEls[activeLine].el;
         var target = (lyBox.clientHeight - el.offsetHeight) / 2 - el.offsetTop;
         lyInr.style.transform = "translateY(" + target + "px)";
@@ -487,29 +491,13 @@ body{
     /* 逐帧只写当前行的词（性能律：其余行在离场时一次性定稿） */
     if (lyMode === 1 && activeLine >= 0 && activeLine < lineEls.length) {
       var ws = lineEls[activeLine].words;
-      var last = n.wordIndex >= 0 && n.wordIndex >= ws.length - 1 && n.wordProgress >= 1;
-      if (last && !sungAt) {
-        /* v8.1.4 句尾渐隐律：扫光到 100% 后保持 250ms 收尾即进已唱态
-           渐隐，不再等下一句开始（lrc 行 e=下一行 s，旧行为句尾高亮
-           挂满行距/间奏）；行切换/重扫由 sungAt 复位撤销。 */
-        sungAt = Date.now();
-      } else if (last && sungAt && Date.now() - sungAt >= 250 &&
-        !lineEls[activeLine].el.classList.contains("done")) {
-        lineEls[activeLine].el.classList.add("done");
-        finalizeLine(activeLine);
-        lineEls[activeLine].clean = true;
-      } else if (!last) {
-        sungAt = 0;
-        var cel2 = lineEls[activeLine].el;
-        if (cel2.classList.contains("done")) {
-          cel2.classList.remove("done");
-          restoreLine(activeLine);
-          lineEls[activeLine].clean = false;
-        }
-      }
       for (var j = 0; j < ws.length; j++) {
         var p = j < n.wordIndex ? 1 : j > n.wordIndex ? 0 : (n.wordIndex >= 0 ? n.wordProgress : 0);
-        ws[j].ov.style.setProperty("--p", (p * 100).toFixed(1) + "%");
+        var q = Math.round(p * 400) / 400; /* 0.25% 量化：不变不写 */
+        if (ws[j].p !== q) {
+          ws[j].p = q;
+          ws[j].ov.style.setProperty("--p", (q * 100).toFixed(2) + "%");
+        }
       }
     }
     /* 播放态翻转：暂停淡出 / 恢复淡入（fadeMs 由宿主按当前词剩余时长算好） */
@@ -525,6 +513,7 @@ body{
        + 行色渐变到已唱灰收尾（用户指定「唱完等过了这句再渐变消失」） */
     var ws = lineEls[idx].words;
     for (var j = 0; j < ws.length; j++) {
+      ws[j].p = 1;
       ws[j].ov.style.setProperty("--p", "100%");
     }
   }
@@ -533,6 +522,7 @@ body{
        移除自动回 1，遮罩 0% 时本就不可见，无闪烁） */
     var ws = lineEls[idx].words;
     for (var j = 0; j < ws.length; j++) {
+      ws[j].p = 0;
       ws[j].ov.style.setProperty("--p", "0%");
     }
   }
@@ -673,16 +663,21 @@ body{
     }
   }
 
-  /* ---------- rAF 主循环（永不停止；拖动中用本地预览，不覆盖） ---------- */
+  /* ---------- rAF 主循环（永不停止；拖动中用本地预览，不覆盖） ----------
+     v8.2.2 写值防抖：进度/时间字符串不变不写 DOM（掉帧治理） */
+  var lastFillW = "", lastTCur = "", lastTDur = "";
   function loop() {
     var n = mus.now();
     if (scrub.on) {
       scrubUI();
     } else {
-      fill.style.width = (n.progress * 100).toFixed(2) + "%";
-      tCur.textContent = fmt(n.position);
+      var w = (n.progress * 100).toFixed(2) + "%";
+      if (w !== lastFillW) { lastFillW = w; fill.style.width = w; }
+      var tc = fmt(n.position);
+      if (tc !== lastTCur) { lastTCur = tc; tCur.textContent = tc; }
     }
-    tDur.textContent = n.duration > 0 ? fmt(n.duration) : "--:--";
+    var td = n.duration > 0 ? fmt(n.duration) : "--:--";
+    if (td !== lastTDur) { lastTDur = td; tDur.textContent = td; }
     lyricFrame(n);
     beatFrame(n);
     requestAnimationFrame(loop);

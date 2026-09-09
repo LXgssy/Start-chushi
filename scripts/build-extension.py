@@ -8,8 +8,10 @@ v8.1.2 起恢复本流程作为扩展包唯一产出门。
 v8.2.1 新增：ext-lyric.js（完全体歌词引擎，拼接在 ext-card.js 之前——内容脚本
 不支持 importScripts）+ ext-card.js 三态重构（封面收起/标准/完全体歌词）。
 历史：v8.2.0 ext-bg.js（SW 状态中继）+ ext-card.js（悬浮音乐卡）注入。
+v8.2.2 新增：数据面软重锚/回退熔断/seek 护航（乱跳根治）+ 高光保持律 +
+封面态拖动 + openPanel 全拆（零跳转「初始」）+ img ghost 禁拖。
 用法: python3 scripts/build-extension.py
-输出: download/v8.2.1/ChuShi-NewTab-v8.2.1.zip
+输出: download/v8.2.2/ChuShi-NewTab-v8.2.2.zip
 """
 import json
 import pathlib
@@ -23,7 +25,7 @@ OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
 EXT_SRC = ROOT / "extension-src"    # v8.2.0 SW/内容脚本源
-VERSION = "8.2.1"
+VERSION = "8.2.2"
 DEST = ROOT / f"download/v{VERSION}/ChuShi-NewTab-v{VERSION}.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():
@@ -174,13 +176,21 @@ for ext_file in ("ext-bg.js", "ext-card.js"):
 _card_js = (STAGE / "ext-card.js").read_text(encoding="utf-8")
 for feat in ("ChuShiLyric", "parseWordText", "unitizeLine",  # 歌词引擎特征
              "fcard", "flyr-in", "setMode", "cover",         # 三态/歌词 DOM 特征
-             "chushi-card"):                                  # Port 名
+             "chushi-card",                                    # Port 名
+             "ingestTrack", "reconcileLines", "posNowOf",     # v8.2.2 乱跳根治/高光保持
+             "coverClickBlock", "dragstart",                   # 封面态拖动 + ghost 禁拖
+             "seekGuard", "backStreak"):                       # seek 护航/回退熔断
     if feat not in _card_js:
         sys.exit(f"ext-card.js 缺特征 {feat} —— 拼接/源码不完整")
+if 'postMessage({ type: "openPanel"' in _card_js or 'case "openPanel"' in _card_js:
+    sys.exit("ext-card.js 残留 openPanel 发送方——用户明确浮窗零跳转「初始」，拒绝")
 _bg_js = (STAGE / "ext-bg.js").read_text(encoding="utf-8")
-for feat in ("chushi-spectrum", "spectrum-boot", "chushi-card", 'case "lyric":'):
+for feat in ("chushi-spectrum", "spectrum-boot", "chushi-card", 'case "lyric":',
+             "fetchedAt"):  # v8.2.2：ne.ts 采样时刻透传（乱跳根治数据面）
     if feat not in _bg_js:
         sys.exit(f"ext-bg.js 缺特征 {feat} —— SW 歌词代理面缺失")
+if 'case "openPanel"' in _bg_js:
+    sys.exit("ext-bg.js 残留 openPanel 转发——浮窗零跳转律，拒绝")
 _html = (STAGE / "index.html").read_text(encoding="utf-8")
 if [s for s in re.findall(r"<script>(.*?)</script>", _html, re.S) if s.strip()]:
     sys.exit("index.html 残留内联脚本（MV3 CSP 必拦）")

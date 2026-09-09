@@ -1,18 +1,23 @@
 /* ============================================================================
- * 「初始」ext-card v8.2.1 —— 内容脚本：悬浮音乐卡（置顶所有网页，三态）
+ * 「初始」ext-card v8.2.2 —— 内容脚本：悬浮音乐卡（置顶所有网页，三态）
  *
- * v8.2.1 三态律（用户实机反馈重构）：
- *   ① 封面收起态——整个卡片只显示封面；单击 → 标准态；不可拖（拖动窗口
- *      时易误触的封面一律禁拖）；播放中右下角绿点。
- *   ② 标准态——v8.2.0 迷你卡。右上角「×」退役：改为 [收起成封面][放大到
- *      完全体] 按钮组（放大钮在原 × 位，收起钮在其左）；点卡片主体回面板；
- *      点进度条 → 完全体（不再跳转回「初始」）。
- *   ③ 完全体——与「初始」页面音乐卡片同级：逐字/逐行歌词（句尾渐隐/回退
- *      还原/间奏/翻译/暂停淡出全律随行）、时间显示、可 seek 进度条。
- *      歌词数据 = SW 代理 hub /api/lyric（songId 归属强校验，单槽缓存切歌
- *      窗口律与 smtc.ts 同款）。引擎在 ext-lyric.js（build 时拼接在本文件前）。
- *   v8.2.0 既有律保留：closed Shadow DOM / 数据经 SW / 本地插值 / 诚实降级
- *   / 位置持久 / 按站会话级隐藏（入口改为右键卡片）/ 辉光律动。
+ * v8.2.2 实机反馈五连修：
+ *   ① 歌词乱跳根治（数据面）——状态真值改为连续锚定：微抖带（≤0.9s）不重锚
+ *      （轨迹继续走），中幅偏差（≤2.5s）软重锚 800ms smoothstep 入轨，
+ *      更大（seek/切歌）才硬跟随；ne.ts 采样年龄由 ext-bg 透传（同
+ *      sandbox.js 恒源钉守/软重锚家族语义，旧版每秒硬换锚 = 锯齿源）。
+ *   ② 逐字高光提前消失根治——扫光到 100% 后高光挂住，直到行切换才随
+ *      done 渐隐（250ms 自动渐隐废弃）；间奏段同样挂住（自然流入
+ *      activeLine===lastLine 不动 DOM），下一句开始才渐灰。
+ *   ③ 浮窗任何位置点击都不再跳转「初始」（openPanel 全拆）。
+ *   ④ 封面态可拖动：按住拖动（>6px）移窗，单击展开；原生图拖拽 ghost
+ *      全面禁止（draggable=false + dragstart 拦截，浮窗与初始面板同律）。
+ *   ⑤ 标准态右上钮组独立顶带（与播放/上一首/下一首明确分行）；
+ *      写值防抖（词扫光/时间/进度只在变化时写 DOM）。
+ *   v8.2.1 三态律保留：封面态（48px 整卡即封面+播放绿点）/标准态
+ *   （[收起成封面][放大到完全体]，点进度条→完全体）/完全体（yrc 真逐字
+ *   +lrc 逐行+翻译+seek 进度条）；closed Shadow DOM / SW 中继 / 位置持久
+ *   / 右键隐藏 / 辉光律动不变。歌词引擎在 ext-lyric.js（build 拼接在前）。
  * ==========================================================================*/
 
 "use strict";
@@ -58,6 +63,7 @@
     '<style>' +
     ':host{all:initial}' +
     '*{margin:0;padding:0;box-sizing:border-box;font-family:ui-sans-serif,system-ui,"PingFang SC","Microsoft YaHei",sans-serif}' +
+    'img{-webkit-user-drag:none;user-select:none}' +
     '@keyframes cscardin{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}' +
     '.surf{position:fixed;border-radius:16px;color:#f4f4f5;user-select:none;touch-action:none;' +
     'background:rgba(28,28,32,.92);border:1px solid rgba(255,255,255,.1);' +
@@ -65,9 +71,10 @@
     '.surf.draggable{cursor:grab}.surf.draggable:active{cursor:grabbing}' +
     'button{font-family:inherit}' +
     /* ---- 封面态 ---- */
-    '.cover{width:48px;height:48px;border-radius:13px;overflow:hidden;padding:0;cursor:pointer;' +
+    '.cover{width:48px;height:48px;border-radius:13px;overflow:hidden;padding:0;cursor:grab;' +
     'display:none;position:fixed;border:1px solid rgba(255,255,255,.14);' +
-    'background:linear-gradient(135deg,#8b5cf655,#8b5cf622)}' +
+    'background:linear-gradient(135deg,#8b5cf655,#8b5cf622);touch-action:none}' +
+    '.cover:active{cursor:grabbing}' +
     '.cover img{width:100%;height:100%;object-fit:cover;display:block}' +
     '.cdot{position:absolute;right:4px;bottom:4px;width:7px;height:7px;border-radius:999px;' +
     'background:#34d399;box-shadow:0 0 5px #34d399;display:none}' +
@@ -100,12 +107,15 @@
     '.rail{height:10px;display:flex;align-items:center;cursor:pointer}' +
     '.rin{width:100%;height:3px;border-radius:2px;background:rgba(255,255,255,.14);overflow:hidden}' +
     '.fill{display:block;height:100%;width:0%;border-radius:2px;background:var(--acc,#8b5cf6)}' +
-    /* ---- 标准态 ---- */
-    '.card{width:264px;padding:10px 12px 9px;display:none}' +
+    /* ---- 标准态（v8.2.2：右上钮组独立顶带——与上一首/播放/下一首明确分行） ---- */
+    '.card{width:264px;padding:30px 12px 9px;display:none}' +
+    '.card .cap{top:7px}' +
     '.card .cov{width:44px;height:44px}' +
     '.card .rail{margin-top:9px}' +
     /* ---- 完全体 ---- */
     '.fcard{width:324px;padding:14px 16px 12px;border-radius:18px;display:none}' +
+    '.fcard .cap{top:7px}' +
+    '.fcard .row{padding-right:46px}' +
     '.fcard .cov{width:52px;height:52px;border-radius:12px}' +
     '.fcard .t1{font-size:13.5px}.fcard .t2{font-size:11px}' +
     '.ftm{display:flex;justify-content:space-between;font-size:10px;color:#8e8e96;margin-top:5px;font-variant-numeric:tabular-nums}' +
@@ -132,7 +142,7 @@
     'font-size:12px;color:#5b5b63;letter-spacing:2px}' +
     '</style>' +
     /* 封面态 */
-    '<button class="cover" id="cover" title="单击展开音乐卡"><img id="cpic" alt=""><span class="cdot" id="cdot"></span></button>' +
+    '<button class="cover" id="cover" title="单击展开 · 按住拖动"><img id="cpic" alt="" draggable="false"><span class="cdot" id="cdot"></span></button>' +
     /* 标准态 */
     '<div class="surf card" id="card">' +
     '<div class="cap">' +
@@ -140,7 +150,7 @@
     '<button class="x" id="miniFull" title="放大到完全体（歌词）"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg></button>' +
     '</div>' +
     '<div class="row">' +
-    '<div class="cov"><span class="glow" id="glow"></span><img id="pic" alt=""></div>' +
+    '<div class="cov"><span class="glow" id="glow"></span><img id="pic" alt="" draggable="false"></div>' +
     '<div class="meta"><div class="t1" id="t1">—</div><div class="t2" id="t2"></div></div>' +
     '<button class="b" id="prev" title="上一首"><svg viewBox="0 0 24 24"><path d="M19 20L9 12l10-8v16z"/><path d="M6 5.5v13"/></svg></button>' +
     '<button class="b main" id="play" title="播放 / 暂停"><svg id="icPlay" viewBox="0 0 24 24"><path d="M8 4l12 8-12 8V4z"/></svg><svg id="icPause" viewBox="0 0 24 24" style="display:none"><rect x="6.6" y="4.6" width="3.6" height="14.8" rx="1.3"/><rect x="13.8" y="4.6" width="3.6" height="14.8" rx="1.3"/></svg></button>' +
@@ -155,7 +165,7 @@
     '<button class="x" id="fullMini" title="缩回标准卡"><svg viewBox="0 0 24 24"><path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3"/></svg></button>' +
     '</div>' +
     '<div class="row">' +
-    '<div class="cov"><span class="glow" id="glow2"></span><img id="fpic" alt=""></div>' +
+    '<div class="cov"><span class="glow" id="glow2"></span><img id="fpic" alt="" draggable="false"></div>' +
     '<div class="meta"><div class="t1" id="ft1">—</div><div class="t2" id="ft2"></div></div>' +
     '</div>' +
     '<div class="flyr" id="flyr"><div class="fempty" id="fempty">暂无歌词</div><div class="flyr-in" id="flyrIn"></div></div>' +
@@ -169,6 +179,9 @@
     '</div>';
 
   (document.body || document.documentElement).appendChild(host);
+  /* 原生图拖拽 ghost 全面禁止（v8.2.2：初始面板与浮窗同律——拖窗口时
+     封面被浏览器当 img 拖走的鬼影是「封面没禁拖」的真身） */
+  host.addEventListener("dragstart", function (e) { e.preventDefault(); });
 
   function el(id) { return shadow.getElementById(id); }
   var coverEl = el("cover"), cpic = el("cpic"), cdot = el("cdot");
@@ -228,23 +241,26 @@
   }
 
   /* ---------- 拖动 / 点击 ----------
-     把手 = 卡片主体空白（meta 区 + padding）；封面、按钮、进度条、歌词区
-     一律不启动拖动（用户律：拖动窗口时封面易误触——封面纯点击目标）。 */
+     把手 = 卡片主体空白（meta 区 + padding）+ 封面态整卡（按住拖动）；
+     按钮、进度条、歌词区、标准/完全体封面一律不启动拖动。
+     封面态：单击展开 / 按住拖动（拖后拦误触 click）。 */
   var drag = { on: 0, moved: 0, px: 0, py: 0, ox: 0, oy: 0, surf: null };
   function dragHandleOK(e) {
     if (e.button !== undefined && e.button !== 0) return false;
-    if (mode === "cover") return false; /* 封面态整卡=封面，不可拖 */
     var t = e.target;
     if (t.closest && t.closest("button, .cov, .rail, .flyr")) return false;
     return true;
   }
-  function onDown(e) {
-    if (!dragHandleOK(e)) return;
+  function dragStart(e, surf) {
     drag.on = 1; drag.moved = 0;
     drag.px = e.clientX; drag.py = e.clientY;
     drag.ox = pos.x; drag.oy = pos.y;
-    drag.surf = e.currentTarget;
-    try { drag.surf.setPointerCapture(e.pointerId); } catch (e1) { /* 已释放 */ }
+    drag.surf = surf;
+    try { surf.setPointerCapture(e.pointerId); } catch (e1) { /* 已释放 */ }
+  }
+  function onDown(e) {
+    if (!dragHandleOK(e)) return;
+    dragStart(e, e.currentTarget);
   }
   function onMove(e) {
     if (!drag.on) return;
@@ -255,8 +271,12 @@
       applyPos();
     }
   }
+  var coverClickBlock = 0;
   function onUp() {
-    if (drag.on && drag.moved) savePos();
+    if (drag.on && drag.moved) {
+      savePos();
+      if (drag.surf === coverEl) coverClickBlock = Date.now(); /* 拖后拦截误触 click */
+    }
     drag.on = 0;
   }
   card.addEventListener("pointerdown", onDown);
@@ -267,11 +287,16 @@
   fcard.addEventListener("pointermove", onMove);
   fcard.addEventListener("pointerup", onUp);
   fcard.addEventListener("pointercancel", function () { drag.on = 0; });
-  /* 标准态点主体（非按钮）回面板；完全体点主体无操作（面板级本身） */
-  card.addEventListener("click", function (e) {
-    if (e.target.closest && e.target.closest("button, .rail")) return;
-    openPanel();
+  /* 封面态：整卡即把手——按住拖动移窗，单击展开（拖动后 350ms 内的
+     click 是拖动误触，拦截） */
+  coverEl.addEventListener("pointerdown", function (e) {
+    if (e.button !== undefined && e.button !== 0) return;
+    dragStart(e, coverEl);
   });
+  coverEl.addEventListener("pointermove", onMove);
+  coverEl.addEventListener("pointerup", onUp);
+  coverEl.addEventListener("pointercancel", function () { drag.on = 0; });
+  /* v8.2.2 用户律：浮窗任何位置点击都不跳转「初始」——主体点击无操作 */
 
   /* ---------- SW 通道（断线重连 + 保活） ---------- */
   var port = null;
@@ -308,7 +333,18 @@
       try {
         port.postMessage({ type: "cmd", cmd: cmd, position: position, id: id });
         port.__cmdResolve = port.__cmdResolve || {};
-        port.__cmdResolve[id] = function (ok) { resolve(ok === true); };
+        port.__cmdResolve[id] = function (ok) {
+          /* v8.2.2 seek 乐观重锚 + 护航窗：进度条即时到位，真值收敛前
+             陈旧拍不回弹（sandbox.js v8.0.9 同律） */
+          if (ok && cmd === "seek" && typeof position === "number" && track) {
+            track.position = Math.max(0, position);
+            track.fetchedAt = Date.now();
+            softA = null;
+            seekGuard = { to: position, at: Date.now() };
+            backStreak = 0;
+          }
+          resolve(ok === true);
+        };
         setTimeout(function () {
           if (port && port.__cmdResolve && port.__cmdResolve[id]) {
             delete port.__cmdResolve[id]; resolve(false);
@@ -318,15 +354,14 @@
     });
   }
 
-  function openPanel() {
-    try { if (port) port.postMessage({ type: "openPanel" }); } catch (e) { /* 断线 */ }
-  }
+  /* v8.2.2：openPanel 已拆——浮窗零跳转「初始」（用户明确不要） */
 
   function onMsg(m) {
     if (!m || typeof m !== "object") return;
     if (m.type === "state") {
-      track = m.track && typeof m.track === "object" ? m.track : null;
-      if (track) track.fetchedAt = m.at || Date.now();
+      var nt = m.track && typeof m.track === "object" ? m.track : null;
+      if (nt && !(nt.fetchedAt > 0)) nt.fetchedAt = m.at || Date.now();
+      ingestTrack(nt);
       renderStatic();
       host.style.display = "block";
       applyVis();
@@ -372,12 +407,78 @@
     if (has && host.style.display !== "block") host.style.display = "block";
   }
 
-  function posNow() {
-    if (!track) return 0;
-    var rate = track.rate > 0 ? track.rate : 1;
-    var p = track.position + (track.playing ? ((Date.now() - track.fetchedAt) / 1000) * rate : 0);
-    if (track.duration > 0) return Math.min(track.duration, Math.max(0, p));
+  /* ---------- 位置插值：锚点轨迹 + 软重锚（sandbox.js 同族语义） ----------
+     baseNowOf = 锚点真值轨迹；posNowOf = 软窗混合后的显示位置。
+     v8.2.2 锯齿根治：真值到达时按偏差分带仲裁——微抖带不重锚（轨迹
+     继续走），中幅软重锚平滑入轨，大幅（seek/切歌）硬跟随。 */
+  var softA = null;         /* 软重锚窗 {from,at,dur} */
+  function baseNowOf(t) {
+    if (!t) return 0;
+    var rate = t.rate > 0 ? t.rate : 1;
+    var p = t.position + (t.playing ? ((Date.now() - t.fetchedAt) / 1000) * rate : 0);
+    if (t.duration > 0) return Math.min(t.duration, Math.max(0, p));
     return Math.max(0, p);
+  }
+  function posNowOf(t) {
+    var p = baseNowOf(t);
+    if (softA) {
+      var el = Date.now() - softA.at;
+      if (el >= softA.dur) { softA = null; return p; }
+      var rate = t && t.rate > 0 ? t.rate : 1;
+      var fromP = softA.from + (el / 1000) * rate * (t && t.playing ? 1 : 0);
+      var k = el / softA.dur;
+      k = k * k * (3 - 2 * k);
+      var out = fromP + (p - fromP) * k;
+      if (t && t.duration > 0) return Math.min(t.duration, Math.max(0, out));
+      return Math.max(0, out);
+    }
+    return p;
+  }
+  function posNow() { return posNowOf(track); }
+
+  /* 真值进入仲裁（v8.2.2 乱跳根治核心，sandbox.js 同族管线精简移植）：
+     ① 微噪声 |d|≤2.5s 一律 800ms smoothstep 软重锚——显示从当前位置平滑
+        入轨（连续、可收敛）；>2.5s（seek/切歌级）硬跟随。
+     ② 回退熔断：播放中单记回退拍（-0.3~-2.5s）拒收（旧锚继续走），
+        连续 2 记 = 真回退源才放行——上游锚点年龄抖动的回跳到不了显示层。
+     ③ seek 护航窗（4.5s）：拖动后乐观重锚到目标，护航期内远离目标的
+        陈旧拍拒收、真值到目标 ±2s 即收窗——进度条回弹同根治。 */
+  var backStreak = 0;
+  var seekGuard = null;    /* {to, at} */
+  function ingestTrack(nt) {
+    var now = Date.now();
+    var old = track;
+    if (!nt) { track = null; softA = null; seekGuard = null; return; }
+    if (!old) { track = nt; softA = null; return; }
+    var sameSong = (nt.songId || 0) === (old.songId || 0) &&
+      (nt.title || "") === (old.title || "") &&
+      Math.abs((nt.duration || 0) - (old.duration || 0)) < 1.5;
+    if (!sameSong) { track = nt; softA = null; seekGuard = null; backStreak = 0; return; }
+    if (nt.playing !== old.playing) { track = nt; softA = null; seekGuard = null; backStreak = 0; return; }
+    var disp = posNowOf(old);
+    var rate = nt.rate > 0 ? nt.rate : 1;
+    var age = nt.playing ? Math.min(6, Math.max(0, (now - nt.fetchedAt) / 1000)) : 0;
+    var implied = nt.position + age * rate;
+    /* seek 护航窗：拖动已乐观重锚——远离目标的拍是拖动前旧轨/中间态 */
+    if (seekGuard) {
+      if (now - seekGuard.at > 4500) { seekGuard = null; }
+      else if (Math.abs(implied - seekGuard.to) <= 2) { seekGuard = null; }
+      else return; /* 陈旧拍：忽略，目标轨迹继续走 */
+    }
+    var d = implied - disp;
+    /* 回退熔断（仅播放稳态）：单记回退拒收，连续 2 记放行 */
+    if (nt.playing && d < -0.3 && d > -2.5) {
+      backStreak++;
+      if (backStreak < 2) return;   /* 拒收：旧锚继续走 */
+    } else {
+      backStreak = 0;
+    }
+    if (d >= -2.5 && d <= 2.5) {
+      softA = { from: disp, at: now, dur: 800 };
+      track = nt;
+      return;
+    }
+    track = nt; softA = null;       /* 大偏差：诚实硬跟随 */
   }
 
   function fmt(s) {
@@ -435,15 +536,15 @@
   }
 
   /* ---------- 歌词 DOM 构建（歌词键 + 解析对象双判定才重建） ---------- */
-  var lineEls = [];      /* [{el, words, sung, clean}] */
+  var lineEls = [];      /* [{el, words:[{ov,p}], sung, clean}] */
   var activeLine = -2;
-  var sungAt = 0;        /* 扫光到 100% 的时刻（句尾渐隐宽限起点） */
   var lyMode = 0;        /* 1=逐字扫光（真 yrc）；0=逐行高亮 */
   var prevLyrPlaying = null;
   function buildLyricDom() {
     var p = ly.parsed;
-    lineEls = []; activeLine = -2; sungAt = 0; prevLyrPlaying = null;
+    lineEls = []; activeLine = -2; prevLyrPlaying = null;
     flyrIn.innerHTML = "";
+    flyrIn.style.transform = "translateY(0px)";
     if (!p || !p.lines || !p.lines.length) {
       fempty.style.display = "flex";
       lyMode = 0;
@@ -468,7 +569,7 @@
           ov.appendChild(document.createTextNode(ln.w[w].t));
           sp.appendChild(ov);
           row.appendChild(sp);
-          words.push({ ov: ov });
+          words.push({ ov: ov, p: -1 });
         }
       } else {
         row.textContent = ln.t || "·";
@@ -485,44 +586,59 @@
     }
   }
 
-  /* ---------- 逐帧歌词渲染：行切换 + 当前词扫色 + 句尾渐隐 + 暂停淡出 ----------
-     与「初始」部件 lyricFrame 同律：
-     · 行离场渐隐（done 定格 100%，.ov opacity .6s 渐隐 + 行色渐灰）
-     · 回退/间奏 ref 修正（宿主 lastLine 已唱界）+ 未来行无条件还原未唱态
-     · 句尾渐隐 250ms 宽限；行内回退重扫撤销 done */
+  /* ---------- 逐帧歌词渲染：行切换 + 当前词扫色 + 高光保持 + 暂停淡出 ----------
+     v8.2.2 高光保持律（用户实机反馈：唱完的行在下一句开始前高光不得提前
+     消失，浮窗与「初始」面板同律）：
+     · 当前行扫到 100% 后高光挂住（250ms 自动渐隐废弃）——只有行切换离开
+       时才进 done 渐隐（.ov opacity .6s + 行色渐灰）；
+     · 间奏（lineIndex=-1）自然流入（上一活动行 === lastLine）：DOM 不动，
+       高光挂到下一句开始；seek 跨间奏落入（activeLine ≠ lastLine）：按
+       已唱界对账；
+     · 行切换/回退：未来行无条件还原未唱态——含曾 done 行（done 移除后
+       --p 定格残留必须归零，v8.1.4 clean 标记漏洞修复）；
+     · 词扫光写值防抖：进度量化 0.25%，不变不写（暂停帧零样式写入）。 */
+  function reconcileLines(active, ref) {
+    for (var i = 0; i < lineEls.length; i++) {
+      var on = i === active;
+      var was = lineEls[i].el.classList.contains("done");
+      var done = ref >= 0 && i <= ref && !on;
+      lineEls[i].el.classList.toggle("on", on);
+      lineEls[i].el.classList.toggle("done", done);
+      if (on) {
+        lineEls[i].sung = true;
+        lineEls[i].clean = false; /* 重新扫光：清定格标记 */
+        continue;
+      }
+      if (done) {
+        if (!was) {
+          /* 唱过的行定格全亮渐隐；seek 跳中段的未唱行直接灰 */
+          if (lineEls[i].sung) { finalizeLine(i); lineEls[i].clean = true; }
+          else { restoreLine(i); lineEls[i].clean = true; }
+        }
+      } else {
+        /* 未来行无条件还原未唱态：曾 on 行的扫光残留与曾 done 行的
+           定格残留（clean 标记为 true 也不能跳过——类已移除但 --p 还在） */
+        if (was || !lineEls[i].clean) restoreLine(i);
+        lineEls[i].clean = true;
+        lineEls[i].sung = false;
+      }
+    }
+  }
   function lyricFrame() {
     if (!lineEls.length || !ly.parsed) return;
     var ms = posNow() * 1000;
     var n = ChuShiLyric.align(ly.parsed, ms);
     if (n.lineIndex !== activeLine) {
-      var prev = activeLine;
-      activeLine = n.lineIndex;
-      sungAt = 0;
-      var ref = activeLine >= 0 ? activeLine
-        : (typeof n.lastLine === "number" && n.lastLine >= 0 ? n.lastLine : (prev >= 0 ? prev : -1));
-      for (var i = 0; i < lineEls.length; i++) {
-        var on = i === activeLine;
-        var was = lineEls[i].el.classList.contains("done");
-        var done = ref >= 0 && i <= ref && !on;
-        lineEls[i].el.classList.toggle("on", on);
-        lineEls[i].el.classList.toggle("done", done);
-        if (on) {
-          lineEls[i].sung = true;
-          lineEls[i].clean = false; /* 重新扫光：清定格标记 */
-          continue;
-        }
-        if (done) {
-          if (!was) {
-            if (lineEls[i].sung) { finalizeLine(i); lineEls[i].clean = true; }
-            else { restoreLine(i); lineEls[i].clean = true; }
-          }
-        } else {
-          /* 未来行无条件还原未唱态（扫光残留/间奏误标一并清除） */
-          if (!lineEls[i].clean) { restoreLine(i); lineEls[i].clean = true; }
-          lineEls[i].sung = false;
-        }
-      }
-      if (activeLine >= 0 && activeLine < lineEls.length) {
+      if (n.lineIndex < 0) {
+        /* 间奏：自然流入（activeLine === lastLine）高光保持不动；
+           跨间奏跳入按已唱界对账。activeLine 保持行号（非 -1），
+           下一句开始时走正常行切换路径渐灰。 */
+        var ref = typeof n.lastLine === "number" && n.lastLine >= 0 ? n.lastLine : -1;
+        if (ref !== activeLine) reconcileLines(-1, ref);
+        /* ref === activeLine：什么都不动——高光挂住等下一句 */
+      } else {
+        activeLine = n.lineIndex;
+        reconcileLines(activeLine, activeLine);
         var elc = lineEls[activeLine].el;
         var target = (flyrIn.parentNode.clientHeight - elc.offsetHeight) / 2 - elc.offsetTop;
         flyrIn.style.transform = "translateY(" + target + "px)";
@@ -530,26 +646,13 @@
     }
     if (lyMode === 1 && activeLine >= 0 && activeLine < lineEls.length) {
       var ws = lineEls[activeLine].words;
-      var last = n.wordIndex >= 0 && n.wordIndex >= ws.length - 1 && n.wordProgress >= 1;
-      if (last && !sungAt) {
-        sungAt = Date.now();
-      } else if (last && sungAt && Date.now() - sungAt >= 250 &&
-        !lineEls[activeLine].el.classList.contains("done")) {
-        lineEls[activeLine].el.classList.add("done");
-        finalizeLine(activeLine);
-        lineEls[activeLine].clean = true;
-      } else if (!last) {
-        sungAt = 0;
-        var cel = lineEls[activeLine].el;
-        if (cel.classList.contains("done")) {
-          cel.classList.remove("done");
-          restoreLine(activeLine);
-          lineEls[activeLine].clean = false;
-        }
-      }
       for (var j = 0; j < ws.length; j++) {
         var pp = j < n.wordIndex ? 1 : j > n.wordIndex ? 0 : (n.wordIndex >= 0 ? n.wordProgress : 0);
-        ws[j].ov.style.setProperty("--p", (pp * 100).toFixed(1) + "%");
+        var q = Math.round(pp * 400) / 400; /* 0.25% 量化：不变不写 */
+        if (ws[j].p !== q) {
+          ws[j].p = q;
+          ws[j].ov.style.setProperty("--p", (q * 100).toFixed(2) + "%");
+        }
       }
     }
     var playing = effPlaying();
@@ -560,11 +663,17 @@
   }
   function finalizeLine(idx) {
     var ws = lineEls[idx].words;
-    for (var j = 0; j < ws.length; j++) ws[j].ov.style.setProperty("--p", "100%");
+    for (var j = 0; j < ws.length; j++) {
+      ws[j].p = 1;
+      ws[j].ov.style.setProperty("--p", "100%");
+    }
   }
   function restoreLine(idx) {
     var ws = lineEls[idx].words;
-    for (var j = 0; j < ws.length; j++) ws[j].ov.style.setProperty("--p", "0%");
+    for (var j = 0; j < ws.length; j++) {
+      ws[j].p = 0;
+      ws[j].ov.style.setProperty("--p", "0%");
+    }
   }
 
   /* ---------- 交互绑定 ---------- */
@@ -585,7 +694,10 @@
   el("miniFull").addEventListener("click", function () { setMode("full"); });
   el("fullCover").addEventListener("click", function () { setMode("cover"); });
   el("fullMini").addEventListener("click", function () { setMode("mini"); });
-  coverEl.addEventListener("click", function () { setMode("mini"); });
+  coverEl.addEventListener("click", function () {
+    if (Date.now() - coverClickBlock < 350) return; /* 封面拖动后的误触 click */
+    setMode("mini");
+  });
   /* 标准态进度条：点按 → 完全体（不跳回「初始」）；完全体进度条：点按 → seek */
   el("rail").addEventListener("click", function (e) {
     e.stopPropagation();
@@ -609,6 +721,7 @@
 
   /* ---------- rAF 主循环：进度插值 + 完全体歌词帧 + 辉光律动 ---------- */
   var lastFillW = "";
+  var lastTcur = "", lastTdur = "";
   function loop() {
     if (track) {
       var dur = track.duration || 0;
@@ -620,8 +733,11 @@
         ffill.style.width = w;
       }
       if (mode === "full") {
-        tcur.textContent = fmt(posNow());
-        tdur.textContent = dur > 0 ? fmt(dur) : "--:--";
+        /* 写值防抖：fmt 每秒才变一次，字符串比对代替每帧 textContent 写 */
+        var tc = fmt(posNow());
+        if (tc !== lastTcur) { lastTcur = tc; tcur.textContent = tc; }
+        var td = dur > 0 ? fmt(dur) : "--:--";
+        if (td !== lastTdur) { lastTdur = td; tdur.textContent = td; }
         lyricFrame();
       }
     }
