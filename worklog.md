@@ -1212,3 +1212,25 @@ Work Log:
 Stage Summary:
 - 新律：①「服务端 404/空响应」要先用规范实现逐字节对照插件加密产物再怀疑参数——信封差一个问号，整条取词阶梯的第一层就从未存在过，下游永远在跑降级路径；②「三态上报」律：验证链的「未验证」必须与「验证失败」在协议层可区分（seekAckKnown），否则未知会被下游折叠成失败造出假提示；③跨进程真值收敛窗：乐观重锚后必须护航（忽略旧轨迹陈旧拍 + 到达提前收窗 + 过期诚实放行），UI 回弹/乱跳本质都是「新值未到、旧值先至」；④e2e 压缩计时器下 spy 收敛时间要按压缩比重设（80ms=第2拍），否则多拍耐心路径必红；⑤插件目录内的二进制拷贝与 native 产物是两份文件——重编后必须 cp 同步再打包（本次 hub.dll 新旧时间戳差 45min 实锤），资产门禁要断言 zip 内 DLL 与 native 逐字节一致
 - 待办：用户侧验收（换 Bridge 8.0.9 + Lyric Source 7.3.0 + 重导 cshz 8.0.9 + NewTab 8.0.9 → 拖动无回弹无假提示/歌词对位/逐字 yrc 生效/悬停动效）；若逐字仍不生效看 debug().lyricSource 是否 eapi-yrc（登录态进一步放宽 yrc 下发）；歌词三问题遗留项（渐隐时机/初始定位已在前版修复，切歌竞态已有三道防线）观察反馈
+
+---
+Task ID: 108
+Agent: main (Super Z)
+Task: 用户两条——①真机录屏（歌曲正常播放但歌词乱跳）+ 控制台截图诊断 ②gh-pages 黑屏排查修复。v8.1.0 发布
+
+Work Log:
+- 【录屏取证】27.4s 录屏 2fps 密集抽帧 3x3 网格逐段分析：①4.5-15s 无 seek 场景进度 1:05↔1:06 每秒锯齿、歌词视口跟着跳；②6.5-8s/11-13s 面板整体消失成「系统媒体待接入」空态 + 歌曲 toast 后 ~2s 恢复（周期 ~4.5s）；③15.5s seek 1:06→2:00，17s 帧「时间 2:02 歌词却显示拖前段落」= 中间态回锚实锤；④18s 后 2:03+ 平稳正常。控制台截图：hub/selftest/cmdLast 全绿（命令链路健康）+ lyricSource=eapi-yrc（yrc 主源已生效）+ **stateAge=34.5s**（桥状态时间戳冻结的直接证据）
+- 【gh-pages 黑屏根因】线上 index.html 引用 /_next/*（无 basePath）→ 资源全 404 仅剩 pulse-dot 黑屏；gh-pages 分支 0a39357「deploy v8.0.9」= Task 107 用 EXTENSION_MODE（无 basePath）产物误部署 + 线上核验只查首页 200 未查资源（假绿）；同时 Task 107 把构建产物提交进了 main 根目录（污染）。修复：build:export 重建部署（259f214）+ 线上核验资源 200 + chunk 特征
+- 【锯齿根因·桥】readViaInflight 读 InfLink getTimeline（SMTC 上报滞后 ~1s）+ L1081 注释自证「时间线 1Hz 节流间隙由元素补」→ 双源相差 ~1s 逐拍交替 → 页面每拍 |Δ|≥0.35 硬锚 → 秒级锯齿。修复（桥 8.1.0 位置单源化）：一律以 el.currentTime（帧级连续真值）为位置唯一源，InfLink 时间线仅元素缺席兜底
+- 【面板闪断根因·页面端】smtc.ts state-stale（stateAge>8s×4 拍）重探 throw → 进 failStreak → 3 连败 goOffline → 面板切空态；冻结桥场景「重探→超时→offline→恢复」周期循环。修复（smtc.ts 8.1.0）：重探只置 activePort=null 不 throw，本拍数据照常上屏（connected 恒 true），只有真不可达才 offline
+- 【核心三加固·sandbox.js】①回退熔断：稳态跟踪期（无护航窗且离收窗 >6s）播放中位置倒退 0.6~6s 的拍拒收、连续 2 拍放行（真回退跟随），暂停/播放翻转拍不熔断（用户指定校准不变）②feed 陈旧/中间态快照一律保位到护航窗过期（旧版中间态弃窗 = 17s 帧脱节帮凶）③判歌 normTitle 容错（SMTC 标题修饰差异不再误判换歌弃窗）；护航窗收窗记 guardGraceAt 豁免期防真值跟随被熔断误拦
+- 【部件防闪断·music-widget.html】connected=false 加 3s 宽限（保内容亮黄灯「重连中…」），超时才切空态——面板不再周期性整体消失；版本门 [8,1,0]；归因文案精简
+- 【调试实录·熔断过拟合两连】初版熔断阈值 -1.2 + 护航窗内翻转只采纳状态 → v809 回归 3 败（T3 真值收窗跟随被拦 / T4 窗过期回锚被拦 / T5 暂停诚实取真值被拦——Task 107 契约「翻转放行」不可破）→ 修正：翻转放行回滚原语义 + 熔断加 grace 豁免 + 阈值收至 -0.6（锯齿幅面 ~1s 落带内，收窗回退 1.8s 靠 grace 放行）；v810 新测试 T2/T7 首版场景设计错（feed 与 tick 间空窗 6-8s 插值飘远、回退幅面超熔断带）→ 改稳态小间隔序列
+- 【门限】部件 19295 字符超 19200 门 → 文案精简（-45）+ widgetHtmlLen 19200→20000（preset.ts 与打包脚本同步，8.1.0 全家桶配套升级无旧宿主负担）
+- 【验证】verify-v809-core 21/21 + verify-v810-core 12/12（新增：双源交替 12 拍零回跳/连续回退第 2 拍放行/收窗 grace/中间态保位/判歌容错/翻转放行/grace 过期后拦截）+ verify-v809-e2e 15/15（真实桥×hub×双实例）+ verify-v809-lyricapi 11/11；build:export basePath 核验 + cshz 打包 19295/20000
+- 【发布】main 提交推送；gh-pages 25a4fa0（v8.1.0 Pages：线上 sandbox.js 含 backStreak×4+guardGraceAt×3，CSS 200）；download/v8.1.0/ 五件（桥 .plugin 75.7KB/歌词源沿用 7.3.0/cshz/更新说明/SHA256SUMS）
+
+Stage Summary:
+- 结论：gh-pages 黑屏 = EXTENSION_MODE 产物误部署（Task 107 假绿核验），已重建部署并核验资源 200；歌词乱跳 = 桥双源交替锯齿 + 页面硬锚放大 + 护航窗中间态漏洞 + 面板无宽限硬切换四层串联，v8.1.0 四层全修
+- 新律：①「时间线类接口有 1Hz 节流/上游滞后」——位置值永远优先帧级连续源（audio.currentTime），快照类接口只做兜底；②行为契约测试（T5 暂停取真值）是护栏，新守卫必须与旧契约共存而非覆盖；③熔断/护航窗类「拦截型守卫」必须有豁免通道（grace/连续拍/翻转），否则把正常路径也拦死；④Pages 部署核验必须查资源状态码而非仅首页（Task 55 律的补充：首页 200 + 资源 200 + chunk 特征三件套）
+- 待办：用户侧验收（桥 8.1.0 + NewTab 8.1.0 + 重导 cshz 8.1.0 → 锯齿消失/seek 后歌词对位/面板不闪）；桥 manifest 描述 v8.1.0 段已附；Release 产物已组本地 download/v8.1.0/（GitHub Release 上传待用户 PAT 流程或下轮补行）

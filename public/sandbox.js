@@ -96,7 +96,15 @@
   }
 
   /* ============================================================
-   * 音乐引擎核心（v6.1，第六代纯插件架构配套实现）——「初始」内建媒体数据面
+   * 音乐引擎核心（v6.1 基座 + v8.1.0 乱跳根治，第七代语义）——「初始」内建媒体数据面
+   * v8.1.0 三加固（用户实机录屏：歌曲正常播放但歌词 1:05↔1:06 秒级锯齿、
+   * seek 后时间与歌词脱节）：
+   *   ① 回退熔断——护航窗外播放中位置倒退 >1.2s 的拍先拒收，连续 2 拍
+   *     才放行（上游 InfLink/元素双源交替与快照滞后的锯齿到不了显示层）；
+   *   ② 护航窗翻转保窗——窗内播放态翻转只采纳状态，位置继续走目标轨迹
+   *     （NCM seek 应用中 playing 瞬变不再废窗回锚陈旧值）；
+   *   ③ 中间态保位 + 判歌容错——feed 陈旧/中间态快照一律保位到窗口过期；
+   *     歌名比较去标点容错，SMTC 标题修饰差异不再误判换歌弃窗。
    *
    * 职责分工律：插件产真值，引擎只搬运，本层管呈现——
    *   - 解析逐字歌词（yrc 括号时间轴）/行级歌词（lrc）+ 双语翻译对齐；
@@ -137,9 +145,23 @@
     var fadeMs = 0;
     var soft = null;          /* {from,at,dur} 恢复期软重锚（淡入期防漂移） */
     var guard = null;         /* v8.0.9 seek 护航窗 {from,to,at,dur,song} */
+    var guardGraceAt = 0;     /* v8.1.0 护航窗收窗豁免期起点（真值跟随回退不算锯齿） */
+    /* v8.1.0 回退熔断：上游源交替/快照滞后的回退拍拒收（乱跳防线纵深） */
+    var backStreak = 0;
 
     function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
     function rateOf() { return anchor && anchor.rate > 0 ? anchor.rate : 1; }
+    /* v8.1.0 歌名容错比较（去空白/全半角标点）——SMTC 与插件源的标题修饰
+       差异不再误判成「换歌」而误弃护航窗（误弃 = 拖后第一记回弹） */
+    function normTitle(s) {
+      return String(s || "").toLowerCase()
+        .replace(/[\s\-_·・()（）\[\]【】「」『』,，。、!！?？~～'\"＂]+/g, "");
+    }
+    function sameSong(a, b) {
+      var x = normTitle(a), y = normTitle(b);
+      if (!x || !y) return x === y;
+      return x === y || x.indexOf(y) >= 0 || y.indexOf(x) >= 0;
+    }
 
     /* ---- 本地时钟插值：唯一位置公式，绝不逐帧累加 ----
        baseNow = 锚点轨迹（SMTC 真值）；posNow = 软重锚混合后的显示位置 */
@@ -416,15 +438,21 @@
       var t = state && state.track && typeof state.track === "object" ? state.track : null;
       /* v8.0.9 护航窗内的快照喂入：换歌（title 变）即弃窗；同曲陈旧快照
          （位置仍在拖动前轨迹上、距目标 >2s）保位不回锚——seekNote 清空等
-         签名变化会立即触发 feed，不保位就是拖动后的第一记回弹 */
+         签名变化会立即触发 feed，不保位就是拖动后的第一记回弹。
+         v8.1.0 两处补洞：①判歌用容错比较（SMTC/插件标题修饰差异不再
+         误弃窗）；②「既不在旧轨迹也不在目标」的中间态快照改保位而非
+         弃窗——NCM seek 应用中会短暂上报过渡值，旧实现弃窗即回锚过渡
+         值（录屏 17s：时间 2:02 歌词却显示拖前段落 = 中间态回锚实锤），
+         保位到窗口过期再诚实仲裁（真失败多等 ≤4.5s，绝不乱跳）。 */
       var keepPos = null;
       if (guard && t && typeof t.position === "number" && isFinite(t.position)) {
-        if ((lastSnap ? String(lastSnap.title || "") : "") !== guard.song) {
+        if (!sameSong(lastSnap ? String(lastSnap.title || "") : "", guard.song)) {
           guard = null;
         } else if (Math.abs(t.position - guard.to) > 2) {
-          var gOld = guard.from + ((Date.now() - guard.at) / 1000) * (t.playing ? rateOf() : 0);
-          if (Math.abs(t.position - gOld) <= 2.5) keepPos = posNow();
-          else guard = null;
+          /* 旧轨迹上的陈旧快照或 NCM seek 应用中的中间态快照：一律保位
+             （posNow 沿目标轨迹），窗口过期再诚实仲裁——中间态弃窗就是
+             拖动后歌词跳回拖前段落的那一跳（v8.1.0） */
+          keepPos = posNow();
         } else {
           guard = null; /* 真值已到目标附近，护航完成 */
         }
@@ -450,10 +478,14 @@
        v8.0.9 seek 护航窗（拖动回弹 + 歌词乱跳同根治）：拖动成功即乐观
        重锚到目标，而桥真值要 1~3 拍才收敛——期间每拍都携带拖动前的旧
        位置，旧版 |Δ|≥SLEW 就硬锚回旧值 = 进度条回弹几秒才跳真。
-       护航窗（4.5s）内：仍在旧轨迹上（距目标 >2s）的陈旧拍直接忽略；
-       真值到目标 ±2s 即确认放行；窗口过期还没等到确认就放行正常仲裁
-       （拖动真失败时诚实回锚）。播放态翻转一律放行——暂停/播放时的
-       逐字歌词校准管线原样保留（用户指定「校准方法不变」）。 */
+       护航窗（4.5s）内：仍在旧轨迹/中间态（距目标 >2s）的同态陈旧拍
+       直接忽略；真值到目标 ±2s 即确认放行；窗口过期还没等到确认就
+       放行正常仲裁（拖动真失败时诚实回锚）；播放态翻转一律放行——
+       暂停/播放时的逐字歌词校准管线原样保留（用户指定「校准方法
+       不变」，收窗时记 grace 豁免期防真值跟随被熔断误拦）。
+       v8.1.0 回退熔断：稳态跟踪期（无窗且离上次收窗 >6s）播放中
+       位置倒退 0.6~6s 的拍先拒收，连续 2 拍才放行——上游双源交替/
+       快照滞后的秒级锯齿到不了显示层。 */
     function tick(tk) {
       if (!anchor) return;
       if (!tk || typeof tk !== "object") return;
@@ -464,15 +496,25 @@
         if (guard) {
           var gEl = Date.now() - guard.at;
           var gTo = Math.abs(tk.position - guard.to);
-          if (prevPlaying === !!tk.playing && gEl < guard.dur && gTo > 2) {
-            var gOld = guard.from + (gEl / 1000) * rateOf();
-            if (Math.abs(tk.position - gOld) <= 2.5) return; /* 陈旧拍：忽略 */
-            /* 既不在旧轨迹也不在目标（NCM 应用中/中间态）：护航期内同样
-               忽略，目标轨迹继续走；过期后自然放行诚实仲裁 */
-            return;
+          if (gEl < guard.dur && gTo > 2 && prevPlaying === !!tk.playing) {
+            return; /* 同态陈旧拍/中间态：忽略，目标轨迹继续走 */
           }
-          guard = null; /* 真值到达 / 播放态翻转 / 窗口过期 → 放行 */
+          guard = null; /* 真值到达 / 翻转放行 / 窗口过期 → 正常仲裁 */
+          guardGraceAt = Date.now(); /* 收窗豁免期：真值跟随的回退不算锯齿 */
         }
+        /* v8.1.0 回退熔断（仅稳态跟踪期，grace 6s 豁免）：播放中位置比
+           插值显示位置倒退 0.6~6s 的拍先拒收——上游 InfLink/元素双源
+           交替（录屏 1:05↔1:06 锯齿）的回跳幅面 ~1s 正落在带内；真值
+           收窗跟随（grace 内）与大幅回退（≤-6s，真 seek 回退）放行；
+           连续 2 拍回退 = 恒定回退源，第 2 拍放行诚实跟随。暂停/播放
+           翻转拍不熔断（校准管线不变——用户指定）。 */
+        if (prevPlaying === !!tk.playing && anchor.playing &&
+            delta < -0.6 && delta > -6 &&
+            Date.now() - guardGraceAt > 6000) {
+          backStreak++;
+          if (backStreak < 2) return;
+        }
+        backStreak = 0;
         var reanchor = prevPlaying !== !!tk.playing || !anchor.playing ||
           Math.abs(delta) >= SLEW_SEC;
         if (reanchor) {

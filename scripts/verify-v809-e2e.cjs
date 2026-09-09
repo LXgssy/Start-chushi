@@ -83,7 +83,7 @@ async function main() {
   try {
     await sleep(2500);
     const d0 = A.sandbox.window.__chushiMusicBridge.debug();
-    ok(d0 && d0.ver === '8.0.9', 'A 桥版本 8.0.9', JSON.stringify(d0 && d0.ver));
+    ok(d0 && d0.ver === '8.1.0', 'A 桥版本 8.1.0', JSON.stringify(d0 && d0.ver));
     ok(d0.hubPort === PORT, 'A 桥已发现 hub', String(d0.hubPort));
 
     /* ---- 控制命令（A 实例持有租约的可能性与 B 竞争——hub 租约粘性） ----

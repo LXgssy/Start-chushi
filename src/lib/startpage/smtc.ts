@@ -1,5 +1,14 @@
 /* ============================================================================
- * 「初始」音乐面板数据客户端 v8.0.9（第九代，InfLink-rs 适配版）
+ * 「初始」音乐面板数据客户端 v8.1.0（第十代，InfLink-rs 适配版）
+ *
+ * v8.1.0 歌词乱跳/面板闪断双根治（用户实机录屏：歌曲正常播放但歌词
+ *   1:05↔1:06 秒级锯齿、面板每 ~4.5s 整体消失成「系统媒体待接入」再恢复）：
+ *   ① state-stale 重探不再 throw 进 failStreak——冻结桥场景
+ *     「重探→超时→goOffline→恢复」循环让面板周期性整体切空态（录屏
+ *     6.5s/11s 两闪实锤）；现重探只换端口、本拍数据照常上屏（connected
+ *     恒 true），只有 discover/轮询真不可达才走 3 连败 offline。
+ *   ② PLUGIN_VER_MIN 8.0.9→8.1.0（配套桥 v8.1.0 位置单源化：InfLink
+ *     时间线与元素真值双源交替是锯齿上游根源，旧桥必须升级）。
  *
  * v8.0.9 拖动假失败根治（用户实机：「拖动成功了却提示拖动不成功」）：
  *   桥 v8.0.9 seek 读回校验升级为三态诚实上报（InfLink 时间线第一读回源 +
@@ -81,7 +90,7 @@ export const SMTC_PORTS: readonly number[] = [26901, 26902, 26903];
 
 const HUB_NAME = "chushi-music-hub";
 const HUB_VER_MIN = "8.0.0";
-const PLUGIN_VER_MIN = "8.0.9";
+const PLUGIN_VER_MIN = "8.1.0";
 const CLIENT_VER = "8.0.9";
 const POLL_MS = 1000;
 const RETRY_MS = 1500;
@@ -574,13 +583,16 @@ class SmtcClient {
       const poll = cleanPoll(j.poll);
 
       /* v8.0.8 持续陈旧（>8s×4 拍）= 粘住的端口背后是冻结桥/僵尸 hub
-         → 全端口重探（下一拍 discover() 从头开始） */
+         → 全端口重探。v8.1.0 防闪断律：重探只换端口、不再 throw——
+         旧实现 throw 进 failStreak，冻结桥场景「重探→超时→goOffline→
+         恢复」循环让面板周期性整体切空态（真机录屏 6.5s/11s 两闪实锤）；
+         现在本拍数据照常上屏（connected 恒 true），下一拍从头 discover，
+         只有 discover/轮询真失败（hub 不可达）才走 3 连败 offline。 */
       if (stateTs > 0 && now0 - stateTs > STATE_STALE_MS) {
         this.staleStreak++;
         if (this.staleStreak >= STATE_STALE_STREAK_MAX && this.activePort !== null) {
           this.staleStreak = 0;
-          this.activePort = null;
-          throw new Error("state-stale-rediscover");
+          this.activePort = null; /* 下一拍 discover() 从头顺序重探 */
         }
       } else {
         this.staleStreak = 0;
