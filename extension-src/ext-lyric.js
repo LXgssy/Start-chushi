@@ -1,5 +1,16 @@
 /* ============================================================================
- * 「初始」ext-lyric v8.2.1 —— 悬浮卡完全体歌词引擎（纯函数，零 DOM 依赖）
+ * 「初始」ext-lyric v8.2.8 —— 悬浮卡完全体歌词引擎（纯函数，零 DOM 依赖）
+ *
+ * v8.2.8 用户实机反馈两连：
+ *   ① 歌词延迟补偿（LYR_LAG_MS=100）——「有些逐字歌词明显比唱出来的词
+ *      更快」= SMTC position 领先音频输出的系统性差（Windows 共享模式音频
+ *      引擎缓冲 + 设备缓冲 ≈ 60-100ms；v8.2.4 高光链路稳定后此差才显形）。
+ *      align 入口统一 ms-LYR_LAG_MS：扫光等唱声到位。只影响歌词对齐——
+ *      进度条/时间显示走 posNow 不受影响。
+ *   ② 末词行尾硬终点律——部分歌曲末词 d 覆盖行内长伴奏（拖尾写进词
+ *      时长），唱完后扫光仍缓慢爬（用户观感「非常糟糕」）。末词时长对
+ *      行内其他词均长离群（>2.2 倍）时，有效时长压缩到均长 1.8 倍——
+ *      伴奏段扫光提前定格挂住；正常歌（含真拖腔 1.5s 内）不触发。
  *
  * 为什么存在：悬浮音乐卡完全体没有「初始」宿主（sandbox.js 核心）在场，
  * 逐字/逐行歌词的解析与对齐必须自带。本文件与 public/sandbox.js 的歌词
@@ -154,9 +165,11 @@
 
   /* ---- 逐行/逐词二分对齐（sandbox.js alignAt 纯函数版） ----
      返回 {lineIndex, lastLine, wordIndex, wordProgress, lineProgress} */
+  var LYR_LAG_MS = 100; /* v8.2.8 歌词延迟补偿（SMTC 领先音频输出的固定差） */
   var NONE = { lineIndex: -1, lastLine: -1, wordIndex: -1, wordProgress: 0, lineProgress: 0 };
-  function align(data, ms) {
+  function align(data, msRaw) {
     if (!data || !data.lines || !data.lines.length) return NONE;
+    var ms = msRaw - LYR_LAG_MS; /* v8.2.8 扫光等唱声到位（间奏/行界判定同步延后） */
     var lines = data.lines;
     var lo = 0, hi = lines.length - 1, idx = -1;
     while (lo <= hi) {
@@ -188,6 +201,18 @@
     }
     var wd = ws[wi];
     var wp = clamp((ms - wd.s) / Math.max(1, wd.d), 0, 1);
+    /* v8.2.8 末词行尾硬终点律：末词 d 对行内其他词均长离群（>2.2 倍）=
+     * 拖尾被写进词时长（行内长伴奏），压缩有效时长到均长 1.8 倍——
+     * 伴奏段扫光提前定格；均长不可得（单词行）或非离群不触发。 */
+    if (wi === ws.length - 1 && wp < 1) {
+      var avgD = 0, cnt = 0;
+      for (var q = 0; q < ws.length - 1; q++) { avgD += ws[q].d; cnt++; }
+      avgD = cnt > 0 ? avgD / cnt : 0;
+      if (avgD > 0 && wd.d > avgD * 2.2) {
+        var wp2 = clamp((ms - wd.s) / Math.max(300, avgD * 1.8), 0, 1);
+        if (wp2 > wp) wp = wp2;
+      }
+    }
     return { lineIndex: idx, lastLine: -1, wordIndex: wi, wordProgress: wp, lineProgress: lp };
   }
 

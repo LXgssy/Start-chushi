@@ -357,8 +357,14 @@
       }
     }
 
-    /* ---- 逐行/逐词二分定位 ---- */
-    function alignAt(ms) {
+    /* ---- 逐行/逐词二分定位 ----
+       v8.2.8 歌词延迟补偿：SMTC position 领先音频输出的系统性差（音频引擎
+       + 设备缓冲 ≈ 60-100ms，高光链路稳定后显形为「逐字比唱的快」）——
+       对齐时基统一延后 LYR_LAG_MS，扫光等唱声到位。只影响歌词对齐，
+       进度条/时间显示不受影响。浮窗 ext-lyric.js 同律。 */
+    var LYR_LAG_MS = 100;
+    function alignAt(msRaw) {
+      var ms = msRaw - LYR_LAG_MS;
       var data = ensureParsed(lastSnap && lastSnap._lyricRaw);
       var none = { lineIndex: -1, lastLine: -1, wordIndex: -1, wordProgress: 0, lineProgress: 0, lineText: "", lineTr: "", wordText: "" };
       if (!data || !data.lines.length) return none;
@@ -396,6 +402,19 @@
       }
       var wd = ws[wi];
       var wp = clamp((ms - wd.s) / Math.max(1, wd.d), 0, 1);
+      /* v8.2.8 末词行尾硬终点律：末词 d 对行内其他词均长离群（>2.2 倍）=
+       * 拖尾被写进词时长（行内长伴奏），唱完后扫光仍缓慢爬（用户观感
+       * 「非常糟糕」）——压缩有效时长到均长 1.8 倍，伴奏段提前定格；
+       * 单词行（均长不可得）或非离群不触发。浮窗同律。 */
+      if (wi === ws.length - 1 && wp < 1) {
+        var avgD = 0, cnt = 0;
+        for (var q = 0; q < ws.length - 1; q++) { avgD += ws[q].d; cnt++; }
+        avgD = cnt > 0 ? avgD / cnt : 0;
+        if (avgD > 0 && wd.d > avgD * 2.2) {
+          var wp2 = clamp((ms - wd.s) / Math.max(300, avgD * 1.8), 0, 1);
+          if (wp2 > wp) wp = wp2;
+        }
+      }
       return {
         lineIndex: idx, wordIndex: wi, wordProgress: wp, lineProgress: lp,
         lineText: ln.t, lineTr: ln.tr, wordText: wd.t,

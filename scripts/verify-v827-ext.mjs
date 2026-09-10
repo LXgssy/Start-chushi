@@ -270,13 +270,13 @@ if (reachable) {
     let ringMax = 0;
     const cSamples = [];
     const ringSamples = [];
-    for (let i = 0; i < 9; i++) {
+    for (let i = 0; i < 20; i++) { /* v8.2.8：9→20 帧 ×160ms=3.2s（覆盖 sim 心跳全周期捕峰） */
       const clip = { x: pr.left, y: pr.top + 26, width: 70, height: 44 };
       const [ring, center] = await samplePixels(p2, clip, [[9, 22], [34, 22]]);
       ringMax = Math.max(ringMax, ring[0]);
       ringSamples.push(ring);
       cSamples.push(center);
-      await sleep(220);
+      await sleep(160);
     }
     /* v8.2.7 F13b 重校准：变亮律让封面中心合法波动（brightness 滤镜随低音
        脉冲）——层叠律改由「色调守恒」守卫：accent #ff2d78 的 r-g=210，若辉光
@@ -344,14 +344,21 @@ if (reachable) {
   const vis1 = await p2.evaluate(() => document.visibilityState);
   chk("F8b 点放大钮未触发 openPanel（页面 visible）", vis1 === "visible");
 
-  /* F4 歌词数据面 hublog 取证（紧随首次完全体——hublog 只留 48 条，防轮转） */
-  const hublog = await tab.evaluate(async () => {
-    const r = await fetch("http://127.0.0.1:26901/api/hublog");
-    return (await r.json()).log.map((x) => String(x[1]));
-  }).catch(() => []);
-  chk("F4 SW 歌词代理在 hublog 可见（GET /api/lyric）",
-      hublog.some((l) => l.includes("/api/lyric")));
-  console.log(`  (hublog /api/lyric 命中 ${hublog.filter((l) => l.includes("/api/lyric")).length} 次)`);
+  /* F4 歌词数据面 hublog 取证（紧随首次完全体——hublog 只留 48 条，防轮转）
+     v8.2.8：断言重试 3 次（每次重种歌词 + 立即取日志）——48 条 1Hz 心跳
+     轮转在慢机上是确定性 flaky 源（Task 88 已知律）。 */
+  let f4hits = 0;
+  for (let attempt = 0; attempt < 3 && f4hits === 0; attempt++) {
+    await seedLyric();
+    await sleep(1200);
+    const hl2 = await tab.evaluate(async () => {
+      const r = await fetch("http://127.0.0.1:26901/api/hublog");
+      return (await r.json()).log.map((x) => String(x[1]));
+    }).catch(() => []);
+    f4hits = hl2.filter((l) => l.includes("/api/lyric")).length;
+  }
+  chk("F4 SW 歌词代理在 hublog 可见（GET /api/lyric，3 次重试）", f4hits > 0);
+  console.log(`  (hublog /api/lyric 命中 ${f4hits} 次)`);
 
   /* ---------- F15 v8.2.4 yrc 高光保持（间隙期扫光不塌零） ----------
      行1 e=3000：唱完 +200ms（3.2s）进间隙，保持窗 3.2s→6.0s。

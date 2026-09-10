@@ -91,7 +91,7 @@ export const SMTC_PORTS: readonly number[] = [26901, 26902, 26903];
 const HUB_NAME = "chushi-music-hub";
 const HUB_VER_MIN = "8.0.0";
 const PLUGIN_VER_MIN = "8.1.0";
-const CLIENT_VER = "8.2.7";
+const CLIENT_VER = "8.2.8";
 const POLL_MS = 1000;
 const RETRY_MS = 1500;
 const TIMEOUT_MS = 2200;
@@ -809,11 +809,12 @@ export const smtc = new SmtcClient();
 
 export const SPECTRUM_PORTS: readonly number[] = [26911, 26912, 26913];
 const SPEC_NAME = "chushi-spectrum";
-const SPEC_FRAME_MS = 50;       /* 20Hz（v8.2.5 引擎零扰律：与助手发布节奏对齐，请求 -33%） */
+const SPEC_FRAME_MS = 33;       /* 30Hz（v8.2.8：用户反馈律动滞后——native FFT 已 40Hz，
+                                   回环 GET 微秒级 30/s 无感，帧龄均值 33→16ms） */
 const SPEC_FAILS_MAX = 3;
 const SPEC_BOOT_EVERY = 100;    /* 发现重试节拍（×50ms ≈ 5s） */
-const SPEC_ATTACK = 0.55;       /* 包络：快攻（跟拍） */
-const SPEC_RELEASE = 0.14;      /* 包络：慢放（不闪） */
+const SPEC_ATTACK = 0.62;       /* 包络：快攻（跟拍；v8.2.8 0.55→0.62 更快到峰） */
+const SPEC_RELEASE = 0.16;      /* 包络：慢放（不闪） */
 
 export interface SmtcSpectrum {
   on: boolean;        // 助手在场且采集链路 ok（cap=1）

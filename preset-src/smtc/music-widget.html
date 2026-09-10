@@ -49,10 +49,8 @@ img{-webkit-user-drag:none;user-select:none}
 .cs-glow{position:absolute;inset:-7px;border-radius:22px;background:var(--acc);opacity:0;
   filter:blur(12px);transition:opacity .55s ease}
 .cs-playing .cs-glow{opacity:.24}
-/* v8.2.7 细节环：中/高频 rim light（不模糊，与低频辉光晕开互补） */
-.cs-ring{position:absolute;inset:-6px;border-radius:21px;
-  border:2px solid color-mix(in oklab,var(--acc) 42%,#fff);opacity:0;
-  pointer-events:none;z-index:2;transition:opacity .4s ease}
+/* v8.2.8 去方框律：.cs-ring 细节环废弃（用户：方框太丑）——中高频细节
+   改由辉光本体 opacity/scale 全频段合成承担（beatFrame） */
 .cs-pic img{width:100%;height:100%;object-fit:cover;display:block;opacity:0;
   transition:opacity .6s var(--ez),filter .5s ease}
 .cs-pic img.on{opacity:1}
@@ -184,7 +182,6 @@ img{-webkit-user-drag:none;user-select:none}
       <div class="cs-cov" id="csCov">
         <span class="cs-glow"></span>
         <span class="cs-pic cs-pz" id="csPic"><img id="csCoverImg" alt="" draggable="false"></span>
-        <span class="cs-ring"></span>
         <span class="cs-dot"></span>
       </div>
       <div class="cs-meta">
@@ -221,7 +218,10 @@ img{-webkit-user-drag:none;user-select:none}
 <script>
 (function () {
   "use strict";
-  /* ================= ChuShi music widget v8.2.3（纯渲染层）=================
+  /* ================= ChuShi music widget v8.2.8（纯渲染层）=================
+     v8.2.8：① 去方框律（.cs-ring 废弃，全频段细腻律同浮窗参数族）
+     ② 间奏滚动跟进（seek 跨间奏歌词区立即滚到已唱界行，浮窗同律）
+     ③ 歌词时基延后 100ms（宿主 alignAt 延迟补偿，逐字超前唱声根治）
      解析/插值/对齐/淡入淡出全部由宿主 chushi.music API 预计算，
      本层每帧只做取数 + 写样式。布局零位移三律：主键双 SVG 同圆心堆叠、
      歌词高度迟滞（歌词短暂缺失不塌面板）、无逐帧布局读写。
@@ -396,6 +396,7 @@ img{-webkit-user-drag:none;user-select:none}
     lyKey = key;
     lyRef = l;
     activeLine = -2;
+    lastLyrTy = null;
     lyInr.innerHTML = "";
     lineEls = [];
     /* v8.1.4 逐字/逐行判定：真逐字（yrc，宿主 src 标记）恒逐字；
@@ -480,6 +481,7 @@ img{-webkit-user-drag:none;user-select:none}
       }
     }
   }
+  var lastLyrTy = null; /* v8.2.8 歌词滚动写值防抖（间奏分支每帧进） */
   function lyricFrame(n) {
     if (!lineEls.length) return;
     if (n.lineIndex !== activeLine) {
@@ -488,13 +490,23 @@ img{-webkit-user-drag:none;user-select:none}
            跨间奏跳入按已唱界对账。activeLine 保持行号，下一句开始时
            走正常行切换路径渐灰。 */
         var ref = typeof n.lastLine === "number" && n.lastLine >= 0 ? n.lastLine : -1;
-        if (ref !== activeLine) reconcileLines(-1, ref);
+        if (ref !== activeLine) {
+          reconcileLines(-1, ref);
+          /* v8.2.8 间奏滚动跟进：seek 跨间奏落入时歌词区立即滚到已唱界行
+             ——旧版停在旧滚动位直到下一句开始 = 长间奏歌词区完全错位
+             （跳转后歌词对不上、逐行尤严重的根因）。浮窗同律。 */
+          if (ref >= 0 && ref < lineEls.length) {
+            var elr = lineEls[ref].el;
+            var tgr = (lyBox.clientHeight - elr.offsetHeight) / 2 - elr.offsetTop;
+            if (tgr !== lastLyrTy) { lastLyrTy = tgr; lyInr.style.transform = "translateY(" + tgr + "px)"; }
+          }
+        }
       } else {
         activeLine = n.lineIndex;
         reconcileLines(activeLine, activeLine);
         var el = lineEls[activeLine].el;
         var target = (lyBox.clientHeight - el.offsetHeight) / 2 - el.offsetTop;
-        lyInr.style.transform = "translateY(" + target + "px)";
+        if (target !== lastLyrTy) { lastLyrTy = target; lyInr.style.transform = "translateY(" + target + "px)"; }
       }
     }
     /* 逐帧只写当前行的词（性能律：其余行在离场时一次性定稿）。
@@ -659,14 +671,16 @@ img{-webkit-user-drag:none;user-select:none}
      写入只碰 opacity/transform（合成器友好，v8.1.4 帧率律同源）；
      退出态恢复样式表控制（类切换的基态过渡不受干扰）。 ---------- */
   var glowEl = document.querySelector(".cs-glow");
-  var ringEl = document.querySelector(".cs-ring");
   var picImgEl = document.getElementById("csCoverImg");
-  var glowOn = 0, gLo = "", gLt = "", gLf = "", gLr = "";
+  var glowOn = 0, gLo = "", gLt = "", gLf = "";
   var calmMotion = !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
   function bandAvg(b, a, z) { var s = 0, i; for (i = a; i < z; i++) s += Number(b[i]) || 0; return s / (z - a); }
-  /* v8.2.7 变亮律（浮窗同参数族）：低音→封面提亮+辉光增强；中频→细节环；
-     高频→饱和脉冲。bands 已由宿主包络，部件零计算。写值防抖（不变不写），
-     静默交还样式表（暂停 .cs-pz img 滤镜/类基态过渡不受内联残留干扰）。 */
+  /* v8.2.8 去框化·全频段细腻律（浮窗同参数族）：.cs-ring 方框废弃——
+     低音 = 提亮 + 辉光主推 + 对比微脉冲；中频 = 亮度微调 + 辉光次推 +
+     光晕尺寸；高频 = 饱和脉冲 + 辉光点缀。pow 0.85 提升小信号可见度。
+     bands 已由宿主包络（v8.2.8 攻 0.62/放 0.16），部件端只做合成。
+     写值防抖（不变不写），静默交还样式表（暂停 .cs-pz img 滤镜/类基态
+     过渡不受内联残留干扰）。 */
   function beatFrame(n) {
     if (!glowEl) return;
     var b = !calmMotion && n && typeof n.bass === "number" ? n.bass : 0;
@@ -674,22 +688,21 @@ img{-webkit-user-drag:none;user-select:none}
     if (!calmMotion && n && n.bands) { m = bandAvg(n.bands, 3, 10); h = bandAvg(n.bands, 10, 16); }
     var act = effPlaying() && (b > 0.012 || m > 0.02 || h > 0.02);
     if (act) {
-      var f = "brightness(" + (1 + b * 0.3 + m * 0.09).toFixed(3) + ") saturate(" + (1 + h * 0.3).toFixed(3) + ")";
-      var go = Math.min(1, 0.24 + b * 0.5 + m * 0.13).toFixed(3);
-      var gs = "scale(" + (1 + b * 0.05 + m * 0.018).toFixed(4) + ")";
-      var ro = Math.min(1, m * 0.8 + h * 0.3).toFixed(3);
+      var pb = Math.pow(b, 0.85), pm = Math.pow(m, 0.85), ph = Math.pow(h, 0.85);
+      var f = "brightness(" + (1 + pb * 0.30 + pm * 0.14).toFixed(3) + ") saturate(" +
+        (1 + ph * 0.30).toFixed(3) + ") contrast(" + (1 + pb * 0.05).toFixed(3) + ")";
+      var go = Math.min(1, 0.22 + pb * 0.48 + pm * 0.20 + ph * 0.10).toFixed(3);
+      var gs = "scale(" + (1 + b * 0.05 + m * 0.026 + h * 0.013).toFixed(4) + ")";
       if (f !== gLf) { if (!glowOn && picImgEl) picImgEl.style.transition = "none"; gLf = f; if (picImgEl) picImgEl.style.filter = f; }
       if (go !== gLo) { if (!glowOn) glowEl.style.transition = "none"; gLo = go; glowEl.style.opacity = go; }
       if (gs !== gLt) { gLt = gs; glowEl.style.transform = gs; }
-      if (ringEl && ro !== gLr) { if (!glowOn) ringEl.style.transition = "none"; gLr = ro; ringEl.style.opacity = ro; }
       glowOn = 1;
     } else if (glowOn) {
-      glowOn = 0; gLo = gLt = gLf = gLr = "";
+      glowOn = 0; gLo = gLt = gLf = "";
       glowEl.style.transition = "";
       glowEl.style.opacity = "";
       glowEl.style.transform = "";
       if (picImgEl) { picImgEl.style.transition = ""; picImgEl.style.filter = ""; }
-      if (ringEl) { ringEl.style.transition = ""; ringEl.style.opacity = ""; }
     }
   }
 
