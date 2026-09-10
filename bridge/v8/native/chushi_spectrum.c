@@ -1,5 +1,5 @@
 /* ============================================================================
- * ChuShi Spectrum Helper 8.2.5 —— 独立进程 WASAPI loopback 采集 + FFT → HTTP
+ * ChuShi Spectrum Helper 8.2.8 —— 独立进程 WASAPI loopback 采集 + FFT → HTTP
  *
  * v8.2.5 电流音根治·引擎零扰律（用户 v8.2.4 实测电音依旧 + 「关扩展/移桥即消」
  *   对照实验 + spectrum-log 实锤后的四根刀）：
@@ -14,8 +14,9 @@
  *      现退避 800ms→1.6→3.2→5→10→20→30s 封顶，风暴自然衰减。
  *   ③ 撤 MMCSS "Pro Audio"（v8.2.4 误方）——采集线程提权到引擎同档做 FFT
  *      反而与 audiodg 抢调度；改 THREAD_PRIORITY_BELOW_NORMAL 让核。
- *   ④ FFT 20Hz 节流——每包只推采样环，50ms 一拍才 FFT+发布（与 SW/面板
- *      20Hz 轮询对齐，DSP CPU -80%）。
+ *   ④ FFT 40Hz 节流（v8.2.8 延迟反馈：原 50ms 节流+50ms 轮询相位错开
+ *      ≈ 75-150ms 端到端，用户感知律动滞后歌曲）——每包只推采样环，
+ *      25ms 一拍 FFT+发布；FFT 2048 单次 ~0.1ms，40Hz 增量 CPU 可忽略。
  * （v8.2.4 保留：按需采集 paused 态 / 优雅退出 / 零包预热保险 / 幅域归一。）
  *
  * v8.2.4 实机反馈三连修（电流音 + 律动不动 + 稳定性，附 spectrum-log 实锤）：
@@ -71,7 +72,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define SPEC_VERSION "8.2.5"
+#define SPEC_VERSION "8.2.8"
 #define SPEC_NAME_S "chushi-spectrum"
 #define SPEC_MUTEX_NAMEW L"ChuShi-Spectrum-Singleton"
 
@@ -624,12 +625,13 @@ static DWORD WINAPI cap_thread(LPVOID arg) {
             capPush(data, frames, fmtFloat, ch, flags);
             IAudioCaptureClient_ReleaseBuffer(cap, frames);
             lastPktAt = GetTickCount(); /* 有包：预热保险节流戳刷新 */
-            /* v8.2.5 FFT 20Hz 节流：包流 ~100Hz，发布只需 20Hz（与 SW/面板
-             * 轮询对齐）——每包只推采样环，50ms 一拍才 FFT+发布（CPU -80%） */
+            /* v8.2.8 FFT 40Hz 节流（v8.2.5 曾 20Hz）：用户反馈律动滞后——
+             * 帧龄上限 50→25ms；FFT 2048 单次 ~0.1ms，40Hz 增量可忽略。
+             * SW/面板轮询同步 33ms（30Hz），端到端均值 ~130→~90ms */
             {
                 DWORD nowF = GetTickCount();
                 static DWORD lastFftAt = 0;
-                if (nowF - lastFftAt >= 50) { lastFftAt = nowF; fftRun(); }
+                if (nowF - lastFftAt >= 25) { lastFftAt = nowF; fftRun(); }
             }
         }
 

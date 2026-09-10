@@ -10,9 +10,12 @@
  *   ③ {type:"vis"} 卡片可见性上报——visCount===0 时 state 轮询整体停
  *      （浏览器后台/全 hidden = SW 全链静默，hub 零请求）；恢复可见
  *      立即 pollState 一拍。与卡片侧 visibilitychange 三联开关同律。
- * v8.2.5（电流音根治·引擎零扰律，SW 侧）：频谱轮询 33ms→50ms（30Hz→20Hz，
- *   与助手发布节奏对齐）——本机回环 HTTP 每秒请求数 -33%，发现退避节拍
- *   同步改 100 拍 ≈5s。律动顺滑度无感（助手侧本就 20Hz 快攻慢放包络）。
+ * v8.2.5（电流音根治·引擎零扰律，SW 侧）：频谱轮询 33ms→50ms（30Hz→20Hz）。
+ * v8.2.8 用户反馈「高光律动和歌曲有一点延迟」：轮询 50→33ms 回到 30Hz
+ *   （native FFT 同步 50→25ms=40Hz；本机回环 GET 开销微秒级，30/s 无感），
+ *   端到端帧龄上限 50→~58ms、均值 ~33→~16ms；seek 后 500/1200ms 补拉真值
+ *   （网易云执行 seek 需数百 ms，命令后立即一拍常是旧值——歌词/进度尽快
+ *   对上，卡片护航窗过滤陈旧拍）。
  *
  * 想法一（悬浮音乐卡置顶所有网页）的数据面。架构律：
  *   1. 播放永远在网易云——本 SW 只做「hub 真值 → 卡片」中继与「卡片 → hub」
@@ -172,7 +175,8 @@ function ensureSpecLoop() {
     } finally {
       specBusy = false;
     }
-  }, 50); /* v8.2.5：20Hz（原 33ms/30Hz）——请求数 -33%，与助手发布节奏对齐 */
+  }, 33); /* v8.2.8：30Hz（v8.2.5 曾降 20Hz 减压）——用户反馈律动滞后，
+             回环 GET 微秒级开销 30/s 无感，native FFT 已同步 40Hz */
 }
 async function specTick() {
     {
@@ -189,7 +193,7 @@ async function specTick() {
     if (!specPort) {
       /* v8.2.4 发现退避 1s → ~5s（对齐面板 SPEC_BOOT_EVERY；hub 侧 boot
          已瞬时化，减压意义在减少无用端口探测流量） */
-      if (++bootBeats >= 100) { bootBeats = 0; await discoverSpec(); } /* 100×50ms ≈ 5s */
+      if (++bootBeats >= 90) { bootBeats = 0; await discoverSpec(); } /* 90×33ms ≈ 3s */
       return;
     }
     const j = await getJson(`http://127.0.0.1:${specPort}/api/spectrum`, 450);
@@ -255,6 +259,13 @@ chrome.runtime.onConnect.addListener((port) => {
         const ok = await sendCmd(m.cmd, m.position);
         try { port.postMessage({ type: "cmdOk", id: m.id, ok }); } catch { /* 卡已走 */ }
         void pollState(); /* 命令后立即拉真值（乐观反馈快一拍） */
+        if (m.cmd === "seek") {
+          /* v8.2.8 seek 补拉：网易云执行 seek 需数百 ms——立即一拍常仍是
+             旧位置。500/1200ms 两拍补拉让歌词/进度尽快对上；早到的陈旧拍
+             由卡片护航窗（seekGuard 4.5s）拒收，不产生回弹。 */
+          setTimeout(() => { if (cards.has(port)) void pollState(); }, 500);
+          setTimeout(() => { if (cards.has(port)) void pollState(); }, 1200);
+        }
         break;
       }
       case "spec": {
