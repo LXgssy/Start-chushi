@@ -1,0 +1,5 @@
+14d4ba33b8b50a75b50a6f3760c1b9c30b0c0d51eba9e1014e1e34558140e892  ChuShi-Lyric-Source-7.3.0.plugin
+8ea49853392ca6598dad056459beeea0eb58dedb60e44a8ec1f8c253e5d5793d  ChuShi-Music-Bridge-8.2.5.plugin
+8a345cc45d8c9056ab49f08f2e7c8e34cb7216c7025f0f95cc0e6a5ced5c4218  ChuShi-Music-Preset-8.2.7.cshz
+222d65416ae0c28e846ade8bc02b4a561a42b06695804b4a5cb537665380dbdf  ChuShi-NewTab-v8.2.7.zip
+67d62a3301ed5e3812938dfd794d18fba4e2a50e6c766d216874e46bbea7a4fe  ChuShi-v8.2.7-Usage-Notes.md

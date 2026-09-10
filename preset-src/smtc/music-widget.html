@@ -49,6 +49,10 @@ img{-webkit-user-drag:none;user-select:none}
 .cs-glow{position:absolute;inset:-7px;border-radius:22px;background:var(--acc);opacity:0;
   filter:blur(12px);transition:opacity .55s ease}
 .cs-playing .cs-glow{opacity:.24}
+/* v8.2.7 细节环：中/高频 rim light（不模糊，与低频辉光晕开互补） */
+.cs-ring{position:absolute;inset:-6px;border-radius:21px;
+  border:2px solid color-mix(in oklab,var(--acc) 42%,#fff);opacity:0;
+  pointer-events:none;z-index:2;transition:opacity .4s ease}
 .cs-pic img{width:100%;height:100%;object-fit:cover;display:block;opacity:0;
   transition:opacity .6s var(--ez),filter .5s ease}
 .cs-pic img.on{opacity:1}
@@ -180,6 +184,7 @@ img{-webkit-user-drag:none;user-select:none}
       <div class="cs-cov" id="csCov">
         <span class="cs-glow"></span>
         <span class="cs-pic cs-pz" id="csPic"><img id="csCoverImg" alt="" draggable="false"></span>
+        <span class="cs-ring"></span>
         <span class="cs-dot"></span>
       </div>
       <div class="cs-meta">
@@ -654,21 +659,37 @@ img{-webkit-user-drag:none;user-select:none}
      写入只碰 opacity/transform（合成器友好，v8.1.4 帧率律同源）；
      退出态恢复样式表控制（类切换的基态过渡不受干扰）。 ---------- */
   var glowEl = document.querySelector(".cs-glow");
-  var glowOn = 0;
+  var ringEl = document.querySelector(".cs-ring");
+  var picImgEl = document.getElementById("csCoverImg");
+  var glowOn = 0, gLo = "", gLt = "", gLf = "", gLr = "";
   var calmMotion = !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
+  function bandAvg(b, a, z) { var s = 0, i; for (i = a; i < z; i++) s += Number(b[i]) || 0; return s / (z - a); }
+  /* v8.2.7 变亮律（浮窗同参数族）：低音→封面提亮+辉光增强；中频→细节环；
+     高频→饱和脉冲。bands 已由宿主包络，部件零计算。写值防抖（不变不写），
+     静默交还样式表（暂停 .cs-pz img 滤镜/类基态过渡不受内联残留干扰）。 */
   function beatFrame(n) {
     if (!glowEl) return;
     var b = !calmMotion && n && typeof n.bass === "number" ? n.bass : 0;
-    if (b > 0.012 && effPlaying()) {
-      glowEl.style.transition = "none";
-      glowEl.style.opacity = (0.24 + b * 0.3).toFixed(3);
-      glowEl.style.transform = "scale(" + (1 + b * 0.055).toFixed(4) + ")";
+    var m = 0, h = 0;
+    if (!calmMotion && n && n.bands) { m = bandAvg(n.bands, 3, 10); h = bandAvg(n.bands, 10, 16); }
+    var act = effPlaying() && (b > 0.012 || m > 0.02 || h > 0.02);
+    if (act) {
+      var f = "brightness(" + (1 + b * 0.3 + m * 0.09).toFixed(3) + ") saturate(" + (1 + h * 0.3).toFixed(3) + ")";
+      var go = Math.min(1, 0.24 + b * 0.5 + m * 0.13).toFixed(3);
+      var gs = "scale(" + (1 + b * 0.05 + m * 0.018).toFixed(4) + ")";
+      var ro = Math.min(1, m * 0.8 + h * 0.3).toFixed(3);
+      if (f !== gLf) { if (!glowOn && picImgEl) picImgEl.style.transition = "none"; gLf = f; if (picImgEl) picImgEl.style.filter = f; }
+      if (go !== gLo) { if (!glowOn) glowEl.style.transition = "none"; gLo = go; glowEl.style.opacity = go; }
+      if (gs !== gLt) { gLt = gs; glowEl.style.transform = gs; }
+      if (ringEl && ro !== gLr) { if (!glowOn) ringEl.style.transition = "none"; gLr = ro; ringEl.style.opacity = ro; }
       glowOn = 1;
     } else if (glowOn) {
-      glowOn = 0;
+      glowOn = 0; gLo = gLt = gLf = gLr = "";
       glowEl.style.transition = "";
       glowEl.style.opacity = "";
       glowEl.style.transform = "";
+      if (picImgEl) { picImgEl.style.transition = ""; picImgEl.style.filter = ""; }
+      if (ringEl) { ringEl.style.transition = ""; ringEl.style.opacity = ""; }
     }
   }
 

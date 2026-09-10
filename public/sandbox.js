@@ -1132,8 +1132,11 @@ function widgetMode() {
         /* noop */
       }
     }
-    if ((m.type === "widgetSmtc" || m.type === "widgetSmtcResult" || m.type === "widgetSmtcTick") && inner && inner.contentWindow) {
-      /* SMTC 通道下行：快照推送/每拍锚点/控制回执原样透传进部件 */
+    if ((m.type === "widgetSmtc" || m.type === "widgetSmtcResult" || m.type === "widgetSmtcTick" || m.type === "widgetSmtcSpectrum") && inner && inner.contentWindow) {
+      /* SMTC 通道下行：快照推送/每拍锚点/控制回执/频谱帧原样透传进部件
+         v8.2.7 根修：widgetSmtcSpectrum 此前漏在透传白名单外——宿主
+         SpectrumClient 频谱帧永远到不了部件 iframe，now().bass 恒 0，
+         「初始」面板律动恒静态（浮窗有、面板没有的分叉点即此）。 */
       try {
         inner.contentWindow.postMessage(m, "*");
       } catch (e) {
