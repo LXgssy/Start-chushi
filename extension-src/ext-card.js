@@ -1,6 +1,16 @@
 /* ============================================================================
- * 「初始」ext-card v8.2.4 —— 内容脚本：悬浮音乐卡（置顶所有网页，三态）
+ * 「初始」ext-card v8.2.6 —— 内容脚本：悬浮音乐卡（置顶所有网页，三态）
  *
+ * v8.2.6 性能特供（「5070 卡成屎」根治·渲染休眠律）：
+ *   ① rAF 主循环休眠改造——旧版 requestAnimationFrame(loop) 无条件永转，
+ *      每个开着网页的前台标签 60fps 永动（Chrome 只暂停后台标签 rAF，
+ *      前台标签哪怕浮窗无曲目也全帧跑）。现 needFrame() 判定「还有活干」
+ *      才续帧：hidden 立睡 / 无曲目睡 / mini·cover 纯走针降 200ms 定时
+ *      节拍（字符串每秒才变一次）/ 辉光衰减尾归零后才睡。
+ *   ② visibilitychange 联动——标签切后台：spec off + vis off + sleepNow；
+ *      切回：spec on + vis on + wake。后台标签整体撤离频谱链路，
+ *      SW specWanted 归零 → 助手零消费者 → v8.2.5 需求门让引擎长眠。
+ *   ③ connect() 频谱订阅按可见性初值（hidden 标签不订阅）。
  * v8.2.3 实机反馈四连修：
  *   ① 高光跑封面上根治——.glow（absolute）原来直接盖在静态 img 上 + 被
  *      .cov overflow:hidden 裁成贴脸色块；现 img relative z-index:1 压住
@@ -280,6 +290,7 @@
     if (!SURFS[m] || m === mode) return;
     mode = m; lastTcur = ""; /* 强制下一帧重写 tcur/mtm——防态切换残留旧串 */
     savePos(); applyMode();
+    wake(); /* v8.2.6 态切换接管：循环若在睡（如 cover 静置）按新态需求重估 */
   }
   function applyDraggable() {
     card.classList.toggle("draggable", mode === "mini");
@@ -324,6 +335,7 @@
       if (drag.surf === coverEl) coverClickBlock = Date.now(); /* 拖后拦截误触 click */
     }
     drag.on = 0;
+    wake(); /* v8.2.6 拖动结束保险（进度/走针接续） */
   }
   card.addEventListener("pointerdown", onDown);
   card.addEventListener("pointermove", onMove);
@@ -368,8 +380,14 @@
         try { if (port) port.postMessage({ type: "ping" }); } catch (e) { /* 断线事件接管 */ }
       }, 10000);
     }
-    /* 订阅频谱（卡片辉光律动） */
-    try { port.postMessage({ type: "spec", on: true }); } catch (e) { /* 同上 */ }
+    /* v8.2.6 订阅按可见性初值：hidden 标签不订阅频谱也不报可见
+       （visCount=0 → SW state 轮询停；specWanted=0 → 引擎零参与）。
+       可见性变化由 visibilitychange 处理器统一翻转。 */
+    var vis = document.visibilityState === "visible";
+    try {
+      port.postMessage({ type: "spec", on: vis });
+      port.postMessage({ type: "vis", on: vis });
+    } catch (e) { /* 断线事件接管 */ }
   }
 
   function send(cmd, position) {
@@ -412,8 +430,10 @@
       host.style.display = "block";
       applyVis();
       lyricTick(); /* 切歌检测（want 变化时内部自重建） */
+      wake(); /* v8.2.6 真值到达：循环若在睡（无曲目期）此处唤醒 */
     } else if (m.type === "spec") {
       lastSpec = { on: m.on === true, bass: Number(m.bass) || 0, t: Date.now() };
+      if (lastSpec.on) wake(); /* v8.2.6 频谱活动帧：辉光包络需要帧 */
     } else if (m.type === "cmdOk" && m.id) {
       var r = port && port.__cmdResolve && port.__cmdResolve[m.id];
       if (r) { delete port.__cmdResolve[m.id]; r(m.ok); }
@@ -769,10 +789,21 @@
   });
   window.addEventListener("resize", applyPos);
 
-  /* ---------- rAF 主循环：进度插值 + 完全体歌词帧 + 辉光律动 ---------- */
+  /* ---------- rAF 主循环：进度插值 + 完全体歌词帧 + 辉光律动 ----------
+     v8.2.6 休眠改造（5070 卡顿根治①）：循环不再无条件永转——
+     needFrame() 判定「还有活干」才续帧：
+     · 页面 hidden（切后台/最小化）→ 立睡（visibilitychange 唤醒）；
+     · 无曲目 → 睡（state 消息唤醒）；
+     · 频谱活动（spec.on && playing）→ rAF 60fps（辉光包络要顺滑）；
+     · 完全体 → rAF（逐字扫光逐帧）；
+     · mini 走针 / cover 静置 → 200ms 定时节拍（1s 变一次的字符串够用）；
+     · 辉光衰减尾（envBass>0.012）→ 续帧到归零再睡（辉光不冻半透明）。
+     后台标签同时撤频谱订阅（②）——三件联动把「N 标签 × 60fps rAF +
+     N × 20msg/s spec 扇出」的 renderer 唤醒风暴整体清零。 */
   var lastFillW = "";
   var lastTcur = "", lastTdur = "";
-  function loop() {
+  var rafId = 0, tickTimer = 0;
+  function loopBody() {
     if (track) {
       var dur = track.duration || 0;
       var pr = dur > 0 ? Math.min(1, posNow() / dur) : 0;
@@ -803,8 +834,47 @@
     if (glow.style.opacity !== gOp) { glow.style.opacity = gOp; glow2.style.opacity = gOp; }
     /* 播放态图标真值回收（乐观窗口到期后与真值对齐） */
     if (optAt && Date.now() - optAt >= 2500) { optAt = 0; applyVis(); }
-    requestAnimationFrame(loop);
   }
+  function needFrame() {
+    if (document.visibilityState !== "visible") return false;
+    if (lastSpec.on && effPlaying()) return true;   /* 辉光律动中 */
+    if (envBass > 0.012) return true;               /* 辉光衰减尾 */
+    if (!track) return false;
+    if (mode === "full") return true;               /* 歌词逐字 + 走针 */
+    if (mode === "mini") return !!track.playing || !!optAt; /* 走针/乐观窗 */
+    return !!optAt;                                 /* cover：仅乐观窗 */
+  }
+  function schedule() {
+    /* 完全体逐字/辉光活动/衰减尾 → rAF（60fps 顺滑）；纯走针 → 200ms 节拍 */
+    if (mode === "full" || (lastSpec.on && effPlaying()) || envBass > 0.012) {
+      rafId = requestAnimationFrame(frame);
+    } else {
+      tickTimer = setTimeout(tick, 200);
+    }
+  }
+  function frame() { rafId = 0; loopBody(); if (needFrame()) schedule(); }
+  function tick() { tickTimer = 0; loopBody(); if (needFrame()) schedule(); }
+  function sleepNow() {
+    if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+    if (tickTimer) { clearTimeout(tickTimer); tickTimer = 0; }
+  }
+  function wake() {
+    if (siteHidden) return;
+    if (document.visibilityState !== "visible") return;
+    if (rafId || tickTimer) return; /* 已醒：下一拍自会按 needFrame 重估 */
+    if (needFrame()) schedule();
+  }
+  /* v8.2.6 ②：可见性翻转 = 频谱订阅 + SW state 需求 + 渲染循环 三联开关 */
+  document.addEventListener("visibilitychange", function () {
+    var vis = document.visibilityState === "visible";
+    try {
+      if (port) {
+        port.postMessage({ type: "spec", on: vis });
+        port.postMessage({ type: "vis", on: vis });
+      }
+    } catch (e) { /* 断线事件接管 */ }
+    if (vis) wake(); else sleepNow();
+  });
 
   /* ---------- 启动 ---------- */
   loadHide(function () {
@@ -813,6 +883,6 @@
     connect();
     applyPos();
     applyMode();
-    requestAnimationFrame(loop);
+    wake(); /* v8.2.6：按需唤醒（无曲目/hidden 时循环保持睡眠） */
   });
 })();

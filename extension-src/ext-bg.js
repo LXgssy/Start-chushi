@@ -1,6 +1,15 @@
 /* ============================================================================
- * 「初始」ext-bg v8.2.5 —— MV3 Service Worker：跨页面音乐卡状态中继
+ * 「初始」ext-bg v8.2.6 —— MV3 Service Worker：跨页面音乐卡状态中继
  *
+ * v8.2.6 性能特供（「5070 卡成屎」根治·SW 需求门律）：
+ *   ① spec 广播精准化——broadcastSpec 只发 __spec 订阅卡（旧版全量扇出
+ *      给所有 cards，N 标签 = 20msg/s × N 的 renderer 唤醒风暴）；
+ *      state 保留全发（1s × N 便宜且所有浮窗都需要）。
+ *   ② paused 空转帧翻转门——旧版 !playing 时每 50ms 发一条 on:false
+ *      （纯浪费 20msg/s）；现只在 on→off 翻转时发一条熄辉光。
+ *   ③ {type:"vis"} 卡片可见性上报——visCount===0 时 state 轮询整体停
+ *      （浏览器后台/全 hidden = SW 全链静默，hub 零请求）；恢复可见
+ *      立即 pollState 一拍。与卡片侧 visibilitychange 三联开关同律。
  * v8.2.5（电流音根治·引擎零扰律，SW 侧）：频谱轮询 33ms→50ms（30Hz→20Hz，
  *   与助手发布节奏对齐）——本机回环 HTTP 每秒请求数 -33%，发现退避节拍
  *   同步改 100 拍 ≈5s。律动顺滑度无感（助手侧本就 20Hz 快攻慢放包络）。
@@ -44,6 +53,8 @@ let stateAt = 0;
 let playing = false;
 let stateTimer = null;
 let specTimer = null;
+let visCount = 0;      /* v8.2.6：可见卡片数（vis 消息维护）——0 时 state 轮询停 */
+let specSentOn = null; /* v8.2.6：paused 空转帧翻转门（null=未发过） */
 
 const cards = new Set();
 
@@ -124,14 +135,23 @@ function broadcast(msg) {
     try { port.postMessage(msg); } catch { /* 死端口断开事件里清理 */ }
   }
 }
+/* v8.2.6：频谱帧只发订阅卡——非订阅（hidden/未开辉光）标签零唤醒 */
+function broadcastSpec(msg) {
+  for (const port of cards) {
+    if (!port.__spec) continue;
+    try { port.postMessage(msg); } catch { /* 死端口断开事件里清理 */ }
+  }
+}
 
+/* v8.2.6：state 轮询的 visCount 门——全部卡片 hidden（浏览器后台）时
+   整体停摆，恢复可见由 vis on 立即拉一拍真值。SW 侧零定时器 = 可睡。 */
 function ensureStateLoop() {
-  if (stateTimer || cards.size === 0) return;
+  if (stateTimer || visCount === 0) return;
   void pollState();
   stateTimer = setInterval(() => { void pollState(); }, 1000);
 }
 function stopStateLoop() {
-  if (stateTimer && cards.size === 0) { clearInterval(stateTimer); stateTimer = null; }
+  if (stateTimer && visCount === 0) { clearInterval(stateTimer); stateTimer = null; }
 }
 
 /* 20Hz 频谱流（v8.2.5 引擎零扰律）：原始帧直发（包络在卡片侧做，与页面端同参数） */
@@ -158,7 +178,12 @@ async function specTick() {
     {
     if (specWanted() === 0) return;
     if (!playing) {
-      broadcast({ type: "spec", on: false, bass: 0, bands: [], t: Date.now() });
+      /* v8.2.6 翻转门：paused 期不再每拍发 on:false（20msg/s 纯浪费），
+         只在 on→off 边沿发一条熄辉光 */
+      if (specSentOn !== false) {
+        specSentOn = false;
+        broadcastSpec({ type: "spec", on: false, bass: 0, bands: [], t: Date.now() });
+      }
       return;
     }
     if (!specPort) {
@@ -174,7 +199,8 @@ async function specTick() {
     }
     specFails = 0;
     const cap = j.cap === true || j.cap === 1;
-    broadcast({
+    specSentOn = cap;
+    broadcastSpec({
       type: "spec",
       on: cap,
       bass: cap ? (Number(j.bass) || 0) : 0,
@@ -237,6 +263,20 @@ chrome.runtime.onConnect.addListener((port) => {
         else if (!want && port.__spec) { port.__spec = false; stopSpecLoop(); }
         break;
       }
+      /* v8.2.6：卡片可见性上报（visibilitychange 三联开关的 SW 侧）——
+         visCount===0（全后台）时 state 轮询整体停，恢复立即拉真值 */
+      case "vis": {
+        const on = m.on === true;
+        if (on && !port.__vis) {
+          port.__vis = true; visCount++;
+          ensureStateLoop();
+        } else if (!on && port.__vis) {
+          port.__vis = false;
+          visCount = Math.max(0, visCount - 1);
+          stopStateLoop();
+        }
+        break;
+      }
       case "lyric": {
         /* 完全体歌词代理：hub /api/lyric?songId=（单槽缓存，归属校验在
            卡侧做——SW 零仲裁律）。歌词体可达 200KB，超时放宽 4s。 */
@@ -266,6 +306,7 @@ chrome.runtime.onConnect.addListener((port) => {
 
   port.onDisconnect.addListener(() => {
     cards.delete(port);
+    if (port.__vis) { port.__vis = false; visCount = Math.max(0, visCount - 1); } /* v8.2.6 */
     stopStateLoop();
     stopSpecLoop();
   });
