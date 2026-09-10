@@ -1438,3 +1438,24 @@ Stage Summary:
 - 结论：v8.2.2 发布——https://github.com/LXgssy/Start-chushi/releases/tag/v8.2.2；用户侧动作三件必换：NewTab v8.2.2 + 桥 8.2.2（重启网易云）+ cshz 8.2.2（⌘K 重新导入）；歌词源沿用
 - 新律：①「无防锯齿管线的真值消费端，每拍硬换锚=锯齿源」——面板三年迭代出的 sandbox.js 管线（软重锚/熔断/护航）就是为此而生，新数据面消费端必须同律装配；②「行为级测试要模拟消费端真实节奏（60fps 逐帧采样+每拍摄入），合成时钟跳变会造伪失败」；③「压缩器剥注释」——cshz/zip 特征门只能选存活物（函数名/属性/CSS）；④「宽字符字符串 ASCII 搜不到」二度实锢（LOCALAPPDATA→hub-log.txt→spectrum-log.txt）；⑤「日志路径让用户指定」——回退链多档位=让用户到处找，固定用户目录一处才是解
 - 待办：用户实机验收（日志两件在 %LOCALAPPDATA%\ChuShi\、助手常驻、乱跳/高光/拖动/分行/零跳转五项体验）；Edge 商店提交材料仍未做；真机 WASAPI 律动待用户实测
+
+---
+Task ID: 57
+Agent: main (Super Z)
+Task: 用户实机反馈四连（v8.2.2 在跑：①浮窗高光跑封面上（图1）②标准态顶带空带太空（图2 红圈）③浮窗主题色不随「初始」强调色 ④chushi-spectrum 在跑但浮窗/面板律动全死，附 spectrum-log）——v8.2.3 发版
+
+Work Log:
+- 【现场考古】上会话（上下文耗尽前）已完成 v8.2.3 全部源码补丁（ext-card.js 辉光层叠/两色调/顶带 26px+带左时间/cardAcc；music-widget.html 两色调；smtc.ts CLIENT_VER；chushi_spectrum.c 冻环根治+IMMNotificationClient 设备跟踪+[dsp] 健康心跳；chushi_hub.c 版本随动）+ 原生二进制构建（03:37）+ staging-v823/backup 快照；死在打包交付前
+- 【环境事故·工作树污染】恢复机制把 /home/z（v1.2.0 旧快照）覆盖到 /tmp/my-project 工作树 34 个 tracked 文件（page.tsx/globals.css/Dock/sandbox.js/package.json 等全被打回 9 月 3 日）——git status 627 行改动；分 lei 法：与 /home/z 同源=CLOBBERED（git checkout HEAD 还原）vs 仅 /tmp 有=LEGIT（v8.2.3 补丁幸存）；page.tsx/build-extension.py 的 v8.2.3 版从 staging backup 取回（先验差异=恰好 HEAD+补丁块）
+- 【依赖地狱】bun install 三连死（网络栈长连接静默挂死，缓存 1.2GB 不动）；npm 全量也卡；破局=单包精装（@next/swc-linux-x64-gnu 16.1.3 直装 2s）+ 40 缺失包一批 npm install 搞定；「missing 40」假阴性教训：exports 映射挡 package.json 解析，require.resolve 判缺全错，fs.existsSync 才是真
+- 【v8.2.3b 追加修】e2e 排查中发现 mtm（顶带时间）只在 full 分支更新——mini 态恒冻 0:00，「空带填充」形同虚设；修：loop 加 mini 分支走针 + setMode 清 lastTcur 防态切换残留
+- 【e2e 21/21】verify-v823-ext.mjs（playwright-core+chromium-1200 幸存缓存 + hubsim/spectrumsim Linux ELF 模拟器）：新断言 F12a mini 时间走针（1.7s 两帧像素差）/F12b 跨分钟界跳变/F13a 环带辉光脉冲（r83>底色28）/F13b 不透明封面挡辉光（li-river.jpg 真图 9 帧通道波动 0——空占位图判不了层叠，半透明渐变辉光会透过来，首跑 r=138 假 FAIL 的真因）/F14a cardAcc 冷读（播放键采样点必须避开中央白色图标——首跑打在图标上假 FAIL）/F14b onChanged 热跟随 800ms 换色；v8.2.2 回归 F1-F11 全过；截图人眼终审（顶带时间在位/封面干净/光环四周晕出/完全体逐字+翻译行全对）
+- 【假 FAIL 二课】①cardAcc 本体正常（dbg-cardacc.mjs：冷读 #22d3ee + 热跟随 #f43f5e 全对）——测试采样点错不冤枉产品码；②hublog 48 条环形缓冲，1Hz 心跳 48s 轮转——F4 断言必须紧随首次完全体
+- 【发版】cshz 8.2.3 重建（两色调）；桥插件 manifest 8.2.3+描述追加+native 最终二进制换血（plugins 目录陈货 md5 与 native 不一致——打包前必查）；build-v823-assets.py 七件（宽字符教训沿用：ASCII 特征只搜窄文案串 [dsp] pkts=/default device changed；装配律 ext-lyric 拼进 ext-card 无独立文件）；EXTENSION_MODE=1 next build（75s）+build-extension.py（防呆门过：零 basePath 残留/零内联/零保留名）→ NewTab v8.2.3.zip 11.7MB；SHA256SUMS 六件回读全 OK
+- 【交付】AllInOne 12.4MB 文叔叔 https://c.wss.ink/f/ku8r7rf8jz9（1 天过期）；download/v8.2.3/ 双落位（/tmp + /home/z 持久区）
+- 【GitHub 未做】.pkgtmp/gh-token 随环境清理丢失（PAT 在已压缩的上文里）——tag v8.2.3 + Release + Pages 部署留待用户侧或下轮补
+
+Stage Summary:
+- 结论：v8.2.3 交付——四反馈全落地（高光层叠根治/顶带时间填充/cardAcc 主题跟随/频谱冻环根治+设备跟踪+健康心跳）+ v8.2.2 十七项回归全绿；用户侧三件必换：NewTab v8.2.3 + 桥 8.2.3（重启网易云）+ cshz 8.2.3（⌘K 重导入）
+- 新律：①环境恢复会用旧快照覆盖工作树——git status 巨量改动时先按「与快照同源否」分类，HEAD+补丁脚本永远可重建现场；②bun/npm 长连接在此环境会静默挂死，破法=单包短连接精装；③exports 映射包的 require.resolve 假阴性——判缺用 fs.existsSync；④closed shadow 像素取证三坑：采样点避开图标/半透明占位图判不了遮挡层叠（须不透明真图）/环形日志缓冲必须紧窗口断言
+- 待办：用户实机验收（高光归位/顶带时间/主题联动/律动复活+确认网易云输出=系统默认设备）；GitHub tag/Release/Pages 补发（缺 PAT）；Edge 商店提交材料仍未做
