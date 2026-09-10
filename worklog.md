@@ -79,34 +79,6 @@ Stage Summary:
 - 焕新评估结论（已写入文档 §15）：材质/内容/排版/动画四维已可整页焕新；图标替换与主题令牌覆写是下一批最值得补的作用面
 - 待办：Edge 商店提交材料仍未做
 
-> ⚠ 历史档案：v1.3.0–v1.6.0 液态玻璃试验线（Task 56–59）的完整工作记录自远端并入，供考古。该线代码随 v1.7.0（液态玻璃撤下版）整体移除。
-
----
-Task ID: 56
-Agent: main (Super Z)
-Task: 用户指令「液态玻璃换成 https://github.com/martin65536/liquid-glass-webgl 接口不够继续加；补一下图标替换与主题令牌覆写的API」
-
-Work Log:
-- 【调研】liquid-glass-webgl = Kyant0/AndroidLiquidGlass 的 WebGL 移植（Apache-2.0 可用）。element shader 核心提炼：circleMap(t)=1−√(1−t²) 圆弧透镜剖面（球面透镜投影，比 v1.2.0 smoothstep² 更物理）、SDF 梯度方向 + **负 amount 向内采样 = 凸透镜放大**（对齐 Apple/Kyant 默认 refractionAmount −24dp——v1.2.0 的「外绕」方向其实与 Apple 相反，本轮纠正）、7 通道 ROYGBV 色散、Vogel 金角螺旋 16-tap 高斯盘、边缘 stroke 高光（plus 混合）、premultiplied 输出
-- 【架构决策】它是 canvas 全页自绘体系，「初始」是 DOM 应用 → 采用「每玻璃元素叠加画布」方案。**OffscreenCanvas 直转移（transferControlToOffscreen + postMessage transfer）实证不可靠：第 3 个起回包稳定丢失**（dbg-transfer/dbg-file 双重复现）→ 改 ImageBitmap 通道：引擎沙箱本地 canvas 自绘（preserveDrawingBuffer:true 保证可读）→ createImageBitmap → pushFrame → 宿主 2d.drawImage blit——宿主只搬运像素不做视觉计算（架构律保持），实测 100% 可靠且 Firefox 兼容
-- 【宿主新作用面】fx.ts：快照升级（+x/y 视口坐标、+cv 画布存活标志）、attachCanvas（普通占位画布，static 父自动补 relative）、frame()（位图 blit）、backdrop()（photo: fetch→blob→createImageBitmap 宿主代取转移，glow: 光斑程序化描述 GLOW_BLOBS 契约常量、flat、+vw/vh/dark）、rAF 位置跟踪（transform 动画期 RO 不触发，变化才推 fxPositions）；sandbox.ts：fxCanvas/fxFrame/fxBackdrop 路由 + iconsOverride/themeOverride 校验（ICON_URL_RE 只收 https/data:image、THEME_TOKENS 28 项白名单）+ cleanup 事件；sandbox.js：chushi.fx.attachCanvas/pushFrame/getBackdrop/onPositions + chushi.icons.override + chushi.theme.override + fxFrameResult/fxPositions 兑现
-- 【引擎 v3】scripts/pw-lab/lg-engine-v3.js（17745 字符→打包 15258<16000）：GLSL 精简版（折射+色散+blur+cctl+高光+coverUv，taps JS 展开 16/6 双档）、快照串行队列（snapChain 防并发）、bgCanvas 60s 复用+引用比对重传、位置推送 16ms 合帧、降级链（WebGL/背景不可用→纯 CSS blur+saturate）
-- 【失同步自愈】React remount 连带销毁宿主画布而引擎 els 残留 → 快照 cv:false 时弃置重建；**失败分级**：单元素临时失败（快照过期）continue 重试不株连全局，仅 API 缺失/背景失败才 breakGl
-- 【调试实录】①Bash 工具显示层会吞 [m.s 字节序列（grep 输出 pendingFxReq[m.seq] 显示成 .seq]）——差点误判文件损坏，Read 工具为准；②dev server Fast Refresh 会在编辑代码后打断测试（边改边测=自我干扰）→ production 构建验证才作数；③python patch 静默失败两次（锚点缩进不匹配/部分生效），教训：patch 后必须 grep 验证关键标识落盘
-- 【焕新 API】chushi.icons.override：FxIcon 组件（IconOverrideContext）+ Dock 7 槽位（weather/todo/note/pomodoro/cmdk/settings/close）+ searchbar；chushi.theme.override：亮暗双域 style 元素（:root/.dark !important 压 inline accent），cleanup 即还原
-- 【验证】verify-v13.mjs 27 项全过（production standalone）：canvas 挂载×3（search/dock/⌘K 卡 fx4）、z-index=-1、无降级、⌘K 开合重建、设置分区 5 滑杆、拖拽导入、图标覆写生效（img 替换）、主题覆写生效（accent #00c896）、删除全回收（canvas/图标/主题/磨砂）、pageerror=0；浅色/深色双主题折射截图在 shots/
-- 【发布】main 85b60ba；gh-pages e0583bb（.nojekyll 三件套+线上核验：index 一致、ebcda285 chunk 含 v=115+iconsOverride、sandbox.js 含 pushFrame）；Release v1.3.0（id 381899327）+ ChuShi-NewTab-v1.3.0.zip（11.7MB）已传；build-extension.py 重建为 REF_ZIP 动解压（/tmp 清理免疫）；sandboxSrc v=115
-- 【文档】README（版本注记 v1.3.0 段+fx 作用面表全量重写+WebGL 通道律）；docs/PRESET_DEV.md（§08 WebGL 骨架+通道律+物理模型、§08.5 图标/主题、§10 API 表、§15 六维焕新结论）；PresetDocs.tsx 页内同步
-- 【交付】文叔叔 v1.3.0 合并交付包（更新说明+开发者文档+液态玻璃预设+扩展 zip）→ https://c.wss.ink/f/ksarhg4soy5（1 天过期）
-
-Stage Summary:
-- 架构律（新增）：①跨上下文位图通道用 ImageBitmap（OffscreenCanvas transfer 在 Chromium 多发后回包丢失，实证废弃）；②引擎状态与宿主 DOM 会因 React remount 失同步——快照必须带宿主侧存活标志（cv）驱动重建；③失败分级：临时失败（快照过期）元素级重试，永久失败（API 缺失）才全局降级
-- 物理律（修正）：Apple 液态玻璃边缘折射 = circleMap 圆弧剖面 × SDF 梯度 × 负 amount 内采样（凸透镜放大）——v1.2.0 的外绕方向与 Apple 相反，本轮纠正
-- 环境律：①Bash 工具显示层吞 [m.s 序列，文件内容以 Read 为准；②边改代码边跑 dev 测试=Fast Refresh 自我干扰，production 构建验证才作数；③gh-token 文件可从 git remote URL 重建
-- 交付：https://c.wss.ink/f/ksarhg4soy5（1 天过期）
-- 待办：Edge 商店提交材料仍未做
-
----
 Task ID: 57
 Agent: main (Super Z)
 Task: 用户反馈「液态玻璃光靠预设包效果还是不行，直接写进初始里面，通过预设包调用；玻璃不会实时渲染；覆盖范围不够」——引擎收编内建宿主 v1.4.0（并合并远端 Task 56 的图标/主题 API）
@@ -1459,3 +1431,25 @@ Stage Summary:
 - 结论：v8.2.3 交付——四反馈全落地（高光层叠根治/顶带时间填充/cardAcc 主题跟随/频谱冻环根治+设备跟踪+健康心跳）+ v8.2.2 十七项回归全绿；用户侧三件必换：NewTab v8.2.3 + 桥 8.2.3（重启网易云）+ cshz 8.2.3（⌘K 重导入）
 - 新律：①环境恢复会用旧快照覆盖工作树——git status 巨量改动时先按「与快照同源否」分类，HEAD+补丁脚本永远可重建现场；②bun/npm 长连接在此环境会静默挂死，破法=单包短连接精装；③exports 映射包的 require.resolve 假阴性——判缺用 fs.existsSync；④closed shadow 像素取证三坑：采样点避开图标/半透明占位图判不了遮挡层叠（须不透明真图）/环形日志缓冲必须紧窗口断言
 - 待办：用户实机验收（高光归位/顶带时间/主题联动/律动复活+确认网易云输出=系统默认设备）；GitHub tag/Release/Pages 补发（缺 PAT）；Edge 商店提交材料仍未做
+
+---
+Task ID: 88
+Agent: Super Z (main)
+Task: 用户实机第 10 轮反馈（附 spectrum-log.txt）——「只有强行逐字保持高亮，真 yrc 播完动画就熄 + 扬声器电流音（关网页消失）+ 律动还是不动 + 面板经常重连/浮窗控制不稳」——v8.2.4 三线根治发版
+
+Work Log:
+- 【现场重建】真工作树在 /tmp/my-project（3f50ac6 = v8.2.3），/home/z 是 9 月 3 日陈旧检出（工作律：编辑走 python 补丁脚本，Edit 工具只认 /home/z）
+- 【律动死真凶确诊（本轮最大发现）】用户 spectrum-log 的 [dsp] 行 bass=1.000 **每一行恒钉**：chushi_spectrum.c 频段能量直接拿 FFT bin 幅度开 dB，Hann 相干增益（峰 bin ≈ N/4 = 512 倍）没折回幅域——音乐里任何幅度 >0.0005 的频段全部饱和 1.0 → 辉光恒亮不跳 =「没有律动」；v8.2.3 的「冻环复读」诊断只对了静默场景，有声场景真凶是归一化。修：bin 幅度 RMS/(N/4) 折回幅域再开 dB（-60..0dB 窗）；Linux 侧真源码切片 DSP 数学门 4 场景（静音 0 / 0.25 正弦 max=0.43 / 满幅 0.73 不饱和 / 旧公式对照组 v=1.64 必钉死）
+- 【电流音两刀（关网页消失 = 噪声窗=采集窗的用户侧实证）】①按需采集：无 /api/spectrum 消费 >10s → IAudioClient_Stop（引擎摘除采集管道），需求回来 <3s 新鲜 → Start 恢复（cap 线程内自管零跨线程竞态）；②优雅退出：空闲自退废止裸杀——g_exitFlag 贯通采集循环（含打盹/退避等待），Stop→Release→CoUninitialize 收完摊 SetEvent(g_capGone) 才 ExitProcess，main 等离场事件（3s 兜底）；日志实锤的 ~80s boot 循环（10:55-14:06 每隔 80s 一轮 create/destroy loopback）就此断根；附加：MMCSS "Pro Audio"（动态 avrt 零新导入表）、设备失效风暴退避 800ms→1.6s→3.2s→5s 封顶（13:59 段每 5s 一次 0x88890004 风暴的放大器）、有消费者 >15s 零包 → 驱动预热 bug 保险重初始化（15s 节流）
+- 【面板重连/浮窗控制不稳根治】hub 是串行单连接服务器，v8.2.2 specEnsure 把探测+CreateProcess 内联在 /api/state 热路（桥 1Hz 推 + 页面 1Hz 拉触发；AV 扫描 exe 可达秒级）+ SW 失联时 ~1Hz specBoot 打 specBoot 也内联探测/拉起——全部请求排队 → 面板 2.2s 超时误判掉线、浮窗命令 POST 超时。修：keeper 线程（5s 节拍）独占探测/拉起；/api/spectrum-boot 只登记需求瞬时回（缓存态）；按需门 = boot 需求 120s 窗内在场才许 spawn（浏览态零消费者零拉起零 churn）；/api/state 的 specEnsure 调用整体拆除
+- 【真 yrc 高光提前消失根治】对齐契约 node 门实锤：yrc 行 e=末词即收，行尾+200ms 进间奏（lineIndex=-1, wordIndex=-1），而渲染层词扫光块只看 activeLine>=0 → 全词 p 重算 0 = 扫光塌零「播完动画就熄」；lrc 伪逐字 e=下一行起点永不进间奏所以从没这病（与用户「只有强行逐字保持」完全互证）。修 = 渲染层一行门 n.lineIndex === activeLine（music-widget.html + ext-card.js 同律，引擎零改动）；node 门 R1 补门态挂 100% / R3 旧版塌 0 反证 + e2e F15a 像素取证（间隙期歌词区亮度 237 ≥215 白扫光挂住；bug 态基色 #b4b4bc≈180）
+- 【SW 加固】spec 轮询在飞守卫（33ms 定时器 × 450ms 超时失联时堆请求）+ 助手发现退避 1s→5s（对齐面板 SPEC_BOOT_EVERY）
+- 【考古实锤：v8.2.3 提交漏两文件】3f50ac6 树里 page.tsx 无 cardAcc 镜像、smtc.ts CLIENT_VER 还是 8.2.0——交付 zip 是工作树构建所以用户拿到的是对的，仓库却缺提交；本轮一并入树 + CLIENT_VER 8.2.4 重构建重打包
+- 【显示层啃蚀再现】git diff/grep 显示 `}, ounted, settings.accent])` 假象——od 字节级证伪（真文 `}, [mounted,`）。「关键判定只信 od」Task 83 律三度应验
+- 【构建/验证】llvm-mingw 20260826 重下（mstorsjo/releases，PAT 自 git remote 恢复 0600）；宪法门双架构过（hub 导入表仅 ws2_32+kernel32）；node --check 三 JS 门 + Function-parse 门；DSP 数学门 4/4；lyric 契约门 P1-P8+R1-R3 全绿（P8 首跑 FAIL 是测试自身 e=8000 边界算错——改 8300 后过）；verify-v824-ext 24/24（v8.2.3 全回归 + F15a/b 新断言）×2 轮（CLIENT_VER 重构建后复跑）；plugins 目录陈货 md5 对拍一致（Task 87 律）
+- 【交付】download/v8.2.4/ 七件（Bridge 8.2.4.plugin / Lyric 7.3.0 / NewTab v8.2.4.zip / Preset 8.2.4.cshz / 说明 / SHA256SUMS / AllInOne 12.4MB）；/home/z/my-project/download/v8.2.4/ 双落位；main 提交推送 + tag v8.2.4 + Release 六资产；v8.2.3 tag+Release 补账（Task 87 遗留，git 树当时未推送未发版）
+
+Stage Summary:
+- 三线全闭环且各有实证：律动死 = DSP 幅域归一（数学门 4 场景 + 日志 bass 不再恒钉）；电流音 = 按需采集 + 优雅退出 + keeper 需求门（浏览态零音频栈参与，噪声窗=采集窗结构性消灭）；稳定性 = 探测/拉起撤离请求热路（面板重连/浮窗控制失灵的 hub 侧根因清空）；真 yrc 高光保持 = 渲染层一行门（node 契约门 + 像素取证双实锤）
+- 新律：①「恒钉极值」类症状先查归一化量纲再查数据面——[dsp] 心跳里的 bass=1.000 恒钉就是量纲实锤，v8.2.3 在数据面找冻环是差一层；②「关网页后消失」的用户观察是定位噪声窗的免费证据——现象与采集/轮询的耦合关系直接指认病灶；③串行服务器里任何内联 CreateProcess/探测都是全站延迟炸弹，重活一律 keeper 线程 + 需求门；④git show <commit>:file 才是提交树真相——「commit message 说改了」不等于「树里真有」（v8.2.3 漏提交两文件实锤）
+- 待办：用户真机复测（桥 8.2.4 + 重启网易云 + NewTab v8.2.4 + ⌘K 重导入 cshz 8.2.4；听电流音是否消失/看律动是否起伏/面板是否还重连/真 yrc 是否保持高亮）；spectrum-log [dsp] 行 bass 应 0~1 摆动；gh-pages 本版零 web 宿主变更未重部署（smtc.ts CLIENT_VER 8.2.4 只进扩展包——网页版下次有宿主变更时随动）；任务A/Edge 商店材料未动

@@ -117,6 +117,10 @@ img{-webkit-user-drag:none;user-select:none}
 .cs-ln{padding:4px 2px;text-align:center;font-size:14.5px;font-weight:560;line-height:1.45;
   color:var(--ink3);transition:color .5s ease}
 .cs-ln.on{color:var(--ink)}
+/* v8.2.3 两色调（与浮窗同律）：active 行未唱词底色居 ink/ink3 之间——
+   行切换 0.6s 交叉渐隐窗口里当前行恒为视觉主角（旧底色与未来行同灰，
+   上一行的白色渐隐残相在视觉上抢走高光 = 「高光跑到别行/封面」） */
+.cs-ln.on .cs-w{color:color-mix(in oklab,var(--ink) 45%,var(--ink3))}
 /* v8.0.4 已唱行渐隐律（用户指定「唱完等过了这句再渐变消失」）：行离场不再
    瞬消——遮罩定格 100%（全亮态），.ov 高亮层 opacity .6s 渐隐 + 行色
    ink→ink2 渐变到已唱灰；倒回（seek）时由 restoreLine 重置未唱态 */
@@ -212,7 +216,7 @@ img{-webkit-user-drag:none;user-select:none}
 <script>
 (function () {
   "use strict";
-  /* ================= ChuShi music widget v8.2.2（纯渲染层）=================
+  /* ================= ChuShi music widget v8.2.3（纯渲染层）=================
      解析/插值/对齐/淡入淡出全部由宿主 chushi.music API 预计算，
      本层每帧只做取数 + 写样式。布局零位移三律：主键双 SVG 同圆心堆叠、
      歌词高度迟滞（歌词短暂缺失不塌面板）、无逐帧布局读写。
@@ -488,8 +492,13 @@ img{-webkit-user-drag:none;user-select:none}
         lyInr.style.transform = "translateY(" + target + "px)";
       }
     }
-    /* 逐帧只写当前行的词（性能律：其余行在离场时一次性定稿） */
-    if (lyMode === 1 && activeLine >= 0 && activeLine < lineEls.length) {
+    /* 逐帧只写当前行的词（性能律：其余行在离场时一次性定稿）。
+       v8.2.4 高光保持补门：n.lineIndex === activeLine 才写——真 yrc 行
+       e=末词即收，行尾+200ms 进间奏（lineIndex=-1, wordIndex=-1），旧版
+       在此把全词 p 重算 0 = 扫光塌零 = 「播放完动画就结束高亮」；lrc 伪
+       逐字 e=下一行起点永不进间奏所以从没这病。间奏自然流入期不写词，
+       扫光挂 100% 到下一行开始才随 done 渐隐（v8.2.2 律的真实现）。 */
+    if (lyMode === 1 && activeLine >= 0 && activeLine < lineEls.length && n.lineIndex === activeLine) {
       var ws = lineEls[activeLine].words;
       for (var j = 0; j < ws.length; j++) {
         var p = j < n.wordIndex ? 1 : j > n.wordIndex ? 0 : (n.wordIndex >= 0 ? n.wordProgress : 0);

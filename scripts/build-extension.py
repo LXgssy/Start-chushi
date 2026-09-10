@@ -8,10 +8,11 @@ v8.1.2 起恢复本流程作为扩展包唯一产出门。
 v8.2.1 新增：ext-lyric.js（完全体歌词引擎，拼接在 ext-card.js 之前——内容脚本
 不支持 importScripts）+ ext-card.js 三态重构（封面收起/标准/完全体歌词）。
 历史：v8.2.0 ext-bg.js（SW 状态中继）+ ext-card.js（悬浮音乐卡）注入。
-v8.2.2 新增：数据面软重锚/回退熔断/seek 护航（乱跳根治）+ 高光保持律 +
+v8.2.3 新增：辉光层叠修复（高光跑封面根治）+ 两色调 + 顶带收敛/带左时间 + 主题色跟随 cardAcc；
+v8.2.2 保留：数据面软重锚/回退熔断/seek 护航（乱跳根治）+ 高光保持律 +
 封面态拖动 + openPanel 全拆（零跳转「初始」）+ img ghost 禁拖。
 用法: python3 scripts/build-extension.py
-输出: download/v8.2.2/ChuShi-NewTab-v8.2.2.zip
+输出: download/v8.2.3/ChuShi-NewTab-v8.2.3.zip
 """
 import json
 import pathlib
@@ -25,7 +26,7 @@ OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
 EXT_SRC = ROOT / "extension-src"    # v8.2.0 SW/内容脚本源
-VERSION = "8.2.2"
+VERSION = "8.2.4"
 DEST = ROOT / f"download/v{VERSION}/ChuShi-NewTab-v{VERSION}.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():

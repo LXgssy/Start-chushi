@@ -1,6 +1,16 @@
 /* ============================================================================
- * 「初始」ext-card v8.2.2 —— 内容脚本：悬浮音乐卡（置顶所有网页，三态）
+ * 「初始」ext-card v8.2.4 —— 内容脚本：悬浮音乐卡（置顶所有网页，三态）
  *
+ * v8.2.3 实机反馈四连修：
+ *   ① 高光跑封面上根治——.glow（absolute）原来直接盖在静态 img 上 + 被
+ *      .cov overflow:hidden 裁成贴脸色块；现 img relative z-index:1 压住
+ *      glow、去裁剪，光环像「初始」面板一样从封面四周晕出；
+ *   ② 逐字行底色两色调——active 行词底 #b4b4bc（未来#71717a/done#8e8e96/
+ *      扫光白四级阶梯），行切换交叉渐隐窗口里当前行恒为视觉主角；
+ *   ③ 标准态顶带 30→26px + 带左常显当前时间（红圈「太空」 feedback）；
+ *   ④ 主题色跟随「初始」强调色——chrome.storage.local.cardAcc（NewTab
+ *      settings.accent 镜像）→ host --acc + onChanged 热跟随，封面占位
+ *      渐变 color-mix(--acc)。
  * v8.2.2 实机反馈五连修：
  *   ① 歌词乱跳根治（数据面）——状态真值改为连续锚定：微抖带（≤0.9s）不重锚
  *      （轨迹继续走），中幅偏差（≤2.5s）软重锚 800ms smoothstep 入轨，
@@ -48,6 +58,25 @@
     } catch (e) { /* 无会话存储则忽略（本次内存态也生效） */ }
   }
 
+  /* ---------- v8.2.3 主题色跟随「初始」强调色 ----------
+     NewTab 页（chrome-extension 页面）把 settings.accent 镜像到
+     storage.local.cardAcc（page.tsx）——浮窗任意网页读 storage + onChanged
+     热跟随；CSS var(--acc,#8b5cf6) 的 fallback 只在没有「初始」数据时兜底。
+     自定义属性不受 :host{all:initial} 影响（all 不作用于 custom props），
+     host 级设置可穿透进 shadow 树。 */
+  function applyAcc(v) {
+    if (typeof v !== "string" || !/^#[0-9a-fA-F]{3,8}$/.test(v)) return;
+    host.style.setProperty("--acc", v);
+  }
+  try {
+    chrome.storage.local.get(["cardAcc"], function (o) { if (o) applyAcc(o.cardAcc); });
+    if (chrome.storage.onChanged && chrome.storage.onChanged.addListener) {
+      chrome.storage.onChanged.addListener(function (ch, area) {
+        if (area === "local" && ch && ch.cardAcc) applyAcc(ch.cardAcc.newValue);
+      });
+    }
+  } catch (e) { /* 无存储上下文：沿用默认紫 */ }
+
   var track = null;      /* 最近真值 {title,artist,album,playing,position,duration,rate,pic,songId,fetchedAt} */
   var lastSpec = { on: false, bass: 0, t: 0 };
   var envBass = 0;
@@ -73,7 +102,8 @@
     /* ---- 封面态 ---- */
     '.cover{width:48px;height:48px;border-radius:13px;overflow:hidden;padding:0;cursor:grab;' +
     'display:none;position:fixed;border:1px solid rgba(255,255,255,.14);' +
-    'background:linear-gradient(135deg,#8b5cf655,#8b5cf622);touch-action:none}' +
+    'background:linear-gradient(135deg,color-mix(in srgb,var(--acc,#8b5cf6) 33%,transparent),' +
+    'color-mix(in srgb,var(--acc,#8b5cf6) 13%,transparent));touch-action:none}' +
     '.cover:active{cursor:grabbing}' +
     '.cover img{width:100%;height:100%;object-fit:cover;display:block}' +
     '.cdot{position:absolute;right:4px;bottom:4px;width:7px;height:7px;border-radius:999px;' +
@@ -81,11 +111,17 @@
     '.cover.on .cdot{display:block}' +
     /* ---- 通用件 ---- */
     '.row{display:flex;align-items:center;gap:10px}' +
-    '.cov{position:relative;flex:none;overflow:hidden;border-radius:10px;' +
-    'background:linear-gradient(135deg,#8b5cf655,#8b5cf622)}' +
-    '.cov img{width:100%;height:100%;object-fit:cover;display:block}' +
+    /* v8.2.3 辉光层叠律：img relative+z-index:1 压住 glow（absolute 无
+       z-index 会画在静态 img 上面=「高光跑封面上」）；.cov 去掉
+       overflow:hidden（光环要从封面四周晕出去，不是贴脸色块），圆角由
+       img inherit 自担 */
+    '.cov{position:relative;flex:none;border-radius:10px;' +
+    'background:linear-gradient(135deg,color-mix(in srgb,var(--acc,#8b5cf6) 33%,transparent),' +
+    'color-mix(in srgb,var(--acc,#8b5cf6) 13%,transparent))}' +
+    '.cov img{width:100%;height:100%;object-fit:cover;display:block;' +
+    'border-radius:inherit;position:relative;z-index:1}' +
     '.glow{position:absolute;inset:-5px;border-radius:14px;background:var(--acc,#8b5cf6);opacity:0;' +
-    'filter:blur(9px);pointer-events:none}' +
+    'filter:blur(9px);pointer-events:none;z-index:0}' +
     '.meta{flex:1;min-width:0}' +
     '.t1{font-size:12.5px;font-weight:560;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
     '.t2{font-size:10.5px;color:#a1a1aa;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
@@ -107,9 +143,12 @@
     '.rail{height:10px;display:flex;align-items:center;cursor:pointer}' +
     '.rin{width:100%;height:3px;border-radius:2px;background:rgba(255,255,255,.14);overflow:hidden}' +
     '.fill{display:block;height:100%;width:0%;border-radius:2px;background:var(--acc,#8b5cf6)}' +
-    /* ---- 标准态（v8.2.2：右上钮组独立顶带——与上一首/播放/下一首明确分行） ---- */
-    '.card{width:264px;padding:30px 12px 9px;display:none}' +
-    '.card .cap{top:7px}' +
+    /* ---- 标准态（v8.2.2 钮组独立顶带；v8.2.3 带 30→26px 收敛 + 带左常显时间——
+        空带不再空） ---- */
+    '.card{width:264px;padding:26px 12px 9px;display:none}' +
+    '.card .cap{top:4px}' +
+    '.mtm{position:absolute;left:12px;top:4px;height:22px;line-height:22px;font-size:10px;' +
+    'color:#8e8e96;font-variant-numeric:tabular-nums;pointer-events:none}' +
     '.card .cov{width:44px;height:44px}' +
     '.card .rail{margin-top:9px}' +
     /* ---- 完全体 ---- */
@@ -133,6 +172,10 @@
     '.fln.done .fw .ov{opacity:0;transition:opacity .6s ease}' +
     '.fln.gap{font-size:11px;letter-spacing:7px;color:#71717a}' +
     '.fw{position:relative;color:#71717a}' +
+    /* v8.2.3 两色调：当前行未唱词底色提亮（四级阶梯：未来#71717a <
+       done#8e8e96 < 当前行#b4b4bc < 扫光#f4f4f5）——行切换 0.6s 交叉
+       渐隐窗口里当前行恒为视觉主角，白高光不再「看起来在上一行」 */
+    '.fln.on .fw{color:#b4b4bc}' +
     '.fw .ov{position:absolute;left:0;top:0;color:#f4f4f5;pointer-events:none;' +
     'clip-path:inset(-8% calc(100% - var(--p,0%)) -8% 0)}' +
     '.fsub{font-size:10.5px;font-weight:400;color:#a1a1aa;margin-top:2px;display:none;' +
@@ -145,6 +188,7 @@
     '<button class="cover" id="cover" title="单击展开 · 按住拖动"><img id="cpic" alt="" draggable="false"><span class="cdot" id="cdot"></span></button>' +
     /* 标准态 */
     '<div class="surf card" id="card">' +
+    '<span class="mtm" id="mtm">0:00</span>' +
     '<div class="cap">' +
     '<button class="x" id="miniCover" title="收起成封面"><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg></button>' +
     '<button class="x" id="miniFull" title="放大到完全体（歌词）"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg></button>' +
@@ -192,6 +236,7 @@
   var icPlay = el("icPlay"), icPause = el("icPause");
   var ficPlay = el("ficPlay"), ficPause = el("ficPause");
   var flyrIn = el("flyrIn"), fempty = el("fempty"), tcur = el("tcur"), tdur = el("tdur");
+  var mtm = el("mtm");
 
   var SURFS = { cover: coverEl, mini: card, full: fcard };
   var WIDTH = { cover: 48, mini: 264, full: 324 };
@@ -233,7 +278,8 @@
   }
   function setMode(m) {
     if (!SURFS[m] || m === mode) return;
-    mode = m; savePos(); applyMode();
+    mode = m; lastTcur = ""; /* 强制下一帧重写 tcur/mtm——防态切换残留旧串 */
+    savePos(); applyMode();
   }
   function applyDraggable() {
     card.classList.toggle("draggable", mode === "mini");
@@ -644,7 +690,11 @@
         flyrIn.style.transform = "translateY(" + target + "px)";
       }
     }
-    if (lyMode === 1 && activeLine >= 0 && activeLine < lineEls.length) {
+    /* v8.2.4 高光保持补门（面板同律）：n.lineIndex === activeLine 才写词——
+       真 yrc 行尾+200ms 进间奏（wordIndex=-1），旧版把全词 p 重算 0 =
+       扫光塌零「播放完动画就结束高亮」；间奏自然流入期不写词，挂 100%
+       到下一行开始才随 done 渐隐。 */
+    if (lyMode === 1 && activeLine >= 0 && activeLine < lineEls.length && n.lineIndex === activeLine) {
       var ws = lineEls[activeLine].words;
       for (var j = 0; j < ws.length; j++) {
         var pp = j < n.wordIndex ? 1 : j > n.wordIndex ? 0 : (n.wordIndex >= 0 ? n.wordProgress : 0);
@@ -735,10 +785,15 @@
       if (mode === "full") {
         /* 写值防抖：fmt 每秒才变一次，字符串比对代替每帧 textContent 写 */
         var tc = fmt(posNow());
-        if (tc !== lastTcur) { lastTcur = tc; tcur.textContent = tc; }
+        if (tc !== lastTcur) { lastTcur = tc; tcur.textContent = tc; mtm.textContent = tc; }
         var td = dur > 0 ? fmt(dur) : "--:--";
         if (td !== lastTdur) { lastTdur = td; tdur.textContent = td; }
         lyricFrame();
+      } else if (mode === "mini") {
+        /* v8.2.3b 顶带时间在 mini 也走针（空带填充修复的本体——不然带左
+           时间永远冻结在 0:00，空带照旧） */
+        var tc = fmt(posNow());
+        if (tc !== lastTcur) { lastTcur = tc; mtm.textContent = tc; }
       }
     }
     var tgt = lastSpec.on && effPlaying() ? lastSpec.bass : 0;
