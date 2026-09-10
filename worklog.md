@@ -1474,3 +1474,48 @@ Stage Summary:
 - 后台进程清单（答用户问）：ChuShiBridge（hub.dll 注入网易云 26901-26903 + chushi-spectrum.exe 26911-26913 采集+FFT + 歌词源）+ NewTab SW（state 1s/spec 20Hz，有消费者才跑）+ 每网页浮窗（渲染循环）——v8.2.6 后全链按需化：无消费者=零进程活动，浏览器后台=扩展全链静默
 - 新律：①「渲染循环必须可睡」——前台标签 rAF 不受浏览器节流，永转循环=恒定 GPU/合成开销，needFrame() 判活+消息驱动唤醒是内容脚本渲染的默认律；②广播面必须按订阅精准化——全量扇出 × N 标签是 renderer 唤醒风暴的乘数；③「浏览器后台=全链静默」应作为常驻扩展的自证指标（vis/spec 双门）；④deploy 脚本 stage 目录的 git remote add 是不可省步骤——push 失败+built 状态=假绿，必须 SHA 配对
 - 待办：用户真机复测（装 NewTab v8.2.6 + 换桥 8.2.5 重启网易云；验证：后台 20 标签零负载/电音消失/spectrum-log 无 boot 循环/律动歌词行为不变）；Edge 商店提交材料仍未做
+
+---
+Task ID: 92
+Agent: main (Super Z)
+Task: 用户实机反馈四连——①律动只有浮窗有、「初始」面板没有 ②律动应变亮不是变暗+中频段没效果 ③封面态放大+封面态也要律动高光 ④三态切换要一镜到底动画——v8.2.7 发版
+
+Work Log:
+- 【面板律动死根因确诊（本轮最大发现）】public/sandbox.js widgetMode() 的宿主→部件下行透传白名单只有 widgetSmtc/widgetSmtcResult/widgetSmtcTick——v8.2.0 给部件 shim 加了 widgetSmtcSpectrum 处理器（__music.setSpectrum），却漏了宿主侧透传：PresetWidgets 经 smtcSpectrum.subscribe 转发的 30Hz 频谱帧到 sandbox.html 就断了，永远进不了 music-widget.html 的 srcdoc iframe → now().bass 恒 0 → beatFrame 恒静态。浮窗（ext-card 经 ext-bg SW 自有轮询）有律动、面板没有的分叉点即此。修=一行透传白名单补齐
+- 【面板律动 e2e 阴性对照（新律）】verify-v827-panel.mjs：真转发链全真代码（宿主页→真 sandbox.html?mode=widget→真 sandbox.js→真 music-widget.html+widgetShim），像素取证（iframe opaque origin 不可 DOM，走截图采样）。**旧 sandbox.js 跑新测试 P2a 必挂（环带 Δ=1）、新版 7/7 全绿**——用户 bug 从此有回归门。调试三课：①测试页内嵌部件 HTML 必须 `JSON.stringify().replace(/<\//g,"<\\/")`（部件里的 </script> 会截断宿主页内联脚本=Invalid or unexpected token）；②widget shim feed() 期望宿主真快照形状 {connected,track:{...},coverUrl}（v820-glow 单测桩的扁平形状只适用直连桩——形状错→playing:false→effPlaying 恒假→beatFrame 永不激活，与真 bug 症状同貌但根因不同）；③Playwright frame.evaluate 可跨 opaque origin 直查部件内部（about:srcdoc 帧），基线稳定性门（连续两拍亮度漂移≤10 才开测）隔离封面淡入伪差
+- 【变亮律（浮窗+面板同参数族）】旧辉光只在封面外圈晕开=「变暗」观感；现封面本体 brightness(1+b×0.34+m×0.1) saturate(1+h×0.32) 直写 img（合成器友好，写值防抖字符串比对）；辉光上限 0.2+b×0.3→0.16+b×0.55+m×0.15（峰值 .5→.85）；16 频段拆三轴包络 b/m/h（快攻 .55/慢放 .14，specTgt/stepEnv/paintGlow）；SW 本就透传 bands 数组（v8.2.0 遗产），ext-card 此前只用 bass
+- 【中频细节环】.gring（浮窗）/.cs-ring（面板）：inset -3px 细边框 color-mix(acc 42%, #fff)、无模糊（与低频辉光的晕开互补）、opacity=m×0.85+h×0.3——「有些中音跟没有律动一样」根治面；面板环带在浅色卡上亮度被白底钳位，e2e 用青色调 g-r 位移做指标（accent #22d3ee: g-r 22→74）
+- 【封面态 56px+律动高光】.cover 48→56px（WIDTH.cover 同步）；overflow:hidden 放开+img border-radius:inherit 自担圆角（glow/gring 从封面四周晕出，v8.2.3 辉光层叠律同源）；cdot z-index:3 压回图上；三态 COVS 单位表（img/glow/ring 每态一套，非当前态自动 covClear 交还样式表）
+- 【三态一镜到底】setMode 重写：finishTrans 中断安全（WAAPI finish 跳末态再起新过渡）→ clone <img> 从旧态封面矩形连续飞到新态矩形（translate+scale 双关键帧，transform-origin top-left，圆角取自 computed）、面板同时以「封面中心」为 transform-origin 做 scale(.52)+opacity 长出（展开 340ms cubic-bezier(.32,1.18,.36,1) 微回弹）/缩回（收进封面态 300ms cubic-bezier(.45,.08,.35,1)），同步开始；律动内联 filter 先复制到 clone 再清旧单位（亮度脉冲在飞形里保持连续）；旧面 pointer-events:none 防动画期误触；reduced-motion/标签隐藏直切；WAAPI fill:forwards 残效 cancel 清理。cover→full 无直接路径但算法天然覆盖
+- 【体积门】面板新增 cs-ring+三轴 beatFrame → minified 23299 > 22000 → preset.ts widgetHtmlLen 22000→24000（v8.1.4 同款放宽律）+ build-smtc-preset.py 断言同步；CLIENT_VER 8.2.7
+- 【e2e 适配】verify-v827-ext.mjs（gen-verify-v827.py 从 v825 派生）：态切换 sleep 400→550-600ms（动画 ≤340ms）；F13b 重校准（变亮律让中心合法波动+色调守恒 r-g 漂移守卫层叠律）；F13a2 环带呼吸幅度；F16 一镜到底中途帧取证（T0/T1@130ms/T2 三帧：T1≠T0 且 T1≠T2=非直切非丢帧，收敛几何正确）；F17 封面态辉光脉冲（动态探针行——F7b 拖动改写 pos.y 后 probeCard(100) 探不到的坑）。结果：31/31 双跑全绿
+- 【构建/发版】EXTENSION_MODE=1 next build（basePath 0 残留+out/sandbox.js 含透传 4 处+bundle CLIENT_VER 8.2.7）+ build-extension.py 8.2.7（特征门 +gring/cglow/cring/covClear/finishTrans/covImgOf/brightness(/saturate(/width:56px）+ cshz 8.2.7（23299/24000）+ build-v827-assets.py 七件（NewTab 规范包五重门+sandbox 透传铁证门+卡片 18 特征门）；main 36a1f70 推送+tag v8.2.7+Release 七资产 SHA 回读 7/7；gh-pages 部署——Task 89 坑⑤四度应验（deploy 脚本 stage 缺 git remote add origin→push 静默失败→旧 built 假绿），补 remote 强推 7467c99+API commit SHA 配对 built+线上 sandbox.js 实测含透传 ✓
+
+Stage Summary:
+- 结论：v8.2.7 发布——https://github.com/LXgssy/Start-chushi/releases/tag/v8.2.7；用户侧两件必换：①NewTab v8.2.7 ②⌘K 重新导入 cshz 8.2.7（体积门放宽，旧宿主拒收——必须先更 NewTab）；桥 8.2.5/歌词源 7.3.0 沿用
+- 新律：①「加了处理器不等于加了通路」——widgetSmtcSpectrum 处理器 v8.2.0 就在部件里，但宿主侧透传白名单没加=链路断在中间，数据面断点要逐跳实测（自发自收 postMessage 隔离法：向 inner 帧自注频谱 bass=0.9 立达→断点在 frame A 转发层）；②「测试桩形状要跟消费端契约走」——shim feed() 要宿主真形状（track 包一层），扁平桩形状喂进去 playing 恒 false，症状与真 bug 同貌但根因不同，桩错先查形状再疑产品码；③「iframe opaque origin 的像素取证要过基线稳定门」——封面图淡入/懒加载会造成 Δ 假阳性（阴性对照差点被 P2b 假绿骗过），连续两拍漂移≤10 才开测；④「一镜到底的最小实现=clone 飞形+锚点缩放」——封面是唯一连续锚，面板对封面中心做 scale/opacity，两者同 duration 同 easing 即成「一镜」，WAAPI finish() 天然解决中断；⑤deploy 脚本的 git remote add 是不可省步骤（Task 89 坑⑤四度应验）——push 失败+旧 built=假绿，必须 API commit SHA 配对
+- 待办：用户实机验收（面板律动/变亮观感/中频细节环/封面态 56px/三态动画手感）；Edge 商店提交材料仍未做；「初始」面板频繁重连与浮窗控制失效（v8.2.4 keeper 根治后未见复发报告，观察中）；8 项 UI bug 清单中已随各版修复，剩余以用户下轮反馈为准
+
+---
+Task ID: 93
+Agent: main (Super Z)
+Task: 用户实机第 11 轮反馈七连——①浮窗支持强行逐字（跟随面板开关）②跳转后歌词对不上（逐行尤严重）③伴奏期逐字缓慢爬行 ④逐字比唱的快（新出现）⑤「细节」澄清=全频段细腻律动不是方框（方框太丑）⑥三态动画不对：要长方形⇄正方形形变（dock 同语言）⑦律动延迟降低——v8.2.8 发版
+
+Work Log:
+- 【环境重建】真树 /tmp/my-project（36a1f70=v8.2.7）；编译链已被清理——PAT 自 git remote 恢复，mstorsjo/llvm-mingw 20260826 重下（worklog 记的 ubuntu-20.04 资产名已 404，实际资产是 ubuntu-22.04——API 列 release 才拿到真名）
+- 【toolchain 假绿二课】tar 解压被命令超时 kill——目录存在+部分文件 ≠ 解压完整：x86_64 lib 应 936 个 .a 实只 313，「空程序都链接失败」才暴露；且 gcc 失败被 `2>&1 | head` 管道吞掉 error、`;` 分隔让 ls 无条件显示旧 exe——「编译产物 md5 与旧版完全相同」的悖论真相 = 根本没编译成功；断言门（新 exe md5 ≠ 旧 exe）拦住假交付。xz -dc 分步 + nohup 后台 + 轮询 .extract-done 才跑通
+- 【①强行逐字跟随】面板 csForceWord 存「初始」页 KV（key=<widgetKey>:csForceWord），浮窗 content script 读不到——照 cardAcc 律镜像：PresetWidgets storageSet 分支 key.endsWith(":csForceWord") → chrome.storage.local.cardForceWord + 挂载时初始镜像一次（否则浮窗要等下次切换才知道）；ext-card 读 cardForceWord + onChanged → rebuildForForce（ly.parsed 在场直接重建 DOM 重判 lyMode）；lyMode = (src==="yrc" || (src==="lrc" && forceWord))；yrc 恒逐字永不降级
+- 【②跳转歌词错位根治（本轮最大发现）】间奏分支只对账高亮不滚滚动——seek 跨间奏落入时 flyrIn transform 停在旧滚动位直到下一句开唱才猛跳：长间奏（十几秒）歌词区完全错位=「跳转后对不上、逐行尤严重」（逐行行距长间奏多放大观感）的真凶；v8.2.4 只修了高亮状态对账（reconcileLines）漏了滚动跟随。修：ref!==activeLine 时歌词区立即滚到 lastLine 行居中（浮窗+面板同律）+ lastLyrTy 写值防抖（间奏分支每帧进）；SW seek 后 500/1200ms 补拉真值（网易云执行 seek 数百 ms，命令后立即一拍常是旧值；卡侧 seekGuard 护航窗滤陈旧拍）
+- 【③伴奏缓慢爬行】yrc 末词 d 覆盖行内长伴奏（拖尾写进词时长）→ wp 慢爬到行尾。修=末词行尾硬终点律：末词 d 对行内其他词均长离群（>2.2×）时有效时长压缩到均长 1.8×（ext-lyric.js align + sandbox.js alignAt 同律）；单词行（均长不可得）与真拖腔（<2.2×）不触发；单测 16/16（拖尾 7.5s 词均 1.5s → 2.7s 定格挂住）
+- 【④逐字超前】SMTC position 领先音频输出 ~60-100ms（共享模式音频引擎+设备缓冲的系统性差；v8.2.4 高光链路稳了才显形为「逐字比唱的快」）。修=LYR_LAG_MS=100：align 入口统一 ms-100（间奏/行界判定同步延后）；只影响歌词对齐，进度条/时间显示走 posNow 不动
+- 【⑤去方框律】v8.2.7 的 .gring/.cs-ring 全删（DOM/CSS/COVS.ring/covClear）——用户澄清「细节」=律动覆盖高中低音且细腻，不是加框。三轴全部融入：img filter brightness(1+b*.30+m*.14)+saturate(1+h*.30)+contrast(1+b*.05)；glow opacity 0.16+pb*.52+pm*.22+ph*.10（全频段合成）+ scale 1+b*.055+m*.028+h*.014；pow0.85 非线性提小信号可见度；分轴攻放（低 .62/.14 鼓点余韵、中 .68/.20、高 .72/.24 跟手细腻）；e2e 实测删环后 P2a Δ=57（glow 晕光染色足够，采样点不必移）
+- 【⑥形变律动画】v8.2.7「clone 飞形+面板 scale 长出」用户不满意（要长方形变形成正方形像 dock 面板）。重写 setMode：dock 弹出面板同语言（framer 高度弹簧=layout 尺寸动画）——目标面板从源矩形做 width/height/borderRadius WAAPI 布局形变（cover→mini 从 56×56 长出；mini⇄full 长方形互变，grow=面积比判定缓动）；收缩到封面态=旧面板本体收缩成 56×56（内容前 40% 淡出、壳保持）收尾封面 surf 同位同尺寸无缝接管；封面 clone 从旧 cov 矩形连续飞到新 cov 矩形（唯一连续锚，animsRemoveClones 统一清理）；内容 opacity 0→(offset.35)→1 形变大半后淡入防挤压；中断安全（onfinish=finishTrans 递归安全已验）
+- 【⑦降延迟】链路三刀：native FFT 节流 50→25ms（40Hz；FFT 2048 单次 ~0.1ms 增量可忽略）+SW/面板 spec 轮询 50→33ms（30Hz，v8.2.5 的 -33% 减压让位于用户延迟反馈——回环 GET 微秒级 30/s 无感）+包络 attack 0.55→0.62/0.68/0.72（ext-card stepEnv 分轴 + smtc.ts SPEC_ATTACK/RELEASE 0.62/0.16）；端到端均值 ~130→~90ms
+- 【测试】lyric-engine-v828 16/16（首跑 1 FAIL 是测试断言自己写错 6000ms 落在词1 p=0.6 是对的）；verify-v827-ext 31/31×2 轮全绿——F13 擦边 flaky 三连修：辉光幅度基线 0.14→0.16/主推 0.48→0.52（产品面兼顾「更明显」）+采样 9→20 帧×160ms=3.2s 覆盖 sim 心跳全周期（run5 之前 16~36 摆动的根因=采样窗错过心跳）→run7 起 45/20 稳定；F4 hublog 48 条 1Hz 轮转确定性 flaky（Task 88 已知）→seedLyric 重种+重查 3 次律；verify-v827-panel 7/7 直接过
+- 【构建/发版】EXTENSION_MODE=1 next build + build-extension.py（特征门 +flyCoverClone/animsRemoveClones/forceWord/cardForceWord/rebuildForForce/lastLyrTy/Math.pow -gring 系）+ cshz 8.2.8（23268/24000）+ 桥 8.2.8（spectrum SPEC_VERSION 8.2.8 换血 de992916，hub.dll/index.js 与 8.2.5 md5 一致=引擎零扰律；导入表 ole32/ws2_32/kernel32/ucrt 宪法门过）+ build-v828-assets.py 七件（SHA 回读 7/7）+ main 132a4e6 推送 + tag v8.2.8 + Release 七资产
+- 【gh-pages 坑⑤五度应验】deploy-pages-v828.sh 复制 v827 版仍缺 stage 的 git remote add origin → push 静默失败+旧 built 假绿——补 remote 强推 7bc29e5 + API build commit SHA 配对 built + 线上实测：sandbox.js 含 8.2.8（2 处）+透传（4 处）、懒加载 chunk 8ef86a50 含 cardForceWord ✓
+
+Stage Summary:
+- 结论：v8.2.8 发布——https://github.com/LXgssy/Start-chushi/releases/tag/v8.2.8；用户侧三件必换：①NewTab v8.2.8 ②桥 8.2.8+重启网易云（40Hz 在 native 二进制）③⌘K 重导入 cshz 8.2.8；歌词源 7.3.0 沿用
+- 新律：①「目录存在 ≠ 解压完整」——tar 被超时 kill 后部分解压最难察觉，库文件计数对拍（936 vs 313）是唯一真门；②「编译产物与旧版 md5 相同」的悖论=编译根本没成功（gcc error 被 head 吞、`;` 让 ls 显示旧文件）——关键产物必须 md5 前后对拍+error 落盘；③「间奏只对账高亮不跟滚动」这类「改了一半的修复」要用完帧视角复查（v8.2.4 补门修了高亮漏了滚动，三个月后才被用户跳转场景暴露）；④SMTC position 与音频输出的 ~100ms 系统性差是常数不是 bug——补偿常量集中在引擎入口一处；⑤deploy 脚本的 remote add 缺失是复发性假绿（五度），deploy 脚本自身必须内嵌 remote add+SHA 配对而非靠人肉补
+- 待办：用户实机验收（三件必换后：浮窗强行逐字跟随/跳转歌词立即对位/伴奏扫光定格/逐字与唱声对齐/无方框全频段律动/三态形变动画手感/鼓点跟手度）；「逐字超前 100ms」的补偿量如仍觉快/慢可微调 LYR_LAG_MS 一处常量（ext-lyric.js+sandbox.js 两处同值）；Edge 商店提交材料仍未做
