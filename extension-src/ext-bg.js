@@ -1,5 +1,9 @@
 /* ============================================================================
- * 「初始」ext-bg v8.2.4 —— MV3 Service Worker：跨页面音乐卡状态中继
+ * 「初始」ext-bg v8.2.5 —— MV3 Service Worker：跨页面音乐卡状态中继
+ *
+ * v8.2.5（电流音根治·引擎零扰律，SW 侧）：频谱轮询 33ms→50ms（30Hz→20Hz，
+ *   与助手发布节奏对齐）——本机回环 HTTP 每秒请求数 -33%，发现退避节拍
+ *   同步改 100 拍 ≈5s。律动顺滑度无感（助手侧本就 20Hz 快攻慢放包络）。
  *
  * 想法一（悬浮音乐卡置顶所有网页）的数据面。架构律：
  *   1. 播放永远在网易云——本 SW 只做「hub 真值 → 卡片」中继与「卡片 → hub」
@@ -130,13 +134,13 @@ function stopStateLoop() {
   if (stateTimer && cards.size === 0) { clearInterval(stateTimer); stateTimer = null; }
 }
 
-/* 30Hz 频谱流：原始帧直发（包络在卡片侧做，与页面端同参数） */
+/* 20Hz 频谱流（v8.2.5 引擎零扰律）：原始帧直发（包络在卡片侧做，与页面端同参数） */
 function specWanted() {
   let n = 0;
   for (const p of cards) if (p.__spec) n++;
   return n;
 }
-let specBusy = false; /* v8.2.4 在飞守卫：助手失联时 33ms 定时器 × 450ms 超时会堆请求 */
+let specBusy = false; /* v8.2.4 在飞守卫：助手失联时 50ms 定时器 × 450ms 超时会堆请求 */
 function ensureSpecLoop() {
   if (specTimer || specWanted() === 0) return;
   void discoverSpec();
@@ -148,7 +152,7 @@ function ensureSpecLoop() {
     } finally {
       specBusy = false;
     }
-  }, 33);
+  }, 50); /* v8.2.5：20Hz（原 33ms/30Hz）——请求数 -33%，与助手发布节奏对齐 */
 }
 async function specTick() {
     {
@@ -160,7 +164,7 @@ async function specTick() {
     if (!specPort) {
       /* v8.2.4 发现退避 1s → ~5s（对齐面板 SPEC_BOOT_EVERY；hub 侧 boot
          已瞬时化，减压意义在减少无用端口探测流量） */
-      if (++bootBeats >= 150) { bootBeats = 0; await discoverSpec(); }
+      if (++bootBeats >= 100) { bootBeats = 0; await discoverSpec(); } /* 100×50ms ≈ 5s */
       return;
     }
     const j = await getJson(`http://127.0.0.1:${specPort}/api/spectrum`, 450);

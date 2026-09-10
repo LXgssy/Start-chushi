@@ -1,5 +1,22 @@
 /* ============================================================================
- * ChuShi Spectrum Helper 8.2.4 —— 独立进程 WASAPI loopback 采集 + FFT → HTTP
+ * ChuShi Spectrum Helper 8.2.5 —— 独立进程 WASAPI loopback 采集 + FFT → HTTP
+ *
+ * v8.2.5 电流音根治·引擎零扰律（用户 v8.2.4 实测电音依旧 + 「关扩展/移桥即消」
+ *   对照实验 + spectrum-log 实锤后的四根刀）：
+ *   ① 需求门挡在引擎门口——设备级循环在 CoInitialize 之前先看消费者需求，
+ *      无需求长眠（300ms 节拍）绝不 Initialize/Start loopback；link down 的
+ *      retry 归途同门。日志实锤：served=0（零消费者）时仍每 5s 一次
+ *      0x88890004 → reinit——loopback 客户端的 attach/detach 本身就是引擎
+ *      折腾，驱动对「无活跃流端点」的节能拉闸 × 本程序唤醒 = 扬声器上下电
+ *      pop 循环（电音本音）。零消费者 = 引擎零 loopback 客户端 = 彻底安静。
+ *   ② 退避真实化——consecDown 归零时机从「up 瞬间」挪到「稳定运行 ≥60s」：
+ *      旧版「up 即归零」让「up→几秒→down」的拉闸风暴永远从 800ms 档重来；
+ *      现退避 800ms→1.6→3.2→5→10→20→30s 封顶，风暴自然衰减。
+ *   ③ 撤 MMCSS "Pro Audio"（v8.2.4 误方）——采集线程提权到引擎同档做 FFT
+ *      反而与 audiodg 抢调度；改 THREAD_PRIORITY_BELOW_NORMAL 让核。
+ *   ④ FFT 20Hz 节流——每包只推采样环，50ms 一拍才 FFT+发布（与 SW/面板
+ *      20Hz 轮询对齐，DSP CPU -80%）。
+ * （v8.2.4 保留：按需采集 paused 态 / 优雅退出 / 零包预热保险 / 幅域归一。）
  *
  * v8.2.4 实机反馈三连修（电流音 + 律动不动 + 稳定性，附 spectrum-log 实锤）：
  *   ① 律动死真凶根治（[dsp] bass=1.000 恒钉实锤）——频段能量直接拿 bin
@@ -54,7 +71,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define SPEC_VERSION "8.2.4"
+#define SPEC_VERSION "8.2.5"
 #define SPEC_NAME_S "chushi-spectrum"
 #define SPEC_MUTEX_NAMEW L"ChuShi-Spectrum-Singleton"
 
@@ -431,18 +448,11 @@ static void capPush(const BYTE* data, UINT32 frames, int fmtFloat, int ch, DWORD
     }
 }
 
-/* v8.2.4 MMCSS（动态加载 avrt.dll，零新导入表项）：共享模式下采集线程与
- * 音频引擎抢调度是爆音/电流音的经典源——挂 "Pro Audio" 任务档交系统排程。 */
-static void capEnterMmcss(void) {
-    HMODULE av = LoadLibraryW(L"avrt.dll");
-    if (!av) return;
-    typedef HANDLE (WINAPI *AvSetFnW)(LPCWSTR, LPDWORD);
-    AvSetFnW fn = (AvSetFnW)(void*)GetProcAddress(av, "AvSetMmThreadCharacteristicsW");
-    if (fn) {
-        DWORD idx = 0;
-        fn(L"Pro Audio", &idx);
-    }
-    /* 不 FreeLibrary：线程生命周期 = 进程生命周期 */
+/* v8.2.5 撤 MMCSS（v8.2.4 误方）："Pro Audio" 把本线程提到与音频引擎同档，
+ * 高优先级线程做 FFT/轮询反而与 audiodg 抢核（低核数机器放大 glitch）。
+ * 改 BELOW_NORMAL：采集是旁路消费者，永远让核给引擎/网易云。 */
+static void capTuneThreadPriority(void) {
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
 }
 
 /* 消费者需求新鲜度：最近一次 /api/spectrum 距今 ms（tick=0 视为刚启动期=新鲜，
@@ -453,12 +463,34 @@ static DWORD capDemandAge(DWORD now) {
     return now - last;
 }
 
+/* v8.2.5 退避链：800ms → 1.6 → 3.2 → 5 → 10 → 20 → 30s 封顶。
+ * 对「up→几秒→down」的驱动拉闸风暴必须真实衰减（v8.2.4 的 5s 封顶
+ * 配「up 即归零」等于没有退避——风暴每 5s 折腾一次引擎）。 */
+static DWORD backoffMs(int n) {
+    DWORD ms = 800u << (n > 5 ? 5 : n);
+    if (ms > 30000u) ms = 30000u;
+    return ms;
+}
+
 static DWORD WINAPI cap_thread(LPVOID arg) {
     (void)arg;
     int inited = 0;
-    int consecDown = 0;     /* v8.2.4 设备失效风暴连败计数（成功 up 归零） */
-    capEnterMmcss();
+    int consecDown = 0;     /* 设备失效风暴连败计数（v8.2.5：稳定 ≥60s 才归零） */
+    DWORD stableSince = 0;  /* v8.2.5 本次 up 的稳定计时起点 */
+    capTuneThreadPriority(); /* v8.2.5：BELOW_NORMAL 让核（撤 MMCSS Pro Audio） */
     for (;;) { /* 设备级重初始化循环 */
+        /* v8.2.5 需求门（电流音根治核心刀）：零消费者绝不触碰音频引擎——
+         * 连 COM 都不初始化。长眠等需求（300ms 节拍），退出旗标可打断
+         * （goto retry 的清理全带守卫，此刻资源变量均为零值，安全）。
+         * link down 的 retry 归途回到循环顶即同门——「拉闸→唤醒→拉闸」
+         * 的 pop 循环在结构上断根。 */
+        while (capDemandAge(GetTickCount()) > CAP_IDLE_STOP_MS) {
+            if (InterlockedCompareExchange(&g_exitFlag, 0, 0)) {
+                logf_line("[cap] demand gate: no consumer, engine untouched — exiting");
+                goto retry;
+            }
+            Sleep(300);
+        }
         int haveCo = 0, haveEnum = 0, haveDev = 0, haveClient = 0, haveCap = 0;
         IMMDeviceEnumerator* enumDev = NULL;
         IMMDevice* dev = NULL;
@@ -511,7 +543,7 @@ static DWORD WINAPI cap_thread(LPVOID arg) {
 
         logf_line("[cap] loopback up: %uHz %uch %s", g_rate, ch, fmtFloat ? "float" : "pcm16");
         inited = 1;
-        consecDown = 0;
+        stableSince = GetTickCount(); /* v8.2.5：稳定计时起点（≥60s 才算健康归零） */
         snapCapState(1);
         DWORD lastPktAt = GetTickCount(); /* 零包保险节流戳 */
         int paused = 0;                   /* v8.2.4 按需采集打盹态 */
@@ -592,15 +624,25 @@ static DWORD WINAPI cap_thread(LPVOID arg) {
             capPush(data, frames, fmtFloat, ch, flags);
             IAudioCaptureClient_ReleaseBuffer(cap, frames);
             lastPktAt = GetTickCount(); /* 有包：预热保险节流戳刷新 */
-            fftRun();
+            /* v8.2.5 FFT 20Hz 节流：包流 ~100Hz，发布只需 20Hz（与 SW/面板
+             * 轮询对齐）——每包只推采样环，50ms 一拍才 FFT+发布（CPU -80%） */
+            {
+                DWORD nowF = GetTickCount();
+                static DWORD lastFftAt = 0;
+                if (nowF - lastFftAt >= 50) { lastFftAt = nowF; fftRun(); }
+            }
         }
 
 retry:
         if (inited) {
             inited = 0;
             snapCapState(0);
-            logf_line("[cap] link down — reinit in %dms",
-                      800 << (consecDown > 2 ? 2 : consecDown));
+            /* v8.2.5 退避真实化：稳定 ≥60s 的断开才算「健康」（连败归零）；
+             * 60s 内的 up→down 循环 = 驱动拉闸风暴，连败累进退避（30s 封顶） */
+            if (stableSince && GetTickCount() - stableSince >= 60000) consecDown = 0;
+            stableSince = 0;
+            logf_line("[cap] link down (storm=%d) — reinit in %lums",
+                      consecDown + 1, (unsigned long)backoffMs(consecDown));
         }
         /* 首次失败：snapCapState(0) 已如实反映（面板/卡片据此降级静态高光） */
         if (haveCap && cap) IAudioCaptureClient_Release(cap);
@@ -619,12 +661,10 @@ retry:
             if (g_capGone) SetEvent(g_capGone);
             ExitProcess(0);
         }
-        /* v8.2.4 设备失效风暴退避升级：800ms → 1.6s → 3.2s → 5s 封顶
-         * （成功 up 时 consecDown 已归零——每次重初始化都在折腾引擎 =
-         * 日志里 13:59 段每 5s 一次 0x88890004 风暴的放大器） */
+        /* v8.2.5 退避：backoffMs(consecDown)——800ms 到 30s 封顶，
+         * 归零只在「稳定运行 ≥60s」时发生（见上 retry 分支） */
         {
-            int ms = 800 << (consecDown > 2 ? 2 : consecDown);
-            if (ms > 5000) ms = 5000;
+            int ms = (int)backoffMs(consecDown);
             for (int s = 0; s < ms; s += 100) {
                 if (InterlockedCompareExchange(&g_exitFlag, 0, 0)) break;
                 Sleep(100);
