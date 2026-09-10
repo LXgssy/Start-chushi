@@ -1,5 +1,12 @@
 /* ============================================================================
- * ChuShi Music Hub 8.2.3 ——（本版仅随助手 8.2.3 重编译：冻环零发布/设备变更跟踪/健康日志在助手侧，hub 代码不变） 纯 winsock HTTP 中继（排空 JSON 修复 + 请求日志 + 频谱助手监护）
+ * ChuShi Music Hub 8.2.5 —— v8.2.5（电流音根治·引擎零扰律，hub 侧两刀）：
+ *   ① hub 中继线程 + 频谱 keeper 线程 SetThreadPriority(BELOW_NORMAL)——
+ *     本 DLL 住在网易云进程内，线程默认优先级与网易云音频渲染线程同级，
+ *     抢调度是进程内 glitch 源；降一级永远让核给音频。
+ *   ② 版本随动 8.2.5（助手侧需求门/退避真实化/撤 MMCSS/FFT 20Hz，见
+ *     chushi_spectrum.c 头注）。协议零变更。
+ *
+ * ChuShi Music Hub 8.2.3 ——（历史：本版仅随助手 8.2.3 重编译：冻环零发布/设备变更跟踪/健康日志在助手侧，hub 代码不变） 纯 winsock HTTP 中继（排空 JSON 修复 + 请求日志 + 频谱助手监护）
  *
  * v8.2.2（实机反馈：助手根本没在跑 + 日志找不到）：
  *   ① 日志回退链——hub-log.txt 写 DLL 同目录失败（插件目录常在 Program
@@ -84,7 +91,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define PLUGIN_VERSION "8.2.4"
+#define PLUGIN_VERSION "8.2.5"
 #define HUB_NAME_S "chushi-music-hub"
 #define HUB_MUTEX_NAMEW L"ChuShi-Music-Hub-8-Singleton"
 
@@ -530,6 +537,8 @@ static void specSpawn(void) {
 #define SPEC_DEMAND_WINDOW_MS 120000
 static DWORD WINAPI spec_keeper_thread(LPVOID arg) {
     (void)arg;
+    /* v8.2.5：网易云进程内让核给音频线程（电流音根治 hub 刀） */
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
     for (;;) {
         Sleep(SPEC_KEEPER_PERIOD_MS);
         DWORD now = tickNow();
@@ -933,6 +942,8 @@ static DWORD WINAPI hub_thread(LPVOID arg) {
         return 0;
     }
     logf_line("[boot] ChuShi Music Hub v%s (winsock relay, zero WinRT)", PLUGIN_VERSION);
+    /* v8.2.5：中继线程降一级优先级——hub 永不与网易云音频渲染线程抢调度 */
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
 
     static char req[REQ_MAX + 2];
     SOCKET ls = INVALID_SOCKET;

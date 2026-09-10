@@ -91,7 +91,7 @@ export const SMTC_PORTS: readonly number[] = [26901, 26902, 26903];
 const HUB_NAME = "chushi-music-hub";
 const HUB_VER_MIN = "8.0.0";
 const PLUGIN_VER_MIN = "8.1.0";
-const CLIENT_VER = "8.2.4";
+const CLIENT_VER = "8.2.5";
 const POLL_MS = 1000;
 const RETRY_MS = 1500;
 const TIMEOUT_MS = 2200;
@@ -801,7 +801,7 @@ export const smtc = new SmtcClient();
 /*   独立助手进程 chushi-spectrum.exe（WASAPI loopback + FFT，26911-3）：  */
 /*   - 发现：直接探测 26911-3 身份（chushi-spectrum）；不在且已连 hub 时    */
 /*     每 ~5s 打一次 /api/spectrum-boot 惰性拉起，冷启动 ≤5s 自愈；        */
-/*   - 30Hz 轮询只在：有订阅者 + 页面可见；数据端点连续 3 败 → 弃端口缓存；*/
+/*   - 20Hz 轮询只在：有订阅者 + 页面可见；数据端点连续 3 败 → 弃端口缓存；*/
 /*   - 包络：快攻慢放（攻 .55 / 放 .14 per 帧），暂停/失联自然衰减到 0；   */
 /*   - 旧 hub（无助手）如实 on:false —— 高光保持静态，零降级噪声。         */
 /* 公开面：smtcSpectrum.subscribe(cb) / smtcSpectrum.last                  */
@@ -809,9 +809,9 @@ export const smtc = new SmtcClient();
 
 export const SPECTRUM_PORTS: readonly number[] = [26911, 26912, 26913];
 const SPEC_NAME = "chushi-spectrum";
-const SPEC_FRAME_MS = 33;       /* 30Hz */
+const SPEC_FRAME_MS = 50;       /* 20Hz（v8.2.5 引擎零扰律：与助手发布节奏对齐，请求 -33%） */
 const SPEC_FAILS_MAX = 3;
-const SPEC_BOOT_EVERY = 150;    /* 发现重试节拍（×33ms ≈ 5s） */
+const SPEC_BOOT_EVERY = 100;    /* 发现重试节拍（×50ms ≈ 5s） */
 const SPEC_ATTACK = 0.55;       /* 包络：快攻（跟拍） */
 const SPEC_RELEASE = 0.14;      /* 包络：慢放（不闪） */
 
