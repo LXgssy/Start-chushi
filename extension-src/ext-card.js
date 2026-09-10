@@ -1,6 +1,16 @@
 /* ============================================================================
  * 「初始」ext-card v8.2.6 —— 内容脚本：悬浮音乐卡（置顶所有网页，三态）
  *
+ * v8.2.7 实机反馈三连：
+ *   ① 律动变亮律——旧辉光只在封面外圈晕开观感「变暗」；现封面本体随低音
+ *      提亮（brightness/saturate 直写，只碰合成器友好属性），辉光上限
+ *      0.5→0.85；中频驱动 .gring 细节环（rim light 无模糊，中频段看得清），
+ *      高频驱动饱和脉冲——三轴包络（低/中/高）拆自 16 频段原始帧。
+ *   ② 封面态 48→56px + 封面态同款律动高光（glow+gring 上身，overflow 放开）。
+ *   ③ 三态切换一镜到底——clone 封面从旧态矩形连续飞到新态矩形
+ *      （translate+scale），面板同时以「新封面中心」为 transform-origin
+ *      长出（展开）/缩回（收进封面），同步开始；中断安全（finish 跳末态），
+ *      prefers-reduced-motion / 标签隐藏直切。
  * v8.2.6 性能特供（「5070 卡成屎」根治·渲染休眠律）：
  *   ① rAF 主循环休眠改造——旧版 requestAnimationFrame(loop) 无条件永转，
  *      每个开着网页的前台标签 60fps 永动（Chrome 只暂停后台标签 rAF，
@@ -88,8 +98,8 @@
   } catch (e) { /* 无存储上下文：沿用默认紫 */ }
 
   var track = null;      /* 最近真值 {title,artist,album,playing,position,duration,rate,pic,songId,fetchedAt} */
-  var lastSpec = { on: false, bass: 0, t: 0 };
-  var envBass = 0;
+  var lastSpec = { on: false, bass: 0, bands: null, t: 0 };
+  var envB = 0, envM = 0, envH = 0; /* v8.2.7 律动包络：低/中/高三轴 */
   var mode = "mini";     /* 三态：cover | mini | full（持久） */
   var optP = false, optAt = 0; /* 播放/暂停乐观翻转窗口 */
 
@@ -110,13 +120,14 @@
     '.surf.draggable{cursor:grab}.surf.draggable:active{cursor:grabbing}' +
     'button{font-family:inherit}' +
     /* ---- 封面态 ---- */
-    '.cover{width:48px;height:48px;border-radius:13px;overflow:hidden;padding:0;cursor:grab;' +
+    '.cover{width:56px;height:56px;border-radius:14px;padding:0;cursor:grab;' +
     'display:none;position:fixed;border:1px solid rgba(255,255,255,.14);' +
     'background:linear-gradient(135deg,color-mix(in srgb,var(--acc,#8b5cf6) 33%,transparent),' +
     'color-mix(in srgb,var(--acc,#8b5cf6) 13%,transparent));touch-action:none}' +
     '.cover:active{cursor:grabbing}' +
-    '.cover img{width:100%;height:100%;object-fit:cover;display:block}' +
-    '.cdot{position:absolute;right:4px;bottom:4px;width:7px;height:7px;border-radius:999px;' +
+    '.cover img{width:100%;height:100%;object-fit:cover;display:block;' +
+    'border-radius:inherit;position:relative;z-index:1}' +
+    '.cdot{position:absolute;right:4px;bottom:4px;width:7px;height:7px;border-radius:999px;z-index:3;' +
     'background:#34d399;box-shadow:0 0 5px #34d399;display:none}' +
     '.cover.on .cdot{display:block}' +
     /* ---- 通用件 ---- */
@@ -132,6 +143,12 @@
     'border-radius:inherit;position:relative;z-index:1}' +
     '.glow{position:absolute;inset:-5px;border-radius:14px;background:var(--acc,#8b5cf6);opacity:0;' +
     'filter:blur(9px);pointer-events:none;z-index:0}' +
+    /* v8.2.7 细节环：中/高频驱动的 rim light（细边框不模糊，与低频辉光的
+       晕开互补——「有些中音跟没有律动一样」的根治面） */
+    '.gring{position:absolute;inset:-3px;border:2px solid color-mix(in srgb,var(--acc,#8b5cf6) 42%,#fff);' +
+    'opacity:0;pointer-events:none;z-index:2}' +
+    '.cov .gring{border-radius:13px}.fcard .cov .gring{border-radius:15px}' +
+    '.cover .gring{border-radius:17px}' +
     '.meta{flex:1;min-width:0}' +
     '.t1{font-size:12.5px;font-weight:560;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
     '.t2{font-size:10.5px;color:#a1a1aa;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
@@ -195,7 +212,7 @@
     'font-size:12px;color:#5b5b63;letter-spacing:2px}' +
     '</style>' +
     /* 封面态 */
-    '<button class="cover" id="cover" title="单击展开 · 按住拖动"><img id="cpic" alt="" draggable="false"><span class="cdot" id="cdot"></span></button>' +
+    '<button class="cover" id="cover" title="单击展开 · 按住拖动"><span class="glow" id="cglow"></span><span class="gring" id="cring"></span><img id="cpic" alt="" draggable="false"><span class="cdot" id="cdot"></span></button>' +
     /* 标准态 */
     '<div class="surf card" id="card">' +
     '<span class="mtm" id="mtm">0:00</span>' +
@@ -204,7 +221,7 @@
     '<button class="x" id="miniFull" title="放大到完全体（歌词）"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></svg></button>' +
     '</div>' +
     '<div class="row">' +
-    '<div class="cov"><span class="glow" id="glow"></span><img id="pic" alt="" draggable="false"></div>' +
+    '<div class="cov"><span class="glow" id="glow"></span><span class="gring" id="gring1"></span><img id="pic" alt="" draggable="false"></div>' +
     '<div class="meta"><div class="t1" id="t1">—</div><div class="t2" id="t2"></div></div>' +
     '<button class="b" id="prev" title="上一首"><svg viewBox="0 0 24 24"><path d="M19 20L9 12l10-8v16z"/><path d="M6 5.5v13"/></svg></button>' +
     '<button class="b main" id="play" title="播放 / 暂停"><svg id="icPlay" viewBox="0 0 24 24"><path d="M8 4l12 8-12 8V4z"/></svg><svg id="icPause" viewBox="0 0 24 24" style="display:none"><rect x="6.6" y="4.6" width="3.6" height="14.8" rx="1.3"/><rect x="13.8" y="4.6" width="3.6" height="14.8" rx="1.3"/></svg></button>' +
@@ -219,7 +236,7 @@
     '<button class="x" id="fullMini" title="缩回标准卡"><svg viewBox="0 0 24 24"><path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3"/></svg></button>' +
     '</div>' +
     '<div class="row">' +
-    '<div class="cov"><span class="glow" id="glow2"></span><img id="fpic" alt="" draggable="false"></div>' +
+    '<div class="cov"><span class="glow" id="glow2"></span><span class="gring" id="gring2"></span><img id="fpic" alt="" draggable="false"></div>' +
     '<div class="meta"><div class="t1" id="ft1">—</div><div class="t2" id="ft2"></div></div>' +
     '</div>' +
     '<div class="flyr" id="flyr"><div class="fempty" id="fempty">暂无歌词</div><div class="flyr-in" id="flyrIn"></div></div>' +
@@ -239,8 +256,9 @@
 
   function el(id) { return shadow.getElementById(id); }
   var coverEl = el("cover"), cpic = el("cpic"), cdot = el("cdot");
-  var card = el("card"), pic = el("pic"), glow = el("glow");
-  var fcard = el("fcard"), fpic = el("fpic"), glow2 = el("glow2");
+  var card = el("card"), pic = el("pic"), glow = el("glow"), gring1 = el("gring1");
+  var fcard = el("fcard"), fpic = el("fpic"), glow2 = el("glow2"), gring2 = el("gring2");
+  var cglow = el("cglow"), cring = el("cring");
   var t1 = el("t1"), t2 = el("t2"), ft1 = el("ft1"), ft2 = el("ft2");
   var fill = el("fill"), ffill = el("ffill");
   var icPlay = el("icPlay"), icPause = el("icPause");
@@ -249,7 +267,7 @@
   var mtm = el("mtm");
 
   var SURFS = { cover: coverEl, mini: card, full: fcard };
-  var WIDTH = { cover: 48, mini: 264, full: 324 };
+  var WIDTH = { cover: 56, mini: 264, full: 324 };
 
   /* ---------- 位置：三态共用，拖动 + 持久 + 按当前态宽度钳制 ---------- */
   var pos = { x: Math.max(12, (window.innerWidth || 1200) - 296), y: 76 };
@@ -281,15 +299,117 @@
     }
   }
 
-  /* ---------- 三态切换 ---------- */
+  /* ---------- 三态切换（v8.2.7 一镜到底） ----------
+    封面是唯一连续锚：clone <img> 从旧态封面矩形连续飞到新态封面矩形
+    （translate+scale，合成器友好）；面板同时以「封面中心」为
+    transform-origin 做	scale+opacity——展开=从封面处长出来，收进封面态=
+    缩回封面底下，与封面飞形同步开始，中间不换镜。
+    中断安全：过渡中再切 → finish 跳末态再起；reduced-motion/隐藏直切。 */
   function applyMode() {
     for (var k in SURFS) SURFS[k].style.display = k === mode ? "block" : "none";
     applyPos(); applyVis(); applyDraggable();
   }
-  function setMode(m) {
-    if (!SURFS[m] || m === mode) return;
+  var RM = !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
+  var trans = null;
+  function covImgOf(m) { return m === "cover" ? cpic : m === "mini" ? pic : fpic; }
+  function covUnitOf(m) { return COVS[m]; }
+  function finishTrans() {
+    if (!trans) return;
+    var t = trans; trans = null;
+    for (var i = 0; i < t.anims.length; i++) { try { t.anims[i].finish(); } catch (e1) { /* 已结束 */ } }
+    t.cleanup();
+  }
+  function plainSetMode(m) {
     mode = m; lastTcur = ""; /* 强制下一帧重写 tcur/mtm——防态切换残留旧串 */
     savePos(); applyMode();
+  }
+  function setMode(m) {
+    if (!SURFS[m] || m === mode) return;
+    finishTrans();
+    if (RM || document.visibilityState !== "visible") { plainSetMode(m); wake(); return; }
+    var from = mode;
+    var fromImg = covImgOf(from), toImg = covImgOf(m);
+    var r0 = fromImg.getBoundingClientRect();
+    if (r0.width < 4) { plainSetMode(m); wake(); return; }
+    var rSrc = getComputedStyle(fromImg).borderRadius || "12px";
+    /* 律动内联态先复制到 clone 再清（亮度脉冲在飞形里保持连续） */
+    var fFilter = fromImg.style.filter;
+    if (covUnitOf(from)) covClear(covUnitOf(from));
+    mode = m; lastTcur = "";
+    savePos();
+    /* 换幕但旧面暂不撤（面板缩回要动画）：from+to 都 block，其余 none */
+    for (var k in SURFS) SURFS[k].style.display = (k === m || k === from) ? "block" : "none";
+    applyPos(); applyVis(); applyDraggable();
+    var fromSurf = SURFS[from], toSurf = SURFS[m];
+    fromImg.style.visibility = "hidden";
+    toImg.style.visibility = "hidden";
+    fromSurf.style.pointerEvents = "none";
+    var r1 = toImg.getBoundingClientRect();
+    var sr = toSurf.getBoundingClientRect();
+    var sfr = fromSurf.getBoundingClientRect();
+    if (r1.width < 4 || sr.width < 4) {
+      fromImg.style.visibility = toImg.style.visibility = "";
+      fromSurf.style.pointerEvents = "";
+      for (var k2 in SURFS) SURFS[k2].style.display = k2 === m ? "block" : "none";
+      wake(); return;
+    }
+    var clone = document.createElement("img");
+    clone.src = (track && track.pic) || "";
+    clone.alt = "";
+    clone.draggable = false;
+    clone.style.cssText = "position:fixed;left:" + r0.left + "px;top:" + r0.top + "px;width:" +
+      r0.width + "px;height:" + r0.height + "px;object-fit:cover;border-radius:" + rSrc +
+      ";z-index:9;pointer-events:none;box-shadow:0 12px 36px rgba(0,0,0,.35);" +
+      "background:linear-gradient(135deg,color-mix(in srgb,var(--acc,#8b5cf6) 33%,transparent),transparent)";
+    if (fFilter) clone.style.filter = fFilter;
+    shadow.appendChild(clone);
+    var dx = r1.left - r0.left, dy = r1.top - r0.top;
+    var sc = r1.width / r0.width;
+    var D = m === "cover" ? 300 : 340;
+    var ez = m === "cover" ? "cubic-bezier(.45,.08,.35,1)" : "cubic-bezier(.32,1.18,.36,1)";
+    var anims = [clone.animate([
+      { transform: "translate(0px,0px) scale(1)" },
+      { transform: "translate(" + dx.toFixed(1) + "px," + dy.toFixed(1) + "px) scale(" + sc.toFixed(4) + ")" }
+    ], { duration: D, easing: ez, fill: "forwards" })];
+    if (m !== "cover") {
+      /* 新面板从「新封面中心」长出来（scale .52 + 透明 → 原样，微回弹） */
+      toSurf.style.transformOrigin =
+        ((r1.left + r1.width / 2) - sr.left).toFixed(1) + "px " +
+        ((r1.top + r1.height / 2) - sr.top).toFixed(1) + "px";
+      anims.push(toSurf.animate([
+        { opacity: 0, transform: "scale(.52)" },
+        { opacity: 1, transform: "scale(1)" }
+      ], { duration: D, easing: ez, fill: "forwards" }));
+    }
+    if (from !== "cover") {
+      /* 旧面板以「旧封面中心」为锚缩回封面底下（scale→.52 + 渐隐） */
+      fromSurf.style.transformOrigin =
+        ((r0.left + r0.width / 2) - sfr.left).toFixed(1) + "px " +
+        ((r0.top + r0.height / 2) - sfr.top).toFixed(1) + "px";
+      anims.push(fromSurf.animate([
+        { opacity: 1, transform: "scale(1)" },
+        { opacity: 0, transform: "scale(.52)" }
+      ], { duration: D, easing: ez, fill: "forwards" }));
+    }
+    var done = false;
+    var selfinish = function () {
+      if (done) return; done = true;
+      trans = null;
+      for (var i = 0; i < anims.length; i++) { try { anims[i].cancel(); } catch (e2) { /* 已收 */ } }
+      try { clone.remove(); } catch (e3) { /* 已移除 */ }
+      fromImg.style.visibility = "";
+      toImg.style.visibility = "";
+      fromSurf.style.transformOrigin = "";
+      toSurf.style.transformOrigin = "";
+      fromSurf.style.pointerEvents = "";
+      if (mode === m) {
+        for (var k3 in SURFS) SURFS[k3].style.display = k3 === mode ? "block" : "none";
+        applyPos();
+      }
+      wake(); /* 收尾后按新态重估渲染循环 */
+    };
+    for (var a = 0; a < anims.length; a++) anims[a].onfinish = selfinish;
+    trans = { anims: anims, cleanup: selfinish };
     wake(); /* v8.2.6 态切换接管：循环若在睡（如 cover 静置）按新态需求重估 */
   }
   function applyDraggable() {
@@ -432,7 +552,8 @@
       lyricTick(); /* 切歌检测（want 变化时内部自重建） */
       wake(); /* v8.2.6 真值到达：循环若在睡（无曲目期）此处唤醒 */
     } else if (m.type === "spec") {
-      lastSpec = { on: m.on === true, bass: Number(m.bass) || 0, t: Date.now() };
+      lastSpec = { on: m.on === true, bass: Number(m.bass) || 0,
+        bands: Array.isArray(m.bands) ? m.bands : null, t: Date.now() };
       if (lastSpec.on) wake(); /* v8.2.6 频谱活动帧：辉光包络需要帧 */
     } else if (m.type === "cmdOk" && m.id) {
       var r = port && port.__cmdResolve && port.__cmdResolve[m.id];
@@ -803,6 +924,62 @@
   var lastFillW = "";
   var lastTcur = "", lastTdur = "";
   var rafId = 0, tickTimer = 0;
+  /* ---------- v8.2.7 律动引擎（变亮律 + 三频段细节） ----------
+     低音 → 封面本体提亮（brightness）+ 辉光晕开（halo opacity/scale）；
+     中频 → 细节环 rim light（.gring 不模糊，动得快看得清）+ 亮度微调；
+     高频 → 饱和脉冲（saturate）。
+     写值防抖：字符串不变不写；非当前态/静默 → 交还样式表（清内联）。
+     数据面：SW 20Hz 原始帧，包络在卡侧（快攻 .55 / 慢放 .14）。 */
+  var COVS = {
+    mini:  { img: pic,  glow: glow,  ring: gring1, on: 0, lf: "", lo: "", lt: "", lr: "" },
+    full:  { img: fpic, glow: glow2, ring: gring2, on: 0, lf: "", lo: "", lt: "", lr: "" },
+    cover: { img: cpic, glow: cglow, ring: cring,  on: 0, lf: "", lo: "", lt: "", lr: "" }
+  };
+  function specTgt() {
+    if (!lastSpec.on || !effPlaying()) return null;
+    var bands = lastSpec.bands, m = 0, h = 0, i;
+    if (bands && bands.length) {
+      for (i = 3; i <= 9; i++) m += Number(bands[i]) || 0;
+      m /= 7;
+      for (i = 10; i < 16; i++) h += Number(bands[i]) || 0;
+      h /= 6;
+    }
+    return { b: Number(lastSpec.bass) || 0, m: m, h: h };
+  }
+  function stepEnv() {
+    var t = specTgt();
+    var tb = t ? t.b : 0, tm = t ? t.m : 0, th = t ? t.h : 0;
+    envB += (tb - envB) * (tb > envB ? 0.55 : 0.14);
+    envM += (tm - envM) * (tm > envM ? 0.55 : 0.14);
+    envH += (th - envH) * (th > envH ? 0.55 : 0.14);
+    if (envB < 0.005) envB = 0;
+    if (envM < 0.006) envM = 0;
+    if (envH < 0.006) envH = 0;
+  }
+  function covClear(c) {
+    c.on = 0; c.lf = c.lo = c.lt = c.lr = "";
+    c.img.style.filter = "";
+    c.glow.style.opacity = "";
+    c.glow.style.transform = "";
+    if (c.ring) c.ring.style.opacity = "";
+  }
+  function paintGlow() {
+    var act = envB > 0.012 || envM > 0.02 || envH > 0.02;
+    for (var k in COVS) {
+      var c = COVS[k];
+      if (k !== mode || !act) { if (c.on) covClear(c); continue; }
+      var f = "brightness(" + (1 + envB * 0.34 + envM * 0.1).toFixed(3) + ") saturate(" +
+        (1 + envH * 0.32).toFixed(3) + ")";
+      var go = Math.min(1, 0.16 + envB * 0.55 + envM * 0.15).toFixed(3);
+      var gt = "scale(" + (1 + envB * 0.06 + envM * 0.02).toFixed(4) + ")";
+      var ro = Math.min(1, envM * 0.85 + envH * 0.3).toFixed(3);
+      if (f !== c.lf) { c.lf = f; c.img.style.filter = f; }
+      if (go !== c.lo) { c.lo = go; c.glow.style.opacity = go; }
+      if (gt !== c.lt) { c.lt = gt; c.glow.style.transform = gt; }
+      if (c.ring && ro !== c.lr) { c.lr = ro; c.ring.style.opacity = ro; }
+      c.on = 1;
+    }
+  }
   function loopBody() {
     if (track) {
       var dur = track.duration || 0;
@@ -827,18 +1004,15 @@
         if (tc !== lastTcur) { lastTcur = tc; mtm.textContent = tc; }
       }
     }
-    var tgt = lastSpec.on && effPlaying() ? lastSpec.bass : 0;
-    envBass += (tgt - envBass) * (tgt > envBass ? 0.55 : 0.14);
-    if (envBass < 0.005) envBass = 0;
-    var gOp = envBass > 0.012 ? (0.2 + envBass * 0.3).toFixed(3) : "0";
-    if (glow.style.opacity !== gOp) { glow.style.opacity = gOp; glow2.style.opacity = gOp; }
+    stepEnv();
+    paintGlow();
     /* 播放态图标真值回收（乐观窗口到期后与真值对齐） */
     if (optAt && Date.now() - optAt >= 2500) { optAt = 0; applyVis(); }
   }
   function needFrame() {
     if (document.visibilityState !== "visible") return false;
     if (lastSpec.on && effPlaying()) return true;   /* 辉光律动中 */
-    if (envBass > 0.012) return true;               /* 辉光衰减尾 */
+    if (envB > 0.012 || envM > 0.02 || envH > 0.02) return true; /* 衰减尾（三轴） */
     if (!track) return false;
     if (mode === "full") return true;               /* 歌词逐字 + 走针 */
     if (mode === "mini") return !!track.playing || !!optAt; /* 走针/乐观窗 */
@@ -846,7 +1020,7 @@
   }
   function schedule() {
     /* 完全体逐字/辉光活动/衰减尾 → rAF（60fps 顺滑）；纯走针 → 200ms 节拍 */
-    if (mode === "full" || (lastSpec.on && effPlaying()) || envBass > 0.012) {
+    if (mode === "full" || (lastSpec.on && effPlaying()) || envB > 0.012 || envM > 0.02 || envH > 0.02) {
       rafId = requestAnimationFrame(frame);
     } else {
       tickTimer = setTimeout(tick, 200);

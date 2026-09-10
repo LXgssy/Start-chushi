@@ -26,7 +26,7 @@ OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
 EXT_SRC = ROOT / "extension-src"    # v8.2.0 SW/内容脚本源
-VERSION = "8.2.6"
+VERSION = "8.2.7"
 DEST = ROOT / f"download/v{VERSION}/ChuShi-NewTab-v{VERSION}.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():
@@ -181,7 +181,10 @@ for feat in ("ChuShiLyric", "parseWordText", "unitizeLine",  # 歌词引擎特�
              "ingestTrack", "reconcileLines", "posNowOf",     # v8.2.2 乱跳根治/高光保持
              "coverClickBlock", "dragstart",                   # 封面态拖动 + ghost 禁拖
              "seekGuard", "backStreak",                       # seek 护航/回退熔断
-             "needFrame", "sleepNow", "visibilitychange"):    # v8.2.6 渲染休眠律
+             "needFrame", "sleepNow", "visibilitychange",     # v8.2.6 渲染休眠律
+             "gring", "cglow", "cring", "covClear",           # v8.2.7 细节环+封面态律动
+             "finishTrans", "covImgOf",                       # v8.2.7 一镜到底
+             "getBoundingClientRect", "borderRadius"):        # v8.2.7 morph 几何取证
     if feat not in _card_js:
         sys.exit(f"ext-card.js 缺特征 {feat} —— 拼接/源码不完整")
 if 'postMessage({ type: "openPanel"' in _card_js or 'case "openPanel"' in _card_js:
