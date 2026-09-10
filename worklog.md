@@ -1453,3 +1453,24 @@ Stage Summary:
 - 三线全闭环且各有实证：律动死 = DSP 幅域归一（数学门 4 场景 + 日志 bass 不再恒钉）；电流音 = 按需采集 + 优雅退出 + keeper 需求门（浏览态零音频栈参与，噪声窗=采集窗结构性消灭）；稳定性 = 探测/拉起撤离请求热路（面板重连/浮窗控制失灵的 hub 侧根因清空）；真 yrc 高光保持 = 渲染层一行门（node 契约门 + 像素取证双实锤）
 - 新律：①「恒钉极值」类症状先查归一化量纲再查数据面——[dsp] 心跳里的 bass=1.000 恒钉就是量纲实锤，v8.2.3 在数据面找冻环是差一层；②「关网页后消失」的用户观察是定位噪声窗的免费证据——现象与采集/轮询的耦合关系直接指认病灶；③串行服务器里任何内联 CreateProcess/探测都是全站延迟炸弹，重活一律 keeper 线程 + 需求门；④git show <commit>:file 才是提交树真相——「commit message 说改了」不等于「树里真有」（v8.2.3 漏提交两文件实锤）
 - 待办：用户真机复测（桥 8.2.4 + 重启网易云 + NewTab v8.2.4 + ⌘K 重导入 cshz 8.2.4；听电流音是否消失/看律动是否起伏/面板是否还重连/真 yrc 是否保持高亮）；spectrum-log [dsp] 行 bass 应 0~1 摆动；gh-pages 本版零 web 宿主变更未重部署（smtc.ts CLIENT_VER 8.2.4 只进扩展包——网页版下次有宿主变更时随动）；任务A/Edge 商店材料未动
+
+---
+Task ID: 91
+Agent: main (Super Z)
+Task: 用户反馈「卡死我了，5070卡成屎了，你写的插件在后台运行什么」——v8.2.6 性能特供（渲染休眠律）+ 后台进程清单交付
+
+Work Log:
+- 【现场重建】环境三度清理后 /home/z 只剩 Start-chushi 陈快照；真工作树在 /tmp/my-project（e83f3c8=v8.2.5）；upload/ 用户日志四件（spectrum-log/bridge.log/native-log/broker-log）完好；PAT 自 git remote URL 三度恢复 0600
+- 【用户日志三方互证（回答「后台在跑什么」）】①spectrum-log 实锤：10:55-14:06 三小时 chushi-spectrum 启动 71 次/自杀 69 次（≈2.7 分钟一轮「拉起→WASAPI 初始化→空转 60s→自杀」死亡循环）+ 13:59 段 GetNextPacketSize 0x88890004（设备失效）→800ms 重连风暴 + 版本串 8.2.2→8.2.3——**用户机器根本没装上 v8.2.5 根治版**；②bridge.log：ChuShiBridge v2.0.0（HTTP 10754，网易云 CDP）；③native-log/broker-log：SMTC Manager native v7.1.0（supervisor+broker 两进程，hub 26901）；④ext-bg SW 1s state + 50ms spec 轮询 + 每网页浮窗 Port/rAF
+- 【GPU 卡顿第二真凶确诊（v8.2.5 未覆盖的渲染面）】ext-card.js rAF 主循环 requestAnimationFrame(loop) 无条件永转——Chrome 只暂停后台标签 rAF，**前台标签哪怕浮窗无曲目也 60fps 全帧跑**；ext-bg broadcast() 全量扇出（spec 帧 20msg/s × N 标签 = renderer 唤醒风暴）；paused 态每 50ms 一条 on:false 空转帧（纯浪费 20msg/s）；state 1s 轮询全后台照跑
+- 【v8.2.6 三刀（渲染休眠律）】①ext-card.js：loop 拆 loopBody+needFrame/schedule/frame/tick/wake/sleepNow 四件套——hidden 立睡/无曲目睡/mini·cover 纯走针降 200ms 定时节拍/辉光衰减尾归零才睡（不冻半透明）；完全体逐字与辉光活动保持 60fps；唤醒点=onMsg state/spec on/setMode/onUp/send 乐观窗 ②visibilitychange 三联开关：切后台=spec off+vis off+sleepNow，切回=spec on+vis on+wake——后台标签整体撤离频谱链路，specWanted 归零→v8.2.5 需求门让引擎长眠（卡顿与电音在需求面上闭环）③ext-bg.js：broadcastSpec 只发 __spec 订阅卡（state 保留全发）+paused 空转帧翻转门（specSentOn 边沿发一条）+{type:"vis"} 可见性门控 state 轮询（visCount===0 全停，恢复立即 pollState）——浏览器整体后台 = 扩展全链静默（hub 零请求/SW 可睡）
+- 【桥零改动】chushi-spectrum 8.2.5 引擎零扰律继续有效；用户侧需换桥的安装指引写进 v8.2.6 Usage-Notes（含「装完怎么自查」：后台 20 标签零负载/最小化 CPU 近零/spectrum-log 应见 demand gate 且不再 2-3 分钟 boot 循环）
+- 【构建/验证】node --check 双 JS 门 + build-extension.py 防呆门（特征门补 needFrame/sleepNow/visibilitychange/broadcastSpec/visCount/specSentOn + CLIENT_VER 8.2.6 宿主 bundle 断言）+ EXTENSION_MODE=1 next build 重构建 + verify-v825-ext.mjs e2e **24/24 全绿**（v8.2.4/v8.2.5 全行为回归：走针/辉光层叠/cardAcc/三态/歌词保持/拖动/零跳转）
+- 【交付】download/v8.2.6 七件（NewTab v8.2.6.zip 11.7MB / 桥 8.2.5.plugin 沿用 / cshz 8.2.4 / 歌词 7.3.0 / v8.2.6-Usage-Notes / SHA256SUMS / AllInOne 11.8MB）；build-v826-assets.py 特征门全过
+- 【发布】gh-pages 部署踩回 Task 89 坑⑤（stage 缺 git remote add origin → push 静默失败 → status=built 假绿——SHA 配对律三度应验），补 remote 强推 21ed61e + 轮询至 commit 配对 built ✓ + 线上 bundle 实测含 8.2.6 ✓；main 提交推送 + tag v8.2.6 + Release 七资产（worklog 编号撞车修正为 91；rel-v826.py 沿用 rel-v825.py uploads 域+SHA 回读律）
+
+Stage Summary:
+- 结论：v8.2.6 发布——性能特供版。用户侧必换 NewTab v8.2.6；桥若仍是 ≤8.2.4 **必须换 8.2.5 并重启网易云**（死亡循环/电音根治在桥侧，日志证明用户一直没装上）
+- 后台进程清单（答用户问）：ChuShiBridge（hub.dll 注入网易云 26901-26903 + chushi-spectrum.exe 26911-26913 采集+FFT + 歌词源）+ NewTab SW（state 1s/spec 20Hz，有消费者才跑）+ 每网页浮窗（渲染循环）——v8.2.6 后全链按需化：无消费者=零进程活动，浏览器后台=扩展全链静默
+- 新律：①「渲染循环必须可睡」——前台标签 rAF 不受浏览器节流，永转循环=恒定 GPU/合成开销，needFrame() 判活+消息驱动唤醒是内容脚本渲染的默认律；②广播面必须按订阅精准化——全量扇出 × N 标签是 renderer 唤醒风暴的乘数；③「浏览器后台=全链静默」应作为常驻扩展的自证指标（vis/spec 双门）；④deploy 脚本 stage 目录的 git remote add 是不可省步骤——push 失败+built 状态=假绿，必须 SHA 配对
+- 待办：用户真机复测（装 NewTab v8.2.6 + 换桥 8.2.5 重启网易云；验证：后台 20 标签零负载/电音消失/spectrum-log 无 boot 循环/律动歌词行为不变）；Edge 商店提交材料仍未做

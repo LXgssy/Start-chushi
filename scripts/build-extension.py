@@ -26,7 +26,7 @@ OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
 EXT_SRC = ROOT / "extension-src"    # v8.2.0 SW/内容脚本源
-VERSION = "8.2.5"
+VERSION = "8.2.6"
 DEST = ROOT / f"download/v{VERSION}/ChuShi-NewTab-v{VERSION}.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():
@@ -180,14 +180,16 @@ for feat in ("ChuShiLyric", "parseWordText", "unitizeLine",  # 歌词引擎特�
              "chushi-card",                                    # Port 名
              "ingestTrack", "reconcileLines", "posNowOf",     # v8.2.2 乱跳根治/高光保持
              "coverClickBlock", "dragstart",                   # 封面态拖动 + ghost 禁拖
-             "seekGuard", "backStreak"):                       # seek 护航/回退熔断
+             "seekGuard", "backStreak",                       # seek 护航/回退熔断
+             "needFrame", "sleepNow", "visibilitychange"):    # v8.2.6 渲染休眠律
     if feat not in _card_js:
         sys.exit(f"ext-card.js 缺特征 {feat} —— 拼接/源码不完整")
 if 'postMessage({ type: "openPanel"' in _card_js or 'case "openPanel"' in _card_js:
     sys.exit("ext-card.js 残留 openPanel 发送方——用户明确浮窗零跳转「初始」，拒绝")
 _bg_js = (STAGE / "ext-bg.js").read_text(encoding="utf-8")
 for feat in ("chushi-spectrum", "spectrum-boot", "chushi-card", 'case "lyric":',
-             "fetchedAt"):  # v8.2.2：ne.ts 采样时刻透传（乱跳根治数据面）
+             "fetchedAt",  # v8.2.2：ne.ts 采样时刻透传（乱跳根治数据面）
+             "broadcastSpec", "visCount", "case \"vis\":"):  # v8.2.6：SW 需求门律
     if feat not in _bg_js:
         sys.exit(f"ext-bg.js 缺特征 {feat} —— SW 歌词代理面缺失")
 if 'case "openPanel"' in _bg_js:
