@@ -182,6 +182,19 @@ export default function Home() {
   useEffect(() => {
     if (!mounted) return;
     document.documentElement.style.setProperty("--ui-accent", settings.accent);
+    /* v8.2.3 浮窗主题色跟随：把强调色镜像到 chrome.storage.local.cardAcc，
+       悬浮音乐卡内容脚本在任意网页读取 + onChanged 热跟随（网页/gh-pages
+       环境无 chrome，安全跳过 = 恒默认紫） */
+    try {
+      const ext = (window as unknown as {
+        chrome?: { storage?: { local?: { set?: (o: Record<string, string>) => void } } };
+      }).chrome;
+      if (ext?.storage?.local && typeof ext.storage.local.set === "function") {
+        ext.storage.local.set({ cardAcc: settings.accent });
+      }
+    } catch {
+      /* 非 extension 环境 */
+    }
   }, [mounted, settings.accent]);
 
   /* ---------- SMTC 媒体作用面（v1.8.0）----------

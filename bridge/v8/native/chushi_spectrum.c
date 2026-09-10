@@ -1,5 +1,25 @@
 /* ============================================================================
- * ChuShi Spectrum Helper 8.2.2 —— 独立进程 WASAPI loopback 采集 + FFT → HTTP
+ * ChuShi Spectrum Helper 8.2.4 —— 独立进程 WASAPI loopback 采集 + FFT → HTTP
+ *
+ * v8.2.4 实机反馈三连修（电流音 + 律动不动 + 稳定性，附 spectrum-log 实锤）：
+ *   ① 律动死真凶根治（[dsp] bass=1.000 恒钉实锤）——频段能量直接拿 bin
+ *      幅度开 dB，FFT 增益（Hann 相干增益 0.5 → 满幅正弦峰 bin ≈ N/4）没
+ *      折回幅域：音乐里任何幅度 >0.0005 的频段全部饱和到 1.0 → 辉光恒亮
+ *      不跳 = 「没有律动」。现律：bin 幅度 RMS / (N/4) 折回幅域再开 dB
+ *      （-60dB..0dB → 0..1），满幅 ≈0.95、常觃音乐 0.3~0.8 随拍起伏；
+ *   ② 电流音根治两刀：
+ *      a) 按需采集——无 /api/spectrum 消费 >10s → IAudioClient_Stop（引擎
+ *         摘除采集管道，零音频栈参与）；需求回来（<3s 新鲜）→ Start 恢复。
+ *         「关网页后电流音消失」的用户观察反过来印证：噪声窗 = 采集窗；
+ *      b) 优雅退出——空闲自退不再裸杀进程：退出旗标贯通采集循环（含打盹/
+ *         退避等待），Stop→Release→CoUninitialize 全走完才 ExitProcess，
+ *         杜绝「每 80s 强杀一次活跃 loopback 客户端」的驱动级抖动；
+ *   ③ 稳定性：采集线程挂 MMCSS "Pro Audio"（共享模式下与音频引擎抢调度
+ *      是爆音经典源）；设备失效风暴退避升级（800ms→1.6s→3.2s→5s 封顶，
+ *      成功 up 归零）；「初始化于静默期永不产包」驱动 bug 保险——有消费者
+ *      在场且 >15s 零包 → 主动重初始化（有节流）。
+ * （v8.2.3 三律保留：>600ms 无非静音包发布零快照 / IMMNotificationClient
+ *   默认设备跟踪 / [dsp] 10s 健康心跳 + 首消费者留痕。）
  *
  * 为什么是独立进程（架构律，v8.2.0 新宪条）：
  *   hub v8 宪法 = hub.dll 零 COM/零 WinRT（导入表门断言仅 ws2_32+kernel32，
@@ -34,7 +54,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define SPEC_VERSION "8.2.2"
+#define SPEC_VERSION "8.2.4"
 #define SPEC_NAME_S "chushi-spectrum"
 #define SPEC_MUTEX_NAMEW L"ChuShi-Spectrum-Singleton"
 
@@ -51,6 +71,10 @@
 #define IDLE_EXIT_MS 60000         /* 数据请求沉默自退 */
 #define ATTACK 0.55f               /* C 侧平滑：快攻 */
 #define RELEASE 0.22f              /* C 侧平滑：慢放 */
+#define DB_FLOOR_V824 60.0         /* v8.2.4 幅域动态窗（-60dB..0dB → 0..1） */
+#define CAP_IDLE_STOP_MS 10000     /* 无消费者 → 引擎摘除采集管道（电流音刀一） */
+#define CAP_RESUME_FRESH_MS 3000   /* 需求新鲜窗：恢复采集 */
+#define CAP_NOPKT_REINIT_MS 15000  /* 有消费者却零包 → 驱动预热 bug 保险重初始化 */
 
 /* ---- 手写 GUID（不依赖 uuid.lib；v7 律：GUID 逐字节，花括号防嵌套初始化坑） */
 static const CLSID kCLSID_MMDeviceEnumerator =
@@ -153,6 +177,21 @@ static LONGLONG g_epochMs = 0;     /* 最近一帧 UTC 毫秒（新鲜度自证�
 static int g_capOk = 0;            /* 采集链路在场（0=设备初始化失败） */
 static int g_rate = 48000;
 
+/* v8.2.3 诊断计数（单写多读；racy 读仅供健康日志） */
+static volatile LONG g_pktCount = 0;      /* 收到的非空包总数 */
+static volatile LONG g_lastAudioTick = 0; /* 最近非静音包 tick */
+static volatile LONG g_devChangeTick = 0; /* 设备变更 tick（0=无） */
+static float g_lvl = 0.0f;                /* 环响度 EMA（仅采集线程写） */
+
+/* ---- v8.2.4 需求面 + 优雅退出（必须先于采集线程声明） ----
+ * g_lastDataReqTick / g_specServed 从 HTTP 段上移：采集线程的按需采集
+ * （capDemandAge）依赖需求新鲜度；g_exitFlag/g_capGone 服务优雅退出。 */
+static volatile LONG g_lastDataReqTick = 0; /* 最近 /api/spectrum tick（HTTP 线程写） */
+static volatile LONG g_specServed = 0;      /* /api/spectrum 累计响应数 */
+static volatile LONG g_firstSpecLogged = 0; /* 首客户端留痕门 */
+static volatile LONG g_exitFlag = 0;        /* 1 = main 已决定退出，采集线程收摊 */
+static HANDLE g_capGone = NULL;             /* 采集线程收摊完成事件 */
+
 static LONGLONG epochNowMs(void) {
     FILETIME ft;
     GetSystemTimeAsFileTime(&ft);
@@ -251,7 +290,12 @@ static void fftRun(void) {
             }
         }
     }
-    /* 频段能量（幅平方均值 → rms → dB → 归一）+ 快攻慢放 */
+    /* v8.2.4 频段能量（bin 幅度 RMS → 折回幅域 → dB → 归一）+ 快攻慢放。
+     * 律动死真凶：旧版直接拿 bin 幅度开 dB——FFT 增益（Hann 相干增益 0.5、
+     * N=2048）把满幅正弦顶到 bin 幅度 ~512（+54dB），常觃音乐全频段饱和
+     * 到 1.0（[dsp] bass=1.000 恒钉实锤）→ 辉光恒亮不跳。现把 bin 幅度
+     * RMS 除以 N/4 折回幅域（满幅正弦 ≈ 1.0），动态窗 -60dB..0dB，
+     * 常觃音乐落 0.3~0.8 随拍起伏。 */
     float out[BANDS];
     for (int b = 0; b < BANDS; b++) {
         int lo = g_bandLo[b], hi = g_bandLo[b + 1];
@@ -266,8 +310,9 @@ static void fftRun(void) {
         float v = 0.0f;
         if (cnt > 0) {
             double rms = sqrt(sum / (double)cnt);
-            double db = 20.0 * log10(rms + 1e-9);
-            v = (float)((db + DB_FLOOR) / DB_FLOOR);
+            double amp = rms / ((double)FFT_N * 0.25); /* Hann 相干增益 0.5 → 峰 bin ≈ N/4 */
+            double db = 20.0 * log10(amp + 1e-7);
+            v = (float)((db + DB_FLOOR_V824) / DB_FLOOR_V824);
             if (v < 0.0f) v = 0.0f;
             if (v > 1.0f) v = 1.0f;
         }
@@ -282,10 +327,91 @@ static void fftRun(void) {
 }
 
 /* ------------------------------------------------------------------ */
+/* v8.2.3 默认设备/设备态通知（手写 COM 对象，零 uuid.lib；v7 GUID 律）     */
+/*   MTA 回调落在线程池线程——处理器只置 volatile 标记，零锁零分配。        */
+/* ------------------------------------------------------------------ */
+static const IID kIID_IUnknown =
+    {0x00000000, 0x0000, 0x0000, {0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46}};
+static const IID kIID_IMMNotificationClient =
+    {0x7991EEC9, 0x7E89, 0x4D85, {0x83, 0x90, 0x6D, 0x2D, 0x37, 0x4E, 0x1A, 0x6F}};
+
+typedef struct SpecNotify {
+    IMMNotificationClientVtbl* vtbl;
+    LONG ref;
+} SpecNotify;
+
+static HRESULT STDMETHODCALLTYPE specNotify_QI(IMMNotificationClient* self, REFIID riid, void** out) {
+    if (!out) return E_POINTER;
+    *out = NULL;
+    if (memcmp(riid, &kIID_IUnknown, sizeof(IID)) == 0 ||
+        memcmp(riid, &kIID_IMMNotificationClient, sizeof(IID)) == 0) {
+        *out = self;
+        self->lpVtbl->AddRef(self);
+        return S_OK;
+    }
+    return E_NOINTERFACE;
+}
+static ULONG STDMETHODCALLTYPE specNotify_AddRef(IMMNotificationClient* self)   { (void)self; return 1; }
+static ULONG STDMETHODCALLTYPE specNotify_Release(IMMNotificationClient* self)  { (void)self; return 1; }
+static HRESULT STDMETHODCALLTYPE specNotify_OnDevStateChanged(IMMNotificationClient* self, LPCWSTR id, DWORD st) {
+    (void)self; (void)id; (void)st;
+    InterlockedExchange(&g_devChangeTick, (LONG)GetTickCount());
+    return S_OK;
+}
+static HRESULT STDMETHODCALLTYPE specNotify_OnDevAdded(IMMNotificationClient* self, LPCWSTR id) {
+    (void)self; (void)id; return S_OK;
+}
+static HRESULT STDMETHODCALLTYPE specNotify_OnDevRemoved(IMMNotificationClient* self, LPCWSTR id) {
+    (void)self; (void)id; return S_OK;
+}
+static HRESULT STDMETHODCALLTYPE specNotify_OnDefaultChanged(IMMNotificationClient* self, EDataFlow flow, ERole role, LPCWSTR id) {
+    (void)self; (void)role; (void)id;
+    if (flow == eRender) InterlockedExchange(&g_devChangeTick, (LONG)GetTickCount());
+    return S_OK;
+}
+static HRESULT STDMETHODCALLTYPE specNotify_OnPropChanged(IMMNotificationClient* self, LPCWSTR id, const PROPERTYKEY key) {
+    (void)self; (void)id; (void)key; return S_OK;
+}
+
+static IMMNotificationClientVtbl g_specNotifyVtbl = {
+    specNotify_QI,
+    specNotify_AddRef,
+    specNotify_Release,
+    specNotify_OnDevStateChanged,
+    specNotify_OnDevAdded,
+    specNotify_OnDevRemoved,
+    specNotify_OnDefaultChanged,
+    specNotify_OnPropChanged,
+};
+static SpecNotify g_specNotify = { &g_specNotifyVtbl, 1 };
+
+/* ------------------------------------------------------------------ */
 /* 采集线程（COM 全部关在本进程本线程；设备失效自动重初始化）                */
 /* ------------------------------------------------------------------ */
 static void capPush(const BYTE* data, UINT32 frames, int fmtFloat, int ch, DWORD flags) {
     if (!data || frames == 0 || ch <= 0) return;
+    InterlockedIncrement(&g_pktCount);
+    /* 非静音包 = 设备活着有声音：刷新活味儿时钟 + 粗响度（每 16 帧采样一点，
+       CPU 可忽略；SILENT 包不算活味儿——停播就该是停播） */
+    if (!(flags & AUDCLNT_BUFFERFLAGS_SILENT)) {
+        InterlockedExchange(&g_lastAudioTick, (LONG)GetTickCount());
+        size_t stride = (size_t)ch * (fmtFloat ? sizeof(float) : sizeof(short));
+        if (stride > 0) {
+            float lvl = 0.0f;
+            int n = 0;
+            for (UINT32 f = 0; f < frames; f += 16) {
+                const BYTE* p = data + (size_t)f * stride;
+                float v = fmtFloat ? *(const float*)p
+                                   : (float)(*(const short*)p) / 32768.0f;
+                lvl += v < 0 ? -v : v;
+                n++;
+            }
+            if (n > 0) {
+                lvl /= (float)n * 8.0f;
+                g_lvl += (lvl - g_lvl) * 0.25f;
+            }
+        }
+    }
     /* AUDCLNT_BUFFERFLAGS_SILENT：整段静音，推零 */
     for (UINT32 f = 0; f < frames; f++) {
         float acc = 0.0f;
@@ -305,9 +431,33 @@ static void capPush(const BYTE* data, UINT32 frames, int fmtFloat, int ch, DWORD
     }
 }
 
+/* v8.2.4 MMCSS（动态加载 avrt.dll，零新导入表项）：共享模式下采集线程与
+ * 音频引擎抢调度是爆音/电流音的经典源——挂 "Pro Audio" 任务档交系统排程。 */
+static void capEnterMmcss(void) {
+    HMODULE av = LoadLibraryW(L"avrt.dll");
+    if (!av) return;
+    typedef HANDLE (WINAPI *AvSetFnW)(LPCWSTR, LPDWORD);
+    AvSetFnW fn = (AvSetFnW)(void*)GetProcAddress(av, "AvSetMmThreadCharacteristicsW");
+    if (fn) {
+        DWORD idx = 0;
+        fn(L"Pro Audio", &idx);
+    }
+    /* 不 FreeLibrary：线程生命周期 = 进程生命周期 */
+}
+
+/* 消费者需求新鲜度：最近一次 /api/spectrum 距今 ms（tick=0 视为刚启动期=新鲜，
+ * 防「cap 线程先于 main 置需求戳启动」竞态误判为无消费） */
+static DWORD capDemandAge(DWORD now) {
+    DWORD last = (DWORD)InterlockedCompareExchange(&g_lastDataReqTick, 0, 0);
+    if (last == 0) return 0;
+    return now - last;
+}
+
 static DWORD WINAPI cap_thread(LPVOID arg) {
     (void)arg;
     int inited = 0;
+    int consecDown = 0;     /* v8.2.4 设备失效风暴连败计数（成功 up 归零） */
+    capEnterMmcss();
     for (;;) { /* 设备级重初始化循环 */
         int haveCo = 0, haveEnum = 0, haveDev = 0, haveClient = 0, haveCap = 0;
         IMMDeviceEnumerator* enumDev = NULL;
@@ -327,6 +477,9 @@ static DWORD WINAPI cap_thread(LPVOID arg) {
         hr = IMMDeviceEnumerator_GetDefaultAudioEndpoint(enumDev, eRender, eMultimedia, &dev);
         if (FAILED(hr) || !dev) { logf_line("[cap] GetDefaultAudioEndpoint 0x%08lX", (unsigned long)hr); goto retry; }
         haveDev = 1;
+        /* v8.2.3 设备变更通知（每次 reinit 重新挂回，同一静态对象幂等） */
+        IMMDeviceEnumerator_RegisterEndpointNotificationCallback(
+            enumDev, (IMMNotificationClient*)&g_specNotify);
         hr = IMMDevice_Activate(dev, &kIID_IAudioClient, CLSCTX_ALL, NULL, (void**)&client);
         if (FAILED(hr) || !client) { logf_line("[cap] Activate 0x%08lX", (unsigned long)hr); goto retry; }
         haveClient = 1;
@@ -358,17 +511,76 @@ static DWORD WINAPI cap_thread(LPVOID arg) {
 
         logf_line("[cap] loopback up: %uHz %uch %s", g_rate, ch, fmtFloat ? "float" : "pcm16");
         inited = 1;
+        consecDown = 0;
         snapCapState(1);
+        DWORD lastPktAt = GetTickCount(); /* 零包保险节流戳 */
+        int paused = 0;                   /* v8.2.4 按需采集打盹态 */
 
         /* 采集主循环 */
         for (;;) {
+            if (InterlockedCompareExchange(&g_exitFlag, 0, 0)) goto retry;
+            DWORD nowc = GetTickCount();
+            /* v8.2.3：默认设备/设备态变更 → 冷却 2s 后重初始化到新设备 */
+            DWORD devCh = (DWORD)InterlockedCompareExchange(&g_devChangeTick, 0, 0);
+            if (devCh != 0 && nowc - devCh > 2000) {
+                InterlockedExchange(&g_devChangeTick, 0);
+                logf_line("[cap] default device changed — reinit");
+                goto retry;
+            }
+            /* v8.2.4 按需采集（电流音刀一）：无消费者 >10s → Stop——引擎摘除
+             * 采集管道，音频栈零参与；需求回来（<3s 新鲜）→ Start 恢复。
+             * 没人看频谱时还在采 = 纯噪声窗（用户实测：关网页电流音消失）。 */
+            if (!paused && capDemandAge(nowc) > CAP_IDLE_STOP_MS) {
+                IAudioClient_Stop(client);
+                paused = 1;
+                snapCapState(0);
+                logf_line("[cap] no consumer %us — loopback paused (engine detached)",
+                          CAP_IDLE_STOP_MS / 1000);
+            }
+            if (paused) {
+                for (;;) {
+                    if (InterlockedCompareExchange(&g_exitFlag, 0, 0)) goto retry;
+                    Sleep(200);
+                    if (capDemandAge(GetTickCount()) < CAP_RESUME_FRESH_MS) break;
+                }
+                HRESULT h3 = IAudioClient_Start(client);
+                if (FAILED(h3)) { logf_line("[cap] resume Start 0x%08lX", (unsigned long)h3); goto retry; }
+                paused = 0;
+                lastPktAt = GetTickCount();
+                snapCapState(1);
+                logf_line("[cap] consumer back — loopback resumed");
+                continue;
+            }
             UINT32 packet = 0;
             HRESULT h2 = IAudioCaptureClient_GetNextPacketSize(cap, &packet);
             if (FAILED(h2)) { logf_line("[cap] GetNextPacketSize 0x%08lX", (unsigned long)h2); goto retry; }
             if (packet == 0) {
-                /* 无包：节流 + 周期性 DSP（保快照时间戳新鲜，静音归零靠平滑释放） */
+                /* v8.2.4 零包保险：消费者在场（需求新鲜）却 >15s 零包 =
+                 * 「loopback 初始化于静默期，开声后永不产包」的驱动 bug——
+                 * 主动重初始化（lastPktAt 即节流戳，15s 至多一次） */
+                if (capDemandAge(GetTickCount()) < CAP_RESUME_FRESH_MS &&
+                    GetTickCount() - lastPktAt > CAP_NOPKT_REINIT_MS) {
+                    logf_line("[cap] no packets %us with consumer — warmup reinit",
+                              CAP_NOPKT_REINIT_MS / 1000);
+                    lastPktAt = GetTickCount();
+                    goto retry;
+                }
+                /* v8.2.3 无包两分支：
+                   · >600ms 无非静音包 = 渲染设备无活跃流（换设备/停播）——
+                     直接发布零快照（v8.2.2 在此对冻结环重跑 FFT = 把停机瞬间
+                     的频谱永久复读，辉光恒亮不跳的根因）；
+                   · 短间隙（正常帧间）——保时间戳新鲜跑 FFT。 */
                 static long idleTicks = 0;
-                if ((++idleTicks & 0x7) == 0) fftRun();
+                DWORD nowc2 = GetTickCount();
+                DWORD lastA = (DWORD)InterlockedCompareExchange(&g_lastAudioTick, 0, 0);
+                if (nowc - lastA > 600) {
+                    if ((++idleTicks & 0xF) == 0) {
+                        float z[BANDS] = {0};
+                        snapPublish(z, 0.0f);
+                    }
+                } else if ((++idleTicks & 0x7) == 0) {
+                    fftRun();
+                }
                 Sleep(6);
                 continue;
             }
@@ -379,6 +591,7 @@ static DWORD WINAPI cap_thread(LPVOID arg) {
             if (FAILED(h2)) { logf_line("[cap] GetBuffer 0x%08lX", (unsigned long)h2); goto retry; }
             capPush(data, frames, fmtFloat, ch, flags);
             IAudioCaptureClient_ReleaseBuffer(cap, frames);
+            lastPktAt = GetTickCount(); /* 有包：预热保险节流戳刷新 */
             fftRun();
         }
 
@@ -386,7 +599,8 @@ retry:
         if (inited) {
             inited = 0;
             snapCapState(0);
-            logf_line("[cap] link down — reinit in 800ms");
+            logf_line("[cap] link down — reinit in %dms",
+                      800 << (consecDown > 2 ? 2 : consecDown));
         }
         /* 首次失败：snapCapState(0) 已如实反映（面板/卡片据此降级静态高光） */
         if (haveCap && cap) IAudioCaptureClient_Release(cap);
@@ -398,7 +612,25 @@ retry:
         if (haveDev && dev) IMMDevice_Release(dev);
         if (haveEnum && enumDev) IMMDeviceEnumerator_Release(enumDev);
         if (haveCo) CoUninitialize();
-        Sleep(800);
+        /* v8.2.4 优雅退出（电流音刀二）：loopback 必须 Stop+Release 干净、
+         * COM 必须卸干净再退——裸杀活跃音频客户端留驱动烂摊子 */
+        if (InterlockedCompareExchange(&g_exitFlag, 0, 0)) {
+            logf_line("[exit] graceful teardown complete — loopback stopped & released");
+            if (g_capGone) SetEvent(g_capGone);
+            ExitProcess(0);
+        }
+        /* v8.2.4 设备失效风暴退避升级：800ms → 1.6s → 3.2s → 5s 封顶
+         * （成功 up 时 consecDown 已归零——每次重初始化都在折腾引擎 =
+         * 日志里 13:59 段每 5s 一次 0x88890004 风暴的放大器） */
+        {
+            int ms = 800 << (consecDown > 2 ? 2 : consecDown);
+            if (ms > 5000) ms = 5000;
+            for (int s = 0; s < ms; s += 100) {
+                if (InterlockedCompareExchange(&g_exitFlag, 0, 0)) break;
+                Sleep(100);
+            }
+        }
+        consecDown++;
     }
     return 0;
 }
@@ -406,7 +638,8 @@ retry:
 /* ------------------------------------------------------------------ */
 /* HTTP（hub 同款骨架：环回 only + 空连接快关 + CORS + PNA 头）             */
 /* ------------------------------------------------------------------ */
-static volatile LONG g_lastDataReqTick = 0;
+/* （g_lastDataReqTick / g_specServed / g_firstSpecLogged / 退出面已上移到
+ *  采集线程之前——v8.2.4 按需采集与优雅退出依赖） */
 
 static const char* CORS_HEADERS =
     "Access-Control-Allow-Origin: *\r\n"
@@ -479,6 +712,10 @@ static void handleRequest(SOCKET s, const char* req) {
 
     if (_stricmp(method, "GET") == 0 && strncmp(path, "/api/spectrum", 13) == 0) {
         InterlockedExchange(&g_lastDataReqTick, (LONG)GetTickCount());
+        InterlockedIncrement(&g_specServed);
+        if (InterlockedCompareExchange(&g_firstSpecLogged, 1, 0) == 0) {
+            logf_line("[http] first /api/spectrum client served (data face alive)");
+        }
         char body[64 + BANDS * 10];
         float bands[BANDS];
         float bass;
@@ -546,6 +783,11 @@ int main(void) {
 
     fftInit();
 
+    /* v8.2.4 优雅退出事件 + 需求戳先置（cap 线程启动早于 HTTP 监听，
+     * tick=0 由 capDemandAge 的「视为新鲜」兜底，这里再双保险） */
+    g_capGone = CreateEventW(NULL, TRUE, FALSE, NULL);
+    InterlockedExchange(&g_lastDataReqTick, (LONG)GetTickCount());
+
     /* 单例：同机重复双开（残留实例）直接退出——boot 端点会探测收养 */
     HANDLE mx = CreateMutexW(NULL, TRUE, SPEC_MUTEX_NAMEW);
     if (!mx) {
@@ -593,9 +835,29 @@ int main(void) {
         int ready = select((int)ls + 1, &rs, NULL, NULL, &tv);
         if (ready <= 0) {
             DWORD now = GetTickCount();
+            /* v8.2.3 健康心跳（每 10s 一行）：pkts 不涨 = 采集面无声（设备/
+               输出错位）；pkts 涨 bass 0 = DSP 面；served=0 = 消费面没来。 */
+            static int hb = 0;
+            if (++hb >= 10) {
+                hb = 0;
+                float bb;
+                EnterCriticalSection(&g_snapCs);
+                bb = g_bass;
+                LeaveCriticalSection(&g_snapCs);
+                logf_line("[dsp] pkts=%lu lvl=%.4f bass=%.3f cap=%d served=%lu port=%d",
+                          (unsigned long)InterlockedCompareExchange(&g_pktCount, 0, 0),
+                          g_lvl, bb, g_capOk ? 1 : 0,
+                          (unsigned long)InterlockedCompareExchange(&g_specServed, 0, 0),
+                          port);
+            }
             DWORD last = (DWORD)InterlockedCompareExchange(&g_lastDataReqTick, 0, 0);
             if (now - last > IDLE_EXIT_MS) {
                 logf_line("[idle] no spectrum request for %us — self exit", IDLE_EXIT_MS / 1000);
+                /* v8.2.4 优雅退出：置旗标 → 采集线程 Stop/Release/CoUninit
+                 * 收摊 → 等离场事件（最多 3s，卡死兜底同旧行为） */
+                InterlockedExchange(&g_exitFlag, 1);
+                if (g_capGone) WaitForSingleObject(g_capGone, 3000);
+                logf_line("[exit] process exit (clean)");
                 return 0;
             }
             continue;

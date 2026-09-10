@@ -1,5 +1,5 @@
 /* ============================================================================
- * 「初始」ext-bg v8.2.2 —— MV3 Service Worker：跨页面音乐卡状态中继
+ * 「初始」ext-bg v8.2.4 —— MV3 Service Worker：跨页面音乐卡状态中继
  *
  * 想法一（悬浮音乐卡置顶所有网页）的数据面。架构律：
  *   1. 播放永远在网易云——本 SW 只做「hub 真值 → 卡片」中继与「卡片 → hub」
@@ -136,17 +136,31 @@ function specWanted() {
   for (const p of cards) if (p.__spec) n++;
   return n;
 }
+let specBusy = false; /* v8.2.4 在飞守卫：助手失联时 33ms 定时器 × 450ms 超时会堆请求 */
 function ensureSpecLoop() {
   if (specTimer || specWanted() === 0) return;
   void discoverSpec();
   specTimer = setInterval(async () => {
+    if (specBusy || specWanted() === 0) return;
+    specBusy = true;
+    try {
+      await specTick();
+    } finally {
+      specBusy = false;
+    }
+  }, 33);
+}
+async function specTick() {
+    {
     if (specWanted() === 0) return;
     if (!playing) {
       broadcast({ type: "spec", on: false, bass: 0, bands: [], t: Date.now() });
       return;
     }
     if (!specPort) {
-      if (++bootBeats >= 30) { bootBeats = 0; await discoverSpec(); }
+      /* v8.2.4 发现退避 1s → ~5s（对齐面板 SPEC_BOOT_EVERY；hub 侧 boot
+         已瞬时化，减压意义在减少无用端口探测流量） */
+      if (++bootBeats >= 150) { bootBeats = 0; await discoverSpec(); }
       return;
     }
     const j = await getJson(`http://127.0.0.1:${specPort}/api/spectrum`, 450);
@@ -163,7 +177,7 @@ function ensureSpecLoop() {
       bands: Array.isArray(j.bands) ? j.bands.slice(0, 16) : [],
       t: Date.now(),
     });
-  }, 33);
+    }
 }
 function stopSpecLoop() {
   if (specTimer && specWanted() === 0) { clearInterval(specTimer); specTimer = null; specPort = null; }

@@ -1,10 +1,10 @@
 /* ============================================================================
- * ChuShi Music Hub 8.2.2 —— 纯 winsock HTTP 中继（排空 JSON 修复 + 请求日志 + 频谱助手监护）
+ * ChuShi Music Hub 8.2.3 ——（本版仅随助手 8.2.3 重编译：冻环零发布/设备变更跟踪/健康日志在助手侧，hub 代码不变） 纯 winsock HTTP 中继（排空 JSON 修复 + 请求日志 + 频谱助手监护）
  *
  * v8.2.2（实机反馈：助手根本没在跑 + 日志找不到）：
  *   ① 日志回退链——hub-log.txt 写 DLL 同目录失败（插件目录常在 Program
  *      Files 下只读）→ 退 %LOCALAPPDATA%\ChuShi\hub-log.txt，诊断不再静默消失；
- *   ② 助手主动保活 specEnsure——/api/state GET/POST（桥 1Hz 推、页面 1Hz 拉）
+ *   ② (v8.2.4 退役) 助手主动保活 specEnsure——已换 keeper 线程 + 按需门
  *      附带保障助手在场（20s 冷却 + 探测在前，在位零开销），不再依赖扩展
  *      先打 /api/spectrum-boot；
  *   ③ 助手退出码留痕——上次拉起的进程已死时记录 GetExitCodeProcess
@@ -84,7 +84,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define PLUGIN_VERSION "8.2.2"
+#define PLUGIN_VERSION "8.2.4"
 #define HUB_NAME_S "chushi-music-hub"
 #define HUB_MUTEX_NAMEW L"ChuShi-Music-Hub-8-Singleton"
 
@@ -432,8 +432,9 @@ static int pollClaim(const char* body, DWORD bodyLen, char* resp, int respCap) {
 static HANDLE g_specProc = NULL;   /* 助手进程句柄（存活监护） */
 static HANDLE g_specJob = NULL;    /* KILL_ON_JOB_CLOSE：宿主进程退出即杀 */
 static int    g_specPort = 0;      /* 已确认应答的助手端口（探测确认后才写） */
-static DWORD  g_specProbeAt = 0;   /* 探测冷却（陌生服务占口防反复空转） */
-static DWORD  g_specEnsureAt = 0;  /* v8.2.2 主动保活冷却 */
+static DWORD  g_specDemandAt = 0;  /* v8.2.4 最近 /api/spectrum-boot 时刻（0=无需求）：
+                                      keeper 拉起的唯一令牌——/api/state 心跳不再
+                                      触发音频栈，浏览态零消费者 = 零拉起零 churn */
 
 /* 探测一个端口是否为频谱助手身份（GET /api/ping 带 name 断言） */
 static int specProbePort(int port, int* outPort) {
@@ -519,68 +520,54 @@ static void specSpawn(void) {
               (unsigned long)pi.dwProcessId, exePath);
 }
 
-/* v8.2.2 主动保活：任意 /api 请求（桥 1Hz 推状态）附带保障助手在场——
-   不再依赖扩展先打 /api/spectrum-boot 才拉起。20s 冷却 + 探测在前：
-   助手在位零开销；闲置场景由助手自身 60s 空闲自退收敛（spawn/退/再拉
-   的慢循环有日志可查，进程体量 ~百KB，可接受）。 */
-static void specEnsure(void) {
-    DWORD now = tickNow();
-    if (now - g_specEnsureAt < 20000) return;
-    g_specEnsureAt = now;
-    int port = 0;
-    if (specProbeAny(&port)) { g_specPort = port; return; } /* 在位：收养 */
-    if (g_specProc) {
-        DWORD ec = 0;
-        if (WaitForSingleObject(g_specProc, 0) != WAIT_TIMEOUT) {
-            GetExitCodeProcess(g_specProc, &ec);
-            logf_line("[spec] helper exited code=%lu (0x%08lx) — respawn",
-                      (unsigned long)ec, (unsigned long)ec);
-            CloseHandle(g_specProc);
-            g_specProc = NULL;
-        } else {
-            return; /* 已拉起，仍在初始化/监听中——不重复拉 */
+/* v8.2.4 keeper 线程：探测+拉起全部撤离请求线程（v8.2.2 specEnsure 在
+ * /api/state 热路上内联 CreateProcess/探测——hub 串行单连接服务器被
+ * 慢 spawn 卡住 = 面板重连 + 浮窗控制失灵的总根因，退役）。
+ * 节拍 5s；按需门：/api/spectrum-boot 需求 120s 内在场才允许 spawn。
+ * 助手 60s 空闲自退后不再被无脑复活（v8.2.2 的 ~80s boot 循环废止）；
+ * 消费者回来时 SW/面板的 boot 请求会刷新需求 → keeper 5s 内拉起。 */
+#define SPEC_KEEPER_PERIOD_MS 5000
+#define SPEC_DEMAND_WINDOW_MS 120000
+static DWORD WINAPI spec_keeper_thread(LPVOID arg) {
+    (void)arg;
+    for (;;) {
+        Sleep(SPEC_KEEPER_PERIOD_MS);
+        DWORD now = tickNow();
+        int port = 0;
+        if (specProbeAny(&port)) { g_specPort = port; continue; } /* 在位：收养 */
+        g_specPort = 0;
+        if (g_specProc) {
+            DWORD ec = 0;
+            if (WaitForSingleObject(g_specProc, 0) != WAIT_TIMEOUT) {
+                GetExitCodeProcess(g_specProc, &ec);
+                logf_line("[spec] helper exited code=%lu (0x%08lx)",
+                          (unsigned long)ec, (unsigned long)ec);
+                CloseHandle(g_specProc);
+                g_specProc = NULL;
+            } else {
+                continue; /* 已拉起，仍在初始化/监听中——不重复拉 */
+            }
         }
-    } else {
-        logf_line("[spec] auto-ensure: helper absent — spawning");
+        if (g_specDemandAt == 0 || now - g_specDemandAt > SPEC_DEMAND_WINDOW_MS) {
+            continue; /* 无需求：绝不拉起（电流音/churn 根治核心） */
+        }
+        logf_line("[spec] demand fresh & helper absent — spawning (keeper)");
+        specSpawn();
     }
-    specSpawn();
+    return 0;
 }
 
-/* boot 语义：在→收养（报 port）；存活但未应答→starting；都不在→拉起→starting。
-   冷却期内沿用缓存认知不重复探测。 */
+/* v8.2.4 boot 语义：只登记需求 + 回缓存态，瞬时返回（探测/拉起全在
+   keeper 线程）。在→报 port；拉起中/需求已登记→starting。请求线程
+   零 probe 零 CreateProcess——串行服务器热路不再被 SW 的 ~1Hz boot
+   打出秒级停顿（面板重连/控制超时的第二根因，退役）。 */
 static void specBoot(char* resp, int respCap) {
-    DWORD now = tickNow();
-    int port = 0;
-    int found = 0;
-    if (now - g_specProbeAt > SPEC_PROBE_COOLDOWN_MS) {
-        g_specProbeAt = now;
-        found = specProbeAny(&port);
-        if (found) g_specPort = port;
-    } else {
-        port = g_specPort;
-        found = port != 0;
-    }
-    if (found) {
+    g_specDemandAt = tickNow();
+    if (g_specPort) {
         _snprintf(resp, respCap, "{\"ok\":true,\"spectrum\":true,\"port\":%d,\"ver\":\"%s\"}",
-                  port, PLUGIN_VERSION);
+                  g_specPort, PLUGIN_VERSION);
         return;
     }
-    if (g_specProc && WaitForSingleObject(g_specProc, 0) == WAIT_TIMEOUT) {
-        _snprintf(resp, respCap, "{\"ok\":true,\"spectrum\":false,\"starting\":true,\"ver\":\"%s\"}",
-                  PLUGIN_VERSION);
-        return;
-    }
-    if (g_specProc) {
-        /* 上一次拉起的进程已死：退出码留痕（0xC0000135=缺 DLL、
-           0xC0000022=权限、0x1=正常退——「助手根本没跑」的第一证据） */
-        DWORD ec = 0;
-        GetExitCodeProcess(g_specProc, &ec);
-        logf_line("[spec] helper exited code=%lu (0x%08lx) — boot respawn",
-                  (unsigned long)ec, (unsigned long)ec);
-        CloseHandle(g_specProc);
-        g_specProc = NULL;
-    }
-    specSpawn();
     _snprintf(resp, respCap, "{\"ok\":true,\"spectrum\":false,\"starting\":true,\"ver\":\"%s\"}",
               PLUGIN_VERSION);
 }
@@ -700,7 +687,8 @@ static void handleRequest(SOCKET s, const char* req, DWORD reqLen) {
     }
 
     if (_stricmp(method, "GET") == 0 && strncmp(path, "/api/state", 10) == 0) {
-        specEnsure(); /* v8.2.2：页面/SW 拉状态时附带保障频谱助手在场 */
+        /* v8.2.4：specEnsure 拆除——/api/state 热路零探测零 spawn，
+         * 页面 1Hz 拉状态不再可能被助手拉起卡死（重连根治） */
         static char out[STATE_MAX + 2];
         DWORD n = dataReadState(out, STATE_MAX);
         if (n == 0) n = (DWORD)_snprintf(out, STATE_MAX, "{\"ok\":false,\"name\":\"%s\",\"version\":\"%s\",\"ne\":null}", HUB_NAME_S, PLUGIN_VERSION);
@@ -709,7 +697,7 @@ static void handleRequest(SOCKET s, const char* req, DWORD reqLen) {
     }
 
     if (_stricmp(method, "POST") == 0 && strncmp(path, "/api/state", 10) == 0) {
-        specEnsure(); /* v8.2.2：桥 1Hz 推状态即保活——不依赖扩展触发 boot */
+        /* v8.2.4：桥心跳不再触发音频栈（keeper + 需求门接管） */
         dataStoreState(body, bodyLen);
         const char* ok = "{\"ok\":true}";
         respondJson(s, 200, ok, 11);
@@ -1001,6 +989,9 @@ void WINAPI BetterNCMPluginMain(void* apiPtr) {
     logf_line("[boot] elected as hub host — relay thread starting");
     HANDLE th = CreateThread(NULL, 0, hub_thread, NULL, 0, NULL);
     if (th) CloseHandle(th);
+    /* v8.2.4 频谱 keeper：探测/拉起撤离请求热路 + 按需门（电流音/重连根治） */
+    HANDLE kth = CreateThread(NULL, 0, spec_keeper_thread, NULL, 0, NULL);
+    if (kth) CloseHandle(kth);
     /* 立即返回，零阻塞（宿主加载律） */
     /* mx 故意不关闭：持锁至进程退出 */
 }
