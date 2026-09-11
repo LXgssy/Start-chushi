@@ -145,6 +145,7 @@
     var fadeMs = 0;
     var soft = null;          /* {from,at,dur} 恢复期软重锚（淡入期防漂移） */
     var guard = null;         /* v8.0.9 seek 护航窗 {from,to,at,dur,song} */
+    var unguardSoft = null;   /* v8.3.5 收窗软重锚源 {from,at}——收窗拍硬锚→软入轨 */
     var guardGraceAt = 0;     /* v8.1.0 护航窗收窗豁免期起点（真值跟随回退不算锯齿） */
     /* v8.1.0 回退熔断：上游源交替/快照滞后的回退拍拒收（乱跳防线纵深） */
     var backStreak = 0;
@@ -510,13 +511,17 @@
       if (guard && t && typeof t.position === "number" && isFinite(t.position)) {
         if (!sameSong(lastSnap ? String(lastSnap.title || "") : "", guard.song)) {
           guard = null;
-        } else if (Math.abs(t.position - guard.to) > 2) {
+        } else if (Math.abs(t.position - guard.to) > 0.8) {
           /* 旧轨迹上的陈旧快照或 NCM seek 应用中的中间态快照：一律保位
              （posNow 沿目标轨迹），窗口过期再诚实仲裁——中间态弃窗就是
              拖动后歌词跳回拖前段落的那一跳（v8.1.0） */
           keepPos = posNow();
         } else {
           guard = null; /* 真值已到目标附近，护航完成 */
+          /* v8.3.5 收窗软重锚源：feed 全量重锚是硬锚——收窗拍真值与乐观
+             显示差 ≤0.8s，>0.35s 的部分直接硬锚 = 歌词「咯噔」一下。
+             记下当前显示位置，锚点重建后按偏差带软入轨（600ms）。 */
+          unguardSoft = { from: posNow(), at: Date.now() };
         }
       }
       /* v8.1.3：全量重锚即解除恒源钉守（新快照自带最新真值） */
@@ -531,6 +536,16 @@
           : t && typeof t.fetchedAt === "number" ? t.fetchedAt : Date.now(),
       };
       soft = null; /* 新快照全量重锚：软窗口作废 */
+      /* v8.3.5 收窗拍软重锚恢复：偏差 0.35~2.5 带 600ms smoothstep 入轨
+         （正负双向——前进/回退 seek 的收窗拍都不再跳变）；带内 <0.35s
+         维持硬锚（肉眼阈下无感）。 */
+      if (unguardSoft && t && typeof t.position === "number" && isFinite(t.position)) {
+        var udAbs = Math.abs(t.position - unguardSoft.from);
+        if (udAbs > 0.35 && udAbs <= 2.5) {
+          soft = { from: unguardSoft.from, at: unguardSoft.at, dur: SOFT_MS };
+        }
+      }
+      unguardSoft = null;
       push();
     }
 
@@ -562,11 +577,14 @@
         if (guard) {
           var gEl = Date.now() - guard.at;
           var gTo = Math.abs(tk.position - guard.to);
-          if (gEl < guard.dur && gTo > 2 && prevPlaying === !!tk.playing) {
+          if (gEl < guard.dur && gTo > 0.8 && prevPlaying === !!tk.playing) {
             return; /* 同态陈旧拍/中间态：忽略，目标轨迹继续走 */
           }
           guard = null; /* 真值到达 / 翻转放行 / 窗口过期 → 正常仲裁 */
           guardGraceAt = Date.now(); /* 收窗豁免期：真值跟随的回退不算锯齿 */
+          /* v8.3.5 收窗软重锚源（feed 同律）：下方 reanchor 若硬锚会跳变，
+             记显示位置供 reanchor 分支软入轨。 */
+          unguardSoft = { from: expected, at: Date.now() };
         }
         /* v8.1.0 回退熔断（仅稳态跟踪期，grace 6s 豁免）：播放中位置比
            插值显示位置倒退 0.6~6s 的拍先拒收——上游 InfLink/元素双源
@@ -612,6 +630,7 @@
             anchor.playing && delta < 0.35) {
           reanchor = false;
         }
+        if (!reanchor) unguardSoft = null; /* v8.3.5：slew 吸收拍清软源（防残留） */
         if (reanchor) {
           capPos = 0; /* 重锚即解除钉守；rejHist 保留——重现证据靠 8s 窗口自然过期 */
           if (prevPlaying === false && tk.playing === true &&
@@ -620,6 +639,14 @@
           } else if (Math.abs(delta) > 2 || prevPlaying !== !!tk.playing) {
             soft = null;
           }
+          /* v8.3.5 收窗拍软重锚：同态拍 delta 0.35~2.5 带 600ms smoothstep
+             入轨（from=收窗拍显示位置）——seek 收窗不再「咯噔」；翻转拍/
+             大偏差拍不适用（诚实语义优先）。 */
+          if (unguardSoft && prevPlaying === !!tk.playing &&
+              Math.abs(delta) > 0.35 && Math.abs(delta) <= 2.5) {
+            soft = { from: unguardSoft.from, at: unguardSoft.at, dur: SOFT_MS };
+          }
+          unguardSoft = null;
           anchor.position = Math.max(0, tk.position);
           anchor.fetchedAt = typeof tk.fetchedAt === "number" && tk.fetchedAt > 0 ? tk.fetchedAt : Date.now();
         }
@@ -688,7 +715,7 @@
       /* 旁路唯一信号 = seek 护航窗（guard 仅 seek() 乐观重锚时设置）：
          backward 爬行源第 2 拍放行也走 reanchor，若拿硬重锚当旁路会把
          翻转原样放行（自败）；真 seek 的行号回退必须零延迟。 */
-      var bypass = (guard && nowG - guard.at < (guard.dur || 4500)) ||
+      var bypass = (guard && nowG - guard.at < (guard.dur || 3000)) ||
         Math.abs(ms - gPendMs) > GATE_JUMP_MS;
       if (fwd || bypass || nowG - gPendAt >= GATE_MS) {
         gLine = a.lineIndex; gPend = null; gHold = a;
@@ -731,7 +758,7 @@
             from: posNow(),
             to: s,
             at: Date.now(),
-            dur: 4500,
+            dur: 3000, /* v8.3.5：4.5→3s——真值 1~2.5s 内必到（桥读回即拍），过期多=seek 失败早诚实回锚 */
             song: lastSnap ? String(lastSnap.title || "") : "",
           };
           anchor.position = s;

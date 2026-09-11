@@ -101,7 +101,7 @@
   'use strict';
   if (window.__chushiMusicBridge) return;
 
-  var VER = '8.3.1';
+  var VER = '8.3.5';
   var HUB_NAME = 'chushi-music-hub';
   var HUB_PORTS = [26901, 26902, 26903];
   var BEAT_MS = 1000;
@@ -1038,9 +1038,20 @@
     function check() {
       tried++;
       var r = readPos();
-      if (r >= 0 && Math.abs(r - pos) < 2.5) { seekAck.ok = true; seekAck.at = nowMs(); return; }
+      if (r >= 0 && Math.abs(r - pos) < 2.5) {
+        seekAck.ok = true; seekAck.at = nowMs();
+        /* v8.3.5 读回终局即拍：真值（跳转后位置）立即推 hub，不等 BEAT_MS
+           1s 节拍——页面护航窗（0.8s 收窗）提前 ~1s 拿到真值，seek 后歌词
+           快速对齐（「跳转后要校准」根治的桥侧一刀）。 */
+        setTimeout(function () { try { beat().catch(function () { }); } catch (eS) { } }, 60);
+        return;
+      }
       if (tried < 3) { setTimeout(check, tried === 1 ? 580 : 1200); return; }
-      if (r >= 0) { seekAck.ok = false; seekAck.at = nowMs(); }
+      if (r >= 0) {
+        seekAck.ok = false; seekAck.at = nowMs();
+        /* v8.3.5：失败终局同样即拍——页面尽早诚实回锚（护航窗过期前） */
+        setTimeout(function () { try { beat().catch(function () { }); } catch (eS2) { } }, 60);
+      }
       /* r<0：全程无读回源 → ok 保持 null（诚实未知） */
     }
     setTimeout(check, 420);
@@ -1346,6 +1357,35 @@
     setInterval(function () { beat(); }, BEAT_MS);
     /* v8.2.9 命令快排循环：200ms 专职排空（与状态推送 beat 完全解耦） */
     setInterval(function () { drainCmds(); }, DRAIN_MS);
+    /* v8.3.5 后台抗节流心跳（「下一首歌已播一半才显示 + 控制没效果」根治）：
+       上面两组 setInterval 跑在网易云 CEF 页面主线程——网易云窗口最小化/
+       完全遮挡时 Chromium 对隐藏页 DOM timer 强节流（intensive throttling
+       链式定时器可至 1/min）→ 桥停摆：状态不推（面板/浮窗卡旧歌）、
+       命令不拉（控制无响应），窗口回前台才恢复（用户实测「下一首歌已播
+       一半才显示」的分钟级延迟即此）。Worker 的 timer 不在隐藏页节流域——
+       blob Worker 定时 postMessage 唤醒主线程（message 是任务不是 timer，
+       不节流）跑 beat/drainCmds。原 setInterval 保留兜底：Worker 创建失败
+       （CEF 禁用/安全策略）或被杀时退回旧行为；双驱动无害（beatBusy/
+       drainBusy 幂等守卫，重复触发被挡）。onerror 自毁退回纯 interval。 */
+    var hbWorker = null;
+    try {
+      var hbSrc = 'setInterval(function(){postMessage(1)},' + BEAT_MS + ');' +
+                  'setInterval(function(){postMessage(2)},' + DRAIN_MS + ');';
+      hbWorker = new Worker(URL.createObjectURL(
+        new Blob([hbSrc], { type: 'text/javascript' })));
+      hbWorker.onmessage = function (e) {
+        if (e.data === 1) { try { beat().catch(function () { }); } catch (eB) { } }
+        else if (e.data === 2) { try { drainCmds(); } catch (eD) { } }
+      };
+      hbWorker.onerror = function () {
+        try { hbWorker.terminate(); } catch (eT) { }
+        hbWorker = null;
+        traceCmd('hb', 'worker-down:legacy-interval');
+      };
+    } catch (eHB) {
+      hbWorker = null;
+      traceCmd('hb', 'worker-no:legacy-interval');
+    }
     /* 歌词请求超时重试（v8.0.7：备胎待命时不重试——歌词写入权也归持有者） */
     setInterval(function () {
       if (!iHold) return;

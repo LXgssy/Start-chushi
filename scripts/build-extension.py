@@ -35,7 +35,7 @@ OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
 EXT_SRC = ROOT / "extension-src"    # v8.2.0 SW/内容脚本源
-VERSION = "8.3.4"
+VERSION = "8.3.5"
 DEST = ROOT / f"download/v{VERSION}/ChuShi-NewTab-v{VERSION}.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():
@@ -223,6 +223,12 @@ for feat in ("ChuShiLyric", "parseWordText", "unitizeLine",  # 歌词引擎特�
              "OPT_MAX",                                         # v8.3.4 乐观窗顺延（播放键复位根治）
              "height:140px", "calc(100% - 18px)",               # v8.3.4 歌词容器加高+mask 固定渐隐（防裁切）
              "display:none;overflow:hidden",                    # v8.3.4 mini/full 壳裁切（高光防溢出）
+             # v8.3.5 逐字重影根治 + 高光照字提层 + seek 护航窗收紧
+             ".fw{position:relative;display:inline-block",      # v8.3.5 词壳 inline-block（两层文本基线重合）
+             "pointer-events:none;white-space:nowrap;",         # v8.3.5 .ov nowrap 双保险
+             ".meta{flex:1;min-width:0;position:relative;z-index:1}",  # v8.3.5 内容件提层（辉光之上）
+             ".rail{position:relative;z-index:1",
+             "seekGuard.to) <= 0.8", "seekGuard.at > 3000",     # v8.3.5 收窗 0.8s + 护航窗 3s
              "updateTiming"):                                   # v8.3.1 壳/封面统一形变时长
     if feat not in _card_js:
         sys.exit(f"ext-card.js 缺特征 {feat} —— 拼接/源码不完整")

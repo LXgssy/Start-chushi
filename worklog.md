@@ -164,42 +164,53 @@ Stage Summary:
 ---
 Task ID: 99
 Agent: main (Super Z)
-Task: 用户实机反馈三连——①不要给封面加高光（高光就在封面底下，「让高光明显」≠给封面加高光）②切下一句时上一句歌词的模糊有个「重置效果」③新开「初始」标签页聚焦在网址搜索栏不要聚焦——v8.3.3
+Task: 用户实机反馈三连——①高光归位（封面底下，封面不加高光）②上一句歌词模糊「重置感」双根治 ③新「初始」标签页不聚焦地址栏——v8.3.3
 
 Work Log:
-- 【取证②三段】computed style 层逐字节复刻（.fln 全同 CSS+同切类序列）四种环境（DPR1/1.25/1.5/backdrop 祖先）全部零突跳=类翻转论排除；CDP screencast 逐帧能量剖面抓到 t≈470ms（过渡结束帧）当前行锐度 46→71.6（+56%）=合成层动画结束降层重栅格化（0.94 起始纹理被放大到 1.06 后换原生烘焙）；帧带慢动作逐帧目检确认全程平滑、仅结束帧跳
-- 【根治②a】done 行常驻合成层（will-change:transform,filter）——done 静息 scale .94 与 raster 一致=零重栅格零阶跃；离屏 done 行 Chrome 自动裁 tile 层成本有界
-- 【根治②b】行界滞回门——位置源回跳两机制：SW/桥管线延迟拍、连续回退放行后 800ms smoothstep 入轨（上游滞后 ~1s 时导数 rate−k'δ 变负=显示倒退 ~150ms 跨回行界）→ 行号翻转 → 上一行 done→on→done = blur 取消倒放重演（字面「重置」）。门律：前进即时（逐行快一拍律不破）/ 后退与间奏候选持续 650ms 才采纳 / seekGuard+位置大跳 2.5s 立即放行。三层同修：ext-card.js lyricFrame + public/sandbox.js gateFrame（面板 mus.now 宿主预计算层）
-- 【新坑②门复位键】初版拿 lastSnap 对象身份做切歌复位——快照每拍都是新对象（生产 1Hz 轮询同样）=门每拍被复位形同虚设（e2e 实锤 11/13 穿门）；改 songId|title|lyricRev 三元组（且白名单后字段在快照顶层，track 子对象取值两连错）。【新坑②旁路】初版拿 lastHardAt 当旁路——backward 爬行源第 2 拍放行也走 reanchor 打点=旁路自败；改 seek 护航窗 guard 单信号（仅 seek() 设置）
-- 【修复①高光归位】封面 img brightness/saturate/contrast 滤镜退役（v8.2.7 提亮路线废），能量全走封面背后 .glow/.cs-glow（opacity 低音 0.68→0.85 基线 0.28/0.30、scale 0.08/0.075、外圈 -6/-8px blur 10/13px）；covClear/picImgEl 写入全拆；暂停态 .cs-pz 样式表滤镜与内联残留的老干扰连根拔
-- 【修复③焦点归位】page.tsx 挂载短窗（30ms~1s 六次重试 + focus 事件 1.2s 窗）body tabIndex=-1 focus 偷回；页面已有具体焦点元素一律不碰；敲键自然落 type-to-search（body 聚焦不挡 window 键事件）
-- 【门禁】build-extension.py VERSION 8.3.3 + 特征门（will-change:transform,filter/GATE_MS/gPend/lastHardAt）+ gone 门（c.img.style.filter 残留拒收）；build-smtc-preset.py + will-change + 0.30+pb*0.72 + picImgEl.style.filter 残留拒收（面板 JS 压缩去注释，注释特征门落空改代码级特征）；build-v833-assets.py 净目录幂等（目录扫描哈希混入陈旧 AllInOne=顺序缺陷实测）+ 显式四件清单哈希
-- 【取证】verify-v833-ext.mjs 11/11（NTP body 焦点+tabIndex=-1 / 像素级门压制 backward 双拍 0/14 重亮 / 扫描峰上移一行 1228ms / staged 法门四件）；verify-v833-panel.mjs 9/9（类级门压制 0/13 / 前进 34ms / 大步后退单次收敛 / done will-change=transform,filter / beat 期封面零内联滤镜 + 辉光 inline opacity=1）；probe-v833-gate.mjs 门内幕探针（临时仪器化取证后拆除）
-- 【回归律对齐】v827 F13b「封面随拍提亮」改判「封面恒定≤3 + 辉光承拍」；glow 套件 8 处旧律断言（旧增益/提亮滤镜/细节环）按归位律改写 14/14；v830 F30a v8.3.0 旧阈（+4px）与 v8.3.1 克制弹簧（~1%≈+3.2px）冲突→微过冲 ∈+[1,6]px（v8.3.1 时漏改，Task98 回归矩阵未含 v830 故潜伏）。终版全矩阵九套全绿：v833 11+9 / v832 9+13 / v831 14 / v827 全量 PASS+glow 14+panel 7 / v830 ALL GREEN
-- 【发布】main + tag v8.3.3 + Release 七资产 SHA 回读 4/4；交付 download/v8.3.3/ 双落位（NewTab zip / preset 8.3.3 / 桥 8.3.1 沿用 / 歌词源 7.3.0 沿用 / SHA256SUMS / 双名说明 / AllInOne）
+- 取证：computed style 四环境复刻全平滑（排除类翻转）→ CDP screencast 抓过渡结束帧锐度 46→71.6 突跳（降层重栅格化）→ 帧带目检
+- 修复：①done 行常驻提层（will-change）②行界滞回门（前进即时/后退 650ms 持续/seek 护航窗旁路；ext-card + public/sandbox 双层）③封面滤镜退役能量全走背后辉光（增益拉满）④page.tsx 挂载短窗 body focus 偷回
+- 新坑实录：门复位键禁用对象身份（快照每拍新对象=门每拍复位）；旁路单源化（seek guard）；测试舞台 /tmp/ext-stage 会陈旧（out→stage 仅随 Next 构建刷新）——门「失效」半数是舞台旧码假象；面板 JS 压缩去注释→特征门必须代码级；目录扫描哈希混陈旧→显式清单
+- 取证器：verify-v833-ext 11/11 + verify-v833-panel 9/9 新增；v827 F13b/glow 套件/v830 F30a 按新律改判；终版九套全绿
+- 发布：main + tag v8.3.3 + Release 七资产 SHA 回读 4/4；交付 download/v8.3.3/ 双落位
 
 Stage Summary:
-- 新律：①transform+filter 共动画的合成层在过渡结束降层重栅格化=确定性质感阶跃——静止态行必须常驻提层（静息 scale 与 raster 一致）；②任何「门」的复位键禁止用对象身份（快照每拍都是新对象），用业务三元组；③门旁路信号必须单源（seek 护航窗），凡非 seek 事件也会打的点都不能当旁路；④测试舞台会陈旧（out→stage 只随 bun build:extension 刷新），取证前必须核对 stage 与当前构建同代——本轮门「失效」半数是舞台旧码假象；⑤交付哈希显式列文件名，目录扫描必混陈旧；⑥取证判据必须贴合布局律（滚动居中=最亮行 y 恒定；逐字扫描=方差峰随当前行移动），首版 E3「最亮行下移」是错模型
 - 交付：https://github.com/LXgssy/Start-chushi/releases/tag/v8.3.3
-- 待办：用户实机验收（封面底下高光/上一句模糊平滑/新标签页焦点）；Edge 商店提交材料仍未做
+- 待办：用户实机验收；Edge 商店提交材料仍未做
 
 ---
 Task ID: 100
 Agent: main (Super Z)
-Task: 用户实机反馈四连（附截图）——①歌词被边框吃掉一部分（很多歌都这样）②标准态/完全态律动高光溢出容器 ③新歌词切上来「咯噔」④暂停/播放键按下「复位」——v8.3.4
+Task: 用户实机反馈四连（附截图）——①歌词被边框吃掉一部分②标准态/完全态律动高光溢出容器③新歌词切上来「咯噔」④暂停/播放键按下「复位」——v8.3.4
 
 Work Log:
-- 【取证①防裁切】长行（多行换行+翻译行）垂直居中后上下余量不足：mask 渐隐区旧 16%/84% 百分比（118px 容器≈19px）+ overflow 硬裁——行顶侵入渐隐区被淡化/吃掉（用户截图：当前行顶部削平+底部行裁半）。修复三连：flyr 118→140 / cs-lyr 124→146 加高（LY_H 同步，cshz 压缩后 24.9K<25.6K 门不动）+ 渐隐区固定 18px（calc(100% - 18px)，百分比随高度浮动退役）+ 行 padding 3→5px / 4→6px 呼吸
-- 【修复②防溢出】.glow（inset:-6px+blur10px+scale≤1.08）光晕超卡片圆角，v8.3.3 增益拉满后更明显——mini/full 壳静态 overflow:hidden（辉光仍在封面四周晕出但被卡片圆角裁住），cover 态保持晕出（56px 方块环绕光=设计本意）；形变期 style.overflow 临时值 removeProperty 后自然回落 CSS 默认，零冲突
-- 【取证③咯噔主因】翻译行 .fsub/.cs-sub display:none↔block 硬切——切行瞬间旧行高 -17px/新行高 +17px 两处布局瞬跳。修复：fsubw/csubw grid 包裹 + 显式 height 0↔16/17px 过渡（.38s 同曲线）——同行收/展抵消，下方行 offsetTop 恒定（P3a 实证 Δ=0）；滚动 target 逐帧追踪（lyrTrackUntil 560ms 窗内每帧重算，fsubw 过渡期 offsetHeight 连续变化由 transform transition 小步跟随，收敛终态精确居中）
-- 【新坑③·三连】①grid-template-rows 0fr↔1fr 在本环境实测离散跳变（0→17 一步无中间值，getAnimations=[]）——fr 插值不可信，改显式 height（length 插值 100% 可靠）；②翻译行 padding-top 在 0fr 轨道残 2px（min-content 含 padding）——间距走 line-height；③on 行提层实证反悔：任何 will-change（transform 或 filter）都把 raster 冻结在切行瞬间 .94，1.06 静息显示=整体放大采样模糊（F15b 对照实验：无提层 245 / transform 提层 203 / filter 提层 203）——当前行白亮（v8.2.3 两色调律核心）不可牺牲，提层撤销；blur 撤层的「变清晰」方向友好非用户所指咯噔
-- 【修复④防复位】乐观窗固定 2500ms 到期强制回落真值——SW 轮询 1Hz 最坏 ~2s 才拿新真值，窗口余量极小，桥/网易云慢时图标翻回再翻来=字面复位。新律（浮窗+面板同律）：真值对齐即退役（onState 路径 effPlaying 内清窗）+ 未对齐期间持续显示点击方向（顺延）+ OPT_MAX 7s 硬上限防桥挂死锁显；loopBody/render 只兜底硬上限触发重绘
-- 【门禁】build-extension.py VERSION 8.3.4 + 特征门（lyrTrackUntil/scrollLyricTo/fsubw/height:16px/OPT_MAX/height:140px/calc(100% - 18px)/display:none;overflow:hidden）；build-smtc-preset.py +（height:146px/cs-subw/height:17px/lyrTrackUntil/OPT_MAX）；smtc.ts CLIENT_VER 8.3.4 + EXTENSION_MODE 全量重建（组装器宿主 bundle 版本强制校验律）
-- 【取证】verify-v834-panel.mjs 12/12（连跑两次：146px+mask 固定/subw 展开 0fr 收起/transition 含 height/非 display 硬切/on 行零提层防 raster 冻结/切行下方行零扰动 Δ=0/收敛终态/零 pageerror）；verify-v834-ext.mjs 16/16（长行行顶亮像素 1226/卡外 B 28-30 无溢出+卡内辉光 B=101 活着/播放键像素质心定位+点击翻转+3.8s>旧窗不复位+真值对齐仍▶/staged 法门五件/零 pageerror）；probe-subw.mjs 过渡探针（0fr 离散跳变实锤仪器）
-- 【回归】九套全绿：v834 双（12/12+16/16）+ v833 双（11/11+9/9）+ v832 双（13/13+9/9）+ v831 ALL PASS + v830 ALL GREEN + v827-glow 14/14 + v827 全量 PASS（F15b 曾 203×2 确定性回归→提层反悔律后 245 恢复）
-- 【发布】main + tag v8.3.4 + Release 七资产 SHA 回读 4/4；交付 download/v8.3.4/ 双落位（NewTab zip/cshz 8.3.4/桥 8.3.1 沿用/歌词源沿用/SHA256SUMS/双名说明/AllInOne）；worklog 外部压缩覆写→git checkout 恢复后再追加（Ritual 再验证）
+- 【修复①防裁切】长行（多行换行+翻译行）居中余量不足侵入 mask 渐隐区——flyr 118→140 / cs-lyr 124→146 加高 + mask 固定 18px 渐隐 + 行 padding 呼吸（浮窗+面板双表面）
+- 【修复②防溢出】mini/full 壳 overflow:hidden——辉光被卡片圆角裁住（cover 态保持环绕光晕设计）
+- 【修复③防咯噔】翻译行 display 硬切（±17px 布局瞬跳）→ 显式 height 0↔16/17px 过渡 + 滚动 target 逐帧追踪（lyrTrackUntil）；实证：切行下方行 offsetTop Δ=0 零扰动
+- 【修复④防复位】乐观窗 2500ms 到期强制回落 → 真值对齐退役 + 顺延 + OPT_MAX 7s 硬上限（浮窗+面板同律）
+- 【实证三新律】①grid 0fr↔1fr 本环境离散跳变（getAnimations=[]）——高度动画一律显式 length；②will-change 是 raster 冻结器（F15b 对照 245/203/203）——on 行提层撤销，当前行白亮优先；③grid item padding/margin 计入 0fr min-content（残 2px）——轨道内间距走 line-height
+- 【门禁】VERSION 8.3.4 + 特征门 + CLIENT_VER 8.3.4 + EXTENSION_MODE 全量重建；verify-v834-ext 16/16（长行顶亮像素 1226/卡外无溢出 B28-30/辉光活着 B101/播放键像素差分 3.8s 不复位）+ verify-v834-panel 12/12 连跑两次；存量九套全绿（v833双/v832双/v831/v830/v827-glow/v827全量 PASS）
+- 【发布】main 9504051 + tag v8.3.4 + Release(id 387179049) 七资产 SHA 回读 4/4；worklog 外部压缩覆写→git checkout 恢复再追加；git add -A 因仓库大目录超时→显式清单 add（新律）；index.lock 残留清理
 
 Stage Summary:
-- 新律：①grid fr 插值在本环境离散跳变——高度动画一律显式 length（0fr↔1fr 技巧不可信，实测说话）；②will-change 是 raster 冻结器：任何合成层常驻提层都锁首次栅格 scale，transform 静息缩放比≠1 的元素提层前必须对照实验测亮度/锐度（F15b 三态对照 245/203/203 入档）；③grid item 的 padding/margin 计入 0fr 轨道 min-content——轨道内间距走 line-height；④乐观窗「到期回落」是复位感制造机——真值对齐退役+顺延+硬上限三件套才是完整语义；⑤双表面动效修复必须同步核查「同码律」下的测试舞台代际（本轮 P3b 时序脆弱=feed 推进恰好越界，before 读取点留足余量）
 - 交付：https://github.com/LXgssy/Start-chushi/releases/tag/v8.3.4
 - 待办：用户实机验收（歌词不裁/高光不溢/切行不咯噔/播放键不复位）；Edge 商店提交材料仍未做
+
+---
+Task ID: 101
+Agent: main (Super Z)
+Task: 用户实机反馈四连——①音乐面板无反应（歌词卡住/下一首播一半才显示/控制没效果）②中文歌逐字歌词重影（浮窗+面板）③seek 后歌词过快/过慢/要校准 ④高光照亮文字（文字层级须高于律动高光）——v8.3.5
+
+Work Log:
+- 【修复①桥 Worker 心跳】beat/drainCmds 跑在网易云 CEF 页面 setInterval——网易云窗口后台时 Chromium 强节流 DOM timer（可至 1/min）=桥停摆真根因（「下一首播一半才显示」的分钟级延迟+「控制没效果」全自洽）；桥 8.3.5 加 blob Worker 心跳（Worker timer 不在隐藏页节流域，postMessage 唤醒主线程跑 beat/drainCmds；原 interval 兜底，beatBusy/drainBusy 幂等守卫双驱动无害；onerror 自毁回退）+doSeek 读回终局即拍（ok/false 终局 60ms 后补 beat，真值提前 ~1s）；VER 8.3.1→8.3.5，PLUGIN_VER_MIN 同步 8.3.5 强制提示
+- 【修复②逐字重影】根因取证：.fw/.cs-w 词壳是 inline 相对定位，.ov（absolute）包含块顶=字体 em box 顶（content area），底字基线由 line box 排布——line-height 1.45 的半 leading 差 ≈3px，中文方块字笔画极敏感=重影（拉丁圆润不敏感，用户只见中文歌出影完全吻合）；修：词壳 inline-block 化（包含块=真块盒，内部 line box 与外部行盒基线对齐律一致）+.ov white-space:nowrap 双保险；浮窗 .fw + 面板 .cs-w 双表面同律
+- 【修复③seek 校准】三层：a)护航窗收窗容差 ±2s→±0.8s（真值落点差 1~2s 也收窗重锚=误差带内跳变，「每次跳转都要校准」体感主源）b)收窗拍 600ms smoothstep 软重锚（sandbox feed 全量重锚/tick reanchor 均硬锚→unguardSoft 机制软入轨，正负双向；ext-card 本有软带只收紧容差）c)护航窗 4.5→3s+桥读回即拍（真值 1~2.5s 内必到，过期多=seek 失败早诚实回锚）
+- 【修复④高光照字】层叠律取证：.glow/.cs-glow 是 positioned（z-index:0/auto），同 context 内 positioned 画在非定位内容之上——封面 img 有 z-index:1 压光但 .meta/.mtm/.rail/.cap/.flyr/.ftm/.fctl（浮窗 7 件）与 .cs-meta/.cs-seek/.cs-tm/.cs-ctl/.cs-foot/.cs-x（面板 6 件）全非定位→辉光 blur 晕出（-6~-8px+blur 10~13px≈16~21px）盖字；修：内容件全部 relative+z-index:1；高光语义不变（光仍在封面底下）
+- 【版本】CLIENT_VER 8.3.5+manifest 8.3.5+sandbox.ts iframe 缓存戳 bump（v=124/122）；build-extension.py 特征门+5 特征、build-smtc-preset.py 特征门+5 特征、build-v835-assets.py 新建（桥本版打包：md5 对拍+Worker 心跳特征门）、rel-v835.py（FORCE_REUPLOAD 六件）
+- 【取证新律】CDP DOM.getDocument({depth:-1,pierce:true}) 可深穿 closed Shadow DOM（probe 6 节点实证）——.fw computed display 与 .fw↔.ov getBoxModel 配对（parentId 映射，中途禁重拉快照防 nodeId 失效）；引擎取证改走 widget srcdoc 内 widgetShim（chushi.music 内嵌在 srcdoc 非 sandbox.html window）；opaque srcdoc rAF 节流下 DOM --p 不可测→引擎层 now(1) 断言
+- 【回归】v835 专项：浮窗 7/7（42 对词壳/覆盖层 Δ=0.00px）+面板 9/9；存量全绿：v834 双 16/16+12/12、v833 双 11/11+9/9、v832 双 13/13+9/9
+- 【发布】EXTENSION_MODE 全量重建+build-extension.py（防呆门过）→build-smtc-preset.py（25066 chars≤25600）→build-v835-assets.py（七件+特征门全过）→commit+tag v8.3.5+Release+SHA 回读
+
+Stage Summary:
+- 新律：①CEF 后台节流=桥停摆真身——页面内 timer 心跳必须搬 Worker；②inline 相对定位内的 absolute 覆盖层必有半 leading 基线错位——双层文本对齐一律 inline-block 化；③positioned 辉光天然画在非定位内容之上——内容件提层是唯一解；④CDP pierce 深穿 closed Shadow DOM 是浮窗取证新标准路径
+- 交付：https://github.com/LXgssy/Start-chushi/releases/tag/v8.3.5
+- 待办：用户实机验收（后台响应/重影/seek 对齐/文字不背光）；Edge 商店提交材料仍未做
