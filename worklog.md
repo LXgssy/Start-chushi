@@ -1519,3 +1519,26 @@ Stage Summary:
 - 结论：v8.2.8 发布——https://github.com/LXgssy/Start-chushi/releases/tag/v8.2.8；用户侧三件必换：①NewTab v8.2.8 ②桥 8.2.8+重启网易云（40Hz 在 native 二进制）③⌘K 重导入 cshz 8.2.8；歌词源 7.3.0 沿用
 - 新律：①「目录存在 ≠ 解压完整」——tar 被超时 kill 后部分解压最难察觉，库文件计数对拍（936 vs 313）是唯一真门；②「编译产物与旧版 md5 相同」的悖论=编译根本没成功（gcc error 被 head 吞、`;` 让 ls 显示旧文件）——关键产物必须 md5 前后对拍+error 落盘；③「间奏只对账高亮不跟滚动」这类「改了一半的修复」要用完帧视角复查（v8.2.4 补门修了高亮漏了滚动，三个月后才被用户跳转场景暴露）；④SMTC position 与音频输出的 ~100ms 系统性差是常数不是 bug——补偿常量集中在引擎入口一处；⑤deploy 脚本的 remote add 缺失是复发性假绿（五度），deploy 脚本自身必须内嵌 remote add+SHA 配对而非靠人肉补
 - 待办：用户实机验收（三件必换后：浮窗强行逐字跟随/跳转歌词立即对位/伴奏扫光定格/逐字与唱声对齐/无方框全频段律动/三态形变动画手感/鼓点跟手度）；「逐字超前 100ms」的补偿量如仍觉快/慢可微调 LYR_LAG_MS 一处常量（ext-lyric.js+sandbox.js 两处同值）；Edge 商店提交材料仍未做
+
+---
+Task ID: 94
+Agent: main (Super Z)
+Task: 用户实机第 12 轮反馈五连（附调试台截图：pluginver 8.1.7/hub 8.2.5/ver 8.2.8）——①桥响应迟钝（面板歌词进度冻结但浮窗正常 + 按暂停好久网易云才暂停）②逐行歌词慢了一点（快一点点就好）③取消右键浮窗隐藏→改面板「律动/浮窗」双开关（默认开）④FFT 采样点数提升到 128 ⑤三态切换动画封面位移复位 + 完全体跳一下——v8.2.9 发版
+
+Work Log:
+- 【现场重建】真树 /tmp/my-project（e8cf8a6=v8.2.8）；Edit 工具只认 /home/z（六度应验）→ /home/z/work-v829/ 镜像编辑 + cp 回同步；编译链已清理 → PAT 自 git remote 恢复，mstorsjo/llvm-mingw 20260826 ucrt ubuntu-22.04 重下（x86_64 lib 936 个 .a 对拍=解压完整，Task 93 门）
+- 【①桥迟钝双根因确诊】a) **命令串在 beat 尾部**：插件 beat 串行链 = poll 租约→probe→推状态(1.5s 超时)→selftest→拉命令(1.2s 超时)，hub 繁忙时最坏 ~4s/拍 + BEAT_MS=1000 → 命令平均 0.5s、最坏 5s 才被执行（「按了暂停好久才暂停」真凶）；b) **面板过早钉守冻结**：smtc.ts TRUTH_STALE_SEC=6 封顶年龄补偿——桥推送迟滞 >6s 时页面每拍喂恒定位置 → 锯齿 → 回退熔断 → 恒源钉守 capPos = 面板进度/歌词冻结，而浮窗（ext-bg fetchedAt=桥采样时刻不封顶）继续走针——「面板不动浮窗正常」的精确病理
+- 【①根治三刀】插件：命令拉取拆出独立 drainCmds()（200ms 专职循环 + drainBusy 守卫，协议律 v8.0.1/0.7/0.8 全保留，emptyStreak 防刷屏 5→25）——命令延迟 ~0.5-5s → ~0.1-0.3s；页面：hublog 诊断拉取 await→fire-and-forget（hubLogBusy 守卫，beat 恒 1s 节拍）+ TRUTH_STALE_SEC 6→12（12s 内与浮窗一致走真值年龄，超 12s 才钉守）；PLUGIN_VER_MIN 8.1.0→8.2.9 强制升桥（面板芯片如实提示；用户截图 pluginver 8.1.7 = 桥插件一直没升到 8.2.x 系）
+- 【②行级时钟分离】v8.2.8 的 LYR_LAG_MS=100（逐字唱声补偿）把行界判定也拖后 100ms → 逐行显慢。align/alignAt 增第三参 lineMode：逐行渲染 0ms / 逐字 -100ms；贯通三处——ext-lyric.js align + sandbox.js alignAt/now(lineMode) + widgetShim mus.now(m) 透传 + 两渲染层按 lyMode 传参；node 门 v829（行界 5000ms 逐行即切/逐字 100ms 后切 + v8.2.8 全回归）+ sandbox 核心行为门（@3.5s 行级=行2、逐字=行1）
+- 【③双开关】右键隐藏（storage.session 按站）整体退役；面板 cs-foot 新增「律动」(csGlowBtn→csGlow)「浮窗」(csFloatBtn→csFloat) 双开关（默认开，cs-tg 样式族与 cs-wbw 同源）；PresetWidgets mirrorExtCard 三合一镜像（csForceWord/csGlow/csFloat → cardForceWord/cardGlow/cardEnabled，挂载初始镜像 + storageSet 即时镜像）；浮窗：cardEnabled=false→sleepNow+隐藏+断 SW（轮询需求归零）/true→重连；cardGlow=false→三轴清零+covClear+spec 订阅撤（specMsgOn 门 = vis&&glow）
+- 【④128 段】BANDS 16→128（SPEC_VERSION 8.2.9 换血；hub.dll 引擎零扰律 md5=07011f2c 与 8.2.5 一致）；**实际映射律（本轮最大发现）**：FFT_N 2048@48k bin 宽 23.4Hz，50Hz 起对数频段低频侧被单调守卫线性化为「段 k≈bin k+2」（探针实证：100Hz 正弦峰在段 2 非 102！）——按理论对数表选轴必错位；bass 重定义 0..1/2..3/4..6 段（47~211Hz）分区带权（60Hz 底鼓稳态 0.36=拳感等价 16 段）；消费端全链路：ext-bg slice(0,128) + ext-card/music-widget bands.length≥100 双代自适应（中 9..84≈250Hz~2kHz / 高 85+≈2k~16kHz）+ smtc.ts envBands 随帧长重建（≤128 上限）；DSP 数学门 v829 五场景（静音/100Hz 峰段 2±1/满幅不饱和/60Hz 稳态 bass>0.3/1kHz 不进 bass）
+- 【⑤动画修订】用户实锤「封面都会位移去复位」= v8.2.7 引入的封面 clone 飞形在三个态切换都让封面飞行——退役（flyCoverClone/animsRemoveClones 整删），形变期内容淡出/淡入掩护封面原地重排；「完全体跳一下」真凶 = 切换即 applyPos 按新态宽度 clamp（贴右缘 264→324 先左跳 60px 再形变）——形变期钉住源位（toSurf.style.left/top=sfr 位），left/top 随形变动画到夹紧位，cleanup 才提交 pos；e2e F16 一镜到底中途帧取证对新版照样全过
+- 【体积门】面板 +双开关 → minified 24492 > 24000 → widgetHtmlLen 24000→25600（preset.ts + build-smtc-preset.py 两道数字门同批改——Task 100 漂移律）；cshz 特征门（csGlowBtn/csFloatBtn/mus.now(lyMode === 0)/bandAvg(n.bands, 9, 85)/glowOn2）
+- 【测试】lyric-engine-v829 全过（首跑 1 FAIL 是测试断言自己写错——4900ms 落行1行2 间奏 lineIndex=-1 才对）；dsp-gate-v829 全过（三度调标：场景隔离 g_bandV memset（包络状态跨场景泄漏=假红）、128 段 1-bin 段单帧=raw×攻 0.55 的标定律、稳态 12 帧）;verify-v827-ext 31/31 双跑全绿 + verify-v827-panel 7/7（/tmp/cover-test.jpg 测试素材曾失传→li-river.jpg 补位）；node --check 四 JS 门 + tsc 变更文件零错误（ignoreBuildErrors 常开）
+- 【发版】native spectrum 8.2.9 重编译（导入表 ole32/ws2_32/kernel32/ucrt 宪法门过；新旧 exe md5 对拍 acb035≠a1...）+ 桥 .plugin 8.2.9 重打包（manifest/index.js/新 exe 三件套，陈货 md5 对拍律再应验）+ EXTENSION_MODE=1 next build + build-extension.py 8.2.9（特征门 +双开关/行级时钟/128段 +gone 门 flyCoverClone/siteHidden/contextmenu）+ cshz 8.2.9（24492/25600）+ build-v829-assets.py 七件（SHA 回读 7/7）
+- 【发布】main e58aa2d + 2f3b406 推送 + tag v8.2.9 + Release id=386754467 七资产 SHA 回读 5/5；gh-pages 部署——**坑⑤六度应验**（v828 脚本 stage 缺 remote add + || true 吞错），v829 脚本级根治（显式 remote add + push 失败即退出 + SHA 短哈希配对 + 线上内容门）；线上实测：sandbox.js 含行级时钟 ✓、chunk cd950c58 含 8.2.9 ✓、HTTP 200（649a4ae built 配对）
+
+Stage Summary:
+- 结论：v8.2.9 发布——https://github.com/LXgssy/Start-chushi/releases/tag/v8.2.9；用户侧三件必换：①NewTab v8.2.9 ②桥 8.2.9+重启网易云（命令快排+128 段都在桥侧；面板芯片会提示）③⌘K 重导入 cshz 8.2.9（双开关+行级时钟）；歌词源 7.3.0 沿用
+- 新律：①「串行服务器/串行 beat 里，命令链路必须与数据链路分道」——轮询租约→推状态→自证→拉命令的串行链让命令延迟 = 全链超时之和，专职快排循环是唯一解；②「补偿常量必须分时基」——逐字唱声补偿（-100ms）错挂在行级时钟上就是「逐行慢了一点」，一个 align 入口两个时钟；③「理论映射 ≠ 实际映射」——128 段对数设计在 2048 FFT 下低频侧被单调守卫线性化（段 k≈bin k+2），一切按频段选轴的消费端必须以探针实测为准（100Hz 峰在段 2 非 102）；④「单帧包络值 = raw×攻」——包络状态是跨帧/跨场景的，测试场景必须 memset 隔离 + 稳态断言跑够帧数；⑤「面板与浮窗对同一真值的年龄语义必须一致」——6s 封顶 vs 不封顶的分叉就是「面板冻、浮窗走」的病理；⑥Edit 工具 /home/z 限制的镜像编辑流（/home/z/work-v829 编辑+cp 回）是 /tmp 真树的可靠工作律
+- 待办：用户实机验收（三件必换后：暂停 ~0.2s 生效/面板不再冻结/逐行快一拍/双开关行为/128 段细腻律动/动画封面不动+贴边不跳）；Edge 商店提交材料仍未做；wss 交付链路本轮未用（Release 直链已可用）
