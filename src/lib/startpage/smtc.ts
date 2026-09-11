@@ -94,7 +94,7 @@ const HUB_VER_MIN = "8.0.0";
    hub.dll 8.3.1 —— 旧桥必须升级（面板芯片如实提示）。v8.3.2 客户端随
    歌词景深动效升版（桥 8.3.1 沿用，无需再升）。 */
 const PLUGIN_VER_MIN = "8.3.1";
-const CLIENT_VER = "8.3.2";
+const CLIENT_VER = "8.3.3";
 const POLL_MS = 1000;
 const RETRY_MS = 1500;
 const TIMEOUT_MS = 2200;

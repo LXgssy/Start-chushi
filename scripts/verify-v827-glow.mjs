@@ -99,9 +99,9 @@ await mount();
 await setNow({ bass: 0.6, bands: null });
 await page.waitForTimeout(120);
 let g = await glowState();
-ok(Math.abs(parseFloat(g.opacity) - 0.54) < 0.011, "G1a bass=0.6 → glow opacity≈0.54（0.24+0.6×0.5，旧版 0.42）", JSON.stringify(g));
-ok(/scale\(1\.02[8-9]|scale\(1\.03/.test(g.transform), "G1b transform scale≈1.03（1+0.6×0.05）", g.transform);
-ok(g.imgFilter.indexOf("brightness(1.18)") >= 0, "G1c 封面提亮 filter brightness(1.18)=1+0.6×0.3（变亮律）", g.imgFilter);
+ok(parseFloat(g.opacity) > 0.70 && parseFloat(g.opacity) < 0.83, "G1a bass=0.6 → glow opacity≈0.767（v8.3.3 归位律 0.30+0.6^0.85×0.72）", JSON.stringify(g));
+ok(/scale\(1\.04[0-9]|scale\(1\.05[0-2]/.test(g.transform), "G1b transform scale≈1.045（v8.3.3 1+0.6×0.075）", g.transform);
+ok(g.imgFilter === "", "G1c 封面本体零滤镜（v8.3.3 高光归位律：能量全走辉光）", g.imgFilter);
 ok(g.transition === "none", "G1d 逐帧直写时 transition=none（防过渡追逐）", g.transition);
 
 /* ---- G2 中频细节环（bass 哑火中频独舞） ---- */
@@ -110,23 +110,23 @@ await setNow({ bass: 0.001, bands: midBands });
 await page.waitForTimeout(120);
 g = await glowState();
 const ro = parseFloat(g.ring);
-ok(ro > 0.05, `G2a 中频驱动细节环 opacity=${g.ring} >0.05（无中频死区）`, JSON.stringify(g));
+ok(parseFloat(g.opacity) > 0.30 && /scale\(1\.00[2-9]/.test(g.transform), "G2a 中频驱动辉光抬升+呼吸（细节环 v8.2.8 已废）", JSON.stringify(g));
 ok(parseFloat(g.opacity) > 0.245, "G2b 中频抬升辉光（0.24 基态之上）", g.opacity);
-ok(g.imgFilter.indexOf("brightness(1.008)") >= 0, "G2c 中频微贡献亮度（1+0.086×0.09）", g.imgFilter);
+ok(g.imgFilter === "", "G2c 中频路径封面零滤镜（v8.3.3 归位律）", g.imgFilter);
 
 /* ---- G3 高频饱和 ---- */
 const hiBands = new Array(16).fill(0); hiBands[13] = 0.9;
 await setNow({ bass: 0.001, bands: hiBands });
 await page.waitForTimeout(120);
 g = await glowState();
-ok(g.imgFilter.indexOf("saturate(1.045)") >= 0, "G3 高频驱动饱和 saturate(1.045)=1+0.15×0.3", g.imgFilter);
+ok(g.imgFilter === "", "G3 高频路径封面零滤镜（v8.3.3 归位律，saturate 退役）", g.imgFilter);
 
 /* ---- G4 静默交还（含 img filter 与 ring） ---- */
 await setNow({ bass: 0, bands: null });
 await page.waitForTimeout(150);
 g = await glowState();
-ok(g.opacity === "" && g.transform === "" && g.transition === "" && g.imgFilter === "" && g.ring === "",
-   "G4 静默 → 内联样式全交还样式表（glow+ring+img filter）", JSON.stringify(g));
+ok(g.opacity === "" && g.transform === "" && g.transition === "" && g.imgFilter === "",
+   "G4 静默 → 内联样式全交还样式表（glow；img filter v8.3.3 起恒空）", JSON.stringify(g));
 
 /* ---- G5 旧宿主（now 无 bass/bands 字段）守卫降级 ---- */
 await setNow({ bass: undefined, bands: undefined });
@@ -151,11 +151,11 @@ ok(g.opacity === "", "G7a 暂停态 → 律动不生效", JSON.stringify(g));
 await setPlaying(true);
 await page.waitForTimeout(120);
 g = await glowState();
-ok(g.opacity !== "" && g.imgFilter !== "", "G7b 恢复播放 → 律动回归（glow+亮度）", JSON.stringify(g));
+ok(g.opacity !== "" && parseFloat(g.opacity) > 0.5 && g.imgFilter === "", "G7b 恢复播放 → 辉光回归且封面零滤镜（v8.3.3）", JSON.stringify(g));
 
 /* ---- 零异常 ---- */
 ok(pageErrors.length === 0, "部件零 pageerror", pageErrors.slice(0, 3).join(" | "));
 
-console.log(`\n=== v8.2.7 部件律动（变亮律+细节环）: ${passed} 通过, ${failed} 失败 ===`);
+console.log(`\n=== v8.2.7 部件律动（v8.3.3 高光归位律改判）: ${passed} 通过, ${failed} 失败 ===`);
 await browser.close();
 process.exit(failed ? 1 : 0);

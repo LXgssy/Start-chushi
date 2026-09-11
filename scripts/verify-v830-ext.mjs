@@ -236,8 +236,11 @@ if (reachable) {
   for (let i = 0; i < frames.w.length; i++) {
     if (frames.w[i] > maxW) { maxW = frames.w[i]; maxT = frames.t[i]; }
   }
-  chk("F30a 真弹簧过冲（形变峰值宽 " + maxW + " > 终值 " + fullW + " + 4 = 有回弹，非线性）",
-    fullW > 300 && maxW >= fullW + 4);
+  /* v8.3.3 判据对齐：v8.3.1 弹簧克制化（壳 dock standard 同参 ζ≈0.83，
+     目标 ~1% 微过冲 ≈ +3.2px）——过冲必须存在（非线性弹簧非缓动）但
+     必须克制（≤+6px）；旧门 +4 是 v8.3.0 大回弹时代阈值 */
+  chk("F30a 克制弹簧微过冲（形变峰值宽 " + maxW + " ∈ 终值 " + fullW + " +[1,6] = 有回弹且克制）",
+    fullW > 300 && maxW >= fullW + 1 && maxW <= fullW + 6);
   /* 收敛取证：最后一次偏离终值 ±3px 的时间在 380~900ms（≈ 弹簧 550ms ± 余量） */
   let lastMove = 0;
   for (let i = 0; i < frames.w.length; i++) {

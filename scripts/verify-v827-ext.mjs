@@ -295,7 +295,9 @@ if (reachable) {
     for (const [r0] of ringSamples) ringMin = Math.min(ringMin, r0);
     chk("F13a 封面四周辉光晕出（环带脉冲可见，峰值 r=" + ringMax + " > 底色 28）", ringMax > 60);
     chk("F13a2 环带呼吸幅度（max-min r = " + (ringMax - ringMin) + " ≥ 25 = 辉光真的在律动）", ringMax - ringMin >= 25);
-    chk("F13b-变亮 封面本体随拍提亮（中心 9 帧最大波动 " + spread + " ≥ 9；img 未加载时由环带幅度兜底 F13a2）", spread >= 9);
+    /* v8.3.3 高光归位律改判：封面本体滤镜退役——中心必须恒定（波动≈0），
+       律动由环带（F13a2）承担；中心若还在波动 = 旧「封面提亮」路线回潮 */
+    chk("F13b-归位 封面本体恒定（中心 9 帧最大波动 " + spread + " ≤ 3 = 高光在封面底下）", spread <= 3);
     chk("F13b-层叠 色调守恒（r-g 漂移 " + hueDrift + " ≤ 45；辉光糊脸态必 >100）", hueDrift <= 45);
     await p2.screenshot({ path: `${SHOTS}/v823-b-glow.png` }).catch(() => {});
     await tab.evaluate(() => new Promise((res) => chrome.storage.local.set({ cardAcc: "#22d3ee" }, res)));

@@ -1,5 +1,23 @@
 /* ============================================================================
- * 「初始」ext-card v8.3.2 —— 内容脚本：悬浮音乐卡（置顶所有网页，三态）
+ * 「初始」ext-card v8.3.3 —— 内容脚本：悬浮音乐卡（置顶所有网页，三态）
+ *
+ * v8.3.3 用户实机反馈三连：
+ *   ① 高光归位（用户：不要给封面加高光，高光就在封面底下；让高光
+ *      明显 ≠ 给封面加高光）——封面本体 brightness/saturate/contrast
+ *      滤镜退役（v8.2.7「封面提亮」路线废弃），能量全部改走封面背后
+ *      的 .glow 层（不透明度增益 0.68→0.85 / 基线 0.28 / scale 0.08，
+ *      外圈 -6px blur 10px），光环只从封面四周晕出，封面图恒定不动。
+ *   ② 上一句歌词模糊「重置感」双根治：a) done 行常驻合成层
+ *      （will-change）——blur/scale 过渡结束的降层重栅格化把合成器
+ *      实时模糊换成原生烘焙模糊 = 定住瞬间质感阶跃（像素取证：当前行
+ *      边缘能量过渡末 46→71.6 突跳）；b) 行界滞回门——位置源回跳
+ *      （SW/桥管线延迟、连续回退放行后软重锚入轨导数变负）让行号
+ *      跨界翻转，上一行 done→on→done = blur 取消倒放重演。门律：
+ *      前进即时 / 后退与间奏候选持续 650ms 才采纳 / seekGuard 与
+ *      硬跟随 300ms 内及位置大跳 2.5s 立即放行（真 seek 零延迟）。
+ *   ③ 新标签页焦点归位（用户：新开「初始」不要聚焦网址栏）——见
+ *      src/app/page.tsx（挂载短窗 body focus 偷回，type-to-search 接管）。
+ *      （面板宿主 sandbox.js 同款滞回门，public/ 真身）
  *
  * v8.3.2 用户实机反馈两连：
  *   ① 歌词高斯模糊景深（用户：未播放/已播放歌词要有高斯模糊）——非当前
@@ -322,8 +340,8 @@
     'color-mix(in srgb,var(--acc,#8b5cf6) 13%,transparent))}' +
     '.cov img{width:100%;height:100%;object-fit:cover;display:block;' +
     'border-radius:inherit;position:relative;z-index:1}' +
-    '.glow{position:absolute;inset:-5px;border-radius:14px;background:var(--acc,#8b5cf6);opacity:0;' +
-    'filter:blur(9px);pointer-events:none;z-index:0}' +
+    '.glow{position:absolute;inset:-6px;border-radius:15px;background:var(--acc,#8b5cf6);opacity:0;' +
+    'filter:blur(10px);pointer-events:none;z-index:0}' +
     /* v8.2.8 去方框律：.gring 细节环废弃（用户：方框太丑）——中高频
        细节改由辉光本体 opacity/scale 的全频段合成承担（paintGlow） */
     '.meta{flex:1;min-width:0}' +
@@ -381,7 +399,12 @@
     'filter:blur(2px);' +
     'transition:color .35s ease,transform .45s cubic-bezier(.22,1,.36,1),filter .45s cubic-bezier(.22,1,.36,1)}' +
     '.fln.on{color:#f4f4f5;transform:scale(1.06);filter:blur(0)}' +
-    '.fln.done{color:#8e8e96;filter:blur(1.1px)}' +
+    /* v8.3.3 模糊防重置律：done 行常驻合成层——blur/scale 过渡结束的
+       降层重栅格化会把「合成器实时模糊」换成「原生烘焙模糊」，上一句
+       的模糊在定住瞬间发生质感阶跃（用户：模糊有重置效果）。done 行
+       静息 scale .94 与 raster 比例一致，常驻提层零重栅格零阶跃；
+       离屏 done 行由 Chrome 自动裁 tile，层成本有界。 */
+    '.fln.done{color:#8e8e96;filter:blur(1.1px);will-change:transform,filter}' +
     '.fln.done .fw{color:#8e8e96}' +
     '.fln.done .fw .ov{opacity:0;transition:opacity .6s ease}' +
     '.fln.gap{font-size:11px;letter-spacing:7px;color:#71717a}' +
@@ -947,7 +970,9 @@
       return;
     }
     track = nt; softA = null;       /* 大偏差：诚实硬跟随 */
+    lastHardAt = now;               /* v8.3.3 行界滞回门的 seek 级旁路信号 */
   }
+  var lastHardAt = 0;               /* 最近一次硬跟随时刻（门 300ms 内放行） */
 
   function fmt(s) {
     s = Math.floor(s || 0);
@@ -1094,13 +1119,38 @@
       }
     }
   }
+  /* v8.3.3 行界滞回门（上一句模糊「重置感」根治之二）：位置源回跳
+     （SW/桥管线延迟、连续回退放行后的软重锚入轨在上游滞后 ~1s 时
+     导数变负=显示倒退 ~150ms）会让 align 行号跨界翻转——上一行刚进
+     done（blur 0→1.1 在飞）又被重点亮（取消+倒放+重演 = 字面意义的
+     模糊重置）。门律：前进即时（零延迟不伤同步/逐行快一拍律不破）；
+     后退/间奏类候选须持续 650ms 才采纳（真 seek 回退必然满足，锚点
+     噪声 1-3 帧即死）；护航期内或候选出现后位置又硬跳（>2.5s 或
+     lastHardAt 300ms 内）= 真 seek 立即放行。 */
+  var gPend = null, gPendAt = 0, gPendMs = 0;
+  var GATE_MS = 650, GATE_JUMP_MS = 2500, GATE_HARD_MS = 300;
   function lyricFrame() {
     if (!lineEls.length || !ly.parsed) return;
     var ms = posNow() * 1000;
     /* v8.2.9 行级时钟分离：逐行渲染（lyMode=0）用原始时基（行界快一拍，
        用户反馈「逐行慢了一点」）；逐字扫光保持 -100ms 唱声补偿。 */
     var n = ChuShiLyric.align(ly.parsed, ms, lyMode === 0);
+    var gateHold = false;
     if (n.lineIndex !== activeLine) {
+      var nowG = Date.now();
+      if (gPend !== n.lineIndex) { gPend = n.lineIndex; gPendAt = nowG; gPendMs = ms; }
+      var fwd = n.lineIndex > activeLine;
+      var bypass = seekGuard || nowG - lastHardAt < GATE_HARD_MS ||
+        Math.abs(ms - gPendMs) > GATE_JUMP_MS;
+      if (fwd || bypass || nowG - gPendAt >= GATE_MS) {
+        gPend = null;                 /* 放行：真值帧进下方切换分支 */
+      } else {
+        gateHold = true;              /* 压制：本帧维持原判（n 不动，词扫描分支自然跳过） */
+      }
+    } else {
+      gPend = null;
+    }
+    if (!gateHold && n.lineIndex !== activeLine) {
       if (n.lineIndex < 0) {
         /* 间奏：自然流入（activeLine === lastLine）高光保持不动；
            跨间奏跳入按已唱界对账。activeLine 保持行号（非 -1），
@@ -1291,8 +1341,7 @@
     return k * k * (3 - 2 * k);
   }
   function covClear(c) {
-    c.on = 0; c.lf = c.lo = c.lt = "";
-    c.img.style.filter = "";
+    c.on = 0; c.lo = c.lt = "";
     c.glow.style.opacity = "";
     c.glow.style.transform = "";
   }
@@ -1303,15 +1352,15 @@
     for (var k in COVS) {
       var c = COVS[k];
       if (k !== mode || !act || ramp === 0) { if (c.on) covClear(c); continue; }
-      /* v8.3.1：归一化值 + pow 0.75（0.85→0.75 再提小信号可见度）+
-         增益整体上调（brightness 0.30→0.42 / glow 0.52→0.68）——弱歌
-         拉满、响歌贴顶，节拍拳感肉眼可辨 */
+      /* v8.3.3 高光归位律（用户：不要给封面加高光，高光就在封面底下）：
+         封面本体 brightness/saturate/contrast 滤镜整体退役（v8.2.7
+         「封面提亮」路线废弃）——能量全部改走辉光本体（封面背后
+         .glow 层，z-index:0 被 img 压住，光环只从四周晕出）：
+         不透明度增益拉满（低音主推 0.68→0.85，基线 0.20→0.28）+
+         呼吸幅度加大（scale 0.06→0.08）；封面图本体恒定不动。 */
       var pb = Math.pow(n.b, 0.75), pm = Math.pow(n.m, 0.75), ph = Math.pow(n.h, 0.75);
-      var f = "brightness(" + (1 + (pb * 0.42 + pm * 0.18) * ramp).toFixed(3) + ") saturate(" +
-        (1 + (ph * 0.36) * ramp).toFixed(3) + ") contrast(" + (1 + (pb * 0.06) * ramp).toFixed(3) + ")";
-      var go = Math.min(1, (0.20 + pb * 0.68 + pm * 0.26 + ph * 0.12) * ramp).toFixed(3);
-      var gt = "scale(" + (1 + (n.b * 0.06 + n.m * 0.03 + n.h * 0.016) * ramp).toFixed(4) + ")";
-      if (f !== c.lf) { c.lf = f; c.img.style.filter = f; }
+      var go = Math.min(1, (0.28 + pb * 0.85 + pm * 0.34 + ph * 0.16) * ramp).toFixed(3);
+      var gt = "scale(" + (1 + (n.b * 0.08 + n.m * 0.038 + n.h * 0.02) * ramp).toFixed(4) + ")";
       if (go !== c.lo) { c.lo = go; c.glow.style.opacity = go; }
       if (gt !== c.lt) { c.lt = gt; c.glow.style.transform = gt; }
       c.on = 1;

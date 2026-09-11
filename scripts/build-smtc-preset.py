@@ -61,9 +61,12 @@ for feat in ("csGlowBtn", "csFloatBtn", "csGlow", "csFloat",
              "mus.now(lyMode === 0)", "bandAvg(n.bands, 9, 85)", "glowOn2",
              # v8.3.2 歌词动效与浮窗对齐（呼吸缩放 + 高斯模糊景深 + 时序）
              "transform:scale(1.06)", "filter:blur(2px)", "filter:blur(1.1px)",
-             "transform .45s var(--ez)", "filter .45s var(--ez)"):
+             "transform .45s var(--ez)", "filter .45s var(--ez)",
+             # v8.3.3 done 行提层 + 高光归位（封面滤镜退役）
+             "will-change:transform,filter", "0.30 + pb * 0.72"):
     assert feat in html, f"cshz 缺 v8.2.9 特征 {feat!r}——重建遗漏"
 assert "cs-ring" not in html.replace("cs-ring 废弃", ""), "cshz 代码残留 cs-ring"
+assert "picImgEl.style.filter" not in html, "cshz 封面滤镜残留——高光归位律未落地，拒绝"
 assert len(code) <= 16000, f"script code 超限: {len(code)} > 16000"
 # widget html 不能含外链脚本/资源（iframe 不透明源本就加载不了，这里防手滑）
 # v8.0.1：data-URI 兜底封面合法；xmlns 命名空间标识（w3.org）不是外链资源，剔除后再查

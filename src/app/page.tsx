@@ -206,6 +206,34 @@ export default function Home() {
     smtc.start();
   }, [mounted]);
 
+  /* ---------- v8.3.3 新标签页焦点归位（用户：新开「初始」不要聚焦网址栏）----------
+     Chrome 打开新标签页时把焦点交给地址栏（omnibox）——挂载后短窗内把
+     焦点偷回页面：body 设 tabIndex=-1 后 focus()，敲键自然落入全局
+     type-to-search（start:focus-search，body 聚焦不挡 window 键事件）。
+     只在前 ~1.2s 抢（多次重试赢 Chrome 的 omnibox 焦点竞速；页面内已有
+     具体焦点元素——输入框/部件 iframe——一律不碰），之后绝不和用户抢。 */
+  useEffect(() => {
+    if (!mounted) return;
+    const body = document.body;
+    if (body.tabIndex !== -1) body.tabIndex = -1;
+    const t0 = Date.now();
+    const steal = () => {
+      const ae = document.activeElement;
+      if (ae === body || ae === document.documentElement) {
+        body.focus({ preventScroll: true });
+      }
+    };
+    const timers = [30, 120, 260, 450, 700, 1000].map((d) => window.setTimeout(steal, d));
+    const onFocus = () => {
+      if (Date.now() - t0 < 1200) steal();
+    };
+    window.addEventListener("focus", onFocus);
+    return () => {
+      timers.forEach((t) => clearTimeout(t));
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [mounted]);
+
   /* ---------- 预设自定义 CSS（animations 字段，导入时已净化）----------
      单一 <style> 承载全部已装预设的样式，安装顺序即优先级；
      删除预设即整体重算，无残留 */
