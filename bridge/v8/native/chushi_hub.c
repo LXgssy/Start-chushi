@@ -91,7 +91,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define PLUGIN_VERSION "8.2.5"
+#define PLUGIN_VERSION "8.3.1"
 #define HUB_NAME_S "chushi-music-hub"
 #define HUB_MUTEX_NAMEW L"ChuShi-Music-Hub-8-Singleton"
 
@@ -530,18 +530,21 @@ static void specSpawn(void) {
 /* v8.2.4 keeper 线程：探测+拉起全部撤离请求线程（v8.2.2 specEnsure 在
  * /api/state 热路上内联 CreateProcess/探测——hub 串行单连接服务器被
  * 慢 spawn 卡住 = 面板重连 + 浮窗控制失灵的总根因，退役）。
- * 节拍 5s；按需门：/api/spectrum-boot 需求 120s 内在场才允许 spawn。
- * 助手 60s 空闲自退后不再被无脑复活（v8.2.2 的 ~80s boot 循环废止）；
- * 消费者回来时 SW/面板的 boot 请求会刷新需求 → keeper 5s 内拉起。 */
-#define SPEC_KEEPER_PERIOD_MS 5000
-#define SPEC_DEMAND_WINDOW_MS 120000
+ * v8.3.1 拉起政策改写（用户实机反馈：助手启动太慢 + 暂停久了会停）——
+ *   「网易云一启动它就应该启动；只要网易云在运行就不要停止运行」。
+ *   本 DLL 住在网易云进程内 = 宿主存活 ⟺ 网易云存活，keeper 无需任何
+ *   需求令牌：助手不在场就拉起（首拍 1.2s、此后每 3s）。需求门 retired：
+ *   拉起的只是进程，引擎仍由助手自己的需求门把守（零消费者不碰
+ *   WASAPI，电流音/churn 防护完整保留），空闲进程成本 ≈ 一个 300ms
+ *   睡眠循环。原 120s 需求窗仅在 8.2.4~8.3.0 生效。 */
+#define SPEC_KEEPER_PERIOD_MS 3000
 static DWORD WINAPI spec_keeper_thread(LPVOID arg) {
     (void)arg;
     /* v8.2.5：网易云进程内让核给音频线程（电流音根治 hub 刀） */
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+    Sleep(1200); /* v8.3.1：网易云启动后 ~1.2s 即首拍拉起（原 5s+需求窗） */
     for (;;) {
         Sleep(SPEC_KEEPER_PERIOD_MS);
-        DWORD now = tickNow();
         int port = 0;
         if (specProbeAny(&port)) { g_specPort = port; continue; } /* 在位：收养 */
         g_specPort = 0;
@@ -557,10 +560,8 @@ static DWORD WINAPI spec_keeper_thread(LPVOID arg) {
                 continue; /* 已拉起，仍在初始化/监听中——不重复拉 */
             }
         }
-        if (g_specDemandAt == 0 || now - g_specDemandAt > SPEC_DEMAND_WINDOW_MS) {
-            continue; /* 无需求：绝不拉起（电流音/churn 根治核心） */
-        }
-        logf_line("[spec] demand fresh & helper absent — spawning (keeper)");
+        /* v8.3.1：宿主在场即拉起（需求门退役——网易云活着就是需求） */
+        logf_line("[spec] host alive & helper absent — spawning (keeper)");
         specSpawn();
     }
     return 0;

@@ -50,11 +50,14 @@
  *   v7.0.x 四代崩溃根因全是进程内 COM）。频谱采集（WASAPI loopback）绕不开
  *   COM —— 于是把 COM 关进本独立进程：hub.dll 只做 CreateProcess + Job
  *   Object 拉起/监护（纯 kernel32，宪法不破），本进程崩溃/卡死波及不到
- *   网易云。生命周期四保险：
+ *   网易云。生命周期（v8.3.1 改写：进程随宿主常驻，暂停不停服）：
  *     ① Job Object KILL_ON_JOB_CLOSE——hub 所在进程（网易云）退出即杀；
- *     ② 空闲自退——/api/spectrum 数据请求沉默 60s 自杀（没人听就不算）；
+ *     ② （v8.3.1 拆除）空闲自退——原 60s 数据沉默自杀已退役：只要网易云
+ *        在运行进程就常驻（用户律），暂停期只是引擎按需求门摘管（③下）；
  *     ③ hub 重启（同进程重载 DLL）→ boot 端点先探测端口，孤儿直接收养；
- *     ④ 设备失效（拔耳机/切默认设备）→ 采集线程 800ms 退避重初始化。
+ *     ④ 设备失效（拔耳机/切默认设备）→ 采集线程 800ms 退避重初始化；
+ *     ⑤ 引擎需求门（CAP_IDLE_STOP）：零消费者 >10s → Stop 摘除 loopback
+ *        （电流音防护），需求回来 <3s 新鲜 → Start 回位——进程在、引擎随需。
  *
  * 端点（仅 127.0.0.1，26911 被占退 26912/26913）：
  *   GET /api/ping      身份（name=chushi-spectrum）
@@ -78,7 +81,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define SPEC_VERSION "8.2.9"
+#define SPEC_VERSION "8.3.1"
 #define SPEC_NAME_S "chushi-spectrum"
 #define SPEC_MUTEX_NAMEW L"ChuShi-Spectrum-Singleton"
 
@@ -92,7 +95,7 @@
 #define F_HI 16000.0               /* 最高频段终点 Hz */
 #define DB_FLOOR 66.0              /* 归一化动态窗（-66dB..0dB → 0..1） */
 #define RING_N (FFT_N * 8)         /* 采样环（单声道 float） */
-#define IDLE_EXIT_MS 60000         /* 数据请求沉默自退 */
+#define IDLE_EXIT_MS 60000         /* （v8.3.1 退役）数据请求沉默自退 */
 #define ATTACK 0.55f               /* C 侧平滑：快攻 */
 #define RELEASE 0.22f              /* C 侧平滑：慢放 */
 #define DB_FLOOR_V824 60.0         /* v8.2.4 幅域动态窗（-60dB..0dB → 0..1） */
@@ -893,7 +896,6 @@ int main(void) {
         tv.tv_usec = 0;
         int ready = select((int)ls + 1, &rs, NULL, NULL, &tv);
         if (ready <= 0) {
-            DWORD now = GetTickCount();
             /* v8.2.3 健康心跳（每 10s 一行）：pkts 不涨 = 采集面无声（设备/
                输出错位）；pkts 涨 bass 0 = DSP 面；served=0 = 消费面没来。 */
             static int hb = 0;
@@ -909,16 +911,12 @@ int main(void) {
                           (unsigned long)InterlockedCompareExchange(&g_specServed, 0, 0),
                           port);
             }
-            DWORD last = (DWORD)InterlockedCompareExchange(&g_lastDataReqTick, 0, 0);
-            if (now - last > IDLE_EXIT_MS) {
-                logf_line("[idle] no spectrum request for %us — self exit", IDLE_EXIT_MS / 1000);
-                /* v8.2.4 优雅退出：置旗标 → 采集线程 Stop/Release/CoUninit
-                 * 收摊 → 等离场事件（最多 3s，卡死兜底同旧行为） */
-                InterlockedExchange(&g_exitFlag, 1);
-                if (g_capGone) WaitForSingleObject(g_capGone, 3000);
-                logf_line("[exit] process exit (clean)");
-                return 0;
-            }
+            /* v8.3.1 空闲自退拆除（用户实机反馈：暂停时间过久助手就没了——
+               「只要网易云在运行 chushi-spectrum 就不要停止运行」）。进程
+               生命周期 = 宿主生命周期（hub keeper 拉起 + Job Object
+               KILL_ON_JOB_CLOSE 随网易云退出回收），暂停期只是引擎按需
+               摘管（CAP_IDLE_STOP 需求门照旧——电流音防护不变），进程
+               本体常驻：复播时引擎 ~300ms 内回位，首帧即有频谱。 */
             continue;
         }
         SOCKET cs = accept(ls, NULL, NULL);

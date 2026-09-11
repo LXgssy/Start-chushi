@@ -1,6 +1,11 @@
 /* ============================================================================
- * 「初始」ext-bg v8.3.0 —— MV3 Service Worker：跨页面音乐卡状态中继
+ * 「初始」ext-bg v8.3.1 —— MV3 Service Worker：跨页面音乐卡状态中继
  *
+ * v8.3.1 注入兜底（用户实机：快捷服务进入网页浮窗不显示）：manifest 注入
+ *   在某些环境偶发缺席（干净 Chromium 三路径实测全过 = 环境性缺针）——
+ *   卡片首连后 tabs 全量清扫 + tabs.onUpdated complete 逐个补针
+ *   （chrome.scripting.executeScript，隔离世界幂等守卫防双挂载）。
+ *   manifest 同步 +scripting 权限 + http/https host_permissions。
  * v8.3.0 数据面休眠退役（用户指令「不要休眠音乐面板」——切歌后面板留在
  *   上一首）：visCount 门整体拆除。旧版「全部卡片 hidden → state 轮询
  *   整体停」依赖 vis 消息时序，存在漏拍窗口：停摆期内的切歌真值永远
@@ -50,6 +55,40 @@
 try {
   chrome.storage.session.setAccessLevel({ accessLevel: "TRUSTED_AND_UNTRUSTED_CONTEXTS" });
 } catch (e) { /* 旧内核无此 API：卡片会退化为本次内存态 */ }
+
+/* ------------------------------------------------------------------ */
+/* v8.3.1 内容脚本注入兜底（用户实机：从「初始」快捷服务进入网页浮窗     */
+/*   不显示——manifest 注入在某些环境（Edge 启动加速/NTP 同签导航窗口）   */
+/*   偶发缺席；干净 Chromium 三路径实测全过 = 环境性缺针）。兜底律：      */
+/*   ① 卡片 Port 首连后全量清扫一遍已开的 http/https 标签；              */
+/*   ② tabs.onUpdated complete 再逐个补针。                              */
+/*   executeScript 默认隔离世界 = manifest 注入同世界，ext-card.js 顶部   */
+/*   __chushiCardMounted 幂等守卫天然防双挂载；豁免权：music 场景才动    */
+/*   （state 在场或已有卡片在线），无曲场景零打扰；同标签 15s 节流。      */
+/* ------------------------------------------------------------------ */
+const injRecent = new Map();   /* tabId -> ts */
+let injSwept = false;
+async function ensureCardInjected(tabId, url) {
+  if (!state && cards.size === 0) return;      /* 无曲场景：零打扰 */
+  if (!/^https?:/i.test(url || "")) return;    /* 特权页/扩展页：诚实边界 */
+  const now = Date.now();
+  if (now - (injRecent.get(tabId) || 0) < 15000) return;
+  injRecent.set(tabId, now);
+  try {
+    await chrome.scripting.executeScript({ target: { tabId }, files: ["ext-card.js"] });
+  } catch { /* 页面瞬态/卸载中：静默 */ }
+}
+async function sweepInjectAll() {
+  if (injSwept) return;
+  injSwept = true;
+  try {
+    const tabs = await chrome.tabs.query({ url: ["http://*/*", "https://*/*"] });
+    for (const t of tabs) void ensureCardInjected(t.id, t.url);
+  } catch { /* tabs API 瞬态：下一连接再扫 */ }
+}
+chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
+  if (info && info.status === "complete") void ensureCardInjected(tabId, tab && tab.url);
+});
 
 const HUB_PORTS = [26901, 26902, 26903];
 const SPEC_PORTS = [26911, 26912, 26913];
@@ -260,6 +299,7 @@ chrome.runtime.onConnect.addListener((port) => {
   }
   ensureStateLoop();
   if (port.__spec) ensureSpecLoop();
+  void sweepInjectAll(); /* v8.3.1 注入兜底：SW 生命周期内首连清扫一遍 */
 
   port.onMessage.addListener(async (m) => {
     if (!m || typeof m !== "object") return;

@@ -90,10 +90,10 @@ export const SMTC_PORTS: readonly number[] = [26901, 26902, 26903];
 
 const HUB_NAME = "chushi-music-hub";
 const HUB_VER_MIN = "8.0.0";
-/* v8.2.9 强制升桥：命令快排（200ms 专职 drain）在桥 JS 8.2.9 ——
-   「按了暂停好久才暂停」的根修在桥侧，旧桥必须升级（面板芯片如实提示） */
-const PLUGIN_VER_MIN = "8.2.9";
-const CLIENT_VER = "8.2.9";
+/* v8.3.1 强制升桥：频谱助手常驻律（网易云一启动即拉起 + 暂停不停服）在
+   hub.dll 8.3.1 —— 旧桥必须升级（面板芯片如实提示） */
+const PLUGIN_VER_MIN = "8.3.1";
+const CLIENT_VER = "8.3.1";
 const POLL_MS = 1000;
 const RETRY_MS = 1500;
 const TIMEOUT_MS = 2200;

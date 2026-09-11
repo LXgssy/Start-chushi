@@ -412,14 +412,15 @@ if (reachable) {
   chk("F8 标准态点进度条 → 完全体（宽度 ≈324，实测 " + (pr.found ? pr.width : "未命中") + "）",
       pr.found && pr.width >= 300 && pr.width <= 345);
 
-  /* F5b 完全体 → 标准 → 封面 */
+  /* F5b 完全体 → 标准 → 封面（v8.3.1 弹簧克制化后收敛 416→592ms，
+     塌缩期 fromSurf pointer-events:none 不可探测——等待必须盖过收敛期） */
   B = btns(pr, "full");
   await p2.mouse.click(B.mini[0], B.mini[1]);
-  await sleep(550);
+  await sleep(950);
   pr = await probeCard(CY);
   B = btns(pr, "mini");
   await p2.mouse.click(B.coverBtn[0], B.coverBtn[1]);
-  await sleep(550);
+  await sleep(950);
   const prCov = await probeCard(100);
   chk("F5b 收起钮 → 封面态（宽度 ≈56，实测 " + (prCov.found ? prCov.width : "未命中") + "）",
       prCov.found && prCov.width >= 36 && prCov.width <= 62);

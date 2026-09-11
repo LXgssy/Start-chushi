@@ -101,7 +101,7 @@
   'use strict';
   if (window.__chushiMusicBridge) return;
 
-  var VER = '8.2.9';
+  var VER = '8.3.1';
   var HUB_NAME = 'chushi-music-hub';
   var HUB_PORTS = [26901, 26902, 26903];
   var BEAT_MS = 1000;

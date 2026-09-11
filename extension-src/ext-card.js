@@ -1,5 +1,25 @@
 /* ============================================================================
- * 「初始」ext-card v8.3.0 —— 内容脚本：悬浮音乐卡（置顶所有网页，三态）
+ * 「初始」ext-card v8.3.1 —— 内容脚本：悬浮音乐卡（置顶所有网页，三态）
+ *
+ * v8.3.1 用户实机反馈六连：
+ *   ① 封面 clone 出厂不可见根治（cover→mini「封面没有一镜到底」真凶）：
+ *      cloneNode 连内联样式一起走——display 切换（coverEl none）先于克隆，
+ *      clone 出厂即 display:none = 封面瞬移全程隐身（录屏实帧取证：暗壳
+ *      中间无封面）。covClone 无条件 display:block 拨正。
+ *   ② 弹簧克制化（用户：太过了，和「初始」一样就行）——壳弹簧改 dock
+ *      standard 同参（420/34，ζ≈0.83，~1% 微过冲）；封面 clone 临界阻尼
+ *      （420/41，零过冲——「封面没必要有回弹」）。10% 大过冲读作「复位」
+ *      的观感问题随阻尼提升整体消退（三态封面复位 = 弹簧回弹的视觉解读）。
+ *   ③ 高光渐入——形变落地辉光 0→满格太突兀：cleanup 归零目标态缓存 +
+ *      glowRampAt 起点，paintGlow 按 smoothstep ~480ms 渐入（含提亮/饱和）。
+ *   ④ 律动更明显（弱歌隐形根治）——三轴 AGC：峰值跟随天花板（快攻慢放，
+ *      地板 0.12），显示值=包络/天花板——《不凡》等低音能量小的曲子被拉
+ *      回满幅可见区间；pow 0.85→0.75 + 增益上调（brightness 0.42/glow 0.68）。
+ *   ⑤ 歌词动效对齐「初始」完全体（用户视频示例）——当前行 scale 1.06/
+ *      邻行 0.94 呼吸过渡，滚动 .55s→.45s，行色 .5s→.35s（入场行滚动途中
+ *      即亮）。
+ *   ⑥ 壳/封面统一形变时长 D（关键帧自带 offset，WAAPI 拉伸同曲线）——
+ *      杜绝两弹簧时长差导致先到者提前 cancel 迟到者。
  *
  * v8.3.0 用户实机反馈两连：
  *   ① 一镜到底动画重做（用户澄清：封面不是不能动——要修的是 v8.2.7 clone
@@ -246,6 +266,8 @@
   var track = null;      /* 最近真值 {title,artist,album,playing,position,duration,rate,pic,songId,fetchedAt} */
   var lastSpec = { on: false, bass: 0, bands: null, t: 0 };
   var envB = 0, envM = 0, envH = 0; /* v8.2.7 律动包络：低/中/高三轴 */
+  var glowRampAt = 0;    /* v8.3.1 高光渐入起点（形变 cleanup 时置；0=无 ramp） */
+  var pkB = 0, pkM = 0, pkH = 0; /* v8.3.1 AGC 峰值跟随（自适应归一化天花板） */
   var mode = "mini";     /* 三态：cover | mini | full（持久） */
   var optP = false, optAt = 0; /* 播放/暂停乐观翻转窗口 */
 
@@ -332,13 +354,19 @@
     '.ftm{display:flex;justify-content:space-between;font-size:10px;color:#8e8e96;margin-top:5px;font-variant-numeric:tabular-nums}' +
     '.fcard .rail{margin-top:2px}' +
     '.fctl{display:flex;align-items:center;justify-content:center;gap:22px;margin-top:4px}' +
-    /* ---- 歌词（与「初始」部件同渲染律：双层实体色 + clip-path 扫光） ---- */
+    /* ---- 歌词（与「初始」部件同渲染律：双层实体色 + clip-path 扫光）----
+       v8.3.1 歌词动效对齐「初始」完全体（用户视频示例）：
+       · 当前行放大（scale 1.06）/邻行缩小（0.94）——行切换时字号呼吸过渡，
+         transform 不参与布局（offsetTop 滚动数学不受影响）；
+       · 滚动 .55s→.45s（视频实测 ~400ms ease-out）、行色 .5s→.35s
+         （入场行在滚动途中就亮起，不再慢半拍）。 */
     '.flyr{position:relative;height:118px;margin-top:10px;overflow:hidden;flex:none;' +
     '-webkit-mask-image:linear-gradient(180deg,transparent,#000 16%,#000 84%,transparent)}' +
-    '.flyr-in{position:absolute;left:0;right:0;top:0;transition:transform .55s cubic-bezier(.22,1,.36,1),opacity .3s ease;will-change:transform}' +
+    '.flyr-in{position:absolute;left:0;right:0;top:0;transition:transform .45s cubic-bezier(.22,1,.36,1),opacity .3s ease;will-change:transform}' +
     '.fln{padding:3px 2px;text-align:center;font-size:13.5px;font-weight:560;line-height:1.45;' +
-    'color:#71717a;transition:color .5s ease}' +
-    '.fln.on{color:#f4f4f5}' +
+    'color:#71717a;transform:scale(.94);transform-origin:50% 50%;' +
+    'transition:color .35s ease,transform .45s cubic-bezier(.22,1,.36,1)}' +
+    '.fln.on{color:#f4f4f5;transform:scale(1.06)}' +
     '.fln.done{color:#8e8e96}' +
     '.fln.done .fw{color:#8e8e96}' +
     '.fln.done .fw .ov{opacity:0;transition:opacity .6s ease}' +
@@ -480,12 +508,16 @@
     return { left: r.left, top: r.top, width: r.width, height: r.height,
       br: parseFloat(getComputedStyle(c).borderRadius) || 10, el: c };
   }
-  /* ---------- 真弹簧采样（dock 弹簧手感） ----------
-     单位弹簧 0→1 半隐式欧拉采样（k=430/d=24 → ζ≈0.58，~10% 过冲一次
-     回弹，贴近 dock POPPING 的 Q 弹）；每样本 4 子步积分（dt=1/240）防
-     数值阻尼吃掉过冲。各形变属性共用同一进度轨迹（线性伸缩同一 ODE 解），
-     样本间 WAAPI linear 插值 = 物理曲线。cleanup 时样式即终态，零校准跳变。 */
-  var SPRING = [430, 24];
+  /* ---------- 真弹簧采样（v8.3.1 克制化：与「初始」dock 面板切换同族） ----------
+     用户实机反馈：ζ≈0.58 的 ~10% 过冲「太过了」+ 封面回弹读作「复位」。
+     现壳弹簧 = dock standard 同参（stiffness 420 / damping 34，framer 同族
+     ζ≈0.83，过冲 ~1%——与「初始」面板切换手感一致，克制不 Q 弹）；
+     封面 clone 弹簧 = 临界阻尼（420/41，ζ≈1.0，零过冲——封面没必要回弹）。
+     每样本 4 子步积分（dt=1/240）防数值阻尼吃掉曲线；各形变属性共用同一
+     进度轨迹（线性伸缩同一 ODE 解），样本间 WAAPI linear 插值 = 物理曲线。
+     cleanup 时样式即终态，零校准跳变。 */
+  var SPRING = [420, 34];        /* 壳：dock standard 同参（~1% 微过冲） */
+  var SPRING_COVER = [420, 41];  /* 封面：临界阻尼（零过冲） */
   function springFrames(k, d) {
     var dt = 1 / 240, x = 0, v = 0, out = [], i, j;
     for (i = 0; i < 96; i++) {
@@ -498,8 +530,8 @@
     }
     return out;
   }
-  function morphFrames(fr, to) {
-    var ss = springFrames(SPRING[0], SPRING[1]), n = ss.length, kfs = [];
+  function morphFrames(fr, to, spr) {
+    var ss = springFrames(spr ? spr[0] : SPRING[0], spr ? spr[1] : SPRING[1]), n = ss.length, kfs = [];
     kfs.push({ left: fr.left + "px", top: fr.top + "px", width: fr.width + "px",
       height: fr.height + "px", borderRadius: fr.br + "px", offset: 0 });
     for (var i = 0; i < n; i++) {
@@ -517,12 +549,16 @@
   }
   /* 封面连续锚 clone：源封面 wrapper 原位克隆（cloneNode 带走辉光/律动
      内联样式与 img），fixed 定位按实测矩形飞行（布局属性动画 = 逐帧清晰
-     不拉伸），pointer 穿透、置于最顶。 */
+     不拉伸），pointer 穿透、置于最顶。
+     v8.3.1 关键修复：cloneNode 会连内联样式一起带走——cover→mini/full 方向
+     display 切换（coverEl style.display="none"）先于本函数执行，clone 出厂
+     即 display:none = 封面瞬移、全程不可见（录屏实帧：暗壳中间无封面）。
+     此处无条件 display:block 拨正，三方向 clone 恒可见。 */
   function covClone(fromRect) {
     var c = fromRect.el.cloneNode(true);
     var ids = c.querySelectorAll("[id]");
     for (var i = 0; i < ids.length; i++) ids[i].removeAttribute("id");
-    c.style.cssText += ";position:fixed;margin:0;pointer-events:none;z-index:2147483000;" +
+    c.style.cssText += ";display:block;position:fixed;margin:0;pointer-events:none;z-index:2147483000;" +
       "left:" + fromRect.left + "px;top:" + fromRect.top + "px;" +
       "width:" + fromRect.width + "px;height:" + fromRect.height + "px;" +
       "border-radius:" + fromRect.br + "px;";
@@ -583,9 +619,11 @@
     /* v8.3.0：目标壳保持可点（中断律——形变中再点切换钮 = finish 跳末态
        再起新形变；拖动被 WAAPI forwards 压住、cleanup 提交夹紧位，无害） */
     surfAnim.style.overflow = "hidden"; /* 形变期裁切内容生长（dock 同款）；辉光由 clone 携带 */
-    /* ① 壳真弹簧形变 */
+    /* ① 壳真弹簧形变（v8.3.1：克制 dock standard 弹簧） */
     anims.push(surfAnim.animate(mf.kfs, { duration: D, easing: "linear", fill: "forwards" }));
-    /* ② 封面连续锚：实测矩形 → 实测矩形（同一弹簧，与壳同步开始） */
+    /* ② 封面连续锚：实测矩形 → 实测矩形（临界阻尼零回弹，与壳同步开始）。
+       v8.3.1：壳/封面统一时长 D——两套关键帧各自带 offset 0..1，WAAPI 按
+       D 拉伸同曲线，杜绝「先到者 onfinish 提前 cancel 迟到者」的截断风险 */
     if (covFrom) {
       clone = covClone(covFrom);
       cloneImg = clone.querySelector ? clone.querySelector("img") : null;
@@ -593,8 +631,10 @@
         { left: covFrom.left, top: covFrom.top, width: covFrom.width,
           height: covFrom.height, br: covFrom.br },
         { left: covTo.left, top: covTo.top, width: covTo.width,
-          height: covTo.height, br: covTo.br });
-      anims.push(clone.animate(cf.kfs, { duration: cf.dur, easing: "linear", fill: "forwards" }));
+          height: covTo.height, br: covTo.br }, SPRING_COVER);
+      if (cf.dur > D) D = cf.dur;
+      anims.push(clone.animate(cf.kfs, { duration: D, easing: "linear", fill: "forwards" }));
+      anims[0].effect.updateTiming({ duration: D }); /* 壳随 D 对齐（同曲线拉伸） */
     }
     /* ③ 内容交叉：收缩 = 前 32% 快淡出；展开/互变 = 级联上浮淡入；
        真封面本体延迟到 clone 落地才显形 */
@@ -623,6 +663,13 @@
         fromSurf.style.pointerEvents = "";
         toSurf.style.pointerEvents = "";
         surfAnim.style.overflow = "";
+        /* v8.3.1 高光渐入：形变期 clone 携带的是清零辉光（covClear 后克隆），
+           形变途中 paintGlow 又把目标态包络值写进了真封面（当时不可见，
+           写值缓存被占）——落地瞬间辉光 0→满格 = 「突兀」。现 cleanup 把
+           目标态缓存归零 + 记 ramp 起点，paintGlow 按 easeRamp 因子从
+           中性渐入（~480ms），高光跟着形变落地温柔浮现。 */
+        if (COVS[m]) { covClear(COVS[m]); }
+        glowRampAt = Date.now();
         if (mode === m) plainSetMode(m);
         wake();
       } };
@@ -1200,6 +1247,34 @@
     if (envB < 0.005) envB = 0;
     if (envM < 0.006) envM = 0;
     if (envH < 0.006) envH = 0;
+    /* v8.3.1 自适应归一化（AGC）——用户实机反馈：部分歌（《不凡》等低音
+       能量偏小的曲子）律动不明显。峰值跟随器分轴记天花板：快攻慢放
+       （攻=瞬间、放=每帧 ×0.998+线性微降，半衰期 ~8s，地板 0.12 防静音
+       段放大底噪）——整曲电平低 → 天花板随之下移 → 显示值被拉回满幅
+       可见区间；响歌天花板贴真实峰值 → 动态对比保持。换歌自动重适应。 */
+    pkB = Math.max(envB, pkB * 0.998 - 0.0004);
+    pkM = Math.max(envM, pkM * 0.998 - 0.0004);
+    pkH = Math.max(envH, pkH * 0.998 - 0.0004);
+    if (pkB < 0.12) pkB = 0.12;
+    if (pkM < 0.12) pkM = 0.12;
+    if (pkH < 0.12) pkH = 0.12;
+  }
+  /* 显示值 = 包络 / 分轴天花板（0..1 夹紧）——响度归一，弱歌不再隐形 */
+  function envNorm() {
+    return {
+      b: Math.min(1, envB / pkB),
+      m: Math.min(1, envM / pkM),
+      h: Math.min(1, envH / pkH)
+    };
+  }
+  /* v8.3.1 高光渐入因子：形变落地后 ~480ms 从 0 平滑升到 1（smoothstep） */
+  function glowRamp() {
+    if (!glowRampAt) return 1;
+    var el = Date.now() - glowRampAt;
+    if (el >= 480) { glowRampAt = 0; return 1; }
+    if (el <= 0) return 0;
+    var k = el / 480;
+    return k * k * (3 - 2 * k);
   }
   function covClear(c) {
     c.on = 0; c.lf = c.lo = c.lt = "";
@@ -1209,14 +1284,19 @@
   }
   function paintGlow() {
     var act = envB > 0.012 || envM > 0.02 || envH > 0.02;
+    var n = envNorm();
+    var ramp = glowRamp();
     for (var k in COVS) {
       var c = COVS[k];
-      if (k !== mode || !act) { if (c.on) covClear(c); continue; }
-      var pb = Math.pow(envB, 0.85), pm = Math.pow(envM, 0.85), ph = Math.pow(envH, 0.85);
-      var f = "brightness(" + (1 + pb * 0.30 + pm * 0.14).toFixed(3) + ") saturate(" +
-        (1 + ph * 0.30).toFixed(3) + ") contrast(" + (1 + pb * 0.05).toFixed(3) + ")";
-      var go = Math.min(1, 0.16 + pb * 0.52 + pm * 0.22 + ph * 0.10).toFixed(3);
-      var gt = "scale(" + (1 + envB * 0.055 + envM * 0.028 + envH * 0.014).toFixed(4) + ")";
+      if (k !== mode || !act || ramp === 0) { if (c.on) covClear(c); continue; }
+      /* v8.3.1：归一化值 + pow 0.75（0.85→0.75 再提小信号可见度）+
+         增益整体上调（brightness 0.30→0.42 / glow 0.52→0.68）——弱歌
+         拉满、响歌贴顶，节拍拳感肉眼可辨 */
+      var pb = Math.pow(n.b, 0.75), pm = Math.pow(n.m, 0.75), ph = Math.pow(n.h, 0.75);
+      var f = "brightness(" + (1 + (pb * 0.42 + pm * 0.18) * ramp).toFixed(3) + ") saturate(" +
+        (1 + (ph * 0.36) * ramp).toFixed(3) + ") contrast(" + (1 + (pb * 0.06) * ramp).toFixed(3) + ")";
+      var go = Math.min(1, (0.20 + pb * 0.68 + pm * 0.26 + ph * 0.12) * ramp).toFixed(3);
+      var gt = "scale(" + (1 + (n.b * 0.06 + n.m * 0.03 + n.h * 0.016) * ramp).toFixed(4) + ")";
       if (f !== c.lf) { c.lf = f; c.img.style.filter = f; }
       if (go !== c.lo) { c.lo = go; c.glow.style.opacity = go; }
       if (gt !== c.lt) { c.lt = gt; c.glow.style.transform = gt; }
