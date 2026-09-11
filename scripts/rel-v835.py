@@ -158,8 +158,8 @@ def main():
     missing = [n for n in ASSETS if n not in by]
     assert not missing, f"missing assets: {missing}"
     good = 0
-    for name in ("ChuShi-NewTab-v8.3.4.zip", "ChuShi-Music-Preset-8.3.4.cshz",
-                 "ChuShi-Music-Bridge-8.3.1.plugin", "ChuShi-Lyric-Source-7.3.0.plugin"):
+    for name in ("ChuShi-NewTab-v8.3.5.zip", "ChuShi-Music-Preset-8.3.5.cshz",
+                 "ChuShi-Music-Bridge-8.3.5.plugin", "ChuShi-Lyric-Source-7.3.0.plugin"):
         a = by[name]
         req = urllib.request.Request(a["browser_download_url"], headers={
             "Authorization": f"token {token}", "User-Agent": "rel-v835"})
