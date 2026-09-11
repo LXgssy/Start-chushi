@@ -1,5 +1,11 @@
 /* ============================================================================
- * ChuShi Spectrum Helper 8.2.8 —— 独立进程 WASAPI loopback 采集 + FFT → HTTP
+ * ChuShi Spectrum Helper 8.2.9 —— 独立进程 WASAPI loopback 采集 + FFT → HTTP
+ *
+ * v8.2.9 频段细化（用户指令「提高fft采样点数，提升到128」）：输出频段
+ *   16→128（50Hz~16kHz 对数分布，~40Hz 节拍不变，帧体 ~0.9KB 环回无感）。
+ *   低音轴同步重定义：旧 bass=前3段加权是 16 段语义；128 段下改为
+ *   0..3/4..7/8..15 段（50~96Hz）分区带权——底鼓拳感与 16 段时代等价。
+ *   消费端（ext-card/smtc.ts/music-widget）按 bands.length 自适应新旧两代。
  *
  * v8.2.5 电流音根治·引擎零扰律（用户 v8.2.4 实测电音依旧 + 「关扩展/移桥即消」
  *   对照实验 + spectrum-log 实锤后的四根刀）：
@@ -52,8 +58,8 @@
  *
  * 端点（仅 127.0.0.1，26911 被占退 26912/26913）：
  *   GET /api/ping      身份（name=chushi-spectrum）
- *   GET /api/spectrum  {"ok":true,"ver","bass","bands":[16],"t":epochMs}
- *                      bands = 16 个对数频段（50Hz~16kHz）归一能量 0..1；
+ *   GET /api/spectrum  {"ok":true,"ver","bass","bands":[128],"t":epochMs}
+ *                      bands = 128 个对数频段（50Hz~16kHz，v8.2.9）归一能量 0..1；
  *                      bass = 低三段加权（鼓点感驱动源），C 侧已带快攻慢放。
  * 采集：默认渲染设备 loopback（系统混音，任何应用放歌都有效）；
  *       共享模式 float/int16 自适应下混单声道；FFT 2048 + Hann 窗。
@@ -72,7 +78,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define SPEC_VERSION "8.2.8"
+#define SPEC_VERSION "8.2.9"
 #define SPEC_NAME_S "chushi-spectrum"
 #define SPEC_MUTEX_NAMEW L"ChuShi-Spectrum-Singleton"
 
@@ -81,7 +87,7 @@
 #define PORT_C 26913
 
 #define FFT_N 2048                 /* FFT 点数（需 2 的幂） */
-#define BANDS 16                   /* 输出频段数 */
+#define BANDS 128                  /* 输出频段数（v8.2.9：16→128 细腻律动） */
 #define F_LO 50.0                  /* 最低频段起点 Hz */
 #define F_HI 16000.0               /* 最高频段终点 Hz */
 #define DB_FLOOR 66.0              /* 归一化动态窗（-66dB..0dB → 0..1） */
@@ -339,8 +345,19 @@ static void fftRun(void) {
                               : (v * RELEASE + prev * (1.0f - RELEASE));
         out[b] = g_bandV[b];
     }
-    /* bass = 低三段加权（0 段最重——底鼓在 50-150Hz） */
-    float bass = out[0] * 0.5f + out[1] * 0.3f + out[2] * 0.2f;
+    /* bass = 低频分区带权（v8.2.9 128 段语义）：
+     *   0..3 段（50~60Hz）×0.45 + 4..7 段（60~72Hz）×0.35 + 8..15 段（72~96Hz）×0.20
+     * 底鼓能量集中在 50-100Hz；权重集中低段=鼓点拳感与 16 段时代等价，
+     * 又比旧「前3段」宽一倍覆盖。分均值（非逐段）防单 bin 噪声闪跳。 */
+    float bass = 0.0f;
+    {
+        float b03 = 0, b47 = 0, b815 = 0;
+        for (int bi = 0; bi < 4 && bi < BANDS; bi++) b03 += out[bi];
+        for (int bi = 4; bi < 8 && bi < BANDS; bi++) b47 += out[bi];
+        for (int bi = 8; bi < 16 && bi < BANDS; bi++) b815 += out[bi];
+        b03 /= 4.0f; b47 /= 4.0f; b815 /= 8.0f;
+        bass = b03 * 0.45f + b47 * 0.35f + b815 * 0.20f;
+    }
     snapPublish(out, bass);
 }
 

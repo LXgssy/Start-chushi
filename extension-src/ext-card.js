@@ -1,6 +1,23 @@
 /* ============================================================================
- * 「初始」ext-card v8.2.8 —— 内容脚本：悬浮音乐卡（置顶所有网页，三态）
+ * 「初始」ext-card v8.2.9 —— 内容脚本：悬浮音乐卡（置顶所有网页，三态）
  *
+ * v8.2.9 用户实机反馈五连：
+ *   ① 桥响应迟钝浮窗侧配套：无（根修在桥插件 200ms 快排与页面端；本文件只
+ *      接频段细化与全局开关）。
+ *   ② 逐行歌词快一拍——align 第三参 lineMode：逐行渲染用原始时基（0ms），
+ *      逐字扫光保持 -100ms 延迟补偿（v8.2.8 引入的统一延后让逐行显慢）。
+ *   ③ 右键隐藏退役（用户指令）——改「初始」面板双开关：
+ *      「律动」→ storage.local.cardGlow（默认开，关 = 封面/光晕律动停 +
+ *      频谱订阅撤）；「浮窗」→ storage.local.cardEnabled（默认开，关 =
+ *      本卡片卸下+断 SW，开启后所有网页显示；全局开关替代按站隐藏）。
+ *   ④ 频段细化——specTgt 按 bands.length 自适应：128 段·实际映射（中 9..84
+ *      ≈ 250Hz~2kHz / 高 85+ ≈ 2k~16kHz）与旧 16 段两代语义。
+ *   ⑤ 三态动画修订（用户：封面都会位移去复位 + 完全体跳一下）：
+ *      a) 封面 clone 飞形退役——形变期内容淡出/淡入已掩护封面重排，
+ *         封面不再飞行（观感 = 面板壳在变形，封面原地不动）；
+ *         b) 跳变根治——旧版切换即 applyPos 按新态宽度 clamp，贴边时新面板
+ *         先跳后形变；现形变期钉住源位，left/top 一并动画到夹紧位，
+ *         cleanup 才提交 pos。
  * v8.2.8 用户实机反馈五连：
  *   ① 浮窗强行逐字跟随——「初始」面板的强行逐字开关经 NewTab 镜像到
  *      storage.local.cardForceWord（PresetWidgets storageSet 分支，cardAcc
@@ -82,24 +99,72 @@
   var HOST_ID = "chushi-card-host";
   if (document.getElementById(HOST_ID)) return;
 
-  /* ---------- 会话级站点隐藏（storage.session：浏览器重启即还原） ---------- */
-  var siteHidden = false;
-  function hideKey(hostname) { return "cardHide:" + hostname; }
-  function loadHide(done) {
-    try {
-      chrome.storage.session.get([hideKey(location.hostname)], function (o) {
-        siteHidden = !!(o && o[hideKey(location.hostname)]);
-        done();
+  /* ---------- v8.2.9 全局开关（面板「浮窗」开关镜像，右键隐藏退役） ----------
+     用户指令：取消右键浮窗隐藏；「初始」音乐面板加「浮窗」开关（默认开，
+     只要开启浮窗就在所有网页显示）。cardEnabled=false → 本卡卸下 + 断开
+     SW（state/spec 轮询需求归零），true → 重连恢复。 */
+  var cardEnabled = true;
+  var cardBooted = false;
+  function initCard() {
+    if (cardBooted || !cardEnabled) return;
+    cardBooted = true;
+    loadPos();
+    connect();
+    applyPos();
+    applyMode();
+    wake();
+  }
+  function applyEnabled() {
+    if (!cardEnabled) {
+      sleepNow();
+      host.style.display = "none";
+      if (port) { try { port.disconnect(); } catch (e0) { /* 已断 */ } port = null; }
+    } else {
+      if (!cardBooted) { initCard(); return; }
+      connect();
+      if (track) { host.style.display = "block"; applyVis(); wake(); }
+    }
+  }
+  /* ---------- v8.2.9 律动总开关（面板「律动」开关镜像） ----------
+     cardGlow=false → 三轴包络清零 + 辉光归还样式表 + 频谱订阅撤
+     （specWanted 归零 → 引擎零参与，SW 轮询停——性能与开关双收益）。 */
+  var glowEnabled = true;
+  function specMsgOn() {
+    return glowEnabled && document.visibilityState === "visible";
+  }
+  function applyGlowEnabled() {
+    if (!glowEnabled) {
+      envB = 0; envM = 0; envH = 0;
+      for (var k in COVS) if (COVS[k].on) covClear(COVS[k]);
+      lastSpec.on = false;
+    }
+    try { if (port) port.postMessage({ type: "spec", on: specMsgOn() }); } catch (e0) { /* 断线接管 */ }
+    sleepNow(); wake();
+  }
+  try {
+    chrome.storage.local.get(["cardEnabled", "cardGlow"], function (o) {
+      if (o) {
+        var ve = !(o.cardEnabled === false || o.cardEnabled === "false");
+        if (ve !== cardEnabled) cardEnabled = ve;
+        var vg = !(o.cardGlow === false || o.cardGlow === "false");
+        if (vg !== glowEnabled) glowEnabled = vg;
+      }
+      initCard(); /* 默认开：直接启动；关：等 onChanged */
+    });
+    if (chrome.storage.onChanged && chrome.storage.onChanged.addListener) {
+      chrome.storage.onChanged.addListener(function (ch, area) {
+        if (area !== "local" || !ch) return;
+        if (ch.cardEnabled) {
+          var v = !(ch.cardEnabled.newValue === false || ch.cardEnabled.newValue === "false");
+          if (v !== cardEnabled) { cardEnabled = v; applyEnabled(); }
+        }
+        if (ch.cardGlow) {
+          var g = !(ch.cardGlow.newValue === false || ch.cardGlow.newValue === "false");
+          if (g !== glowEnabled) { glowEnabled = g; applyGlowEnabled(); }
+        }
       });
-    } catch (e) { done(); }
-  }
-  function saveHide() {
-    try {
-      var o = {};
-      o[hideKey(location.hostname)] = true;
-      chrome.storage.session.set(o);
-    } catch (e) { /* 无会话存储则忽略（本次内存态也生效） */ }
-  }
+    }
+  } catch (e) { initCard(); /* 无存储上下文：默认开 */ }
 
   /* ---------- v8.2.3 主题色跟随「初始」强调色 ----------
      NewTab 页（chrome-extension 页面）把 settings.accent 镜像到
@@ -345,7 +410,7 @@
   /* ---------- 三态切换（v8.2.7 一镜到底） ----------
     封面是唯一连续锚：clone <img> 从旧态封面矩形连续飞到新态封面矩形
     （translate+scale，合成器友好）；面板同时以「封面中心」为
-    transform-origin 做	scale+opacity——展开=从封面处长出来，收进封面态=
+    transform-origin 做  scale+opacity——展开=从封面处长出来，收进封面态=
     缩回封面底下，与封面飞形同步开始，中间不换镜。
     中断安全：过渡中再切 → finish 跳末态再起；reduced-motion/隐藏直切。 */
   function applyMode() {
@@ -354,7 +419,6 @@
   }
   var RM = !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
   var trans = null;
-  function covImgOf(m) { return m === "cover" ? cpic : m === "mini" ? pic : fpic; }
   function covUnitOf(m) { return COVS[m]; }
   function finishTrans() {
     if (!trans) return;
@@ -366,58 +430,29 @@
     mode = m; lastTcur = ""; /* 强制下一帧重写 tcur/mtm——防态切换残留旧串 */
     savePos(); applyMode();
   }
-  /* ---------- 三态切换（v8.2.8 形变律·一镜到底·dock 同语言） ----------
-    目标面板从「源矩形」做 width/height/borderRadius 布局形变（长方形⇄
-    正方形⇄长方形，与「初始」dock 弹出面板的高度弹簧同语言），封面 clone
-    从旧封面矩形连续飞到新封面矩形（唯一连续锚），内容形变大半后淡入
-    （不挤压穿帮）。收缩到封面态 = 旧面板本体收缩成 56×56 正方形（内容
-    前 40% 淡出），收尾封面态 surf 同位同尺寸无缝接管。
-    中断安全：过渡中再切 → finish 跳末态再起；reduced-motion/隐藏直切。 */
-  function flyCoverClone(srcImg, rFrom, toL, toT, toW, toH, D, ez, fFilter) {
-    var clone = document.createElement("img");
-    clone.src = (track && track.pic) || "";
-    clone.alt = "";
-    clone.draggable = false;
-    clone.style.cssText = "position:fixed;left:" + rFrom.left + "px;top:" + rFrom.top + "px;width:" +
-      rFrom.width + "px;height:" + rFrom.height + "px;object-fit:cover;border-radius:" +
-      (getComputedStyle(srcImg).borderRadius || "12px") +
-      ";z-index:9;pointer-events:none;box-shadow:0 12px 36px rgba(0,0,0,.35);" +
-      "background:linear-gradient(135deg,color-mix(in srgb,var(--acc,#8b5cf6) 33%,transparent),transparent)";
-    if (fFilter) clone.style.filter = fFilter;
-    shadow.appendChild(clone);
-    var dx = toL - rFrom.left, dy = toT - rFrom.top;
-    var sc = rFrom.width > 0 ? toW / rFrom.width : 1;
-    var an = clone.animate([
-      { transform: "translate(0px,0px) scale(1)" },
-      { transform: "translate(" + dx.toFixed(1) + "px," + dy.toFixed(1) + "px) scale(" + sc.toFixed(4) + ")" }
-    ], { duration: D, easing: ez, fill: "forwards" });
-    an.__clone = clone; /* cleanup 时随动画一并撤除 */
-    return an;
-  }
-  function animsRemoveClones(anims) {
-    for (var i = 0; i < anims.length; i++) {
-      try { anims[i].cancel(); } catch (e0) { /* 已结束 */ }
-      if (anims[i].__clone) { try { anims[i].__clone.remove(); } catch (e1) { /* 已移除 */ } }
-    }
-  }
+  /* ---------- 三态切换（v8.2.9 形变律·去封面飞形·钉位防跳） ----------
+    面板壳从「源矩形」做 width/height/borderRadius（+必要时 left/top）布局
+    形变（长方形⇄正方形⇄长方形，与「初始」dock 弹出面板同语言）。封面
+    clone 飞形退役（用户：切换时封面都会位移去复位）——形变期内容
+    淡出/淡入已掩护封面重排，观感 = 壳在变形、封面原地不动。
+    跳变根治：旧版切换即 applyPos 按新态宽度 clamp，贴边时新面板先跳后
+    形变（「完全体面板也会跳一下」真凶）；现形变期钉住源位，left/top
+    一并动画到夹紧位，cleanup 才提交 pos。中断安全：finish 跳末态再起。 */
   function setMode(m) {
     if (!SURFS[m] || m === mode) return;
     finishTrans();
     if (RM || document.visibilityState !== "visible") { plainSetMode(m); wake(); return; }
     var from = mode;
-    var fromImg = covImgOf(from), toImg = covImgOf(m);
     var fromSurf = SURFS[from], toSurf = SURFS[m];
     var sfr = fromSurf.getBoundingClientRect();
     if (sfr.width < 4) { plainSetMode(m); wake(); return; }
     var srBr = getComputedStyle(fromSurf).borderRadius;
-    var r0 = fromImg.getBoundingClientRect();
-    var fFilter = fromImg.style.filter;
     if (covUnitOf(from)) covClear(covUnitOf(from));
     mode = m; lastTcur = "";
     savePos();
     if (m === "cover") {
       /* 收缩律：旧面板本体形变收缩成 56×56 正方形（内容前 40% 淡出，
-         壳保持背景/边框），封面 clone 飞到封面态矩形；收尾封面态接管 */
+         壳保持背景/边框），收尾封面态同位同尺寸无缝接管；封面不飞行 */
       fromSurf.style.pointerEvents = "none";
       var D1 = 300, ez1 = "cubic-bezier(.45,.08,.35,1)";
       var anims1 = [fromSurf.animate([
@@ -431,34 +466,41 @@
           [{ opacity: 1 }, { opacity: 0, offset: 0.4, easing: "ease-out" }, { opacity: 0 }],
           { duration: D1, fill: "forwards" }));
       }
-      anims1.push(flyCoverClone(fromImg, r0, pos.x, pos.y, 56, 56, D1, ez1, fFilter));
       trans = { anims: anims1, cleanup: function () {
-        animsRemoveClones(anims1);
+        for (var i3 = 0; i3 < anims1.length; i3++) { try { anims1[i3].cancel(); } catch (e2) { /* 已结束 */ } }
         fromSurf.style.pointerEvents = "";
         if (mode === "cover") plainSetMode("cover");
         wake();
       } };
       for (var a1 = 0; a1 < anims1.length; a1++) anims1[a1].onfinish = finishTrans;
     } else {
-      /* 展开/平移律：目标面板从源矩形形变出来（cover→mini 从 56×56 长出；
-         mini⇄full 长方形互变），内容延迟淡入，封面 clone 连续飞形 */
+      /* 展开/互变律：目标面板从源矩形形变出来（cover→mini 从 56×56 长出；
+         mini⇄full 长方形互变），内容延迟淡入；封面原地重排（不飞行）。 */
       for (var k1 in SURFS) SURFS[k1].style.display = k1 === m ? "block" : "none";
-      applyPos(); applyVis(); applyDraggable();
+      applyVis(); applyDraggable();
       fromSurf.style.pointerEvents = "none";
-      var r1 = toImg.getBoundingClientRect();
       var str = toSurf.getBoundingClientRect();
-      if (str.width < 4 || r1.width < 4) {
+      if (str.width < 4) {
         fromSurf.style.pointerEvents = "";
         plainSetMode(m); wake(); return;
       }
       var trBr = getComputedStyle(toSurf).borderRadius;
-      toImg.style.visibility = "hidden";
+      /* 钉位：形变期停在源位（不先 clamp 跳一下），left/top 一并动画到
+         新态夹紧位（仅贴边时非零），cleanup 提交 pos */
+      var vw = window.innerWidth || 1200, vh = window.innerHeight || 800;
+      var tw = WIDTH[m] || 264;
+      var toX = Math.min(Math.max(8, pos.x), Math.max(8, vw - tw - 8));
+      var toY = Math.min(Math.max(8, pos.y), vh - 56);
+      toSurf.style.left = sfr.left + "px";
+      toSurf.style.top = sfr.top + "px";
       var grow = str.width * str.height >= sfr.width * sfr.height;
       var D2 = grow ? 340 : 300;
       var ez2 = grow ? "cubic-bezier(.32,1.18,.36,1)" : "cubic-bezier(.45,.08,.35,1)";
       var anims2 = [toSurf.animate([
-        { width: sfr.width + "px", height: sfr.height + "px", borderRadius: srBr },
-        { width: str.width + "px", height: str.height + "px", borderRadius: trBr }
+        { width: sfr.width + "px", height: sfr.height + "px", borderRadius: srBr,
+          left: sfr.left + "px", top: sfr.top + "px" },
+        { width: str.width + "px", height: str.height + "px", borderRadius: trBr,
+          left: toX + "px", top: toY + "px" }
       ], { duration: D2, easing: ez2, fill: "forwards" })];
       var kids2 = toSurf.children;
       for (var i2 = 0; i2 < kids2.length; i2++) {
@@ -466,10 +508,9 @@
           [{ opacity: 0 }, { opacity: 0, offset: 0.35, easing: "ease-in" }, { opacity: 1 }],
           { duration: D2, fill: "forwards" }));
       }
-      anims2.push(flyCoverClone(fromImg, r0, r1.left, r1.top, r1.width, r1.height, D2, ez2, fFilter));
       trans = { anims: anims2, cleanup: function () {
-        animsRemoveClones(anims2);
-        toImg.style.visibility = "";
+        for (var i4 = 0; i4 < anims2.length; i4++) { try { anims2[i4].cancel(); } catch (e3) { /* 已结束 */ } }
+        pos.x = toX; pos.y = toY; /* 形变终点即夹紧位：提交后 applyPos 零位移 */
         fromSurf.style.pointerEvents = "";
         if (mode === m) plainSetMode(m);
         wake();
@@ -571,7 +612,7 @@
        可见性变化由 visibilitychange 处理器统一翻转。 */
     var vis = document.visibilityState === "visible";
     try {
-      port.postMessage({ type: "spec", on: vis });
+      port.postMessage({ type: "spec", on: specMsgOn() });
       port.postMessage({ type: "vis", on: vis });
     } catch (e) { /* 断线事件接管 */ }
   }
@@ -882,7 +923,9 @@
   function lyricFrame() {
     if (!lineEls.length || !ly.parsed) return;
     var ms = posNow() * 1000;
-    var n = ChuShiLyric.align(ly.parsed, ms);
+    /* v8.2.9 行级时钟分离：逐行渲染（lyMode=0）用原始时基（行界快一拍，
+       用户反馈「逐行慢了一点」）；逐字扫光保持 -100ms 唱声补偿。 */
+    var n = ChuShiLyric.align(ly.parsed, ms, lyMode === 0);
     if (n.lineIndex !== activeLine) {
       if (n.lineIndex < 0) {
         /* 间奏：自然流入（activeLine === lastLine）高光保持不动；
@@ -980,12 +1023,8 @@
     r = Math.min(1, Math.max(0, r));
     send("seek", Math.round(r * track.duration));
   });
-  /* 右键 = 在本站隐藏（浏览器会话级，重启还原；v8.2.0 × 按钮位让位放大钮） */
-  host.addEventListener("contextmenu", function (e) {
-    e.preventDefault(); e.stopPropagation();
-    siteHidden = true; saveHide();
-    host.style.display = "none";
-  });
+  /* 右键隐藏已退役（v8.2.9 用户指令：取消右键隐藏浮窗的逻辑，全局开关在
+     「初始」面板；此处不再拦截右键菜单，交还浏览器默认行为） */
   window.addEventListener("resize", applyPos);
 
   /* ---------- rAF 主循环：进度插值 + 完全体歌词帧 + 辉光律动 ----------
@@ -1016,13 +1055,26 @@
     cover: { img: cpic, glow: cglow, on: 0, lf: "", lo: "", lt: "" }
   };
   function specTgt() {
-    if (!lastSpec.on || !effPlaying()) return null;
+    /* v8.2.9 律动总开关：关 = 不产目标值（三轴自然衰减到 0，辉光归还样式表） */
+    if (!glowEnabled || !lastSpec.on || !effPlaying()) return null;
     var bands = lastSpec.bands, m = 0, h = 0, i;
     if (bands && bands.length) {
-      for (i = 3; i <= 9; i++) m += Number(bands[i]) || 0;
-      m /= 7;
-      for (i = 10; i < 16; i++) h += Number(bands[i]) || 0;
-      h /= 6;
+      if (bands.length >= 100) {
+        /* v8.2.9 128 段·实际映射律（低频侧线性化 段k≈bin k+2）：
+           中 9..84 ≈ 250Hz~2kHz，高 85+ ≈ 2k~16kHz（对数区）；
+           低音轴直接用 native bass（0..6 段分区带权 47~211Hz）。 */
+        for (i = 9; i <= 84 && i < bands.length; i++) m += Number(bands[i]) || 0;
+        m /= 76;
+        var hn = 0;
+        for (i = 85; i < bands.length; i++) { h += Number(bands[i]) || 0; hn++; }
+        if (hn > 0) h /= hn;
+      } else {
+        /* 旧 native 16 段语义（兼容窗口） */
+        for (i = 3; i <= 9; i++) m += Number(bands[i]) || 0;
+        m /= 7;
+        for (i = 10; i < 16; i++) h += Number(bands[i]) || 0;
+        h /= 6;
+      }
     }
     return { b: Number(lastSpec.bass) || 0, m: m, h: h };
   }
@@ -1111,7 +1163,7 @@
     if (tickTimer) { clearTimeout(tickTimer); tickTimer = 0; }
   }
   function wake() {
-    if (siteHidden) return;
+    if (!cardEnabled) return;
     if (document.visibilityState !== "visible") return;
     if (rafId || tickTimer) return; /* 已醒：下一拍自会按 needFrame 重估 */
     if (needFrame()) schedule();
@@ -1121,20 +1173,13 @@
     var vis = document.visibilityState === "visible";
     try {
       if (port) {
-        port.postMessage({ type: "spec", on: vis });
+        port.postMessage({ type: "spec", on: specMsgOn() });
         port.postMessage({ type: "vis", on: vis });
       }
     } catch (e) { /* 断线事件接管 */ }
     if (vis) wake(); else sleepNow();
   });
 
-  /* ---------- 启动 ---------- */
-  loadHide(function () {
-    if (siteHidden) return; /* 本站隐藏：不挂载 UI（SW 连接也省了） */
-    loadPos();
-    connect();
-    applyPos();
-    applyMode();
-    wake(); /* v8.2.6：按需唤醒（无曲目/hidden 时循环保持睡眠） */
-  });
+  /* ---------- 启动（v8.2.9：全局开关门控，替代旧站点隐藏） ---------- */
+  initCard(); /* cardEnabled 默认 true；关态下由 storage 回调后再启动 */
 })();

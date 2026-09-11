@@ -141,12 +141,13 @@ img{-webkit-user-drag:none;user-select:none}
 .cs-foot{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--ink3);margin-top:auto}
 .cs-led{width:6px;height:6px;border-radius:var(--r9);background:var(--ok);flex:none;transition:background .3s}
 .cs-led.pz{background:#fbbf24}
-/* v8.1.4 强行逐字开关（伪逐字降级选择；宿主 storage 持久化，默认关） */
-.cs-wbw{appearance:none;border:1px solid var(--line);background:transparent;color:var(--ink3);
+/* v8.1.4 强行逐字开关 + v8.2.9 律动/浮窗双开关（宿主 storage 持久化） */
+.cs-wbw,.cs-tg{appearance:none;border:1px solid var(--line);background:transparent;color:var(--ink3);
   font-size:10px;font-weight:550;line-height:1;padding:3px 9px;border-radius:var(--r9);
-  cursor:pointer;margin-left:auto;flex:none;transition:color .25s,background-color .25s,border-color .25s}
-.cs-wbw:hover{color:var(--ink)}
-.cs-wbw.on{color:#fff;background:var(--acc);border-color:var(--acc)}
+  cursor:pointer;flex:none;transition:color .25s,background-color .25s,border-color .25s}
+.cs-wbw{margin-left:auto}
+.cs-wbw:hover,.cs-tg:hover{color:var(--ink)}
+.cs-wbw.on,.cs-tg.on{color:#fff;background:var(--acc);border-color:var(--acc)}
 /* ---------- 提示芯片 ---------- */
 .cs-chip{position:absolute;left:50%;transform:translateX(-50%);z-index:4;display:none;
   align-items:center;gap:5px;padding:4px 10px;border-radius:var(--r9);
@@ -206,7 +207,7 @@ img{-webkit-user-drag:none;user-select:none}
       <button class="cs-b" id="csNext" title="下一首"><svg><use href="#cs-i-next"/></svg></button>
     </div>
     <div class="cs-lyr cs-hide" id="csLyr"><div class="cs-lyr-in" id="csLyrIn"></div></div>
-    <div class="cs-foot"><span class="cs-led" id="csLed"></span><span id="csFootTxt">未连接</span><button class="cs-wbw" id="csWbw" type="button" title="强行逐字歌词：为没有逐字时间轴的歌词按估算添加逐字效果，准确率低；关闭时使用逐行歌词">强行逐字</button></div>
+    <div class="cs-foot"><span class="cs-led" id="csLed"></span><span id="csFootTxt">未连接</span><button class="cs-wbw" id="csWbw" type="button" title="强行逐字歌词：为没有逐字时间轴的歌词按估算添加逐字效果，准确率低；关闭时使用逐行歌词">强行逐字</button><button class="cs-tg on" id="csGlowBtn" type="button" title="高光律动：封面亮度/光晕随音乐高低频呼吸（本面板与悬浮卡同步）">律动</button><button class="cs-tg on" id="csFloatBtn" type="button" title="悬浮音乐卡：开启后在所有网页顶部显示">浮窗</button></div>
   </section>
   <section class="cs-empty" id="csEmpty">
     <svg class="cs-eic" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><use href="#cs-i-note"/></svg>
@@ -218,7 +219,10 @@ img{-webkit-user-drag:none;user-select:none}
 <script>
 (function () {
   "use strict";
-  /* ================= ChuShi music widget v8.2.8（纯渲染层）=================
+  /* ================= ChuShi music widget v8.2.9（纯渲染层）=================
+     v8.2.9：① 面板「律动」「浮窗」双开关（右键隐藏退役，浮窗全局显隐）
+     ② 逐行行级时钟（mus.now(true)——行界不受逐字 -100ms 补偿拖累）
+     ③ 频段细化 128 段自适应（中/高轴区间随 bands.length 切换）
      v8.2.8：① 去方框律（.cs-ring 废弃，全频段细腻律同浮窗参数族）
      ② 间奏滚动跟进（seek 跨间奏歌词区立即滚到已唱界行，浮窗同律）
      ③ 歌词时基延后 100ms（宿主 alignAt 延迟补偿，逐字超前唱声根治）
@@ -604,10 +608,36 @@ img{-webkit-user-drag:none;user-select:none}
     applyWbw(true);
     if (window.chushi && chushi.storage) chushi.storage.set("csForceWord", forceWord);
   };
+  /* v8.2.9 双开关：律动（本面板与浮窗同步生效）+ 浮窗（全局显隐）。
+     默认均开；持久化 csGlow/csFloat，由宿主 PresetWidgets 镜像到
+     chrome.storage.local（cardGlow/cardEnabled）给扩展侧。 */
+  var glowBtn = $("csGlowBtn"), floatBtn = $("csFloatBtn");
+  var glowOn = true, floatOn = true;
+  function applyToggles() {
+    glowBtn.classList.toggle("on", glowOn);
+    floatBtn.classList.toggle("on", floatOn);
+  }
+  glowBtn.onclick = function () {
+    glowOn = !glowOn;
+    applyToggles();
+    if (!glowOn) beatFrame(null); /* 立即熄灯归还样式表 */
+    if (window.chushi && chushi.storage) chushi.storage.set("csGlow", glowOn);
+  };
+  floatBtn.onclick = function () {
+    floatOn = !floatOn;
+    applyToggles();
+    if (window.chushi && chushi.storage) chushi.storage.set("csFloat", floatOn);
+  };
   if (window.chushi && chushi.storage) {
     chushi.storage.get("csForceWord").then(function (v) {
       if ((v === true) !== forceWord) { forceWord = v === true; applyWbw(true); }
       else applyWbw(false);
+    }).catch(function () { });
+    chushi.storage.get("csGlow").then(function (v) {
+      glowOn = v !== false && v !== "false"; applyToggles();
+    }).catch(function () { });
+    chushi.storage.get("csFloat").then(function (v) {
+      floatOn = v !== false && v !== "false"; applyToggles();
     }).catch(function () { });
   } else applyWbw(false);
 
@@ -672,20 +702,28 @@ img{-webkit-user-drag:none;user-select:none}
      退出态恢复样式表控制（类切换的基态过渡不受干扰）。 ---------- */
   var glowEl = document.querySelector(".cs-glow");
   var picImgEl = document.getElementById("csCoverImg");
-  var glowOn = 0, gLo = "", gLt = "", gLf = "";
+  var glowOn2 = 0, gLo = "", gLt = "", gLf = "";
   var calmMotion = !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
-  function bandAvg(b, a, z) { var s = 0, i; for (i = a; i < z; i++) s += Number(b[i]) || 0; return s / (z - a); }
+  function bandAvg(b, a, z) { var s = 0, i; for (i = a; i < z && i < b.length; i++) s += Number(b[i]) || 0; return z > a ? s / (z - a) : 0; }
   /* v8.2.8 去框化·全频段细腻律（浮窗同参数族）：.cs-ring 方框废弃——
      低音 = 提亮 + 辉光主推 + 对比微脉冲；中频 = 亮度微调 + 辉光次推 +
      光晕尺寸；高频 = 饱和脉冲 + 辉光点缀。pow 0.85 提升小信号可见度。
-     bands 已由宿主包络（v8.2.8 攻 0.62/放 0.16），部件端只做合成。
+     bands 已由宿主包络（攻 0.62/放 0.16），部件端只做合成。
+     v8.2.9：128 段·实际映射律（低频侧线性化 段k≈bin k+2：中 9..85 ≈
+     250Hz~2kHz / 高 85..末端 ≈ 2k~16kHz），
+     bands.length<100 时退回旧 16 段区间（兼容旧宿主/旧 native 缓存帧）；
+     面板「律动」开关关 = 静态高光（beatFrame 直接熄灯）。
      写值防抖（不变不写），静默交还样式表（暂停 .cs-pz img 滤镜/类基态
      过渡不受内联残留干扰）。 */
   function beatFrame(n) {
     if (!glowEl) return;
+    if (!glowOn) n = null; /* 面板「律动」开关：关 = 静态（走熄灯分支） */
     var b = !calmMotion && n && typeof n.bass === "number" ? n.bass : 0;
     var m = 0, h = 0;
-    if (!calmMotion && n && n.bands) { m = bandAvg(n.bands, 3, 10); h = bandAvg(n.bands, 10, 16); }
+    if (!calmMotion && n && n.bands && n.bands.length) {
+      if (n.bands.length >= 100) { m = bandAvg(n.bands, 9, 85); h = bandAvg(n.bands, 85, n.bands.length); }
+      else { m = bandAvg(n.bands, 3, 10); h = bandAvg(n.bands, 10, 16); }
+    }
     var act = effPlaying() && (b > 0.012 || m > 0.02 || h > 0.02);
     if (act) {
       var pb = Math.pow(b, 0.85), pm = Math.pow(m, 0.85), ph = Math.pow(h, 0.85);
@@ -693,12 +731,12 @@ img{-webkit-user-drag:none;user-select:none}
         (1 + ph * 0.30).toFixed(3) + ") contrast(" + (1 + pb * 0.05).toFixed(3) + ")";
       var go = Math.min(1, 0.22 + pb * 0.48 + pm * 0.20 + ph * 0.10).toFixed(3);
       var gs = "scale(" + (1 + b * 0.05 + m * 0.026 + h * 0.013).toFixed(4) + ")";
-      if (f !== gLf) { if (!glowOn && picImgEl) picImgEl.style.transition = "none"; gLf = f; if (picImgEl) picImgEl.style.filter = f; }
-      if (go !== gLo) { if (!glowOn) glowEl.style.transition = "none"; gLo = go; glowEl.style.opacity = go; }
+      if (f !== gLf) { if (!glowOn2 && picImgEl) picImgEl.style.transition = "none"; gLf = f; if (picImgEl) picImgEl.style.filter = f; }
+      if (go !== gLo) { if (!glowOn2) glowEl.style.transition = "none"; gLo = go; glowEl.style.opacity = go; }
       if (gs !== gLt) { gLt = gs; glowEl.style.transform = gs; }
-      glowOn = 1;
-    } else if (glowOn) {
-      glowOn = 0; gLo = gLt = gLf = "";
+      glowOn2 = 1;
+    } else if (glowOn2) {
+      glowOn2 = 0; gLo = gLt = gLf = "";
       glowEl.style.transition = "";
       glowEl.style.opacity = "";
       glowEl.style.transform = "";
@@ -710,7 +748,9 @@ img{-webkit-user-drag:none;user-select:none}
      v8.2.2 写值防抖：进度/时间字符串不变不写 DOM（掉帧治理） */
   var lastFillW = "", lastTCur = "", lastTDur = "";
   function loop() {
-    var n = mus.now();
+    /* v8.2.9 行级时钟：逐行渲染（lyMode=0）传 true——行界判定不用逐字
+       的 -100ms 延迟补偿（「逐行慢了一点」根治，浮窗同律） */
+    var n = mus.now(lyMode === 0);
     if (scrub.on) {
       scrubUI();
     } else {

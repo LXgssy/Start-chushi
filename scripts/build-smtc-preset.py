@@ -2,7 +2,7 @@
 # 源：preset-src/smtc/music-widget.html + music-commands.js + assets/cover.svg
 # 出：examples/初始SMTC音乐预设.cshz（zip：manifest.json + assets/cover.svg，
 #     与 src/lib/startpage/pack.ts parsePack 的白名单结构一一对应）
-# 校验：widget html ≤24000（v8.2.7 与宿主 widgetHtmlLen 同步放宽）、script code ≤16000
+# 校验：widget html ≤25600（v8.2.9 与宿主 widgetHtmlLen 同步放宽）、script code ≤16000
 # ⚠ html 里的 "asset:cover.svg" 引用只能在 .cshz 导入时被内联 —— 本包不再产单 JSON 形态
 import json, re, pathlib, zipfile
 
@@ -55,7 +55,12 @@ html = minify_html((SRC / "music-widget.html").read_text(encoding="utf-8"))
 code = minify_js((SRC / "music-commands.js").read_text(encoding="utf-8"))
 cover_svg = (SRC / "assets" / "cover.svg").read_text(encoding="utf-8")
 
-assert len(html) <= 24000, f"widget html 超限: {len(html)} > 24000"  # v8.2.7：22000→24000 与宿主同步放宽
+assert len(html) <= 25600, f"widget html 超限: {len(html)} > 25600"  # v8.2.9：24000→25600 与宿主同步放宽（双开关+128 段）
+# v8.2.9 特征门（宿主 preset.ts widgetHtmlLen 同步改，两道数字门禁止漂移——Task 100 律）
+for feat in ("csGlowBtn", "csFloatBtn", "csGlow", "csFloat",
+             "mus.now(lyMode === 0)", "bandAvg(n.bands, 9, 85)", "glowOn2"):
+    assert feat in html, f"cshz 缺 v8.2.9 特征 {feat!r}——重建遗漏"
+assert "cs-ring" not in html.replace("cs-ring 废弃", ""), "cshz 代码残留 cs-ring"
 assert len(code) <= 16000, f"script code 超限: {len(code)} > 16000"
 # widget html 不能含外链脚本/资源（iframe 不透明源本就加载不了，这里防手滑）
 # v8.0.1：data-URI 兜底封面合法；xmlns 命名空间标识（w3.org）不是外链资源，剔除后再查

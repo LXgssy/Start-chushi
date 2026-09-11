@@ -1,6 +1,9 @@
 /* ============================================================================
- * 「初始」ext-bg v8.2.6 —— MV3 Service Worker：跨页面音乐卡状态中继
+ * 「初始」ext-bg v8.2.9 —— MV3 Service Worker：跨页面音乐卡状态中继
  *
+ * v8.2.9 频段细化透传：/api/spectrum 的 bands 上限 16→128（v8.2.9 native
+ *   FFT 频段细化数据面；旧 native 16 段帧原样透传，消费端自适应）。
+ *   包体 ~0.9KB/帧 @30Hz ≈ 27KB/s 环回，无感。
  * v8.2.6 性能特供（「5070 卡成屎」根治·SW 需求门律）：
  *   ① spec 广播精准化——broadcastSpec 只发 __spec 订阅卡（旧版全量扇出
  *      给所有 cards，N 标签 = 20msg/s × N 的 renderer 唤醒风暴）；
@@ -208,7 +211,7 @@ async function specTick() {
       type: "spec",
       on: cap,
       bass: cap ? (Number(j.bass) || 0) : 0,
-      bands: Array.isArray(j.bands) ? j.bands.slice(0, 16) : [],
+      bands: Array.isArray(j.bands) ? j.bands.slice(0, 128) : [],
       t: Date.now(),
     });
     }
