@@ -63,7 +63,10 @@ for feat in ("csGlowBtn", "csFloatBtn", "csGlow", "csFloat",
              "transform:scale(1.06)", "filter:blur(2px)", "filter:blur(1.1px)",
              "transform .45s var(--ez)", "filter .45s var(--ez)",
              # v8.3.3 done 行提层 + 高光归位（封面滤镜退役）
-             "will-change:transform,filter", "0.30 + pb * 0.72"):
+             "will-change:transform,filter", "0.30 + pb * 0.72",
+             # v8.3.4 防裁切 + 切行防「咯噔」（容器加高/mask 固定渐隐/grid 翻译行/滚动追踪/on 行提层）
+             "height:146px", "calc(100% - 18px)", "cs-subw", ".cs-ln.on .cs-subw{height:17px",
+             "lyrTrackUntil", "scrollLyrTo", "OPT_MAX"):
     assert feat in html, f"cshz 缺 v8.2.9 特征 {feat!r}——重建遗漏"
 assert "cs-ring" not in html.replace("cs-ring 废弃", ""), "cshz 代码残留 cs-ring"
 assert "picImgEl.style.filter" not in html, "cshz 封面滤镜残留——高光归位律未落地，拒绝"

@@ -124,12 +124,18 @@ img{-webkit-user-drag:none;user-select:none}
    · 高斯模糊景深——未唱行 blur 2px/已唱行 blur 1.1px/当前行 sharp，
      filter 同曲线过渡，行切换时「聚焦」浮现；
    · 滚动 .55s→.45s、行色 .5s→.35s（JS 内联 transition 同步改）。 */
-.cs-lyr{position:relative;height:124px;margin-top:8px;overflow:hidden;flex:none;
-  -webkit-mask-image:linear-gradient(180deg,transparent,#000 16%,#000 84%,transparent)}
+.cs-lyr{position:relative;height:146px;margin-top:8px;overflow:hidden;flex:none;
+  -webkit-mask-image:linear-gradient(180deg,transparent 0,#000 18px,#000 calc(100% - 18px),transparent 100%)}
+/* v8.3.4 歌词防裁切律（浮窗同律）：长行（多行换行+翻译行）居中后余量不足，
+   行顶/行底侵入 mask 渐隐区甚至被 overflow 硬裁（用户：歌词被边框吃掉）——
+   容器 124→146px + 渐隐区改固定 18px + 行 padding 4→6px。LY_H 同步。 */
 .cs-lyr-in{position:absolute;left:0;right:0;top:0;transition:transform .45s var(--ez);will-change:transform}
-.cs-ln{padding:4px 2px;text-align:center;font-size:14.5px;font-weight:560;line-height:1.45;
+.cs-ln{padding:6px 4px;text-align:center;font-size:14.5px;font-weight:560;line-height:1.45;
   color:var(--ink3);transform:scale(.94);transform-origin:50% 50%;filter:blur(2px);
   transition:color .35s ease,transform .45s var(--ez),filter .45s var(--ez)}
+/* v8.3.4【实证反悔律，浮窗同律】：on 行提层撤销——任何 will-change 都会把
+   raster 冻结在 .94，1.06 静息显示下整体放大采样模糊（F15b 对照：无提层
+   245 / transform 提层 203 / filter 提层 203）。当前行白亮不可牺牲。 */
 .cs-ln.on{color:var(--ink);transform:scale(1.06);filter:blur(0)}
 /* v8.2.3 两色调（与浮窗同律）：active 行未唱词底色居 ink/ink3 之间——
    行切换 0.6s 交叉渐隐窗口里当前行恒为视觉主角（旧底色与未来行同灰，
@@ -151,9 +157,18 @@ img{-webkit-user-drag:none;user-select:none}
 .cs-w{position:relative;color:var(--ink3)}
 .cs-w .ov{position:absolute;left:0;top:0;color:var(--ink);pointer-events:none;
   clip-path:inset(-8% calc(100% - var(--p,0%)) -8% 0)}
-.cs-sub{font-size:11px;font-weight:400;color:var(--ink2);margin-top:2px;display:none;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.cs-ln.on .cs-sub{display:block}
+/* v8.3.4 切行防「咯噔」之一（主因，浮窗同律）：翻译行 display:none↔block
+   硬切 = 切行瞬间旧行高 -17px / 新行高 +17px 布局瞬跳。改显式 height 过渡：
+   翻译行 nowrap 单行恒高（11px×1.5=17px），height 0↔17px 平滑插值，
+   布局零跳变（同行收/展同曲线抵消，下方行 offsetTop 恒定=零扰动）。
+   【实证】grid-template-rows 0fr↔1fr 在本环境实测离散跳变（0→17 一步，
+   无中间值）——fr 插值不可信，length 插值（height）100% 可靠。
+   滚动 target 由 lyricFrame 逐帧追踪（见 lyrTrackUntil）。 */
+.cs-subw{display:grid;grid-template-rows:1fr;height:0;opacity:0;overflow:hidden;
+  transition:height .38s var(--ez),opacity .38s ease}
+.cs-ln.on .cs-subw{height:17px;opacity:1}
+.cs-subw .cs-sub{min-height:0;font-size:11px;font-weight:400;color:var(--ink2);line-height:1.5;
+  white-space:nowrap;text-overflow:ellipsis}
 .cs-foot{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--ink3);margin-top:auto}
 .cs-led{width:6px;height:6px;border-radius:var(--r9);background:var(--ok);flex:none;transition:background .3s}
 .cs-led.pz{background:#fbbf24}
@@ -257,7 +272,7 @@ img{-webkit-user-drag:none;user-select:none}
    v8.2.0 律动高光：宿主 now().bass（独立频谱助手 → 30Hz 已包络）驱动
    封面高光 opacity/scale —— 只写合成器友好属性；旧宿主无 bass 字段
    守卫降级静态高光；prefers-reduced-motion 用户不弹。 */
-  var H = { fl: 248, em: 92 }, LY_H = 124, W = 340;
+  var H = { fl: 248, em: 92 }, LY_H = 146, W = 340; /* v8.3.4 LY_H 124→146（防裁切加高，cs-lyr 同步） */
   var DEF = "asset:cover.svg"; /* v8.0.1：asset 在生产宿主实测可用；失联时 onerror 藏 img 露渐变底，绝不破图 */
   function $(id) { return document.getElementById(id); }
 
@@ -314,9 +329,18 @@ img{-webkit-user-drag:none;user-select:none}
     if (window.chushi && typeof window.chushi.resize === "function") chushi.resize(W, hFor());
   }
 
-  /* ---------- 播放态（含乐观窗口） ---------- */
+  /* ---------- 播放态（含乐观窗口） ----------
+     v8.3.4 播放键「复位」根治（浮窗同律）：旧乐观窗固定 2500ms 到期强制
+     回落真值——宿主/SMTC 状态上报慢时图标先翻回旧态再翻回来 = 字面复位。
+     新律：真值对齐即退役；未对齐期间持续显示用户点击的方向（顺延），
+     7s 硬上限防挂死永久锁显。 */
+  var OPT_MAX = 7000;
   function effPlaying() {
-    if (optAt && Date.now() - optAt < 2500) return optP;
+    if (optAt) {
+      var aligned = !!snap && snap.playing === optP;
+      if (aligned || Date.now() - optAt >= OPT_MAX) optAt = 0;
+      else return optP;
+    }
     return !!(snap && snap.playing);
   }
   function playVisual(on) {
@@ -417,6 +441,7 @@ img{-webkit-user-drag:none;user-select:none}
     lyRef = l;
     activeLine = -2;
     lastLyrTy = null;
+    lyrTrackUntil = 0; lyrTrackIdx = -1; /* v8.3.4 重建重置滚动追踪窗 */
     lyInr.innerHTML = "";
     lineEls = [];
     /* v8.1.4 逐字/逐行判定：真逐字（yrc，宿主 src 标记）恒逐字；
@@ -447,10 +472,15 @@ img{-webkit-user-drag:none;user-select:none}
         }
         if (!ln.t) row.classList.add("gap");
         if (ln.tr) {
+          /* v8.3.4 翻译行包 grid 壳（浮窗同律）：0fr↔1fr 高度过渡替代
+             display 硬切（切行布局零跳变，根治「咯噔」主因） */
+          var subw = document.createElement("div");
+          subw.className = "cs-subw";
           var sub = document.createElement("div");
           sub.className = "cs-sub";
           sub.textContent = ln.tr;
-          row.appendChild(sub);
+          subw.appendChild(sub);
+          row.appendChild(subw);
         }
         lyInr.appendChild(row);
         lineEls.push({ el: row, words: words, line: ln, sung: false, clean: true });
@@ -502,6 +532,16 @@ img{-webkit-user-drag:none;user-select:none}
     }
   }
   var lastLyrTy = null; /* v8.2.8 歌词滚动写值防抖（间奏分支每帧进） */
+  /* v8.3.4 滚动 target 逐帧追踪（浮窗同律）：csubw 高度过渡期间 offsetHeight/
+     offsetTop 连续变化，切行瞬间算一次的 target 是过渡起始值——追踪窗内
+     每帧重算，transform transition 平滑跟随，收敛终态。560ms > csubw 380ms。 */
+  var lyrTrackUntil = 0, lyrTrackIdx = -1;
+  function scrollLyrTo(idx, track) {
+    var elc = lineEls[idx].el;
+    var target = (lyBox.clientHeight - elc.offsetHeight) / 2 - elc.offsetTop;
+    if (target !== lastLyrTy) { lastLyrTy = target; lyInr.style.transform = "translateY(" + target + "px)"; }
+    if (track) { lyrTrackUntil = Date.now() + 560; lyrTrackIdx = idx; }
+  }
   function lyricFrame(n) {
     if (!lineEls.length) return;
     if (n.lineIndex !== activeLine) {
@@ -516,18 +556,20 @@ img{-webkit-user-drag:none;user-select:none}
              ——旧版停在旧滚动位直到下一句开始 = 长间奏歌词区完全错位
              （跳转后歌词对不上、逐行尤严重的根因）。浮窗同律。 */
           if (ref >= 0 && ref < lineEls.length) {
-            var elr = lineEls[ref].el;
-            var tgr = (lyBox.clientHeight - elr.offsetHeight) / 2 - elr.offsetTop;
-            if (tgr !== lastLyrTy) { lastLyrTy = tgr; lyInr.style.transform = "translateY(" + tgr + "px)"; }
+            scrollLyrTo(ref, true); /* 旧行 csub 收起同样改布局，一并追踪 */
           }
         }
       } else {
         activeLine = n.lineIndex;
         reconcileLines(activeLine, activeLine);
-        var el = lineEls[activeLine].el;
-        var target = (lyBox.clientHeight - el.offsetHeight) / 2 - el.offsetTop;
-        if (target !== lastLyrTy) { lastLyrTy = target; lyInr.style.transform = "translateY(" + target + "px)"; }
+        scrollLyrTo(activeLine, true);
       }
+    }
+    /* csubw 高度过渡追踪窗：每帧重算 target（小步目标变化由 transform
+       transition 平滑跟随，终态收敛精确居中） */
+    if (lyrTrackUntil) {
+      if (Date.now() >= lyrTrackUntil || lyrTrackIdx < 0 || lyrTrackIdx >= lineEls.length) { lyrTrackUntil = 0; }
+      else scrollLyrTo(lyrTrackIdx, false);
     }
     /* 逐帧只写当前行的词（性能律：其余行在离场时一次性定稿）。
        v8.2.4 高光保持补门：n.lineIndex === activeLine 才写——真 yrc 行
@@ -608,7 +650,9 @@ img{-webkit-user-drag:none;user-select:none}
     renderCover(s);
     renderChips(s);
     playVisual(effPlaying());
-    if (optAt && Date.now() - optAt >= 2500 && s.playing === optP) { optAt = 0; } /* 真值确认，乐观窗口退役 */
+    /* v8.3.4 真值确认退役：effPlaying 内已对齐即清（此处保留为快路径）；
+       未对齐时窗口顺延至 OPT_MAX（不再 2500ms 硬回落 = 复位根因） */
+    if (optAt && Date.now() - optAt >= 2500 && s.playing === optP) { optAt = 0; }
   }
 
   /* ---------- 交互 ---------- */
