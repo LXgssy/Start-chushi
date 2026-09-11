@@ -1,5 +1,27 @@
 /* ============================================================================
- * 「初始」ext-card v8.3.4 —— 内容脚本：悬浮音乐卡（置顶所有网页，三态）
+ * 「初始」ext-card v8.3.5 —— 内容脚本：悬浮音乐卡（置顶所有网页，三态）
+ *
+ * v8.3.5 用户实机反馈四连（浮窗侧）：
+ *   ① 中文歌逐字歌词「重影」——根因：.fw 词壳是 inline 相对定位，
+ *      .ov（absolute）的包含块顶 = 字体 em box 顶（content area），
+ *      而底字基线由 line box 排布（line-height 1.45 的半 leading 差
+ *      ≈3px）→ 两层文本基线错位，中文方块字笔画极敏感 = 重影
+ *      （拉丁圆润笔画不敏感，故用户只见中文歌出影）。修：.fw 改
+ *      inline-block——包含块成真块盒，内部 line box 与外部行盒基线
+ *      对齐律一致（inline-block 基线=末行盒基线），两层像素级重合。
+ *      .ov 补 white-space:nowrap 双保险。面板 .cs-w 同律（双表面）。
+ *   ② 高光照亮文字（用户：文字层级要比律动高光高）——层叠律：
+ *      .glow 是 positioned（z-index:0），同 context 内 positioned
+ *      画在非定位内容之上；封面 img 有 z-index:1 压光，但 .meta/.mtm/
+ *      .rail/.cap/.flyr/.ftm/.fctl 全是非定位 → 辉光 blur 晕出
+ *      （-6px + 10px ≈ 16px）盖住邻近文字。修：全部内容件提层
+ *      position:relative;z-index:1（cap/mtm 已 absolute 补 z-index）。
+ *      面板 .cs-meta 等同律。
+ *   ③ seek 后歌词过快/过慢/要校准——护航窗收窗容差 ±2s 太宽：
+ *      真值落点差 1.9s 也直接收窗重锚。修：收窗容差收紧 0.8s +
+ *      护航窗 4.5s→3s（真值正常 1~2.5s 内到，过期多=seek 失败，
+ *      早收窗早诚实回锚；过期拍走既有中幅软重锚带（|d|≤2.5 →
+ *      800ms smoothstep），不再硬跳）。sandbox 同律（收窗/软重锚/dur）。
  *
  * v8.3.4 用户实机反馈四连：
  *   ① 歌词被边框吃掉（用户：很多歌都这样）——长行（多行换行+翻译行）垂直
@@ -361,7 +383,10 @@
     'filter:blur(10px);pointer-events:none;z-index:0}' +
     /* v8.2.8 去方框律：.gring 细节环废弃（用户：方框太丑）——中高频
        细节改由辉光本体 opacity/scale 的全频段合成承担（paintGlow） */
-    '.meta{flex:1;min-width:0}' +
+    /* v8.3.5 文字层级律：内容件 relative+z-index:1 压住 .glow（positioned
+       z-index:0 同 context 画在非定位内容之上 = 辉光晕出盖字）；
+       img z-index:1 同带，文字件 DOM 源序靠后同带更高。 */
+    '.meta{flex:1;min-width:0;position:relative;z-index:1}' +
     '.t1{font-size:12.5px;font-weight:560;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
     '.t2{font-size:10.5px;color:#a1a1aa;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
     '.b{appearance:none;border:0;background:transparent;color:#a1a1aa;width:30px;height:30px;flex:none;' +
@@ -378,8 +403,8 @@
     'cursor:pointer;opacity:.8;transition:opacity .2s,color .2s,background-color .2s}' +
     '.x:hover{opacity:1;color:#fff;background:rgba(255,255,255,.1)}' +
     '.x svg{width:12px;height:12px}' +
-    '.cap{position:absolute;right:8px;top:8px;display:flex;gap:2px}' +
-    '.rail{height:10px;display:flex;align-items:center;cursor:pointer}' +
+    '.cap{position:absolute;right:8px;top:8px;display:flex;gap:2px;z-index:1}' +
+    '.rail{position:relative;z-index:1;height:10px;display:flex;align-items:center;cursor:pointer}' +
     '.rin{width:100%;height:3px;border-radius:2px;background:rgba(255,255,255,.14);overflow:hidden}' +
     '.fill{display:block;height:100%;width:0%;border-radius:2px;background:var(--acc,#8b5cf6)}' +
     /* ---- 标准态（v8.2.2 钮组独立顶带；v8.2.3 带 30→26px 收敛 + 带左常显时间——
@@ -392,7 +417,7 @@
        后自然回落此 CSS 默认，零冲突。 */
     '.card{width:264px;padding:26px 12px 9px;display:none;overflow:hidden}' +
     '.card .cap{top:4px}' +
-    '.mtm{position:absolute;left:12px;top:4px;height:22px;line-height:22px;font-size:10px;' +
+    '.mtm{position:absolute;left:12px;top:4px;height:22px;line-height:22px;font-size:10px;z-index:1;' +
     'color:#8e8e96;font-variant-numeric:tabular-nums;pointer-events:none}' +
     '.card .cov{width:44px;height:44px}' +
     '.card .rail{margin-top:9px}' +
@@ -402,9 +427,9 @@
     '.fcard .row{padding-right:46px}' +
     '.fcard .cov{width:52px;height:52px;border-radius:12px}' +
     '.fcard .t1{font-size:13.5px}.fcard .t2{font-size:11px}' +
-    '.ftm{display:flex;justify-content:space-between;font-size:10px;color:#8e8e96;margin-top:5px;font-variant-numeric:tabular-nums}' +
+    '.ftm{position:relative;z-index:1;display:flex;justify-content:space-between;font-size:10px;color:#8e8e96;margin-top:5px;font-variant-numeric:tabular-nums}' +
     '.fcard .rail{margin-top:2px}' +
-    '.fctl{display:flex;align-items:center;justify-content:center;gap:22px;margin-top:4px}' +
+    '.fctl{position:relative;z-index:1;display:flex;align-items:center;justify-content:center;gap:22px;margin-top:4px}' +
     /* ---- 歌词（与「初始」部件同渲染律：双层实体色 + clip-path 扫光）----
        v8.3.1 歌词动效对齐「初始」完全体（用户视频示例）：
        · 当前行放大（scale 1.06）/邻行缩小（0.94）——行切换时字号呼吸过渡，
@@ -420,7 +445,7 @@
        容器 118→140px 加高 + 渐隐区改固定 18px（百分比随行高浮动，
        固定 px 与行内容解耦）+ 行 padding 3→5px 呼吸（scale 1.06 后
        顶部余量更足）。 */
-    '.flyr{position:relative;height:140px;margin-top:10px;overflow:hidden;flex:none;' +
+    '.flyr{position:relative;z-index:1;height:140px;margin-top:10px;overflow:hidden;flex:none;' +
     '-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 18px,#000 calc(100% - 18px),transparent 100%)}' +
     '.flyr-in{position:absolute;left:0;right:0;top:0;transition:transform .45s cubic-bezier(.22,1,.36,1),opacity .3s ease;will-change:transform}' +
     '.fln{padding:5px 4px;text-align:center;font-size:13.5px;font-weight:560;line-height:1.45;' +
@@ -444,12 +469,18 @@
     '.fln.done .fw{color:#8e8e96}' +
     '.fln.done .fw .ov{opacity:0;transition:opacity .6s ease}' +
     '.fln.gap{font-size:11px;letter-spacing:7px;color:#71717a}' +
-    '.fw{position:relative;color:#71717a}' +
+    /* v8.3.5 逐字重影根治：.fw inline-block 化——inline 相对定位的
+       absolute 子元素包含块顶 = em box 顶，与底字 line box 基线差
+       半 leading（~3px），中文方块字重影明显。inline-block 后包含
+       块=真块盒，内部 line box 与外部行盒基线对齐律一致 → 两层文
+       本像素级重合。inline-block 序列在 text-align:center / 断行 /
+       基线对齐与 inline 行为一致（createElement 无空白节点无间隙）。 */
+    '.fw{position:relative;display:inline-block;color:#71717a}' +
     /* v8.2.3 两色调：当前行未唱词底色提亮（四级阶梯：未来#71717a <
        done#8e8e96 < 当前行#b4b4bc < 扫光#f4f4f5）——行切换 0.6s 交叉
        渐隐窗口里当前行恒为视觉主角，白高光不再「看起来在上一行」 */
     '.fln.on .fw{color:#b4b4bc}' +
-    '.fw .ov{position:absolute;left:0;top:0;color:#f4f4f5;pointer-events:none;' +
+    '.fw .ov{position:absolute;left:0;top:0;color:#f4f4f5;pointer-events:none;white-space:nowrap;' +
     'clip-path:inset(-8% calc(100% - var(--p,0%)) -8% 0)}' +
     /* v8.3.4 切行防「咯噔」之一（主因）：翻译行 display:none↔block 硬切——
        切行瞬间旧行高 -17px、新行高 +17px，两处布局无过渡瞬跳 = 「咯噔」。
@@ -1006,10 +1037,14 @@
     var rate = nt.rate > 0 ? nt.rate : 1;
     var age = nt.playing ? Math.min(6, Math.max(0, (now - nt.fetchedAt) / 1000)) : 0;
     var implied = nt.position + age * rate;
-    /* seek 护航窗：拖动已乐观重锚——远离目标的拍是拖动前旧轨/中间态 */
+    /* seek 护航窗：拖动已乐观重锚——远离目标的拍是拖动前旧轨/中间态。
+       v8.3.5：收窗容差 2→0.8（真值落点差 1~2s 也收窗 = 误差带内重锚，
+       体感「seek 后歌词要校准」）；窗 4.5→3s（真值正常 1~2.5s 内到，
+       过期多=seek 失败，早收窗早诚实回锚；过期拍走下方中幅软重锚带
+       （|d|≤2.5 → 800ms smoothstep），不再硬跳）。 */
     if (seekGuard) {
-      if (now - seekGuard.at > 4500) { seekGuard = null; }
-      else if (Math.abs(implied - seekGuard.to) <= 2) { seekGuard = null; }
+      if (now - seekGuard.at > 3000) { seekGuard = null; }
+      else if (Math.abs(implied - seekGuard.to) <= 0.8) { seekGuard = null; }
       else return; /* 陈旧拍：忽略，目标轨迹继续走 */
     }
     var d = implied - disp;

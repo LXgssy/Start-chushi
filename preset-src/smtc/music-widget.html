@@ -58,7 +58,11 @@ img{-webkit-user-drag:none;user-select:none}
 .cs-dot{position:absolute;right:6px;top:6px;width:6px;height:6px;border-radius:var(--r9);
   background:var(--ok);box-shadow:0 0 6px var(--ok);opacity:0;transition:opacity .4s}
 .cs-playing .cs-dot{opacity:1}
-.cs-meta{flex:1;min-width:0;padding-right:24px}
+/* v8.3.5 文字层级律（浮窗同律）：.cs-glow 是 positioned（inset -8px +
+   blur 13px 晕出 ~21px），同 context 内画在非定位内容之上 = 辉光盖字；
+   内容件 relative+z-index:1 提到辉光之上，封面 img 静态流内被 .cs-pic
+   overflow 裁住不受影响。 */
+.cs-meta{flex:1;min-width:0;padding-right:24px;position:relative;z-index:1}
 .cs-t1{font-size:15px;font-weight:560;color:var(--ink);line-height:1.3;white-space:nowrap;
   overflow:hidden;text-overflow:ellipsis}
 .cs-t2{font-size:12px;color:var(--ink2);margin-top:3px;white-space:nowrap;overflow:hidden;
@@ -66,7 +70,7 @@ img{-webkit-user-drag:none;user-select:none}
 .cs-t3{font-size:11px;color:var(--ink3);margin-top:2px;white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis}
 /* 切歌滑入动画已随 v8.0.6 瘦身移除（切歌反馈由封面/歌词变化承担） */
-.cs-x{position:absolute;right:10px;top:10px;appearance:none;border:0;cursor:pointer;
+.cs-x{position:absolute;right:10px;top:10px;z-index:1;appearance:none;border:0;cursor:pointer;
   display:flex;align-items:center;justify-content:center;width:24px;height:24px;
   border-radius:var(--r9);color:var(--ink2);background:var(--card2);opacity:.85}
 .cs-x svg{width:13px;height:13px;fill:none;stroke:currentColor;stroke-width:2;
@@ -76,7 +80,7 @@ img{-webkit-user-drag:none;user-select:none}
    拖动/点击均可调进度；拖动中本地预览，松手 mus.seek（失败由宿主 seekAck
    → seekNote 芯片诚实呈现，成功由宿主乐观重锚） */
 .cs-seek{margin-top:13px;height:14px;display:flex;align-items:center;cursor:pointer;
-  touch-action:none}
+  touch-action:none;position:relative;z-index:1}
 /* v8.0.9 悬停放大过渡律：轨道 4→6px 加缓动，不再瞬变
    v8.1.4 帧率根治：height 过渡每帧触发 layout（backdrop-filter 卡片内
    代价极高），改 scaleY 合成层动画——轨道恒 6px，默认压至 4px 视觉高，
@@ -87,7 +91,7 @@ img{-webkit-user-drag:none;user-select:none}
 .cs-seek:hover .cs-rail{transform:scaleY(1)}
 .cs-rail i{position:absolute;left:0;top:0;height:100%;width:0%;border-radius:4px;background:var(--acc)}
 .cs-tm{display:flex;justify-content:space-between;margin-top:2px;font-size:10.5px;
-  color:var(--ink3);font-variant-numeric:tabular-nums}
+  color:var(--ink3);font-variant-numeric:tabular-nums;position:relative;z-index:1}
 .cs-b{appearance:none;border:0;background:transparent;color:var(--ink2);width:38px;height:38px;
   border-radius:var(--r9);flex:none;display:flex;align-items:center;justify-content:center;
   cursor:pointer}
@@ -111,7 +115,7 @@ img{-webkit-user-drag:none;user-select:none}
   transition:opacity .16s ease,transform .16s var(--ez)}
 .cs-bmain svg.off{opacity:0;transform:scale(.55)}
 .cs-bmain:active{transform:scale(.94)}
-.cs-ctl{flex:1;display:flex;align-items:center;justify-content:center;gap:20px}
+.cs-ctl{flex:1;display:flex;align-items:center;justify-content:center;gap:20px;position:relative;z-index:1}
 /* ---------- 逐字歌词：行/词 DOM 与高亮由宿主预计算驱动 ----------
    v8.3.3 done 行常驻提层（模糊防重置：过渡结束降层重栅格化会把合成器
    实时模糊换成烘焙模糊 = 上一句模糊在定住瞬间质感阶跃）+ 高光归位
@@ -154,8 +158,15 @@ img{-webkit-user-drag:none;user-select:none}
 .cs-ln.gap{font-size:11px;letter-spacing:7px;color:var(--ink3)}
 /* 逐字扫色：双层实体色 + clip-path（background-clip:text 在 transform 过场中
    会整词隐形闪动；底层永远实体色可见，上层同文本按 --p 裁剪显色） */
-.cs-w{position:relative;color:var(--ink3)}
-.cs-w .ov{position:absolute;left:0;top:0;color:var(--ink);pointer-events:none;
+/* v8.3.5 逐字重影根治（浮窗 .fw 同律）：.cs-w inline-block 化——inline
+   相对定位的 absolute 子元素包含块顶 = em box 顶，与底字 line box 基线差
+   半 leading（line-height 1.45 ≈3px），中文方块字笔画极敏感 = 重影（拉丁
+   圆润笔画不敏感，故用户只见中文歌出影）。inline-block 后包含块 = 真块盒，
+   内部 line box 与外部行盒基线对齐律一致（inline-block 基线 = 末行盒基线）
+   → 两层文本像素级重合；text-align:center / 断行 / 基线对齐行为不变
+   （DOM 构建 createElement 无空白节点，无额外间隙）。.ov 补 nowrap。 */
+.cs-w{position:relative;display:inline-block;color:var(--ink3)}
+.cs-w .ov{position:absolute;left:0;top:0;color:var(--ink);pointer-events:none;white-space:nowrap;
   clip-path:inset(-8% calc(100% - var(--p,0%)) -8% 0)}
 /* v8.3.4 切行防「咯噔」之一（主因，浮窗同律）：翻译行 display:none↔block
    硬切 = 切行瞬间旧行高 -17px / 新行高 +17px 布局瞬跳。改显式 height 过渡：
@@ -169,7 +180,8 @@ img{-webkit-user-drag:none;user-select:none}
 .cs-ln.on .cs-subw{height:17px;opacity:1}
 .cs-subw .cs-sub{min-height:0;font-size:11px;font-weight:400;color:var(--ink2);line-height:1.5;
   white-space:nowrap;text-overflow:ellipsis}
-.cs-foot{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--ink3);margin-top:auto}
+.cs-foot{display:flex;align-items:center;gap:6px;font-size:10.5px;color:var(--ink3);margin-top:auto;
+  position:relative;z-index:1}
 .cs-led{width:6px;height:6px;border-radius:var(--r9);background:var(--ok);flex:none;transition:background .3s}
 .cs-led.pz{background:#fbbf24}
 /* v8.1.4 强行逐字开关 + v8.2.9 律动/浮窗双开关（宿主 storage 持久化） */
