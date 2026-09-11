@@ -101,10 +101,15 @@
   'use strict';
   if (window.__chushiMusicBridge) return;
 
-  var VER = '8.1.3';
+  var VER = '8.2.9';
   var HUB_NAME = 'chushi-music-hub';
   var HUB_PORTS = [26901, 26902, 26903];
   var BEAT_MS = 1000;
+  /* v8.2.9 命令快排：专职 drain 循环节拍——「按了暂停好久才暂停」根治。
+     旧版命令拉取串在 beat 尾部（poll→推状态→selftest→拉命令，最坏 ~4s/拍），
+     命令平均等 0.5s、最坏 ~5s 才被执行；现拆出独立 200ms 快排循环，
+     状态推送再拥堵也不拖累命令（环回 GET 微秒级，5/s 无感）。 */
+  var DRAIN_MS = 200;
   /* v8.0.8 回路自证节律 */
   var SELFTEST_MS = 8000;
   var SELFTEST_WAIT_MS = 4000;
@@ -1279,15 +1284,26 @@
         else { traceCmd('selftest', 'post-fail'); }
       }
 
-      /* 5) 拉页面命令（v8：无系统侧事件——媒体键全由 InfLink 直达网易云；
-         v8.1.3：命令拉取让位状态推送后置，超时收紧 2000→1200ms）
-         v8.0.1 协议律：hub 实物返回 [{"_id":N,"raw":{...}}]，raw 是对象；
-         旧代码 JSON.parse(item.raw) 把对象转 "[object Object]" 必抛 →
-         全部命令被静默丢弃（e2e mock 与实物协议分叉漏网）。双形兼容：
-         v8.0.7：URL 携带实例 id，hub 租约门校验非持有者拦为 []
-         v8.0.8：拉取失败不再静默——null/非数组落 trace 'pull-fail' +
-         poll.lastNullAt（「桥在拉但永远空」从猜测变成可见事实） */
-      var cmds = await jget(hub.url('/api/cmd?id=' + POLL_ID), 1200);
+      /* 5) 拉页面命令——v8.2.9 已拆出独立快排循环 drainCmds()（200ms 节拍）。
+         beat 不再承担命令链路：状态推送再拥堵（hub 迟滞/超时）也不拖累
+         命令执行（「按了暂停好久才暂停」根治）。协议律不变：
+         hub 实物返回 [{"_id":N,"raw":{...}}]；租约门非持有者拦为 []。 */
+    } catch (e) {
+      hub.failStreak++;
+    } finally {
+      beatBusy = false;
+    }
+  }
+
+  /* v8.2.9 专职命令快排（200ms 节拍，与 beat 解耦）：
+     协议律 v8.0.1/v8.0.7/v8.0.8 全保留——[{"_id":N,"raw":{...}}] 双形兼容、
+     URL 携带实例 id、租约门校验、失败落 trace + poll.lastNullAt。 */
+  var drainBusy = false;
+  function drainCmds() {
+    if (drainBusy) return;
+    if (!iHold || !hub.port) return;
+    drainBusy = true;
+    jget(hub.url('/api/cmd?id=' + POLL_ID), 900).then(function (cmds) {
       pollStat.lastGetAt = nowMs();
       if (Array.isArray(cmds)) {
         pollStat.drains++;
@@ -1311,14 +1327,14 @@
       } else {
         pollStat.lastNullAt = nowMs();
         pollStat.emptyStreak++;
-        /* v8.0.8：拉取失败（解析抛/网络空）不再静默——每 5 次落一条防刷屏 */
-        if (pollStat.emptyStreak % 5 === 1) traceCmd('pull-fail', 'non-array');
+        /* 拉取失败防刷屏（200ms 节拍下 25 次 = 5s 一条） */
+        if (pollStat.emptyStreak % 25 === 1) traceCmd('pull-fail', 'non-array');
       }
-    } catch (e) {
-      hub.failStreak++;
-    } finally {
-      beatBusy = false;
-    }
+    }).catch(function () {
+      pollStat.lastNullAt = nowMs();
+    }).finally(function () {
+      drainBusy = false;
+    });
   }
 
   /* ------------------------------------------------------------------ */
@@ -1328,6 +1344,8 @@
     readTruth();
     beat().finally(function () { });
     setInterval(function () { beat(); }, BEAT_MS);
+    /* v8.2.9 命令快排循环：200ms 专职排空（与状态推送 beat 完全解耦） */
+    setInterval(function () { drainCmds(); }, DRAIN_MS);
     /* 歌词请求超时重试（v8.0.7：备胎待命时不重试——歌词写入权也归持有者） */
     setInterval(function () {
       if (!iHold) return;

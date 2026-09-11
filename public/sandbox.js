@@ -360,11 +360,14 @@
     /* ---- 逐行/逐词二分定位 ----
        v8.2.8 歌词延迟补偿：SMTC position 领先音频输出的系统性差（音频引擎
        + 设备缓冲 ≈ 60-100ms，高光链路稳定后显形为「逐字比唱的快」）——
-       对齐时基统一延后 LYR_LAG_MS，扫光等唱声到位。只影响歌词对齐，
-       进度条/时间显示不受影响。浮窗 ext-lyric.js 同律。 */
+       对齐时基延后 LYR_LAG_MS，扫光等唱声到位。只影响歌词对齐，
+       进度条/时间显示不受影响。浮窗 ext-lyric.js 同律。
+       v8.2.9 行级时钟分离（用户实机反馈「逐行歌词慢了一点，就快一点点」）：
+       逐字扫光保持 -100ms；逐行渲染（lineMode=true）用原始时基（行界判定
+       快一拍）——延迟补偿是逐字专属，不再拖累行级高亮/滚动。 */
     var LYR_LAG_MS = 100;
-    function alignAt(msRaw) {
-      var ms = msRaw - LYR_LAG_MS;
+    function alignAt(msRaw, lineMode) {
+      var ms = lineMode === true ? msRaw : msRaw - LYR_LAG_MS;
       var data = ensureParsed(lastSnap && lastSnap._lyricRaw);
       var none = { lineIndex: -1, lastLine: -1, wordIndex: -1, wordProgress: 0, lineProgress: 0, lineText: "", lineTr: "", wordText: "" };
       if (!data || !data.lines.length) return none;
@@ -628,10 +631,10 @@
       if (prevPlaying === true && anchor.playing === false) { fadeMs = computeFadeMs(); soft = null; }
     }
 
-    /* ---- 实时态（面板 rAF 每帧取用） ---- */
-    function now() {
+    /* ---- 实时态（面板 rAF 每帧取用；v8.2.9 now(lineMode) 透传行级时钟） ---- */
+    function now(lineMode) {
       var ms = posNow() * 1000;
-      var a = alignAt(ms);
+      var a = alignAt(ms, lineMode === true);
       var dur = anchor ? anchor.duration : 0;
       return {
         position: ms / 1000,
@@ -1058,7 +1061,7 @@ function widgetShim(theme, accent, panelMode) {
     "subscribe:function(cb){if(typeof cb!=='function')return function(){};smtcCbs.push(cb);" +
     "post({type:'widgetApi',op:'smtcSubscribe'});return function(){var i=smtcCbs.indexOf(cb);" +
     "if(i>=0)smtcCbs.splice(i,1)}}}," +
-    "music:{snapshot:function(){return __music.snapshot()},now:function(){return __music.now()}," +
+    "music:{snapshot:function(){return __music.snapshot()},now:function(m){return __music.now(m===true)}," +
     "lyrics:function(){return __music.lyrics()},subscribe:__music.subscribe,seek:__music.seek," +
     "play:__music.play,pause:__music.pause,toggle:__music.toggle,next:__music.next,prev:__music.prev}};" +
     "window.addEventListener('message',function(ev){var d=ev.data;if(!d||typeof d!=='object')return;" +

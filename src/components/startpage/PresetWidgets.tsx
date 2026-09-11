@@ -95,6 +95,24 @@ function pushSmtcSnapshot(wkey: string, reqId?: unknown) {
   postToWidget(wkey, { type: "widgetSmtc", widgetKey: wkey, state: snap, reqId: typeof reqId === "number" ? reqId : 0 });
 }
 
+/* v8.2.9 面板开关 → 扩展浮窗镜像（cardAcc/cardForceWord 同律）：
+   律动 → cardGlow；浮窗 → cardEnabled。默认 true（与面板默认一致）。 */
+function mirrorExtCard(fw: string | undefined, glow: string | undefined, flt: string | undefined) {
+  try {
+    const ext = (window as unknown as {
+      chrome?: { storage?: { local?: { set?: (o: Record<string, unknown>) => void } } };
+    }).chrome;
+    if (!ext?.storage?.local?.set) return;
+    const patch: Record<string, unknown> = {};
+    if (fw !== undefined) patch.cardForceWord = fw === "true";
+    if (glow !== undefined) patch.cardGlow = glow !== "false";
+    if (flt !== undefined) patch.cardEnabled = flt !== "false";
+    if (Object.keys(patch).length) ext.storage.local.set(patch);
+  } catch {
+    /* 非 extension 环境（gh-pages 预览） */
+  }
+}
+
 function PresetWidgets(props: {
   widgets: ActiveWidget[];
   isDark: boolean;
@@ -129,19 +147,13 @@ function PresetWidgets(props: {
   /* 挂载时读一次 KV；部件列表清空（全部预设删除）时无框架可服务 */
   useEffect(() => {
     kvRef.current = readKv();
-    /* v8.2.8 初始镜像：已有 csForceWord 值同步给浮窗（否则浮窗要等用户
-       下一次切换开关才知道面板状态） */
-    try {
-      const fw = Object.entries(kvRef.current).find(([k]) => k.endsWith(":csForceWord"));
-      const ext = (window as unknown as {
-        chrome?: { storage?: { local?: { set?: (o: Record<string, unknown>) => void } } };
-      }).chrome;
-      if (ext?.storage?.local?.set) {
-        ext.storage.local.set({ cardForceWord: fw ? fw[1] === "true" : false });
-      }
-    } catch {
-      /* 非 extension 环境 */
-    }
+    /* v8.2.8 初始镜像：已有开关值同步给浮窗（否则浮窗要等用户
+       下一次切换开关才知道面板状态）；v8.2.9 扩至三开关 */
+    const kv = kvRef.current;
+    const fw = Object.entries(kv).find(([k]) => k.endsWith(":csForceWord"));
+    const glow = Object.entries(kv).find(([k]) => k.endsWith(":csGlow"));
+    const flt = Object.entries(kv).find(([k]) => k.endsWith(":csFloat"));
+    mirrorExtCard(fw ? fw[1] : undefined, glow ? glow[1] : undefined, flt ? flt[1] : undefined);
   }, []);
 
   /* 媒体双通道（v5 全新实现）：
@@ -273,18 +285,12 @@ function PresetWidgets(props: {
         const v = s(m.value, VALUE_MAX);
         kvRef.current = { ...kvRef.current, [k]: v };
         writeKv(kvRef.current);
-        /* v8.2.8 浮窗强行逐字跟随：面板 cs-wbw 开关镜像到 chrome.storage.local
-           （cardAcc 同律）——悬浮音乐卡内容脚本任意网页读取 + onChanged */
-        if (k.endsWith(":csForceWord")) {
-          try {
-            const ext = (window as unknown as {
-              chrome?: { storage?: { local?: { set?: (o: Record<string, unknown>) => void } } };
-            }).chrome;
-            ext?.storage?.local?.set?.({ cardForceWord: v === "true" });
-          } catch {
-            /* 非 extension 环境（gh-pages 预览） */
-          }
-        }
+        /* v8.2.8/9 面板开关镜像到 chrome.storage.local：csForceWord →
+           cardForceWord；csGlow → cardGlow（律动总开关）；csFloat →
+           cardEnabled（浮窗全局显隐）——悬浮卡任意网页读取 + onChanged */
+        if (k.endsWith(":csForceWord")) mirrorExtCard(v, undefined, undefined);
+        else if (k.endsWith(":csGlow")) mirrorExtCard(undefined, v, undefined);
+        else if (k.endsWith(":csFloat")) mirrorExtCard(undefined, undefined, v);
         postToWidget(wkey, { type: "widgetStorage", widgetKey: wkey, reqId: m.reqId, op: "storageSet", ok: true });
         break;
       }

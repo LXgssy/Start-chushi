@@ -90,12 +90,18 @@ export const SMTC_PORTS: readonly number[] = [26901, 26902, 26903];
 
 const HUB_NAME = "chushi-music-hub";
 const HUB_VER_MIN = "8.0.0";
-const PLUGIN_VER_MIN = "8.1.0";
-const CLIENT_VER = "8.2.8";
+/* v8.2.9 强制升桥：命令快排（200ms 专职 drain）在桥 JS 8.2.9 ——
+   「按了暂停好久才暂停」的根修在桥侧，旧桥必须升级（面板芯片如实提示） */
+const PLUGIN_VER_MIN = "8.2.9";
+const CLIENT_VER = "8.2.9";
 const POLL_MS = 1000;
 const RETRY_MS = 1500;
 const TIMEOUT_MS = 2200;
-const TRUTH_STALE_SEC = 6;
+/* v8.2.9 面板冻结缓解：6→12。真值年龄补偿的上限——桥推送迟滞窗口内
+   （hub 拥堵/网易云忙），面板与浮窗一致地按真实年龄继续走（浮窗本就
+   不封顶）；超过 12s 才进入钉守冻结（真停播/桥死）。用户实机反馈
+   「面板歌词和进度不动但浮窗正常」的页面侧根因即 6s 封顶过早冻结。 */
+const TRUTH_STALE_SEC = 12;
 /** v8.0.8 桥状态新鲜度：超过此值（秒）视为冻结嫌疑，连续 staleStreakMax 拍重探 */
 const STATE_STALE_MS = 8000;
 const STATE_STALE_STREAK_MAX = 4;
@@ -359,6 +365,8 @@ class SmtcClient {
   private staleStreak = 0;
   /** v8.0.8 节拍计数（hublog 降频拉取） */
   private beats = 0;
+  /** v8.2.9 hublog 在飞守卫：诊断拉取不再阻塞状态节拍（面板冻结配套） */
+  private hubLogBusy = false;
   /** v8.0.8 hub 日志尾部环形（诊断口透传） */
   private hubLogBuf: string[] = [];
 
@@ -606,17 +614,24 @@ class SmtcClient {
         else if (now0 - e.at > RECV_WAIT_MS) e.recv = false;
       }
 
-      /* v8.0.8 hub 日志尾部：每 3 拍拉一次（证据端点，降频） */
+      /* v8.0.8 hub 日志尾部：每 3 拍拉一次（证据端点，降频）
+         v8.2.9 不再 await：诊断拉取拥挤时曾拖慢状态节拍（最坏 2.2s/拍，
+         面板冻结的帮凶），现在行不挡 beat，状态 polls 恒 1s 节拍 */
       this.beats++;
-      if (this.beats % 3 === 0) {
-        const hl = await getJson(`http://127.0.0.1:${port}/api/hublog`);
-        if (hl && hl.ok === true && Array.isArray(hl.log)) {
-          const lines: string[] = [];
-          for (const it of (hl.log as unknown[]).slice(-12)) {
-            if (Array.isArray(it) && it.length >= 2) lines.push(`${String(it[1])}`);
-          }
-          if (lines.length) this.hubLogBuf = lines;
-        }
+      if (this.beats % 3 === 0 && !this.hubLogBusy) {
+        this.hubLogBusy = true;
+        void getJson(`http://127.0.0.1:${port}/api/hublog`)
+          .then((hl) => {
+            if (hl && hl.ok === true && Array.isArray(hl.log)) {
+              const lines: string[] = [];
+              for (const it of (hl.log as unknown[]).slice(-12)) {
+                if (Array.isArray(it) && it.length >= 2) lines.push(`${String(it[1])}`);
+              }
+              if (lines.length) this.hubLogBuf = lines;
+            }
+          })
+          .catch(() => { /* 诊断面静默 */ })
+          .finally(() => { this.hubLogBusy = false; });
       }
 
       /* v8 语义：smtcVer = InfLink-rs 版本（桥心跳携带；空 = 未装/未启用） */
@@ -818,8 +833,8 @@ const SPEC_RELEASE = 0.16;      /* 包络：慢放（不闪） */
 
 export interface SmtcSpectrum {
   on: boolean;        // 助手在场且采集链路 ok（cap=1）
-  bass: number;       // 0..1 已包络（低三段加权，鼓点驱动源）
-  bands: number[];    // 16 段 0..1 已包络；on=false 时为衰减尾
+  bass: number;       // 0..1 已包络（低频段带权，鼓点驱动源）
+  bands: number[];    // ≤128 段 0..1 已包络（v8.2.9 频段细化；on=false 时为衰减尾）
   t: number;          // 帧到达时刻（Date.now()）
 }
 
@@ -832,7 +847,8 @@ class SpectrumClient {
   private fails = 0;
   private bootBeats = 0;
   private envBass = 0;
-  private envBands: number[] = new Array(16).fill(0);
+  /* v8.2.9 频段细化：包络数组随帧长自适应（128 段 native / 16 段旧 native） */
+  private envBands: number[] = [];
   private subs: SpecCb[] = [];
 
   /** 最近一帧（一次性消费用；on=false = 无助手/暂停衰减中） */
@@ -877,7 +893,7 @@ class SpectrumClient {
   private decay() {
     this.envBass *= 0.9;
     if (this.envBass < 0.005) this.envBass = 0;
-    for (let i = 0; i < 16; i++) this.envBands[i] *= 0.9;
+    for (let i = 0; i < this.envBands.length; i++) this.envBands[i] *= 0.9;
     this.last = { on: false, bass: this.envBass, bands: this.envBands.slice(), t: Date.now() };
     this.publish();
   }
@@ -912,8 +928,12 @@ class SpectrumClient {
       const playing = !!(smtc.getSnapshot().track && smtc.getSnapshot().track!.playing);
       const tgtBass = cap && playing ? clipNum(j.bass) : 0;
       const raw = Array.isArray(j.bands) ? (j.bands as unknown[]) : [];
+      /* v8.2.9 频段细化：上限 128（native 16→128）；旧 native 16 段自然兼容，
+         包络数组随帧长重建（攻 0.62/放 0.16 参数族不变） */
+      const nb = Math.min(128, raw.length);
+      if (this.envBands.length !== nb) this.envBands = new Array(nb).fill(0);
       this.envBass += (tgtBass - this.envBass) * (tgtBass > this.envBass ? SPEC_ATTACK : SPEC_RELEASE);
-      for (let i = 0; i < 16; i++) {
+      for (let i = 0; i < nb; i++) {
         const tv = cap && playing ? clipNum(raw[i]) : 0;
         this.envBands[i] += (tv - this.envBands[i]) * (tv > this.envBands[i] ? SPEC_ATTACK : SPEC_RELEASE);
       }

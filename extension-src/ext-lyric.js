@@ -164,12 +164,18 @@
   }
 
   /* ---- 逐行/逐词二分对齐（sandbox.js alignAt 纯函数版） ----
-     返回 {lineIndex, lastLine, wordIndex, wordProgress, lineProgress} */
-  var LYR_LAG_MS = 100; /* v8.2.8 歌词延迟补偿（SMTC 领先音频输出的固定差） */
+     返回 {lineIndex, lastLine, wordIndex, wordProgress, lineProgress}
+     v8.2.9 行级时钟分离（用户实机反馈「逐行歌词慢了一点，就快一点点」）：
+     v8.2.8 的 LYR_LAG_MS=100 是给逐字扫光的（SMTC 领先唱声 ~100ms）——
+     但它把行级高亮/滚动也延后了 100ms，逐行模式显慢。现 align 增加第三参
+     lineMode：逐行渲染时用原始时基（0ms 补偿，回到行界时序快一拍），
+     逐字渲染仍用 -100ms（扫光等唱声）。调用方：ext-card lyricFrame 按
+     lyMode 传参；面板走 sandbox.js alignAt 同律。 */
+  var LYR_LAG_MS = 100; /* v8.2.8 逐字扫光延迟补偿（SMTC 领先音频输出的固定差） */
   var NONE = { lineIndex: -1, lastLine: -1, wordIndex: -1, wordProgress: 0, lineProgress: 0 };
-  function align(data, msRaw) {
+  function align(data, msRaw, lineMode) {
     if (!data || !data.lines || !data.lines.length) return NONE;
-    var ms = msRaw - LYR_LAG_MS; /* v8.2.8 扫光等唱声到位（间奏/行界判定同步延后） */
+    var ms = lineMode === true ? msRaw : msRaw - LYR_LAG_MS; /* 逐行 0ms / 逐字 -100ms */
     var lines = data.lines;
     var lo = 0, hi = lines.length - 1, idx = -1;
     while (lo <= hi) {

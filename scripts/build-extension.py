@@ -26,7 +26,7 @@ OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
 EXT_SRC = ROOT / "extension-src"    # v8.2.0 SW/内容脚本源
-VERSION = "8.2.8"
+VERSION = "8.2.9"
 DEST = ROOT / f"download/v{VERSION}/ChuShi-NewTab-v{VERSION}.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():
@@ -183,18 +183,28 @@ for feat in ("ChuShiLyric", "parseWordText", "unitizeLine",  # 歌词引擎特�
              "seekGuard", "backStreak",                       # seek 护航/回退熔断
              "needFrame", "sleepNow", "visibilitychange",     # v8.2.6 渲染休眠律
              "cglow", "covClear",                             # v8.2.7 封面态律动
-             "flyCoverClone", "animsRemoveClones",            # v8.2.8 形变律一镜到底
              "forceWord", "cardForceWord", "rebuildForForce", # v8.2.8 强行逐字跟随
              "lastLyrTy", "Math.pow",                         # v8.2.8 间奏滚动防抖+非线性律
+             "cardEnabled", "cardGlow", "initCard",           # v8.2.9 全局双开关（右键隐藏退役）
+             "applyEnabled", "applyGlowEnabled", "specMsgOn",  # v8.2.9 开关应用面
+             "ChuShiLyric.align(ly.parsed, ms, lyMode === 0)",  # v8.2.9 行级时钟
+             "bands.length >= 100",                             # v8.2.9 128 段自适应
              "getBoundingClientRect", "borderRadius"):        # morph 几何取证
     if feat not in _card_js:
         sys.exit(f"ext-card.js 缺特征 {feat} —— 拼接/源码不完整")
+for gone in ("flyCoverClone", "animsRemoveClones", "siteHidden", "saveHide",
+             "contextmenu"):
+    if gone in _card_js:
+        sys.exit(f"ext-card.js 残留 {gone} —— v8.2.9（去封面飞形/右键隐藏退役）未落地，拒绝")
+if 'type: "spec", on: vis }' in _card_js or 'type: "spec", on: vis}' in _card_js:
+    sys.exit("ext-card.js 频谱订阅未过 specMsgOn 门——律动开关不生效，拒绝")
 if 'postMessage({ type: "openPanel"' in _card_js or 'case "openPanel"' in _card_js:
     sys.exit("ext-card.js 残留 openPanel 发送方——用户明确浮窗零跳转「初始」，拒绝")
 _bg_js = (STAGE / "ext-bg.js").read_text(encoding="utf-8")
 for feat in ("chushi-spectrum", "spectrum-boot", "chushi-card", 'case "lyric":',
              "fetchedAt",  # v8.2.2：ne.ts 采样时刻透传（乱跳根治数据面）
-             "broadcastSpec", "visCount", "case \"vis\":"):  # v8.2.6：SW 需求门律
+             "broadcastSpec", "visCount", "case \"vis\":",  # v8.2.6：SW 需求门律
+             "slice(0, 128)"):                              # v8.2.9：频段细化透传
     if feat not in _bg_js:
         sys.exit(f"ext-bg.js 缺特征 {feat} —— SW 歌词代理面缺失")
 if 'case "openPanel"' in _bg_js:
