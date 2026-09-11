@@ -1,6 +1,14 @@
 /* ============================================================================
- * 「初始」ext-bg v8.2.9 —— MV3 Service Worker：跨页面音乐卡状态中继
+ * 「初始」ext-bg v8.3.0 —— MV3 Service Worker：跨页面音乐卡状态中继
  *
+ * v8.3.0 数据面休眠退役（用户指令「不要休眠音乐面板」——切歌后面板留在
+ *   上一首）：visCount 门整体拆除。旧版「全部卡片 hidden → state 轮询
+ *   整体停」依赖 vis 消息时序，存在漏拍窗口：停摆期内的切歌真值永远
+ *   丢失，恢复可见后若无新拍驱动就一直停留在上一首。现在只要还有卡片
+ *   Port 在册就持续 1Hz 拉真值广播；可见性只继续管频谱订阅（specWanted
+ *   门照旧——那是渲染律动需求，不是真值需求）。成本核算：1Hz 回环 GET
+ *   + 广播 ≈ 每秒两个微任务量级，无感；SW 因每秒 postMessage 保活不再
+ *   休眠——这是本律的代价与目的（真值永不断流）。
  * v8.2.9 频段细化透传：/api/spectrum 的 bands 上限 16→128（v8.2.9 native
  *   FFT 频段细化数据面；旧 native 16 段帧原样透传，消费端自适应）。
  *   包体 ~0.9KB/帧 @30Hz ≈ 27KB/s 环回，无感。
@@ -10,9 +18,8 @@
  *      state 保留全发（1s × N 便宜且所有浮窗都需要）。
  *   ② paused 空转帧翻转门——旧版 !playing 时每 50ms 发一条 on:false
  *      （纯浪费 20msg/s）；现只在 on→off 翻转时发一条熄辉光。
- *   ③ {type:"vis"} 卡片可见性上报——visCount===0 时 state 轮询整体停
- *      （浏览器后台/全 hidden = SW 全链静默，hub 零请求）；恢复可见
- *      立即 pollState 一拍。与卡片侧 visibilitychange 三联开关同律。
+ *   ③ {type:"vis"} 卡片可见性上报——v8.3.0 退役（数据面休眠拆除，见顶部）；
+ *      v8.2.6 旧律（visCount===0 时 state 轮询整体停）已删。
  * v8.2.5（电流音根治·引擎零扰律，SW 侧）：频谱轮询 33ms→50ms（30Hz→20Hz）。
  * v8.2.8 用户反馈「高光律动和歌曲有一点延迟」：轮询 50→33ms 回到 30Hz
  *   （native FFT 同步 50→25ms=40Hz；本机回环 GET 开销微秒级，30/s 无感），
@@ -59,7 +66,6 @@ let stateAt = 0;
 let playing = false;
 let stateTimer = null;
 let specTimer = null;
-let visCount = 0;      /* v8.2.6：可见卡片数（vis 消息维护）——0 时 state 轮询停 */
 let specSentOn = null; /* v8.2.6：paused 空转帧翻转门（null=未发过） */
 
 const cards = new Set();
@@ -149,15 +155,17 @@ function broadcastSpec(msg) {
   }
 }
 
-/* v8.2.6：state 轮询的 visCount 门——全部卡片 hidden（浏览器后台）时
-   整体停摆，恢复可见由 vis on 立即拉一拍真值。SW 侧零定时器 = 可睡。 */
+/* v8.3.0：state 轮询常开律（数据面休眠退役）——只要还有卡片 Port 在册
+   就 1Hz 拉真值广播。旧 visCount 门（全 hidden 即停）拆除：停摆期内切歌
+   = 面板/浮窗留在上一首且无自愈路径（用户实测复现的真病）。
+   成本：1Hz 回环 GET + 广播，无感；每秒 postMessage 同时保活 SW。 */
 function ensureStateLoop() {
-  if (stateTimer || visCount === 0) return;
+  if (stateTimer || cards.size === 0) return;
   void pollState();
   stateTimer = setInterval(() => { void pollState(); }, 1000);
 }
 function stopStateLoop() {
-  if (stateTimer && visCount === 0) { clearInterval(stateTimer); stateTimer = null; }
+  if (stateTimer && cards.size === 0) { clearInterval(stateTimer); stateTimer = null; }
 }
 
 /* 20Hz 频谱流（v8.2.5 引擎零扰律）：原始帧直发（包络在卡片侧做，与页面端同参数） */
@@ -277,20 +285,8 @@ chrome.runtime.onConnect.addListener((port) => {
         else if (!want && port.__spec) { port.__spec = false; stopSpecLoop(); }
         break;
       }
-      /* v8.2.6：卡片可见性上报（visibilitychange 三联开关的 SW 侧）——
-         visCount===0（全后台）时 state 轮询整体停，恢复立即拉真值 */
-      case "vis": {
-        const on = m.on === true;
-        if (on && !port.__vis) {
-          port.__vis = true; visCount++;
-          ensureStateLoop();
-        } else if (!on && port.__vis) {
-          port.__vis = false;
-          visCount = Math.max(0, visCount - 1);
-          stopStateLoop();
-        }
-        break;
-      }
+      /* v8.3.0：vis 上报分支退役——state 轮询不再依赖可见性
+         （数据面休眠拆除，见文件头）。保留 default 吞掉旧消息防止报错。 */
       case "lyric": {
         /* 完全体歌词代理：hub /api/lyric?songId=（单槽缓存，归属校验在
            卡侧做——SW 零仲裁律）。歌词体可达 200KB，超时放宽 4s。 */
@@ -320,7 +316,6 @@ chrome.runtime.onConnect.addListener((port) => {
 
   port.onDisconnect.addListener(() => {
     cards.delete(port);
-    if (port.__vis) { port.__vis = false; visCount = Math.max(0, visCount - 1); } /* v8.2.6 */
     stopStateLoop();
     stopSpecLoop();
   });

@@ -1,5 +1,32 @@
 /* ============================================================================
- * 「初始」ext-card v8.2.9 —— 内容脚本：悬浮音乐卡（置顶所有网页，三态）
+ * 「初始」ext-card v8.3.0 —— 内容脚本：悬浮音乐卡（置顶所有网页，三态）
+ *
+ * v8.3.0 用户实机反馈两连：
+ *   ① 一镜到底动画重做（用户澄清：封面不是不能动——要修的是 v8.2.7 clone
+ *      落地的「校准卡顿」；v8.2.9 的「壳变形+封面原地不动+内容长淡入淡出」
+ *      读作线性动画且 mini⇄full 有复位感，全部推翻）。三件套：
+ *      a) 真弹簧形变——springFrames 采样单位弹簧（k=430/d=26，欠阻尼 ~8%
+ *         过冲 = dock 弹簧手感），width/height/left/top/borderRadius 全部按
+ *         同一进度轨迹采样成关键帧（WAAPI linear 插样本 = 物理曲线），
+ *         cleanup 时样式即终态 = 零校准跳变；
+ *      b) 封面连续锚——covClone 从「当前态封面实测矩形」飞到「目标态封面
+ *         实测矩形」（两端都 getBoundingClientRect 实测，落地即目标元素
+ *         真实布局位 = 校准零误差；v8.2.7 的卡顿真凶是 transform:scale 的
+ *         位图缩放与估算终态不重合）；飞行走布局属性（逐帧清晰不拉伸），
+ *         落地瞬间 clone 撤、真封面同矩形接管（同帧同位，无接缝）；
+ *      c) 内容快交叉——旧壳瞬时让位（新壳同矩形不透明底第 0 帧盖住），
+ *         新内容 t+60ms 起级联上浮淡入（dock content-focus 同语言 26ms
+ *         级联），收缩方向内容前 32% 淡出；形变期壳 overflow:hidden（内容
+ *         生长裁切 = dock 同款），辉光由 clone 携带（裁切不伤光）；真封面
+ *         本体延迟到 clone 落地才显形（防双封面同屏）。
+ *      附证：cscardin 入场动画改 .boot 类仅首挂载——display:none→block 会
+ *         重放 CSS 动画，旧版每次切换都叠一层 0.96→1 缩放 = 「复位感」
+ *         真凶之二。
+ *   ② 数据面休眠退役（用户指令「不要休眠音乐面板」——切歌后面板留在
+ *      上一首）：卡侧不再发 vis 上报，SW 侧 state 轮询的 visCount 门整体
+ *      拆除（详见 ext-bg.js）——只要还有卡片 Port 就持续 1Hz 拉真值。
+ *      渲染层休眠律（v8.2.6 needFrame）保留：那只管 rAF 绘制帧，state
+ *      消息驱动的内容更新从来不在轮询路径上，二者无关。
  *
  * v8.2.9 用户实机反馈五连：
  *   ① 桥响应迟钝浮窗侧配套：无（根修在桥插件 200ms 快排与页面端；本文件只
@@ -112,6 +139,13 @@
     connect();
     applyPos();
     applyMode();
+    /* v8.3.0 入场动画仅首挂载：.boot 类 340ms 后摘除，此后 display 切换
+       不再重放 cscardin（复位感真凶之二，见文件头 ①附证） */
+    var bootEl = SURFS[mode];
+    if (bootEl) {
+      bootEl.classList.add("boot");
+      setTimeout(function () { bootEl.classList.remove("boot"); }, 340);
+    }
     wake();
   }
   function applyEnabled() {
@@ -226,9 +260,12 @@
     '*{margin:0;padding:0;box-sizing:border-box;font-family:ui-sans-serif,system-ui,"PingFang SC","Microsoft YaHei",sans-serif}' +
     'img{-webkit-user-drag:none;user-select:none}' +
     '@keyframes cscardin{from{opacity:0;transform:scale(.96)}to{opacity:1;transform:scale(1)}}' +
+    /* v8.3.0：入场动画只在 .boot（首挂载）——display:none→block 会重放
+       CSS 动画，旧版每次三态切换都叠一层 0.96→1 缩放 = 复位感真凶之二 */
     '.surf{position:fixed;border-radius:16px;color:#f4f4f5;user-select:none;touch-action:none;' +
     'background:rgba(28,28,32,.92);border:1px solid rgba(255,255,255,.1);' +
-    'box-shadow:0 12px 36px rgba(0,0,0,.35);animation:cscardin .24s ease}' +
+    'box-shadow:0 12px 36px rgba(0,0,0,.35)}' +
+    '.surf.boot{animation:cscardin .24s ease}' +
     '.surf.draggable{cursor:grab}.surf.draggable:active{cursor:grabbing}' +
     'button{font-family:inherit}' +
     /* ---- 封面态 ---- */
@@ -407,14 +444,11 @@
     }
   }
 
-  /* ---------- 三态切换（v8.2.7 一镜到底） ----------
-    封面是唯一连续锚：clone <img> 从旧态封面矩形连续飞到新态封面矩形
-    （translate+scale，合成器友好）；面板同时以「封面中心」为
-    transform-origin 做  scale+opacity——展开=从封面处长出来，收进封面态=
-    缩回封面底下，与封面飞形同步开始，中间不换镜。
-    中断安全：过渡中再切 → finish 跳末态再起；reduced-motion/隐藏直切。 */
   function applyMode() {
-    for (var k in SURFS) SURFS[k].style.display = k === mode ? "block" : "none";
+    for (var k in SURFS) {
+      SURFS[k].style.display = k === mode ? "block" : "none";
+      SURFS[k].style.overflow = ""; /* v8.3.0 安全网：形变期裁切绝不跨态残留 */
+    }
     applyPos(); applyVis(); applyDraggable();
   }
   var RM = !!(window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches);
@@ -430,93 +464,169 @@
     mode = m; lastTcur = ""; /* 强制下一帧重写 tcur/mtm——防态切换残留旧串 */
     savePos(); applyMode();
   }
-  /* ---------- 三态切换（v8.2.9 形变律·去封面飞形·钉位防跳） ----------
-    面板壳从「源矩形」做 width/height/borderRadius（+必要时 left/top）布局
-    形变（长方形⇄正方形⇄长方形，与「初始」dock 弹出面板同语言）。封面
-    clone 飞形退役（用户：切换时封面都会位移去复位）——形变期内容
-    淡出/淡入已掩护封面重排，观感 = 壳在变形、封面原地不动。
-    跳变根治：旧版切换即 applyPos 按新态宽度 clamp，贴边时新面板先跳后
-    形变（「完全体面板也会跳一下」真凶）；现形变期钉住源位，left/top
-    一并动画到夹紧位，cleanup 才提交 pos。中断安全：finish 跳末态再起。 */
+  /* ---------- 三态几何（v8.3.0 实测律） ---------- */
+  function rectOf(surf) {
+    var r = surf.getBoundingClientRect();
+    return { left: r.left, top: r.top, width: r.width, height: r.height,
+      br: parseFloat(getComputedStyle(surf).borderRadius) || 16 };
+  }
+  /* 封面矩形实测：cover 态本体即封面；mini/full 取壳内 .cov。
+     两端全部实测（不估算）= clone 落地必与目标元素真实布局位重合
+     （v8.2.7「校准卡顿」根治：估算终态 ≠ 真实布局位）。 */
+  function covRectOf(surf) {
+    var c = surf === coverEl ? surf : surf.querySelector(".cov");
+    if (!c) return null;
+    var r = c.getBoundingClientRect();
+    return { left: r.left, top: r.top, width: r.width, height: r.height,
+      br: parseFloat(getComputedStyle(c).borderRadius) || 10, el: c };
+  }
+  /* ---------- 真弹簧采样（dock 弹簧手感） ----------
+     单位弹簧 0→1 半隐式欧拉采样（k=430/d=24 → ζ≈0.58，~10% 过冲一次
+     回弹，贴近 dock POPPING 的 Q 弹）；每样本 4 子步积分（dt=1/240）防
+     数值阻尼吃掉过冲。各形变属性共用同一进度轨迹（线性伸缩同一 ODE 解），
+     样本间 WAAPI linear 插值 = 物理曲线。cleanup 时样式即终态，零校准跳变。 */
+  var SPRING = [430, 24];
+  function springFrames(k, d) {
+    var dt = 1 / 240, x = 0, v = 0, out = [], i, j;
+    for (i = 0; i < 96; i++) {
+      for (j = 0; j < 4; j++) {
+        v += (-k * (x - 1) - d * v) * dt;
+        x += v * dt;
+      }
+      out.push(x);
+      if (Math.abs(x - 1) < 0.0015 && Math.abs(v) < 0.0045) break;
+    }
+    return out;
+  }
+  function morphFrames(fr, to) {
+    var ss = springFrames(SPRING[0], SPRING[1]), n = ss.length, kfs = [];
+    kfs.push({ left: fr.left + "px", top: fr.top + "px", width: fr.width + "px",
+      height: fr.height + "px", borderRadius: fr.br + "px", offset: 0 });
+    for (var i = 0; i < n; i++) {
+      var s = ss[i];
+      kfs.push({
+        left: (fr.left + (to.left - fr.left) * s) + "px",
+        top: (fr.top + (to.top - fr.top) * s) + "px",
+        width: (fr.width + (to.width - fr.width) * s) + "px",
+        height: (fr.height + (to.height - fr.height) * s) + "px",
+        borderRadius: (fr.br + (to.br - fr.br) * s) + "px",
+        offset: (i + 1) / n
+      });
+    }
+    return { kfs: kfs, dur: Math.max(220, Math.round(n * 1000 / 60)) };
+  }
+  /* 封面连续锚 clone：源封面 wrapper 原位克隆（cloneNode 带走辉光/律动
+     内联样式与 img），fixed 定位按实测矩形飞行（布局属性动画 = 逐帧清晰
+     不拉伸），pointer 穿透、置于最顶。 */
+  function covClone(fromRect) {
+    var c = fromRect.el.cloneNode(true);
+    var ids = c.querySelectorAll("[id]");
+    for (var i = 0; i < ids.length; i++) ids[i].removeAttribute("id");
+    c.style.cssText += ";position:fixed;margin:0;pointer-events:none;z-index:2147483000;" +
+      "left:" + fromRect.left + "px;top:" + fromRect.top + "px;" +
+      "width:" + fromRect.width + "px;height:" + fromRect.height + "px;" +
+      "border-radius:" + fromRect.br + "px;";
+    shadow.appendChild(c);
+    return c;
+  }
+  /* ---------- 三态切换（v8.3.0 一镜到底·真弹簧·封面连续锚） ----------
+     收缩（→cover）：旧壳本体弹簧收缩成 56×56（内容前 32% 淡出），封面
+     clone 从旧封面矩形飞向同终点，cleanup 封面态无缝接管。
+     展开/互变：目标壳从源矩形弹簧长出（width/height/left/top/borderRadius
+     同轨迹，贴边时位置一并滑入夹紧位），内容 t+60ms 级联上浮淡入（dock
+     content-focus 同语言），封面 clone 飞向目标封面实测矩形、落地时真封面
+     才显形（防双封面同屏）。中断安全：finish 跳末态再起。 */
   function setMode(m) {
     if (!SURFS[m] || m === mode) return;
     finishTrans();
     if (RM || document.visibilityState !== "visible") { plainSetMode(m); wake(); return; }
     var from = mode;
     var fromSurf = SURFS[from], toSurf = SURFS[m];
-    var sfr = fromSurf.getBoundingClientRect();
+    var sfr = rectOf(fromSurf);
     if (sfr.width < 4) { plainSetMode(m); wake(); return; }
-    var srBr = getComputedStyle(fromSurf).borderRadius;
+    /* 先克隆（带走实时律动内联样式），再清源辉光（克隆体不受影响） */
+    var covFrom = covRectOf(fromSurf);
     if (covUnitOf(from)) covClear(covUnitOf(from));
     mode = m; lastTcur = "";
     savePos();
-    if (m === "cover") {
-      /* 收缩律：旧面板本体形变收缩成 56×56 正方形（内容前 40% 淡出，
-         壳保持背景/边框），收尾封面态同位同尺寸无缝接管；封面不飞行 */
-      fromSurf.style.pointerEvents = "none";
-      var D1 = 300, ez1 = "cubic-bezier(.45,.08,.35,1)";
-      var anims1 = [fromSurf.animate([
-        { width: sfr.width + "px", height: sfr.height + "px", borderRadius: srBr, opacity: 1 },
-        { width: sfr.width + "px", height: sfr.height + "px", borderRadius: srBr, opacity: 1, offset: 0.3 },
-        { width: "56px", height: "56px", borderRadius: "14px", opacity: 1 }
-      ], { duration: D1, easing: ez1, fill: "forwards" })];
-      var kids1 = fromSurf.children;
-      for (var i1 = 0; i1 < kids1.length; i1++) {
-        anims1.push(kids1[i1].animate(
-          [{ opacity: 1 }, { opacity: 0, offset: 0.4, easing: "ease-out" }, { opacity: 0 }],
-          { duration: D1, fill: "forwards" }));
-      }
-      trans = { anims: anims1, cleanup: function () {
-        for (var i3 = 0; i3 < anims1.length; i3++) { try { anims1[i3].cancel(); } catch (e2) { /* 已结束 */ } }
-        fromSurf.style.pointerEvents = "";
-        if (mode === "cover") plainSetMode("cover");
-        wake();
-      } };
-      for (var a1 = 0; a1 < anims1.length; a1++) anims1[a1].onfinish = finishTrans;
+    var vw = window.innerWidth || 1200, vh = window.innerHeight || 800;
+    var tw = WIDTH[m] || 264;
+    var toX = Math.min(Math.max(8, pos.x), Math.max(8, vw - tw - 8));
+    var toY = Math.min(Math.max(8, pos.y), vh - 56);
+    var collapsing = m === "cover";
+    var surfAnim = collapsing ? fromSurf : toSurf;
+    var toRect, covTo, clone = null, cloneImg = null;
+    if (collapsing) {
+      /* 收缩终点 = 封面态本体（56×56 圆角 14，位置即夹紧位）——确定性矩形 */
+      toRect = { left: toX, top: toY, width: 56, height: 56, br: 14 };
+      covTo = { left: toX, top: toY, width: 56, height: 56, br: 14 };
     } else {
-      /* 展开/互变律：目标面板从源矩形形变出来（cover→mini 从 56×56 长出；
-         mini⇄full 长方形互变），内容延迟淡入；封面原地重排（不飞行）。 */
       for (var k1 in SURFS) SURFS[k1].style.display = k1 === m ? "block" : "none";
       applyVis(); applyDraggable();
-      fromSurf.style.pointerEvents = "none";
-      var str = toSurf.getBoundingClientRect();
-      if (str.width < 4) {
-        fromSurf.style.pointerEvents = "";
-        plainSetMode(m); wake(); return;
-      }
-      var trBr = getComputedStyle(toSurf).borderRadius;
-      /* 钉位：形变期停在源位（不先 clamp 跳一下），left/top 一并动画到
-         新态夹紧位（仅贴边时非零），cleanup 提交 pos */
-      var vw = window.innerWidth || 1200, vh = window.innerHeight || 800;
-      var tw = WIDTH[m] || 264;
-      var toX = Math.min(Math.max(8, pos.x), Math.max(8, vw - tw - 8));
-      var toY = Math.min(Math.max(8, pos.y), vh - 56);
-      toSurf.style.left = sfr.left + "px";
-      toSurf.style.top = sfr.top + "px";
-      var grow = str.width * str.height >= sfr.width * sfr.height;
-      var D2 = grow ? 340 : 300;
-      var ez2 = grow ? "cubic-bezier(.32,1.18,.36,1)" : "cubic-bezier(.45,.08,.35,1)";
-      var anims2 = [toSurf.animate([
-        { width: sfr.width + "px", height: sfr.height + "px", borderRadius: srBr,
-          left: sfr.left + "px", top: sfr.top + "px" },
-        { width: str.width + "px", height: str.height + "px", borderRadius: trBr,
-          left: toX + "px", top: toY + "px" }
-      ], { duration: D2, easing: ez2, fill: "forwards" })];
-      var kids2 = toSurf.children;
-      for (var i2 = 0; i2 < kids2.length; i2++) {
-        anims2.push(kids2[i2].animate(
-          [{ opacity: 0 }, { opacity: 0, offset: 0.35, easing: "ease-in" }, { opacity: 1 }],
-          { duration: D2, fill: "forwards" }));
-      }
-      trans = { anims: anims2, cleanup: function () {
-        for (var i4 = 0; i4 < anims2.length; i4++) { try { anims2[i4].cancel(); } catch (e3) { /* 已结束 */ } }
+      /* 目标壳先按终局位隐身实测（自然尺寸 + 真实封面布局位），同任务内
+         起动画，无中间帧外泄 */
+      toSurf.style.left = toX + "px";
+      toSurf.style.top = toY + "px";
+      toSurf.style.visibility = "hidden";
+      var str = rectOf(toSurf);
+      covTo = covRectOf(toSurf);
+      toSurf.style.visibility = "";
+      if (str.width < 4 || !covTo) { plainSetMode(m); wake(); return; }
+      toRect = { left: toX, top: toY, width: str.width, height: str.height, br: str.br };
+    }
+    var mf = morphFrames(
+      { left: sfr.left, top: sfr.top, width: sfr.width, height: sfr.height, br: sfr.br },
+      toRect);
+    var D = mf.dur;
+    var anims = [], kids = [];
+    fromSurf.style.pointerEvents = "none";
+    /* v8.3.0：目标壳保持可点（中断律——形变中再点切换钮 = finish 跳末态
+       再起新形变；拖动被 WAAPI forwards 压住、cleanup 提交夹紧位，无害） */
+    surfAnim.style.overflow = "hidden"; /* 形变期裁切内容生长（dock 同款）；辉光由 clone 携带 */
+    /* ① 壳真弹簧形变 */
+    anims.push(surfAnim.animate(mf.kfs, { duration: D, easing: "linear", fill: "forwards" }));
+    /* ② 封面连续锚：实测矩形 → 实测矩形（同一弹簧，与壳同步开始） */
+    if (covFrom) {
+      clone = covClone(covFrom);
+      cloneImg = clone.querySelector ? clone.querySelector("img") : null;
+      var cf = morphFrames(
+        { left: covFrom.left, top: covFrom.top, width: covFrom.width,
+          height: covFrom.height, br: covFrom.br },
+        { left: covTo.left, top: covTo.top, width: covTo.width,
+          height: covTo.height, br: covTo.br });
+      anims.push(clone.animate(cf.kfs, { duration: cf.dur, easing: "linear", fill: "forwards" }));
+    }
+    /* ③ 内容交叉：收缩 = 前 32% 快淡出；展开/互变 = 级联上浮淡入；
+       真封面本体延迟到 clone 落地才显形 */
+    var hostK = collapsing ? fromSurf : toSurf;
+    var kidsK = hostK.children;
+    for (var i2 = 0; i2 < kidsK.length; i2++) {
+      kids.push(collapsing
+        ? kidsK[i2].animate([{ opacity: 1 }, { opacity: 0 }],
+            { duration: Math.round(D * 0.32), easing: "ease-in", fill: "forwards" })
+        : kidsK[i2].animate(
+            [{ opacity: 0, transform: "translateY(7px)" },
+             { opacity: 1, transform: "translateY(0px)" }],
+            { duration: 230, delay: 60 + i2 * 26,
+              easing: "cubic-bezier(.22,1,.36,1)", fill: "backwards" }));
+    }
+    if (!collapsing && covTo.el && covTo.el !== toSurf) {
+      kids.push(covTo.el.animate([{ opacity: 0 }, { opacity: 1 }],
+        { duration: 150, delay: Math.max(0, D - 170), easing: "ease-out", fill: "backwards" }));
+    }
+    trans = { anims: anims, kids: kids, clone: clone, cloneImg: cloneImg,
+      cleanup: function () {
+        for (var i3 = 0; i3 < anims.length; i3++) { try { anims[i3].cancel(); } catch (e2) { /* 已结束 */ } }
+        for (var i4 = 0; i4 < kids.length; i4++) { try { kids[i4].cancel(); } catch (e3) { /* 已结束 */ } }
+        if (clone && clone.parentNode) clone.parentNode.removeChild(clone);
         pos.x = toX; pos.y = toY; /* 形变终点即夹紧位：提交后 applyPos 零位移 */
         fromSurf.style.pointerEvents = "";
+        toSurf.style.pointerEvents = "";
+        surfAnim.style.overflow = "";
         if (mode === m) plainSetMode(m);
         wake();
       } };
-      for (var a2 = 0; a2 < anims2.length; a2++) anims2[a2].onfinish = finishTrans;
-    }
+    for (var a2 = 0; a2 < anims.length; a2++) anims[a2].onfinish = finishTrans;
     wake(); /* v8.2.6 态切换接管：循环若在睡（如 cover 静置）按新态需求重估 */
   }
   function applyDraggable() {
@@ -607,13 +717,11 @@
         try { if (port) port.postMessage({ type: "ping" }); } catch (e) { /* 断线事件接管 */ }
       }, 10000);
     }
-    /* v8.2.6 订阅按可见性初值：hidden 标签不订阅频谱也不报可见
-       （visCount=0 → SW state 轮询停；specWanted=0 → 引擎零参与）。
-       可见性变化由 visibilitychange 处理器统一翻转。 */
-    var vis = document.visibilityState === "visible";
+    /* v8.3.0：vis 上报退役（数据面休眠拆除，见文件头 ②）——state 轮询
+       不再依赖可见性；频谱订阅仍按 specMsgOn()（可见 + 律动开）初值。
+       hidden 标签不订阅频谱（specWanted=0 → 引擎零参与）照旧。 */
     try {
       port.postMessage({ type: "spec", on: specMsgOn() });
-      port.postMessage({ type: "vis", on: vis });
     } catch (e) { /* 断线事件接管 */ }
   }
 
@@ -682,6 +790,11 @@
       if (pic.getAttribute("src") !== src) pic.setAttribute("src", src);
       if (fpic.getAttribute("src") !== src) fpic.setAttribute("src", src);
       if (cpic.getAttribute("src") !== src) cpic.setAttribute("src", src);
+      /* v8.3.0 形变途中的切歌热跟随：飞行中的封面 clone 同步换图
+         （克隆体不接 state 广播，不补这行 = 落地瞬间旧图闪一帧） */
+      if (trans && trans.cloneImg && trans.cloneImg.getAttribute("src") !== src) {
+        trans.cloneImg.setAttribute("src", src);
+      }
     }
     applyVis();
   }
@@ -1168,14 +1281,12 @@
     if (rafId || tickTimer) return; /* 已醒：下一拍自会按 needFrame 重估 */
     if (needFrame()) schedule();
   }
-  /* v8.2.6 ②：可见性翻转 = 频谱订阅 + SW state 需求 + 渲染循环 三联开关 */
+  /* v8.3.0：可见性翻转 = 频谱订阅 + 渲染循环 双联开关（vis 上报退役——
+     state 轮询常开，切歌真值永远可达，见文件头 ②） */
   document.addEventListener("visibilitychange", function () {
     var vis = document.visibilityState === "visible";
     try {
-      if (port) {
-        port.postMessage({ type: "spec", on: specMsgOn() });
-        port.postMessage({ type: "vis", on: vis });
-      }
+      if (port) port.postMessage({ type: "spec", on: specMsgOn() });
     } catch (e) { /* 断线事件接管 */ }
     if (vis) wake(); else sleepNow();
   });

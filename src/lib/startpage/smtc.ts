@@ -499,7 +499,23 @@ class SmtcClient {
       };
     }
     if (this.timer || this.busy) return;
+    this.bindVisHeal();
     this.schedule(60);
+  }
+
+  /* v8.3.0 面板回前台即拍（数据面休眠退役的页面侧配套）：
+     后台标签的 1s 节拍被 Chrome 重节流（链式定时器最长 1/min）——切歌
+     发生在「初始」页后台期，回前台第一眼面板仍停在上一首（用户实测
+     「歌还留在上一首」的面板侧路径）。visibility → visible 的瞬间标签已
+     在前台、定时器不再节流，立即补一拍真值；beat 自带 busy 守卫与失败
+     重排，双拍无害。轮询本体绝不休眠（start 后 1Hz 常开，v8.0.x 律）。 */
+  private visBound = false;
+  private bindVisHeal() {
+    if (this.visBound || typeof document === "undefined") return;
+    this.visBound = true;
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") this.schedule(100);
+    });
   }
 
   private schedule(delay: number) {
