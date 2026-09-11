@@ -135,3 +135,20 @@ Work Log:
 Stage Summary:
 - 新律：①cloneNode 连内联样式一起走——克隆时机与 display 切换的先后是隐形成真凶，克隆体必须显式拨正关键内联；②回归探针的等待窗必须随弹簧参数重校（收敛 416→592ms 让旧 550ms 等待全变假阴）；③塌缩形变期源壳 pointer-events:none，elementFromPoint 探针在形变期必然读 0——取证窗口要避开形变期或换像素法；④「复位感」的第一嫌疑是过冲回弹不是位置跳变——观感问题先量弹簧阻尼；⑤弱歌隐形用 AGC（峰值跟随归一）治，不硬抬增益（响歌会糊）；⑥环境性缺针用 SW scripting 补针兜底，幂等守卫在隔离世界全局
 - 待办：用户实机验收；Edge 商店提交材料仍未做
+
+---
+Task ID: 97
+Agent: main (Super Z)
+Task: 用户反馈「没有推送到公开仓库」——v8.3.1 发布链补推（commit/tag/Release 全缺）
+
+Work Log:
+- 【现场】真工作树 /tmp/my-project（c8665a4=v8.3.1 本地已提交）；origin/main 停在 dfa7c32（v8.3.0）；.pkgtmp PAT 已丢失但 origin URL 内嵌 token 可用（curl API + push 全程零碍）
+- 【缺口定位】GitHub Releases v8.2.3–v8.3.0 全在位（均七资产），唯独 v8.3.1 整条发布链未做：c8665a4 未推、无 tag、无 Release；仓库自带 worklog 的 Task 96 记录完整（随 c8665a4 入仓）——上一会话在「打包双落位后、发布前」断电
+- 【补链】①交付物 SHA256SUMS 四件校验全过 → 补建 AllInOne 合并包（六件平铺对齐 v8.3.0 结构）→ commit fe6af19 → push main（dfa7c32..fe6af19）→ tag v8.3.1；②发布脚本 scripts/rel-v831.py（幂等：GET 404=不存在即创建、按名跳过已传资产、SHA 回读 4/4 断言）
+- 【新坑·CJK 资产名】GitHub 上传资产会剥非 ASCII 字符——「使用说明-v8.3.1.md」落地成「-v8.3.1.md」；v8.3.0 资产用 ASCII 名（ChuShi-v8.3.0-Usage-Notes.md）正是此律。修复三连：ASCII 副本入库（fb1c4eb：ChuShi-v8.3.1-Usage-Notes.md + AllInOne 内部文件名同步 ASCII，中文名原件保留）；脚本加陈旧资产清除；AllInOne 入 FORCE_REUPLOAD 强制重传集（内容变过不能按名跳过）；tag 移到最终交付态 fb1c4eb
+- 【发布核验】Release v8.3.1（id 386877336）七资产齐：NewTab zip 12.3MB / 桥 8.3.1 / 预设 8.2.9 沿用 / 歌词源 7.3.0 沿用 / SHA256SUMS / Usage-Notes / AllInOne 12.4MB；SHA 回读 4/4 OK；gh-pages 不涉及（远端停在 v8.2.9 部署 649a4ae，本版 web 面仅 smtc.ts 版本常量变化，沿用 v8.3.0「扩展包独立」先例）
+
+Stage Summary:
+- 新律：①GitHub Release 资产名剥 CJK——公开资产一律 ASCII 名（仓库文件可保中文，双名并存）；②按名幂等的资产上传必须区分「名字没变但内容变了」——FORCE_REUPLOAD 集是幂等上传的必备配套；③发布链五件套（commit/tag/Release/资产/SHA 回读）任一环断链都算未发布——「本地提交完成」≠「已推送」，用户视角只认公开仓库
+- 交付：https://github.com/LXgssy/Start-chushi/releases/tag/v8.3.1
+- 待办：用户实机验收 v8.3.1 九项反馈修复；Edge 商店提交材料仍未做
