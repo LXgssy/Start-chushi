@@ -182,3 +182,24 @@ Stage Summary:
 - 新律：①transform+filter 共动画的合成层在过渡结束降层重栅格化=确定性质感阶跃——静止态行必须常驻提层（静息 scale 与 raster 一致）；②任何「门」的复位键禁止用对象身份（快照每拍都是新对象），用业务三元组；③门旁路信号必须单源（seek 护航窗），凡非 seek 事件也会打的点都不能当旁路；④测试舞台会陈旧（out→stage 只随 bun build:extension 刷新），取证前必须核对 stage 与当前构建同代——本轮门「失效」半数是舞台旧码假象；⑤交付哈希显式列文件名，目录扫描必混陈旧；⑥取证判据必须贴合布局律（滚动居中=最亮行 y 恒定；逐字扫描=方差峰随当前行移动），首版 E3「最亮行下移」是错模型
 - 交付：https://github.com/LXgssy/Start-chushi/releases/tag/v8.3.3
 - 待办：用户实机验收（封面底下高光/上一句模糊平滑/新标签页焦点）；Edge 商店提交材料仍未做
+
+---
+Task ID: 100
+Agent: main (Super Z)
+Task: 用户实机反馈四连（附截图）——①歌词被边框吃掉一部分（很多歌都这样）②标准态/完全态律动高光溢出容器 ③新歌词切上来「咯噔」④暂停/播放键按下「复位」——v8.3.4
+
+Work Log:
+- 【取证①防裁切】长行（多行换行+翻译行）垂直居中后上下余量不足：mask 渐隐区旧 16%/84% 百分比（118px 容器≈19px）+ overflow 硬裁——行顶侵入渐隐区被淡化/吃掉（用户截图：当前行顶部削平+底部行裁半）。修复三连：flyr 118→140 / cs-lyr 124→146 加高（LY_H 同步，cshz 压缩后 24.9K<25.6K 门不动）+ 渐隐区固定 18px（calc(100% - 18px)，百分比随高度浮动退役）+ 行 padding 3→5px / 4→6px 呼吸
+- 【修复②防溢出】.glow（inset:-6px+blur10px+scale≤1.08）光晕超卡片圆角，v8.3.3 增益拉满后更明显——mini/full 壳静态 overflow:hidden（辉光仍在封面四周晕出但被卡片圆角裁住），cover 态保持晕出（56px 方块环绕光=设计本意）；形变期 style.overflow 临时值 removeProperty 后自然回落 CSS 默认，零冲突
+- 【取证③咯噔主因】翻译行 .fsub/.cs-sub display:none↔block 硬切——切行瞬间旧行高 -17px/新行高 +17px 两处布局瞬跳。修复：fsubw/csubw grid 包裹 + 显式 height 0↔16/17px 过渡（.38s 同曲线）——同行收/展抵消，下方行 offsetTop 恒定（P3a 实证 Δ=0）；滚动 target 逐帧追踪（lyrTrackUntil 560ms 窗内每帧重算，fsubw 过渡期 offsetHeight 连续变化由 transform transition 小步跟随，收敛终态精确居中）
+- 【新坑③·三连】①grid-template-rows 0fr↔1fr 在本环境实测离散跳变（0→17 一步无中间值，getAnimations=[]）——fr 插值不可信，改显式 height（length 插值 100% 可靠）；②翻译行 padding-top 在 0fr 轨道残 2px（min-content 含 padding）——间距走 line-height；③on 行提层实证反悔：任何 will-change（transform 或 filter）都把 raster 冻结在切行瞬间 .94，1.06 静息显示=整体放大采样模糊（F15b 对照实验：无提层 245 / transform 提层 203 / filter 提层 203）——当前行白亮（v8.2.3 两色调律核心）不可牺牲，提层撤销；blur 撤层的「变清晰」方向友好非用户所指咯噔
+- 【修复④防复位】乐观窗固定 2500ms 到期强制回落真值——SW 轮询 1Hz 最坏 ~2s 才拿新真值，窗口余量极小，桥/网易云慢时图标翻回再翻来=字面复位。新律（浮窗+面板同律）：真值对齐即退役（onState 路径 effPlaying 内清窗）+ 未对齐期间持续显示点击方向（顺延）+ OPT_MAX 7s 硬上限防桥挂死锁显；loopBody/render 只兜底硬上限触发重绘
+- 【门禁】build-extension.py VERSION 8.3.4 + 特征门（lyrTrackUntil/scrollLyricTo/fsubw/height:16px/OPT_MAX/height:140px/calc(100% - 18px)/display:none;overflow:hidden）；build-smtc-preset.py +（height:146px/cs-subw/height:17px/lyrTrackUntil/OPT_MAX）；smtc.ts CLIENT_VER 8.3.4 + EXTENSION_MODE 全量重建（组装器宿主 bundle 版本强制校验律）
+- 【取证】verify-v834-panel.mjs 12/12（连跑两次：146px+mask 固定/subw 展开 0fr 收起/transition 含 height/非 display 硬切/on 行零提层防 raster 冻结/切行下方行零扰动 Δ=0/收敛终态/零 pageerror）；verify-v834-ext.mjs 16/16（长行行顶亮像素 1226/卡外 B 28-30 无溢出+卡内辉光 B=101 活着/播放键像素质心定位+点击翻转+3.8s>旧窗不复位+真值对齐仍▶/staged 法门五件/零 pageerror）；probe-subw.mjs 过渡探针（0fr 离散跳变实锤仪器）
+- 【回归】九套全绿：v834 双（12/12+16/16）+ v833 双（11/11+9/9）+ v832 双（13/13+9/9）+ v831 ALL PASS + v830 ALL GREEN + v827-glow 14/14 + v827 全量 PASS（F15b 曾 203×2 确定性回归→提层反悔律后 245 恢复）
+- 【发布】main + tag v8.3.4 + Release 七资产 SHA 回读 4/4；交付 download/v8.3.4/ 双落位（NewTab zip/cshz 8.3.4/桥 8.3.1 沿用/歌词源沿用/SHA256SUMS/双名说明/AllInOne）；worklog 外部压缩覆写→git checkout 恢复后再追加（Ritual 再验证）
+
+Stage Summary:
+- 新律：①grid fr 插值在本环境离散跳变——高度动画一律显式 length（0fr↔1fr 技巧不可信，实测说话）；②will-change 是 raster 冻结器：任何合成层常驻提层都锁首次栅格 scale，transform 静息缩放比≠1 的元素提层前必须对照实验测亮度/锐度（F15b 三态对照 245/203/203 入档）；③grid item 的 padding/margin 计入 0fr 轨道 min-content——轨道内间距走 line-height；④乐观窗「到期回落」是复位感制造机——真值对齐退役+顺延+硬上限三件套才是完整语义；⑤双表面动效修复必须同步核查「同码律」下的测试舞台代际（本轮 P3b 时序脆弱=feed 推进恰好越界，before 读取点留足余量）
+- 交付：https://github.com/LXgssy/Start-chushi/releases/tag/v8.3.4
+- 待办：用户实机验收（歌词不裁/高光不溢/切行不咯噔/播放键不复位）；Edge 商店提交材料仍未做

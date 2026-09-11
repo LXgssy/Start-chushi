@@ -1,5 +1,22 @@
 /* ============================================================================
- * 「初始」ext-card v8.3.3 —— 内容脚本：悬浮音乐卡（置顶所有网页，三态）
+ * 「初始」ext-card v8.3.4 —— 内容脚本：悬浮音乐卡（置顶所有网页，三态）
+ *
+ * v8.3.4 用户实机反馈四连：
+ *   ① 歌词被边框吃掉（用户：很多歌都这样）——长行（多行换行+翻译行）垂直
+ *      居中后上下余量不足，行顶/行底侵入 mask 渐隐区甚至被 overflow 硬裁。
+ *      容器 118→140px + 渐隐区百分比改固定 18px + 行 padding 3→5px。
+ *   ② 标准态/完全态律动高光溢出容器——mini/full 壳 overflow:hidden，
+ *      辉光仍在封面四周晕出但被卡片圆角裁住；cover 态保持晕出（设计本意）。
+ *   ③ 新歌词切上来「咯噔」——翻译行 display:none↔block 硬切 = 切行瞬间
+ *      旧行 -17px / 新行 +17px 布局瞬跳（下方所有行 offsetTop 突变）。
+ *      改 grid 0fr↔1fr 高度过渡（布局连续）+ 滚动 target 逐帧追踪
+ *      （fsubw 过渡期 offsetHeight 连续变化，追踪窗内每帧重算，收敛终态）+
+ *      on 行常驻提层（v8.3.3 只护了 done 行，pending→on 首次提层与
+ *      on 过渡结束降层的重栅格化同样产生锐度阶跃）。
+ *   ④ 播放/暂停键按下「复位」——乐观窗固定 2500ms 到期强制回落真值，
+ *      桥/网易云慢时图标先翻回再翻回 = 字面复位。改真值对齐即退役 +
+ *      未对齐顺延（7s 硬上限防桥挂死锁显）。
+ *      （面板 music-widget.html 同律四修，「双表面同版」律不破）
  *
  * v8.3.3 用户实机反馈三连：
  *   ① 高光归位（用户：不要给封面加高光，高光就在封面底下；让高光
@@ -367,14 +384,20 @@
     '.fill{display:block;height:100%;width:0%;border-radius:2px;background:var(--acc,#8b5cf6)}' +
     /* ---- 标准态（v8.2.2 钮组独立顶带；v8.2.3 带 30→26px 收敛 + 带左常显时间——
         空带不再空） ---- */
-    '.card{width:264px;padding:26px 12px 9px;display:none}' +
+    /* v8.3.4 律动高光防溢出律（用户：标准态和完全态的律动高光不要溢出容器）：
+       .glow（inset:-6px + blur 10px + scale≤1.08）的光晕超出卡片圆角边界，
+       v8.3.3 辉光增益拉满后更明显——mini/full 壳静态 overflow:hidden，
+       辉光仍在封面四周晕出但被卡片圆角裁住；cover 态保持晕出（56px 小方块的
+       环绕光晕是设计本意，用户未抱怨）。形变期 style.overflow 临时值 removeProperty
+       后自然回落此 CSS 默认，零冲突。 */
+    '.card{width:264px;padding:26px 12px 9px;display:none;overflow:hidden}' +
     '.card .cap{top:4px}' +
     '.mtm{position:absolute;left:12px;top:4px;height:22px;line-height:22px;font-size:10px;' +
     'color:#8e8e96;font-variant-numeric:tabular-nums;pointer-events:none}' +
     '.card .cov{width:44px;height:44px}' +
     '.card .rail{margin-top:9px}' +
     /* ---- 完全体 ---- */
-    '.fcard{width:324px;padding:14px 16px 12px;border-radius:18px;display:none}' +
+    '.fcard{width:324px;padding:14px 16px 12px;border-radius:18px;display:none;overflow:hidden}' +
     '.fcard .cap{top:7px}' +
     '.fcard .row{padding-right:46px}' +
     '.fcard .cov{width:52px;height:52px;border-radius:12px}' +
@@ -391,13 +414,26 @@
        v8.3.2 高斯模糊景深（用户：未播放/已播放歌词要有高斯模糊）：
        · 未唱行 blur 2px / 已唱行 blur 1.1px / 当前行 sharp——行切换时
          「聚焦」浮现；filter 同曲线 .45s 过渡，与呼吸缩放叠加。 */
-    '.flyr{position:relative;height:118px;margin-top:10px;overflow:hidden;flex:none;' +
-    '-webkit-mask-image:linear-gradient(180deg,transparent,#000 16%,#000 84%,transparent)}' +
+    /* v8.3.4 歌词防裁切律（用户：歌词被边框吃掉一部分，很多歌都这样）：
+       长行（多行换行+翻译行）垂直居中后上下余量不足，行顶/行底侵入
+       mask 渐隐区（旧 16%/84% 百分比≈19px）甚至被 overflow 硬裁——
+       容器 118→140px 加高 + 渐隐区改固定 18px（百分比随行高浮动，
+       固定 px 与行内容解耦）+ 行 padding 3→5px 呼吸（scale 1.06 后
+       顶部余量更足）。 */
+    '.flyr{position:relative;height:140px;margin-top:10px;overflow:hidden;flex:none;' +
+    '-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 18px,#000 calc(100% - 18px),transparent 100%)}' +
     '.flyr-in{position:absolute;left:0;right:0;top:0;transition:transform .45s cubic-bezier(.22,1,.36,1),opacity .3s ease;will-change:transform}' +
-    '.fln{padding:3px 2px;text-align:center;font-size:13.5px;font-weight:560;line-height:1.45;' +
+    '.fln{padding:5px 4px;text-align:center;font-size:13.5px;font-weight:560;line-height:1.45;' +
     'color:#71717a;transform:scale(.94);transform-origin:50% 50%;' +
     'filter:blur(2px);' +
     'transition:color .35s ease,transform .45s cubic-bezier(.22,1,.36,1),filter .45s cubic-bezier(.22,1,.36,1)}' +
+    /* v8.3.4 切行防「咯噔」之二【实证反悔律】：on 行提层撤销——任何形式的
+       will-change（transform 或 filter）都会把 raster 冻结在切行瞬间的
+       .94，1.06 静息显示下整体放大采样模糊（F15b 对照实验：无提层 245 /
+       transform 提层 203 / filter 提层 203）。当前行白亮是 v8.2.3 两色调
+       律的核心视觉，不可为理论上的 blur 撤层微突跳牺牲；且该突跳方向是
+       「聚焦变清晰」（与动效语义一致），非用户所指的咯噔（主因是下方
+       翻译行 display 硬切的布局瞬跳，已由 fsubw height 过渡根治）。 */
     '.fln.on{color:#f4f4f5;transform:scale(1.06);filter:blur(0)}' +
     /* v8.3.3 模糊防重置律：done 行常驻合成层——blur/scale 过渡结束的
        降层重栅格化会把「合成器实时模糊」换成「原生烘焙模糊」，上一句
@@ -415,9 +451,19 @@
     '.fln.on .fw{color:#b4b4bc}' +
     '.fw .ov{position:absolute;left:0;top:0;color:#f4f4f5;pointer-events:none;' +
     'clip-path:inset(-8% calc(100% - var(--p,0%)) -8% 0)}' +
-    '.fsub{font-size:10.5px;font-weight:400;color:#a1a1aa;margin-top:2px;display:none;' +
-    'white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
-    '.fln.on .fsub{display:block}' +
+    /* v8.3.4 切行防「咯噔」之一（主因）：翻译行 display:none↔block 硬切——
+       切行瞬间旧行高 -17px、新行高 +17px，两处布局无过渡瞬跳 = 「咯噔」。
+       改显式 height 过渡：翻译行 nowrap 单行恒高（10.5px×1.5=16px），
+       height 0↔16px 平滑插值，布局零跳变（同行收/展同曲线抵消，下方行
+       offsetTop 恒定=零扰动）。【实证】grid-template-rows 0fr↔1fr 在本
+       环境实测离散跳变（0→17 一步，无中间值）——fr 插值不可信，length
+       插值（height）100% 可靠。滚动 target 由 lyricFrame 逐帧追踪
+       （lyrTrackUntil）。 */
+    '.fsubw{display:grid;grid-template-rows:1fr;height:0;opacity:0;overflow:hidden;' +
+    'transition:height .38s cubic-bezier(.22,1,.36,1),opacity .38s ease}' +
+    '.fln.on .fsubw{height:16px;opacity:1}' +
+    '.fsubw .fsub{min-height:0;font-size:10.5px;font-weight:400;color:#a1a1aa;line-height:1.5;' +
+    'white-space:nowrap;text-overflow:ellipsis}' +
     '.fempty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;' +
     'font-size:12px;color:#5b5b63;letter-spacing:2px}' +
     '</style>' +
@@ -883,8 +929,18 @@
     applyVis();
   }
 
+  /* v8.3.4 播放键「复位」根治（用户：暂停/播放键按下时会有复位）：旧乐观窗
+     固定 2500ms 到期强制回落真值——桥/网易云慢时（SW 轮询最坏 ~2s 才拿到
+     新真值，窗口余量极小）图标先翻回旧态再等真值翻回来 = 字面上的复位。
+     新律：真值对齐即退役；未对齐期间持续显示用户点击的方向（顺延），
+     7s 硬上限防桥挂死永久锁显。 */
+  var OPT_MAX = 7000;
   function effPlaying() {
-    if (optAt && Date.now() - optAt < 2500) return optP;
+    if (optAt) {
+      var aligned = !!track && track.playing === optP;
+      if (aligned || Date.now() - optAt >= OPT_MAX) optAt = 0;
+      else return optP;
+    }
     return !!(track && track.playing);
   }
 
@@ -1036,7 +1092,7 @@
   var prevLyrPlaying = null;
   function buildLyricDom() {
     var p = ly.parsed;
-    lineEls = []; activeLine = -2; prevLyrPlaying = null; lastLyrTy = null;
+    lineEls = []; activeLine = -2; prevLyrPlaying = null; lastLyrTy = null; lyrTrackUntil = 0; lyrTrackIdx = -1;
     flyrIn.innerHTML = "";
     flyrIn.style.transform = "translateY(0px)";
     if (!p || !p.lines || !p.lines.length) {
@@ -1071,10 +1127,15 @@
       }
       if (!ln.t) row.classList.add("gap");
       if (ln.tr) {
+        /* v8.3.4 翻译行包 grid 壳：0fr↔1fr 高度过渡替代 display 硬切
+           （切行布局零跳变，根治「咯噔」主因）；fsub 本体变内层轨道件 */
+        var subw = document.createElement("div");
+        subw.className = "fsubw";
         var sub = document.createElement("div");
         sub.className = "fsub";
         sub.textContent = ln.tr;
-        row.appendChild(sub);
+        subw.appendChild(sub);
+        row.appendChild(subw);
       }
       flyrIn.appendChild(row);
       lineEls.push({ el: row, words: words, sung: false, clean: true });
@@ -1129,6 +1190,18 @@
      lastHardAt 300ms 内）= 真 seek 立即放行。 */
   var gPend = null, gPendAt = 0, gPendMs = 0;
   var GATE_MS = 650, GATE_JUMP_MS = 2500, GATE_HARD_MS = 300;
+  /* v8.3.4 滚动 target 逐帧追踪：fsubw 高度过渡（0fr↔1fr）期间 offsetHeight/
+     offsetTop 连续变化，切行瞬间算一次的 target 是过渡起始值（偏差半行
+     翻译高）——追踪窗内每帧重算，transform transition 对小步目标变化
+     平滑跟随，收敛于终态 = 翻译展开与滚动同步无跳。560ms 略大于
+     fsubw 过渡 380ms。 */
+  var lyrTrackUntil = 0, lyrTrackIdx = -1;
+  function scrollLyricTo(idx, track) {
+    var elc = lineEls[idx].el;
+    var target = (flyrIn.parentNode.clientHeight - elc.offsetHeight) / 2 - elc.offsetTop;
+    if (target !== lastLyrTy) { lastLyrTy = target; flyrIn.style.transform = "translateY(" + target + "px)"; }
+    if (track) { lyrTrackUntil = Date.now() + 560; lyrTrackIdx = idx; }
+  }
   function lyricFrame() {
     if (!lineEls.length || !ly.parsed) return;
     var ms = posNow() * 1000;
@@ -1162,19 +1235,21 @@
              行——旧版停在旧滚动位直到下一句开始 = 长间奏歌词区完全错位
              （跳转后歌词对不上、逐行尤严重的根因）。自然流入不滚。 */
           if (ref >= 0 && ref < lineEls.length) {
-            var elr = lineEls[ref].el;
-            var tgr = (flyrIn.parentNode.clientHeight - elr.offsetHeight) / 2 - elr.offsetTop;
-            if (tgr !== lastLyrTy) { lastLyrTy = tgr; flyrIn.style.transform = "translateY(" + tgr + "px)"; }
+            scrollLyricTo(ref, true); /* 旧行 fsub 收起同样改布局，一并追踪 */
           }
         }
         /* ref === activeLine：什么都不动——高光挂住等下一句 */
       } else {
         activeLine = n.lineIndex;
         reconcileLines(activeLine, activeLine);
-        var elc = lineEls[activeLine].el;
-        var target = (flyrIn.parentNode.clientHeight - elc.offsetHeight) / 2 - elc.offsetTop;
-        if (target !== lastLyrTy) { lastLyrTy = target; flyrIn.style.transform = "translateY(" + target + "px)"; }
+        scrollLyricTo(activeLine, true);
       }
+    }
+    /* fsubw 高度过渡追踪窗：每帧重算 target（小步目标变化由 transform
+       transition 平滑跟随，终态收敛精确居中） */
+    if (lyrTrackUntil) {
+      if (Date.now() >= lyrTrackUntil || lyrTrackIdx < 0 || lyrTrackIdx >= lineEls.length) { lyrTrackUntil = 0; }
+      else scrollLyricTo(lyrTrackIdx, false);
     }
     /* v8.2.4 高光保持补门（面板同律）：n.lineIndex === activeLine 才写词——
        真 yrc 行尾+200ms 进间奏（wordIndex=-1），旧版把全词 p 重算 0 =
@@ -1392,8 +1467,9 @@
     }
     stepEnv();
     paintGlow();
-    /* 播放态图标真值回收（乐观窗口到期后与真值对齐） */
-    if (optAt && Date.now() - optAt >= 2500) { optAt = 0; applyVis(); }
+    /* 播放态图标真值回收：真值到达路径 = onState→applyVis→effPlaying 内对齐
+       即清窗；此处只兜底硬上限到期那一刻的重绘 */
+    if (optAt && Date.now() - optAt >= OPT_MAX) { applyVis(); }
   }
   function needFrame() {
     if (document.visibilityState !== "visible") return false;
