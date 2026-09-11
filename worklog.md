@@ -152,3 +152,20 @@ Stage Summary:
 - 新律：①GitHub Release 资产名剥 CJK——公开资产一律 ASCII 名（仓库文件可保中文，双名并存）；②按名幂等的资产上传必须区分「名字没变但内容变了」——FORCE_REUPLOAD 集是幂等上传的必备配套；③发布链五件套（commit/tag/Release/资产/SHA 回读）任一环断链都算未发布——「本地提交完成」≠「已推送」，用户视角只认公开仓库
 - 交付：https://github.com/LXgssy/Start-chushi/releases/tag/v8.3.1
 - 待办：用户实机验收 v8.3.1 九项反馈修复；Edge 商店提交材料仍未做
+
+---
+Task ID: 98
+Agent: main (Super Z)
+Task: 用户实机反馈两连——①v8.3.1 新加歌词动效没看到 ②缺「未播放/已播放歌词高斯模糊」——且动效要覆盖浮窗和「初始」面板——v8.3.2
+
+Work Log:
+- 【取证①】呼吸动效 v8.3.1 只落了浮窗（ext-card.js .fln scale 1.06/0.94），面板 music-widget.html 完全没动（仍 .55s 滚动/.5s 行色、无呼吸无模糊）——用户常看「初始」面板=「没看到」真因；且浮窗 13.5px 字号 ±6% 缩放本就难辨，缺模糊衬托
+- 【实现①②】双渲染层同律：①高斯模糊景深三档——未唱 blur(2px)/已唱 blur(1.1px)/当前行 blur(0) sharp，filter .45s 同曲线过渡（cubic-bezier(.22,1,.36,1)）与呼吸缩放叠加；②面板补呼吸 scale 1.06/0.94 + 三档模糊 + 滚动 .55s→.45s + 行色 .5s→.35s（CSS 与 JS 内联 transition 五处同步——面板 lyInr.style.transition 内联覆盖 CSS，漏改 JS 等于白改）
+- 【门禁】build-extension.py VERSION 8.3.2 + blur 三档特征门；build-smtc-preset.py 面板五特征门（scale/filter/双时序）；build-v832-assets.py 资产组装（桥 8.3.1/歌词源 7.3.0 沿用+校验，cshz 8.3.2 新建）；EXTENSION_MODE 全量重建（smtc.ts CLIENT_VER 8.3.2 入包——资产组装器强制校验宿主 bundle 版本号，漏重建必拒）
+- 【e2e 新门】verify-v832-panel.mjs 13/13（CDP 跨源直查 opaque iframe computed style：blur 三档精确值+matrix(1.06/0.94)+双时序+滚动位移+零报错）；verify-v832-ext.mjs 9/9（closed Shadow DOM 像素取证：逐行边缘能量剖面，当前行 35.2 vs 相邻行 0.7=50 倍锐利差、峰值亮度 244 vs 59，位置推移 6.2→12.4 效果跟随=动态景深非静态样式）；存量回归 v831 专项 14/14 + v827 全量 31/31（一次偶发 FAIL 无失败项复现，连跑两次全 PASS 判定时序抖动）+ 面板律动 7/7
+- 【取证器三坑】①hubsim 端口绑定前 POST /api/lyric 静默丢失→ping 就绪重试；②真桥 /api/lyric 响应形={ok:true,lyric:{...}} 包装（SW 解 j.lyric），裸 body=永远「暂无歌词」；③shim whitelist 走 ensureParsed 只认原始 yrc/lrc 文本，预解析 lines 被静默丢弃——面板测试必须喂原始 lrc
+- 【发布】download/v8.3.2/ 七件（NewTab zip/preset 8.3.2/桥 8.3.1 沿用/歌词源沿用/SHA256SUMS/双名说明/AllInOne）；repo worklog 提交前发现被外部同步进程覆写丢 Task 96 段→git checkout 恢复后再追加（双 worklog 律的同步反向坑）
+
+Stage Summary:
+- 新律：①动效类需求「覆盖 A 和 B」必须双渲染层同版交付——单侧落地=用户必看不到；②JS 内联 style.transition 会覆盖 CSS transition，改时序必须双处同改；③closed Shadow DOM 用像素能量剖面取证（锐利/模糊 50 倍差），opaque iframe 可 CDP 直查 computed style；④mock 桥响应形必须对齐真桥包装（{ok,lyric}），裸形=静默空转；⑤worklog 会被外部同步覆写——提交前 git diff worklog 是新 Ritual
+- 待办：用户实机验收（浮窗+面板双端歌词动效）；Edge 商店提交材料仍未做

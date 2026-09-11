@@ -17,6 +17,9 @@ v8.3.0 新增：三态切换真弹簧（springFrames 采样）+ 封面连续锚 
 v8.3.1 新增：封面 clone display 拨正（cover→mini 一镜到底真凶）+ 弹簧克制化
   （dock standard 同参 + 封面临界阻尼）+ 高光渐入（glowRamp）+ 律动 AGC +
   歌词行呼吸动效 + 内容脚本注入兜底（scripting 权限 + SW 清扫/补针）。
+v8.3.2 新增：歌词高斯模糊景深（未唱 2px/已唱 1.1px/当前行 sharp，同曲线
+  filter 过渡）+ 面板侧 music-widget.html 同步呼吸/模糊/时序（双渲染层
+  动效完全对齐，用户：要覆盖浮窗和「初始」面板）。
 用法: python3 scripts/build-extension.py
 输出: download/<VERSION>/ChuShi-NewTab-v<VERSION>.zip
 """
@@ -32,7 +35,7 @@ OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
 EXT_SRC = ROOT / "extension-src"    # v8.2.0 SW/内容脚本源
-VERSION = "8.3.1"
+VERSION = "8.3.2"
 DEST = ROOT / f"download/v{VERSION}/ChuShi-NewTab-v{VERSION}.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():
@@ -212,6 +215,7 @@ for feat in ("ChuShiLyric", "parseWordText", "unitizeLine",  # 歌词引擎特�
              "glowRampAt", "glowRamp",                          # v8.3.1 高光渐入
              "envNorm",                                         # v8.3.1 律动 AGC（弱歌隐形根治）
              "transform:scale(1.06)",                           # v8.3.1 歌词当前行呼吸放大
+             "filter:blur(2px)", "filter:blur(1.1px)", "filter:blur(0)",  # v8.3.2 歌词高斯模糊景深
              "updateTiming"):                                   # v8.3.1 壳/封面统一形变时长
     if feat not in _card_js:
         sys.exit(f"ext-card.js 缺特征 {feat} —— 拼接/源码不完整")

@@ -1,5 +1,15 @@
 /* ============================================================================
- * 「初始」ext-card v8.3.1 —— 内容脚本：悬浮音乐卡（置顶所有网页，三态）
+ * 「初始」ext-card v8.3.2 —— 内容脚本：悬浮音乐卡（置顶所有网页，三态）
+ *
+ * v8.3.2 用户实机反馈两连：
+ *   ① 歌词高斯模糊景深（用户：未播放/已播放歌词要有高斯模糊）——非当前
+ *      行按状态分档模糊（未唱 blur 2px / 已唱 blur 1.1px），当前行 sharp
+ *      （blur 0）；filter .45s 同曲线过渡 = 行切换时「聚焦」浮现，与呼吸
+ *      缩放叠加成完整景深动效。
+ *   ② 歌词动效覆盖双渲染层（用户：要覆盖浮窗和「初始」面板）——v8.3.1
+ *      呼吸动效只落了浮窗（面板仍 .55s/.5s 旧时序且无呼吸无模糊，用户
+ *      看不到新动效的直接原因）；本版面板 music-widget.html 同步呼吸+
+ *      模糊+时序，两渲染层动效语言完全一致。
  *
  * v8.3.1 用户实机反馈六连：
  *   ① 封面 clone 出厂不可见根治（cover→mini「封面没有一镜到底」真凶）：
@@ -359,15 +369,19 @@
        · 当前行放大（scale 1.06）/邻行缩小（0.94）——行切换时字号呼吸过渡，
          transform 不参与布局（offsetTop 滚动数学不受影响）；
        · 滚动 .55s→.45s（视频实测 ~400ms ease-out）、行色 .5s→.35s
-         （入场行在滚动途中就亮起，不再慢半拍）。 */
+         （入场行在滚动途中就亮起，不再慢半拍）。
+       v8.3.2 高斯模糊景深（用户：未播放/已播放歌词要有高斯模糊）：
+       · 未唱行 blur 2px / 已唱行 blur 1.1px / 当前行 sharp——行切换时
+         「聚焦」浮现；filter 同曲线 .45s 过渡，与呼吸缩放叠加。 */
     '.flyr{position:relative;height:118px;margin-top:10px;overflow:hidden;flex:none;' +
     '-webkit-mask-image:linear-gradient(180deg,transparent,#000 16%,#000 84%,transparent)}' +
     '.flyr-in{position:absolute;left:0;right:0;top:0;transition:transform .45s cubic-bezier(.22,1,.36,1),opacity .3s ease;will-change:transform}' +
     '.fln{padding:3px 2px;text-align:center;font-size:13.5px;font-weight:560;line-height:1.45;' +
     'color:#71717a;transform:scale(.94);transform-origin:50% 50%;' +
-    'transition:color .35s ease,transform .45s cubic-bezier(.22,1,.36,1)}' +
-    '.fln.on{color:#f4f4f5;transform:scale(1.06)}' +
-    '.fln.done{color:#8e8e96}' +
+    'filter:blur(2px);' +
+    'transition:color .35s ease,transform .45s cubic-bezier(.22,1,.36,1),filter .45s cubic-bezier(.22,1,.36,1)}' +
+    '.fln.on{color:#f4f4f5;transform:scale(1.06);filter:blur(0)}' +
+    '.fln.done{color:#8e8e96;filter:blur(1.1px)}' +
     '.fln.done .fw{color:#8e8e96}' +
     '.fln.done .fw .ov{opacity:0;transition:opacity .6s ease}' +
     '.fln.gap{font-size:11px;letter-spacing:7px;color:#71717a}' +
