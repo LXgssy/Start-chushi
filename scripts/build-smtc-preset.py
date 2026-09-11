@@ -58,7 +58,10 @@ cover_svg = (SRC / "assets" / "cover.svg").read_text(encoding="utf-8")
 assert len(html) <= 25600, f"widget html 超限: {len(html)} > 25600"  # v8.2.9：24000→25600 与宿主同步放宽（双开关+128 段）
 # v8.2.9 特征门（宿主 preset.ts widgetHtmlLen 同步改，两道数字门禁止漂移——Task 100 律）
 for feat in ("csGlowBtn", "csFloatBtn", "csGlow", "csFloat",
-             "mus.now(lyMode === 0)", "bandAvg(n.bands, 9, 85)", "glowOn2"):
+             "mus.now(lyMode === 0)", "bandAvg(n.bands, 9, 85)", "glowOn2",
+             # v8.3.2 歌词动效与浮窗对齐（呼吸缩放 + 高斯模糊景深 + 时序）
+             "transform:scale(1.06)", "filter:blur(2px)", "filter:blur(1.1px)",
+             "transform .45s var(--ez)", "filter .45s var(--ez)"):
     assert feat in html, f"cshz 缺 v8.2.9 特征 {feat!r}——重建遗漏"
 assert "cs-ring" not in html.replace("cs-ring 废弃", ""), "cshz 代码残留 cs-ring"
 assert len(code) <= 16000, f"script code 超限: {len(code)} > 16000"

@@ -91,9 +91,10 @@ export const SMTC_PORTS: readonly number[] = [26901, 26902, 26903];
 const HUB_NAME = "chushi-music-hub";
 const HUB_VER_MIN = "8.0.0";
 /* v8.3.1 强制升桥：频谱助手常驻律（网易云一启动即拉起 + 暂停不停服）在
-   hub.dll 8.3.1 —— 旧桥必须升级（面板芯片如实提示） */
+   hub.dll 8.3.1 —— 旧桥必须升级（面板芯片如实提示）。v8.3.2 客户端随
+   歌词景深动效升版（桥 8.3.1 沿用，无需再升）。 */
 const PLUGIN_VER_MIN = "8.3.1";
-const CLIENT_VER = "8.3.1";
+const CLIENT_VER = "8.3.2";
 const POLL_MS = 1000;
 const RETRY_MS = 1500;
 const TIMEOUT_MS = 2200;

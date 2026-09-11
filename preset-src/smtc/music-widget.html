@@ -112,13 +112,22 @@ img{-webkit-user-drag:none;user-select:none}
 .cs-bmain svg.off{opacity:0;transform:scale(.55)}
 .cs-bmain:active{transform:scale(.94)}
 .cs-ctl{flex:1;display:flex;align-items:center;justify-content:center;gap:20px}
-/* ---------- 逐字歌词：行/词 DOM 与高亮由宿主预计算驱动 ---------- */
+/* ---------- 逐字歌词：行/词 DOM 与高亮由宿主预计算驱动 ----------
+   v8.3.2 歌词动效与浮窗完全对齐（用户：动效要覆盖浮窗和面板；v8.3.1
+   呼吸动效只落了浮窗，面板仍 .55s/.5s 旧时序且无呼吸无模糊——用户
+   「新动效没看到」的直接原因）：
+   · 呼吸缩放——当前行 scale 1.06/邻行 0.94，transform 不参与布局
+     （offsetTop 滚动数学不受影响）；
+   · 高斯模糊景深——未唱行 blur 2px/已唱行 blur 1.1px/当前行 sharp，
+     filter 同曲线过渡，行切换时「聚焦」浮现；
+   · 滚动 .55s→.45s、行色 .5s→.35s（JS 内联 transition 同步改）。 */
 .cs-lyr{position:relative;height:124px;margin-top:8px;overflow:hidden;flex:none;
   -webkit-mask-image:linear-gradient(180deg,transparent,#000 16%,#000 84%,transparent)}
-.cs-lyr-in{position:absolute;left:0;right:0;top:0;transition:transform .55s var(--ez);will-change:transform}
+.cs-lyr-in{position:absolute;left:0;right:0;top:0;transition:transform .45s var(--ez);will-change:transform}
 .cs-ln{padding:4px 2px;text-align:center;font-size:14.5px;font-weight:560;line-height:1.45;
-  color:var(--ink3);transition:color .5s ease}
-.cs-ln.on{color:var(--ink)}
+  color:var(--ink3);transform:scale(.94);transform-origin:50% 50%;filter:blur(2px);
+  transition:color .35s ease,transform .45s var(--ez),filter .45s var(--ez)}
+.cs-ln.on{color:var(--ink);transform:scale(1.06);filter:blur(0)}
 /* v8.2.3 两色调（与浮窗同律）：active 行未唱词底色居 ink/ink3 之间——
    行切换 0.6s 交叉渐隐窗口里当前行恒为视觉主角（旧底色与未来行同灰，
    上一行的白色渐隐残相在视觉上抢走高光 = 「高光跑到别行/封面」） */
@@ -126,7 +135,7 @@ img{-webkit-user-drag:none;user-select:none}
 /* v8.0.4 已唱行渐隐律（用户指定「唱完等过了这句再渐变消失」）：行离场不再
    瞬消——遮罩定格 100%（全亮态），.ov 高亮层 opacity .6s 渐隐 + 行色
    ink→ink2 渐变到已唱灰；倒回（seek）时由 restoreLine 重置未唱态 */
-.cs-ln.done{color:var(--ink2)}
+.cs-ln.done{color:var(--ink2);filter:blur(1.1px)}
 .cs-ln.done .cs-w{color:var(--ink2)}
 .cs-ln.done .cs-w .ov{opacity:0;transition:opacity .6s ease}
 .cs-ln.gap{font-size:11px;letter-spacing:7px;color:var(--ink3)}
@@ -534,7 +543,7 @@ img{-webkit-user-drag:none;user-select:none}
     if (prevShownPlaying !== n.playing) {
       prevShownPlaying = n.playing;
       var fd = Math.max(120, Math.min(420, n.fadeMs || 260));
-      lyInr.style.transition = "transform .55s var(--ez), opacity " + fd + "ms ease";
+      lyInr.style.transition = "transform .45s var(--ez), opacity " + fd + "ms ease";
       lyInr.style.opacity = n.playing ? "1" : "0.38";
     }
   }
