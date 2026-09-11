@@ -46,8 +46,8 @@ img{-webkit-user-drag:none;user-select:none}
   background:linear-gradient(135deg,var(--acc32),var(--acc20));
   box-shadow:0 4px 14px rgba(0,0,0,.16);transition:transform .5s var(--ez)}
 .cs-playing .cs-pic{transform:scale(1.02)}
-.cs-glow{position:absolute;inset:-7px;border-radius:22px;background:var(--acc);opacity:0;
-  filter:blur(12px);transition:opacity .55s ease}
+.cs-glow{position:absolute;inset:-8px;border-radius:23px;background:var(--acc);opacity:0;
+  filter:blur(13px);transition:opacity .55s ease}
 .cs-playing .cs-glow{opacity:.24}
 /* v8.2.8 去方框律：.cs-ring 细节环废弃（用户：方框太丑）——中高频细节
    改由辉光本体 opacity/scale 全频段合成承担（beatFrame） */
@@ -113,6 +113,9 @@ img{-webkit-user-drag:none;user-select:none}
 .cs-bmain:active{transform:scale(.94)}
 .cs-ctl{flex:1;display:flex;align-items:center;justify-content:center;gap:20px}
 /* ---------- 逐字歌词：行/词 DOM 与高亮由宿主预计算驱动 ----------
+   v8.3.3 done 行常驻提层（模糊防重置：过渡结束降层重栅格化会把合成器
+   实时模糊换成烘焙模糊 = 上一句模糊在定住瞬间质感阶跃）+ 高光归位
+   （封面滤镜退役，能量全走 .cs-glow 封面底下）。
    v8.3.2 歌词动效与浮窗完全对齐（用户：动效要覆盖浮窗和面板；v8.3.1
    呼吸动效只落了浮窗，面板仍 .55s/.5s 旧时序且无呼吸无模糊——用户
    「新动效没看到」的直接原因）：
@@ -135,7 +138,11 @@ img{-webkit-user-drag:none;user-select:none}
 /* v8.0.4 已唱行渐隐律（用户指定「唱完等过了这句再渐变消失」）：行离场不再
    瞬消——遮罩定格 100%（全亮态），.ov 高亮层 opacity .6s 渐隐 + 行色
    ink→ink2 渐变到已唱灰；倒回（seek）时由 restoreLine 重置未唱态 */
-.cs-ln.done{color:var(--ink2);filter:blur(1.1px)}
+.cs-ln.done{color:var(--ink2);filter:blur(1.1px);will-change:transform,filter}
+  /* v8.3.3 模糊防重置律（浮窗同律）：done 行常驻合成层——过渡结束的
+     降层重栅格化把合成器实时模糊换成原生烘焙模糊 = 上一句模糊在定住
+     瞬间质感阶跃（用户：模糊有重置效果）。done 静息 scale .94 与
+     raster 一致，提层零阶跃。 */
 .cs-ln.done .cs-w{color:var(--ink2)}
 .cs-ln.done .cs-w .ov{opacity:0;transition:opacity .6s ease}
 .cs-ln.gap{font-size:11px;letter-spacing:7px;color:var(--ink3)}
@@ -733,23 +740,24 @@ img{-webkit-user-drag:none;user-select:none}
       if (n.bands.length >= 100) { m = bandAvg(n.bands, 9, 85); h = bandAvg(n.bands, 85, n.bands.length); }
       else { m = bandAvg(n.bands, 3, 10); h = bandAvg(n.bands, 10, 16); }
     }
+    /* v8.3.3 高光归位律（浮窗同律）：封面本体 brightness/saturate/
+       contrast 滤镜退役——能量全部改走 .cs-glow（DOM 在 .cs-pic 之前
+       = 封面底下；光环只从四周晕出）。增益拉满：低音主推 0.48→0.72、
+       基线 0.22→0.30，scale 幅度 0.05→0.075；封面图本体恒定不动
+       （暂停态 .cs-pz img 样式表滤镜不受内联残留干扰的老问题连根拔）。 */
     var act = effPlaying() && (b > 0.012 || m > 0.02 || h > 0.02);
     if (act) {
       var pb = Math.pow(b, 0.85), pm = Math.pow(m, 0.85), ph = Math.pow(h, 0.85);
-      var f = "brightness(" + (1 + pb * 0.30 + pm * 0.14).toFixed(3) + ") saturate(" +
-        (1 + ph * 0.30).toFixed(3) + ") contrast(" + (1 + pb * 0.05).toFixed(3) + ")";
-      var go = Math.min(1, 0.22 + pb * 0.48 + pm * 0.20 + ph * 0.10).toFixed(3);
-      var gs = "scale(" + (1 + b * 0.05 + m * 0.026 + h * 0.013).toFixed(4) + ")";
-      if (f !== gLf) { if (!glowOn2 && picImgEl) picImgEl.style.transition = "none"; gLf = f; if (picImgEl) picImgEl.style.filter = f; }
+      var go = Math.min(1, 0.30 + pb * 0.72 + pm * 0.30 + ph * 0.15).toFixed(3);
+      var gs = "scale(" + (1 + b * 0.075 + m * 0.036 + h * 0.018).toFixed(4) + ")";
       if (go !== gLo) { if (!glowOn2) glowEl.style.transition = "none"; gLo = go; glowEl.style.opacity = go; }
       if (gs !== gLt) { gLt = gs; glowEl.style.transform = gs; }
       glowOn2 = 1;
     } else if (glowOn2) {
-      glowOn2 = 0; gLo = gLt = gLf = "";
+      glowOn2 = 0; gLo = gLt = "";
       glowEl.style.transition = "";
       glowEl.style.opacity = "";
       glowEl.style.transform = "";
-      if (picImgEl) { picImgEl.style.transition = ""; picImgEl.style.filter = ""; }
     }
   }
 

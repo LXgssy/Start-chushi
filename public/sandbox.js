@@ -631,10 +631,19 @@
       if (prevPlaying === true && anchor.playing === false) { fadeMs = computeFadeMs(); soft = null; }
     }
 
-    /* ---- 实时态（面板 rAF 每帧取用；v8.2.9 now(lineMode) 透传行级时钟） ---- */
-    function now(lineMode) {
-      var ms = posNow() * 1000;
-      var a = alignAt(ms, lineMode === true);
+    /* ---- v8.3.3 行界滞回门（宿主预计算层，全部部件受益） ----
+       稳态播放的 backward 重锚（[-2,-0.35] 单拍缝隙 / [-0.6,-2.5] 连续
+       第 2 拍放行）不设 smoothstep（soft 只在恢复播放翻转时设置）=
+       显示瞬间硬跳后退 → align 行号跨界翻转 → 部件侧上一行刚进 done
+       （blur 在飞）又被重点亮 = 取消+倒放+重演 = 用户所见「上一句模糊
+       有重置效果」。门律：前进即时（零延迟，逐行快一拍律不破）；后退/
+       间奏类候选须持续 650ms（真 seek 回退必然满足，重锚噪声 1-3 拍
+       即死）；seek 护航窗内（guard，仅 seek() 设置）或候选出现后位置又
+       大跳 >2.5s = 真 seek 立即放行。压制期回放最近接受帧的歌词字段
+       （词扫描短暂冻结不可感），时基/播放态/频谱字段取新值。 */
+    var gSong = "", gLine = null, gPend = null, gPendAt = 0, gPendMs = 0, gHold = null;
+    var GATE_MS = 650, GATE_JUMP_MS = 2500, GATE_HARD_MS = 400;
+    function frameOf(a, ms, lineMode) {
       var dur = anchor ? anchor.duration : 0;
       return {
         position: ms / 1000,
@@ -655,6 +664,45 @@
           ? clamp(spec.bass, 0, 1) : 0,
         bands: spec && spec.on && Array.isArray(spec.bands) ? spec.bands : null,
       };
+    }
+    function gateFrame(ms, lineMode) {
+      var a = alignAt(ms, lineMode === true);
+      /* 切歌/换词才复位（songId|title|lyricRev）——快照对象每拍都是新的，
+         拿对象身份做键 = 门每拍被误复位 = 门失效（v8.3.3 e2e 实锤后改律） */
+      /* whitelist 后 songId/title/lyricRev 在快照顶层（非 track 子对象） */
+      var sk = lastSnap ? [
+        lastSnap.songId || 0,
+        lastSnap.title || "",
+        lastSnap.lyricRev || "",
+      ].join("|") : "";
+      if (gSong !== sk) {
+        gSong = sk; gLine = null; gPend = null; gHold = null;
+      }
+      if (gLine === null || a.lineIndex === gLine) {
+        gLine = a.lineIndex; gPend = null; gHold = a;
+        return frameOf(a, ms, lineMode);
+      }
+      var nowG = Date.now();
+      if (gPend !== a.lineIndex) { gPend = a.lineIndex; gPendAt = nowG; gPendMs = ms; }
+      var fwd = a.lineIndex > gLine;
+      /* 旁路唯一信号 = seek 护航窗（guard 仅 seek() 乐观重锚时设置）：
+         backward 爬行源第 2 拍放行也走 reanchor，若拿硬重锚当旁路会把
+         翻转原样放行（自败）；真 seek 的行号回退必须零延迟。 */
+      var bypass = (guard && nowG - guard.at < (guard.dur || 4500)) ||
+        Math.abs(ms - gPendMs) > GATE_JUMP_MS;
+      if (fwd || bypass || nowG - gPendAt >= GATE_MS) {
+        gLine = a.lineIndex; gPend = null; gHold = a;
+        return frameOf(a, ms, lineMode);
+      }
+      /* 压制：回放最近接受帧的歌词字段，时基/播放态/频谱取新值 */
+      if (!gHold) { gLine = a.lineIndex; gHold = a; return frameOf(a, ms, lineMode); }
+      return frameOf(gHold, ms, lineMode);
+    }
+
+    /* ---- 实时态（面板 rAF 每帧取用；v8.2.9 now(lineMode) 透传行级时钟） ---- */
+    function now(lineMode) {
+      var ms = posNow() * 1000;
+      return gateFrame(ms, lineMode);
     }
 
     function snapshot() { return lastSnap; }

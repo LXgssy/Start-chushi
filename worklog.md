@@ -115,28 +115,6 @@ Stage Summary:
 - 待办：用户实机验收；Edge 商店提交材料仍未做
 
 ---
-Task ID: 96
-Agent: main (Super Z)
-Task: 用户实机反馈八连——①快捷服务进入网页浮窗不显示 ②弹簧太过（克制如「初始」、封面免回弹）③cover→mini 封面没有一镜到底 ④三态封面复位感清零 ⑤形变后高光突兀→渐入 ⑥弱歌（《不凡》）律动不明显 ⑦chushi-spectrum 启动慢+暂停即停 ⑧歌词动效对齐「初始」完全体（视频示例）——v8.3.1
-
-Work Log:
-- 【现场】真工作树 /tmp/my-project（dfa7c32=v8.3.0）；/home/z/work-v831 镜像编辑 + cp 回同步；hubsim/spectrumsim/llvm-mingw 20260826 在位
-- 【取证③④】录屏复现真凶：cover→mini 形变途中只有暗壳、封面全程隐身——covClone 的 cloneNode 连内联样式一起走，而 display 切换（coverEl→none）先于克隆执行，clone 出厂即 display:none；v8.3.0 F31 只测了 full→mini（.cov 无内联 display 不受影响）所以假绿。修复 = covClone 无条件 display:block 拨正；复录封面全程在飞（形变 40% 走廊彩度 253）
-- 【取证②④「复位感」】v8.3.0 弹簧 ζ≈0.58 ~10% 过冲：行程 200px 时冲过头 20px 再弹回 = 用户读作「复位/回弹」。克制化：壳弹簧 dock standard 同参（420/34，ζ≈0.83，~1% 微过冲）；封面 clone 临界阻尼（420/41，零过冲——用户「封面没必要有回弹」）；壳/封面统一时长 D（关键帧自带 offset，WAAPI updateTiming 拉伸同曲线，杜绝先到者 cancel 迟到者）
-- 【⑤高光渐入】形变期 clone 携清零辉光 + paintGlow 把包络值写进目标态真封面（当时不可见、写值缓存被占）→ 落地 0→满格突兀。修：cleanup covClear 目标态 + glowRampAt 起点，paintGlow 按 smoothstep 480ms 渐入（brightness/saturate/scale 同因子）；像素取证晕彩度 64→90 渐亮
-- 【⑥律动 AGC】弱歌隐形根因 = 固定增益对低电平歌增益不足。三轴峰值跟随天花板（攻=瞬间/放=×0.998-0.0004 每帧，地板 0.12），显示值=env/ceiling；《不凡》型弱鼓 nb→1.0、brightness 1.51（旧 ~1.06）、glow→1.0；响歌 nb 谷 0.10 动态保持；静音零放大；尖峰后 ~2s 天花板回收。agate-v831.mjs 四场景门全过；pow 0.85→0.75 + 增益上调（brightness 0.42/glow 0.68）
-- 【⑧歌词动效】对齐「初始」完全体（用户视频逐帧考古：整列 ~400ms ease-out 上滑、入场行途中即亮）：当前行 scale 1.06/邻行 0.94 呼吸过渡（transform 不动布局，offsetTop 滚动数学不受影响）、滚动 .55s→.45s、行色 .5s→.35s
-- 【①注入兜底】干净 Chromium 三路径（NTP 同签 <a> 导航/直接 goto/window.open）实测浮窗全过 = 环境性缺针（疑 Edge 启动加速）。兜底：manifest +scripting +http/https 通配 host（与 content_scripts 同域授权面零增量；用户删目录重解压更新流程无增量审批）；ext-bg ensureCardInjected（state||cards 门 + 15s/tab 节流 + 隔离世界 __chushiCardMounted 幂等守卫）× onConnect 首连 sweepInjectAll + tabs.onUpdated complete 补针
-- 【⑦助手常驻】hub.dll keeper 政策重写：宿主（网易云）存活⟺keeper 存活，撤 120s 需求门，助手不在场即拉起（首拍 5s→1.2s、节拍 5s→3s）；chushi_spectrum.c IDLE_EXIT 60s 空闲自退整体拆除（进程生命周期=宿主生命周期，Job KILL_ON_JOB_CLOSE 随网易云回收）；引擎 CAP_IDLE_STOP 需求门原样保留=电流音律不破，暂停期摘管、复播 ~300ms 回位。版本 hub/spectrum 8.2.5/8.2.9→双 8.3.1，PLUGIN_VER_MIN/CLIENT_VER 8.3.1 强制升桥；PLUGIN_VER_MIN 校验对象是桥心跳 ne.v（hub 版本走 HUB_VER_MIN 8.0.0 宽门）
-- 【门禁】build-extension.py 新特征门（display:block;position:fixed/SPRING_COVER/glowRampAt/envNorm/transform:scale(1.06)/updateTiming/scripting/http 通配）；build-v831-assets.py（桥 manifest/index.js/exe 8.3.1 + hub.dll md5≠8.2.5 基准 + exe 无 self exit 串 + hub 宪法门导入表零 COM）；agate-v831 AGC 四场景；build-hub-v831.sh（宪法门+新串在位+旧串退役）
-- 【e2e】verify-v831-ext.mjs 14/14（F30r 克制弹簧峰值 324≤322+3 + 收敛 592ms∈[280,700]；F31c cover→mini 走廊彩度 253；F31d 渐入 64→90；F5c 零漂移 Δ0；F6 补针幂等 host=1；F32 常开增量 7）；v8.2.7 全量回归 31/31（F5b 两处 sleep 550→950——新收敛 592ms 超旧等待窗，且塌缩期 fromSurf pointer-events:none 期间 elementFromPoint 探不到=设计使然非回归）；面板律动真转发链 7/7；probe-quicklink 三路径显示全过
-- 【交付】download/v8.3.1/ 六件：NewTab zip 12.3MB + 桥 .plugin（hub.dll fcd0d879 + spectrum 5785e64b）+ 歌词源 7.3.0 沿用 + 预设 8.2.9 沿用 + SHA256SUMS + 使用说明；/home/z/my-project/download/v8.3.1/ 双落位
-
-Stage Summary:
-- 新律：①cloneNode 连内联样式一起走——克隆时机与 display 切换的先后是隐形成真凶，克隆体必须显式拨正关键内联；②回归探针的等待窗必须随弹簧参数重校（收敛 416→592ms 让旧 550ms 等待全变假阴）；③塌缩形变期源壳 pointer-events:none，elementFromPoint 探针在形变期必然读 0——取证窗口要避开形变期或换像素法；④「复位感」的第一嫌疑是过冲回弹不是位置跳变——观感问题先量弹簧阻尼；⑤弱歌隐形用 AGC（峰值跟随归一）治，不硬抬增益（响歌会糊）；⑥环境性缺针用 SW scripting 补针兜底，幂等守卫在隔离世界全局
-- 待办：用户实机验收；Edge 商店提交材料仍未做
-
----
 Task ID: 97
 Agent: main (Super Z)
 Task: 用户反馈「没有推送到公开仓库」——v8.3.1 发布链补推（commit/tag/Release 全缺）
@@ -154,6 +132,18 @@ Stage Summary:
 - 待办：用户实机验收 v8.3.1 九项反馈修复；Edge 商店提交材料仍未做
 
 ---
+Task ID: 96（补记·重建）
+Agent: main (Super Z)（前一会话，实录见仓库 worklog.md@v8.3.1）
+Task: 用户实机反馈八连——快捷服务浮窗缺失/弹簧克制/cover→mini 一镜到底/三态复位清零/高光渐入/弱歌律动（AGC）/chushi-spectrum 常驻/歌词动效——v8.3.1
+
+Work Log:
+- （本条为外层 worklog 补记；完整实录在仓库 worklog.md 的 Task 96 段，随 c8665a4 入库）
+- 核心结论：八项全部实现并打包（c8665a4 + download/v8.3.1/ 双落位），发布链断在会话断电——由 Task 97 补推完成
+
+Stage Summary:
+- 见仓库 worklog.md Task 96（cloneNode 内联样式律/弹簧阻尼观感律/AGC 峰值跟随律/keeper 常驻律等六新律）
+
+---
 Task ID: 98
 Agent: main (Super Z)
 Task: 用户实机反馈两连——①v8.3.1 新加歌词动效没看到 ②缺「未播放/已播放歌词高斯模糊」——且动效要覆盖浮窗和「初始」面板——v8.3.2
@@ -164,8 +154,31 @@ Work Log:
 - 【门禁】build-extension.py VERSION 8.3.2 + blur 三档特征门；build-smtc-preset.py 面板五特征门（scale/filter/双时序）；build-v832-assets.py 资产组装（桥 8.3.1/歌词源 7.3.0 沿用+校验，cshz 8.3.2 新建）；EXTENSION_MODE 全量重建（smtc.ts CLIENT_VER 8.3.2 入包——资产组装器强制校验宿主 bundle 版本号，漏重建必拒）
 - 【e2e 新门】verify-v832-panel.mjs 13/13（CDP 跨源直查 opaque iframe computed style：blur 三档精确值+matrix(1.06/0.94)+双时序+滚动位移+零报错）；verify-v832-ext.mjs 9/9（closed Shadow DOM 像素取证：逐行边缘能量剖面，当前行 35.2 vs 相邻行 0.7=50 倍锐利差、峰值亮度 244 vs 59，位置推移 6.2→12.4 效果跟随=动态景深非静态样式）；存量回归 v831 专项 14/14 + v827 全量 31/31（一次偶发 FAIL 无失败项复现，连跑两次全 PASS 判定时序抖动）+ 面板律动 7/7
 - 【取证器三坑】①hubsim 端口绑定前 POST /api/lyric 静默丢失→ping 就绪重试；②真桥 /api/lyric 响应形={ok:true,lyric:{...}} 包装（SW 解 j.lyric），裸 body=永远「暂无歌词」；③shim whitelist 走 ensureParsed 只认原始 yrc/lrc 文本，预解析 lines 被静默丢弃——面板测试必须喂原始 lrc
-- 【发布】download/v8.3.2/ 七件（NewTab zip/preset 8.3.2/桥 8.3.1 沿用/歌词源沿用/SHA256SUMS/双名说明/AllInOne）；repo worklog 提交前发现被外部同步进程覆写丢 Task 96 段→git checkout 恢复后再追加（双 worklog 律的同步反向坑）
+- 【发布】main 3d224d0 + tag v8.3.2 + Release（id 387001630）七资产 SHA 回读 4/4；交付 download/v8.3.2/ 双落位（NewTab zip/preset 8.3.2/桥 8.3.1 沿用/歌词源沿用/SHA256SUMS/双名说明/AllInOne）；repo worklog 提交前发现被外部同步进程覆写丢 Task 96 段→git checkout 恢复后再追加
 
 Stage Summary:
 - 新律：①动效类需求「覆盖 A 和 B」必须双渲染层同版交付——单侧落地=用户必看不到；②JS 内联 style.transition 会覆盖 CSS transition，改时序必须双处同改；③closed Shadow DOM 用像素能量剖面取证（锐利/模糊 50 倍差），opaque iframe 可 CDP 直查 computed style；④mock 桥响应形必须对齐真桥包装（{ok,lyric}），裸形=静默空转；⑤worklog 会被外部同步覆写——提交前 git diff worklog 是新 Ritual
+- 交付：https://github.com/LXgssy/Start-chushi/releases/tag/v8.3.2
 - 待办：用户实机验收（浮窗+面板双端歌词动效）；Edge 商店提交材料仍未做
+
+---
+Task ID: 99
+Agent: main (Super Z)
+Task: 用户实机反馈三连——①不要给封面加高光（高光就在封面底下，「让高光明显」≠给封面加高光）②切下一句时上一句歌词的模糊有个「重置效果」③新开「初始」标签页聚焦在网址搜索栏不要聚焦——v8.3.3
+
+Work Log:
+- 【取证②三段】computed style 层逐字节复刻（.fln 全同 CSS+同切类序列）四种环境（DPR1/1.25/1.5/backdrop 祖先）全部零突跳=类翻转论排除；CDP screencast 逐帧能量剖面抓到 t≈470ms（过渡结束帧）当前行锐度 46→71.6（+56%）=合成层动画结束降层重栅格化（0.94 起始纹理被放大到 1.06 后换原生烘焙）；帧带慢动作逐帧目检确认全程平滑、仅结束帧跳
+- 【根治②a】done 行常驻合成层（will-change:transform,filter）——done 静息 scale .94 与 raster 一致=零重栅格零阶跃；离屏 done 行 Chrome 自动裁 tile 层成本有界
+- 【根治②b】行界滞回门——位置源回跳两机制：SW/桥管线延迟拍、连续回退放行后 800ms smoothstep 入轨（上游滞后 ~1s 时导数 rate−k'δ 变负=显示倒退 ~150ms 跨回行界）→ 行号翻转 → 上一行 done→on→done = blur 取消倒放重演（字面「重置」）。门律：前进即时（逐行快一拍律不破）/ 后退与间奏候选持续 650ms 才采纳 / seekGuard+位置大跳 2.5s 立即放行。三层同修：ext-card.js lyricFrame + public/sandbox.js gateFrame（面板 mus.now 宿主预计算层）
+- 【新坑②门复位键】初版拿 lastSnap 对象身份做切歌复位——快照每拍都是新对象（生产 1Hz 轮询同样）=门每拍被复位形同虚设（e2e 实锤 11/13 穿门）；改 songId|title|lyricRev 三元组（且白名单后字段在快照顶层，track 子对象取值两连错）。【新坑②旁路】初版拿 lastHardAt 当旁路——backward 爬行源第 2 拍放行也走 reanchor 打点=旁路自败；改 seek 护航窗 guard 单信号（仅 seek() 设置）
+- 【修复①高光归位】封面 img brightness/saturate/contrast 滤镜退役（v8.2.7 提亮路线废），能量全走封面背后 .glow/.cs-glow（opacity 低音 0.68→0.85 基线 0.28/0.30、scale 0.08/0.075、外圈 -6/-8px blur 10/13px）；covClear/picImgEl 写入全拆；暂停态 .cs-pz 样式表滤镜与内联残留的老干扰连根拔
+- 【修复③焦点归位】page.tsx 挂载短窗（30ms~1s 六次重试 + focus 事件 1.2s 窗）body tabIndex=-1 focus 偷回；页面已有具体焦点元素一律不碰；敲键自然落 type-to-search（body 聚焦不挡 window 键事件）
+- 【门禁】build-extension.py VERSION 8.3.3 + 特征门（will-change:transform,filter/GATE_MS/gPend/lastHardAt）+ gone 门（c.img.style.filter 残留拒收）；build-smtc-preset.py + will-change + 0.30+pb*0.72 + picImgEl.style.filter 残留拒收（面板 JS 压缩去注释，注释特征门落空改代码级特征）；build-v833-assets.py 净目录幂等（目录扫描哈希混入陈旧 AllInOne=顺序缺陷实测）+ 显式四件清单哈希
+- 【取证】verify-v833-ext.mjs 11/11（NTP body 焦点+tabIndex=-1 / 像素级门压制 backward 双拍 0/14 重亮 / 扫描峰上移一行 1228ms / staged 法门四件）；verify-v833-panel.mjs 9/9（类级门压制 0/13 / 前进 34ms / 大步后退单次收敛 / done will-change=transform,filter / beat 期封面零内联滤镜 + 辉光 inline opacity=1）；probe-v833-gate.mjs 门内幕探针（临时仪器化取证后拆除）
+- 【回归律对齐】v827 F13b「封面随拍提亮」改判「封面恒定≤3 + 辉光承拍」；glow 套件 8 处旧律断言（旧增益/提亮滤镜/细节环）按归位律改写 14/14；v830 F30a v8.3.0 旧阈（+4px）与 v8.3.1 克制弹簧（~1%≈+3.2px）冲突→微过冲 ∈+[1,6]px（v8.3.1 时漏改，Task98 回归矩阵未含 v830 故潜伏）。终版全矩阵九套全绿：v833 11+9 / v832 9+13 / v831 14 / v827 全量 PASS+glow 14+panel 7 / v830 ALL GREEN
+- 【发布】main + tag v8.3.3 + Release 七资产 SHA 回读 4/4；交付 download/v8.3.3/ 双落位（NewTab zip / preset 8.3.3 / 桥 8.3.1 沿用 / 歌词源 7.3.0 沿用 / SHA256SUMS / 双名说明 / AllInOne）
+
+Stage Summary:
+- 新律：①transform+filter 共动画的合成层在过渡结束降层重栅格化=确定性质感阶跃——静止态行必须常驻提层（静息 scale 与 raster 一致）；②任何「门」的复位键禁止用对象身份（快照每拍都是新对象），用业务三元组；③门旁路信号必须单源（seek 护航窗），凡非 seek 事件也会打的点都不能当旁路；④测试舞台会陈旧（out→stage 只随 bun build:extension 刷新），取证前必须核对 stage 与当前构建同代——本轮门「失效」半数是舞台旧码假象；⑤交付哈希显式列文件名，目录扫描必混陈旧；⑥取证判据必须贴合布局律（滚动居中=最亮行 y 恒定；逐字扫描=方差峰随当前行移动），首版 E3「最亮行下移」是错模型
+- 交付：https://github.com/LXgssy/Start-chushi/releases/tag/v8.3.3
+- 待办：用户实机验收（封面底下高光/上一句模糊平滑/新标签页焦点）；Edge 商店提交材料仍未做
