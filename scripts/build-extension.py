@@ -11,8 +11,11 @@ v8.2.1 新增：ext-lyric.js（完全体歌词引擎，拼接在 ext-card.js 之
 v8.2.3 新增：辉光层叠修复（高光跑封面根治）+ 两色调 + 顶带收敛/带左时间 + 主题色跟随 cardAcc；
 v8.2.2 保留：数据面软重锚/回退熔断/seek 护航（乱跳根治）+ 高光保持律 +
 封面态拖动 + openPanel 全拆（零跳转「初始」）+ img ghost 禁拖。
+v8.3.0 新增：三态切换真弹簧（springFrames 采样）+ 封面连续锚 covClone（两端实测矩形，
+  校准零误差）+ 内容级联快交叉 + cscardin 入场仅 .boot（display 重放真凶）+
+  vis 上报退役（数据面休眠拆除：state 轮询只要还有卡片 Port 就常开）。
 用法: python3 scripts/build-extension.py
-输出: download/v8.2.3/ChuShi-NewTab-v8.2.3.zip
+输出: download/<VERSION>/ChuShi-NewTab-v<VERSION>.zip
 """
 import json
 import pathlib
@@ -26,7 +29,7 @@ OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
 EXT_SRC = ROOT / "extension-src"    # v8.2.0 SW/内容脚本源
-VERSION = "8.2.9"
+VERSION = "8.3.0"
 DEST = ROOT / f"download/v{VERSION}/ChuShi-NewTab-v{VERSION}.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():
@@ -189,24 +192,31 @@ for feat in ("ChuShiLyric", "parseWordText", "unitizeLine",  # 歌词引擎特�
              "applyEnabled", "applyGlowEnabled", "specMsgOn",  # v8.2.9 开关应用面
              "ChuShiLyric.align(ly.parsed, ms, lyMode === 0)",  # v8.2.9 行级时钟
              "bands.length >= 100",                             # v8.2.9 128 段自适应
+             "springFrames", "morphFrames", "covClone",        # v8.3.0 真弹簧+封面连续锚
+             "surf.boot",                                       # v8.3.0 入场动画仅首挂载（复位感真凶之二）
+             "cloneImg",                                        # v8.3.0 形变途中切歌热跟随
              "getBoundingClientRect", "borderRadius"):        # morph 几何取证
     if feat not in _card_js:
         sys.exit(f"ext-card.js 缺特征 {feat} —— 拼接/源码不完整")
 for gone in ("flyCoverClone", "animsRemoveClones", "siteHidden", "saveHide",
              "contextmenu"):
     if gone in _card_js:
-        sys.exit(f"ext-card.js 残留 {gone} —— v8.2.9（去封面飞形/右键隐藏退役）未落地，拒绝")
+        sys.exit(f"ext-card.js 残留 {gone} —— 旧律已退役，拒绝")
 if 'type: "spec", on: vis }' in _card_js or 'type: "spec", on: vis}' in _card_js:
     sys.exit("ext-card.js 频谱订阅未过 specMsgOn 门——律动开关不生效，拒绝")
+if 'postMessage({ type: "vis"' in _card_js:
+    sys.exit("ext-card.js 残留 vis 上报 —— v8.3.0 数据面休眠退役未落地，拒绝")
 if 'postMessage({ type: "openPanel"' in _card_js or 'case "openPanel"' in _card_js:
     sys.exit("ext-card.js 残留 openPanel 发送方——用户明确浮窗零跳转「初始」，拒绝")
 _bg_js = (STAGE / "ext-bg.js").read_text(encoding="utf-8")
 for feat in ("chushi-spectrum", "spectrum-boot", "chushi-card", 'case "lyric":',
              "fetchedAt",  # v8.2.2：ne.ts 采样时刻透传（乱跳根治数据面）
-             "broadcastSpec", "visCount", "case \"vis\":",  # v8.2.6：SW 需求门律
+             "broadcastSpec", "cards.size === 0", "stopStateLoop",  # v8.3.0：state 轮询常开（休眠退役）
              "slice(0, 128)"):                              # v8.2.9：频段细化透传
     if feat not in _bg_js:
         sys.exit(f"ext-bg.js 缺特征 {feat} —— SW 歌词代理面缺失")
+if 'case "vis"' in _bg_js or "port.__vis" in _bg_js:
+    sys.exit("ext-bg.js 残留 vis 上报处理 —— v8.3.0 数据面休眠退役未落地，拒绝")
 if 'case "openPanel"' in _bg_js:
     sys.exit("ext-bg.js 残留 openPanel 转发——浮窗零跳转律，拒绝")
 _html = (STAGE / "index.html").read_text(encoding="utf-8")
