@@ -113,3 +113,25 @@ Work Log:
 Stage Summary:
 - 新律：①display:none→block 重放 CSS 动画——入场动画必须类门控仅首挂载（三态切换复位感真凶之二）；②跨态连续动画的终点必须实测（目标壳隐身布局量测），估算终态=校准卡顿；③环形缓冲日志不能快照计数——按条目时间戳增量；④真值链路任何「节能门」都必须回答「门关期间的真值丢失如何自愈」，答不出就不能上；⑤后台标签定时器不可依赖——可见性恢复瞬间必须主动补拍
 - 待办：用户实机验收；Edge 商店提交材料仍未做
+
+---
+Task ID: 96
+Agent: main (Super Z)
+Task: 用户实机反馈八连——①快捷服务进入网页浮窗不显示 ②弹簧太过（克制如「初始」、封面免回弹）③cover→mini 封面没有一镜到底 ④三态封面复位感清零 ⑤形变后高光突兀→渐入 ⑥弱歌（《不凡》）律动不明显 ⑦chushi-spectrum 启动慢+暂停即停 ⑧歌词动效对齐「初始」完全体（视频示例）——v8.3.1
+
+Work Log:
+- 【现场】真工作树 /tmp/my-project（dfa7c32=v8.3.0）；/home/z/work-v831 镜像编辑 + cp 回同步；hubsim/spectrumsim/llvm-mingw 20260826 在位
+- 【取证③④】录屏复现真凶：cover→mini 形变途中只有暗壳、封面全程隐身——covClone 的 cloneNode 连内联样式一起走，而 display 切换（coverEl→none）先于克隆执行，clone 出厂即 display:none；v8.3.0 F31 只测了 full→mini（.cov 无内联 display 不受影响）所以假绿。修复 = covClone 无条件 display:block 拨正；复录封面全程在飞（形变 40% 走廊彩度 253）
+- 【取证②④「复位感」】v8.3.0 弹簧 ζ≈0.58 ~10% 过冲：行程 200px 时冲过头 20px 再弹回 = 用户读作「复位/回弹」。克制化：壳弹簧 dock standard 同参（420/34，ζ≈0.83，~1% 微过冲）；封面 clone 临界阻尼（420/41，零过冲——用户「封面没必要有回弹」）；壳/封面统一时长 D（关键帧自带 offset，WAAPI updateTiming 拉伸同曲线，杜绝先到者 cancel 迟到者）
+- 【⑤高光渐入】形变期 clone 携清零辉光 + paintGlow 把包络值写进目标态真封面（当时不可见、写值缓存被占）→ 落地 0→满格突兀。修：cleanup covClear 目标态 + glowRampAt 起点，paintGlow 按 smoothstep 480ms 渐入（brightness/saturate/scale 同因子）；像素取证晕彩度 64→90 渐亮
+- 【⑥律动 AGC】弱歌隐形根因 = 固定增益对低电平歌增益不足。三轴峰值跟随天花板（攻=瞬间/放=×0.998-0.0004 每帧，地板 0.12），显示值=env/ceiling；《不凡》型弱鼓 nb→1.0、brightness 1.51（旧 ~1.06）、glow→1.0；响歌 nb 谷 0.10 动态保持；静音零放大；尖峰后 ~2s 天花板回收。agate-v831.mjs 四场景门全过；pow 0.85→0.75 + 增益上调（brightness 0.42/glow 0.68）
+- 【⑧歌词动效】对齐「初始」完全体（用户视频逐帧考古：整列 ~400ms ease-out 上滑、入场行途中即亮）：当前行 scale 1.06/邻行 0.94 呼吸过渡（transform 不动布局，offsetTop 滚动数学不受影响）、滚动 .55s→.45s、行色 .5s→.35s
+- 【①注入兜底】干净 Chromium 三路径（NTP 同签 <a> 导航/直接 goto/window.open）实测浮窗全过 = 环境性缺针（疑 Edge 启动加速）。兜底：manifest +scripting +http/https 通配 host（与 content_scripts 同域授权面零增量；用户删目录重解压更新流程无增量审批）；ext-bg ensureCardInjected（state||cards 门 + 15s/tab 节流 + 隔离世界 __chushiCardMounted 幂等守卫）× onConnect 首连 sweepInjectAll + tabs.onUpdated complete 补针
+- 【⑦助手常驻】hub.dll keeper 政策重写：宿主（网易云）存活⟺keeper 存活，撤 120s 需求门，助手不在场即拉起（首拍 5s→1.2s、节拍 5s→3s）；chushi_spectrum.c IDLE_EXIT 60s 空闲自退整体拆除（进程生命周期=宿主生命周期，Job KILL_ON_JOB_CLOSE 随网易云回收）；引擎 CAP_IDLE_STOP 需求门原样保留=电流音律不破，暂停期摘管、复播 ~300ms 回位。版本 hub/spectrum 8.2.5/8.2.9→双 8.3.1，PLUGIN_VER_MIN/CLIENT_VER 8.3.1 强制升桥；PLUGIN_VER_MIN 校验对象是桥心跳 ne.v（hub 版本走 HUB_VER_MIN 8.0.0 宽门）
+- 【门禁】build-extension.py 新特征门（display:block;position:fixed/SPRING_COVER/glowRampAt/envNorm/transform:scale(1.06)/updateTiming/scripting/http 通配）；build-v831-assets.py（桥 manifest/index.js/exe 8.3.1 + hub.dll md5≠8.2.5 基准 + exe 无 self exit 串 + hub 宪法门导入表零 COM）；agate-v831 AGC 四场景；build-hub-v831.sh（宪法门+新串在位+旧串退役）
+- 【e2e】verify-v831-ext.mjs 14/14（F30r 克制弹簧峰值 324≤322+3 + 收敛 592ms∈[280,700]；F31c cover→mini 走廊彩度 253；F31d 渐入 64→90；F5c 零漂移 Δ0；F6 补针幂等 host=1；F32 常开增量 7）；v8.2.7 全量回归 31/31（F5b 两处 sleep 550→950——新收敛 592ms 超旧等待窗，且塌缩期 fromSurf pointer-events:none 期间 elementFromPoint 探不到=设计使然非回归）；面板律动真转发链 7/7；probe-quicklink 三路径显示全过
+- 【交付】download/v8.3.1/ 六件：NewTab zip 12.3MB + 桥 .plugin（hub.dll fcd0d879 + spectrum 5785e64b）+ 歌词源 7.3.0 沿用 + 预设 8.2.9 沿用 + SHA256SUMS + 使用说明；/home/z/my-project/download/v8.3.1/ 双落位
+
+Stage Summary:
+- 新律：①cloneNode 连内联样式一起走——克隆时机与 display 切换的先后是隐形成真凶，克隆体必须显式拨正关键内联；②回归探针的等待窗必须随弹簧参数重校（收敛 416→592ms 让旧 550ms 等待全变假阴）；③塌缩形变期源壳 pointer-events:none，elementFromPoint 探针在形变期必然读 0——取证窗口要避开形变期或换像素法；④「复位感」的第一嫌疑是过冲回弹不是位置跳变——观感问题先量弹簧阻尼；⑤弱歌隐形用 AGC（峰值跟随归一）治，不硬抬增益（响歌会糊）；⑥环境性缺针用 SW scripting 补针兜底，幂等守卫在隔离世界全局
+- 待办：用户实机验收；Edge 商店提交材料仍未做

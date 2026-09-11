@@ -14,6 +14,9 @@ v8.2.2 保留：数据面软重锚/回退熔断/seek 护航（乱跳根治）+ �
 v8.3.0 新增：三态切换真弹簧（springFrames 采样）+ 封面连续锚 covClone（两端实测矩形，
   校准零误差）+ 内容级联快交叉 + cscardin 入场仅 .boot（display 重放真凶）+
   vis 上报退役（数据面休眠拆除：state 轮询只要还有卡片 Port 就常开）。
+v8.3.1 新增：封面 clone display 拨正（cover→mini 一镜到底真凶）+ 弹簧克制化
+  （dock standard 同参 + 封面临界阻尼）+ 高光渐入（glowRamp）+ 律动 AGC +
+  歌词行呼吸动效 + 内容脚本注入兜底（scripting 权限 + SW 清扫/补针）。
 用法: python3 scripts/build-extension.py
 输出: download/<VERSION>/ChuShi-NewTab-v<VERSION>.zip
 """
@@ -29,7 +32,7 @@ OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
 EXT_SRC = ROOT / "extension-src"    # v8.2.0 SW/内容脚本源
-VERSION = "8.3.0"
+VERSION = "8.3.1"
 DEST = ROOT / f"download/v{VERSION}/ChuShi-NewTab-v{VERSION}.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():
@@ -123,13 +126,21 @@ manifest = {
         "http://127.0.0.1:26911/*",
         "http://127.0.0.1:26912/*",
         "http://127.0.0.1:26913/*",
+        # v8.3.1 注入兜底：executeScript 需要目标页 host 权限（与 content_scripts
+        # 的 http/https 通配同域——授权面无增量）
+        "http://*/*",
+        "https://*/*",
     ],
     # v8.2.0 悬浮音乐卡（想法一三件套之二/之三）：SW 状态中继 + <all_urls>
     # 内容脚本。卡片在自家新标签页不出现（内容脚本不匹配 chrome-extension://），
     # chrome:// 等特权页浏览器规则性无法注入（诚实边界，发版说明已告知）。
     # permissions：storage（卡片位置/药丸/按站隐藏持久化）+ tabs（openPanel
     # 的 tabs.query(url) 聚焦已有面板页；create 不需要权限，query 需要）。
-    "permissions": ["storage", "tabs"],
+    # v8.3.1：+scripting（注入兜底——快捷服务等场景 manifest 注入偶发缺席，
+    # SW 用 executeScript 补针；host_permissions +http/https 通配 = 与
+    # content_scripts 同域，安装授权提示无增量）。用户更新流程是删目录重
+    # 解压（全新安装），无增量权限审批问题。
+    "permissions": ["storage", "tabs", "scripting"],
     "background": {"service_worker": "ext-bg.js"},
     "content_scripts": [
         {
@@ -195,7 +206,13 @@ for feat in ("ChuShiLyric", "parseWordText", "unitizeLine",  # 歌词引擎特�
              "springFrames", "morphFrames", "covClone",        # v8.3.0 真弹簧+封面连续锚
              "surf.boot",                                       # v8.3.0 入场动画仅首挂载（复位感真凶之二）
              "cloneImg",                                        # v8.3.0 形变途中切歌热跟随
-             "getBoundingClientRect", "borderRadius"):        # morph 几何取证
+             "getBoundingClientRect", "borderRadius",          # morph 几何取证
+             "display:block;position:fixed",                    # v8.3.1 封面 clone display 拨正（cover→mini 一镜到底真凶）
+             "SPRING_COVER",                                    # v8.3.1 封面临界阻尼弹簧（零回弹）
+             "glowRampAt", "glowRamp",                          # v8.3.1 高光渐入
+             "envNorm",                                         # v8.3.1 律动 AGC（弱歌隐形根治）
+             "transform:scale(1.06)",                           # v8.3.1 歌词当前行呼吸放大
+             "updateTiming"):                                   # v8.3.1 壳/封面统一形变时长
     if feat not in _card_js:
         sys.exit(f"ext-card.js 缺特征 {feat} —— 拼接/源码不完整")
 for gone in ("flyCoverClone", "animsRemoveClones", "siteHidden", "saveHide",
@@ -212,7 +229,10 @@ _bg_js = (STAGE / "ext-bg.js").read_text(encoding="utf-8")
 for feat in ("chushi-spectrum", "spectrum-boot", "chushi-card", 'case "lyric":',
              "fetchedAt",  # v8.2.2：ne.ts 采样时刻透传（乱跳根治数据面）
              "broadcastSpec", "cards.size === 0", "stopStateLoop",  # v8.3.0：state 轮询常开（休眠退役）
-             "slice(0, 128)"):                              # v8.2.9：频段细化透传
+             "slice(0, 128)",                               # v8.2.9：频段细化透传
+             "ensureCardInjected", "sweepInjectAll",        # v8.3.1：注入兜底
+             "chrome.scripting.executeScript",              # v8.3.1：补针执行面
+             "chrome.tabs.onUpdated"):                      # v8.3.1：complete 补针钩子
     if feat not in _bg_js:
         sys.exit(f"ext-bg.js 缺特征 {feat} —— SW 歌词代理面缺失")
 if 'case "vis"' in _bg_js or "port.__vis" in _bg_js:
@@ -232,6 +252,10 @@ if not _m.get("content_scripts") or "ext-card.js" not in _m["content_scripts"][0
     sys.exit("manifest 缺 content_scripts(ext-card.js)——悬浮卡缺失")
 if "http://127.0.0.1:26911/*" not in _m.get("host_permissions", []):
     sys.exit("manifest 缺频谱助手端口 26911 host_permissions")
+if "scripting" not in _m.get("permissions", []):
+    sys.exit("manifest 缺 scripting 权限——v8.3.1 注入兜底缺失")
+if "http://*/*" not in _m.get("host_permissions", []) or "https://*/*" not in _m.get("host_permissions", []):
+    sys.exit("manifest 缺 http/https 通配 host_permissions——v8.3.1 补针无执行权")
 print("防呆门通过: 保留名 0 违规 + 结构完整 + 零内联 + 零 /_next 残留 + SW/三态悬浮卡/歌词引擎/频谱端口在位")
 
 # 6) zip（ext-script 引用为绝对路径 /ext-script-N.js，zip 根 = 扩展根）
