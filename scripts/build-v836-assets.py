@@ -10,7 +10,7 @@
 
 用法: python3 scripts/build-v836-assets.py <repo-root>
 """
-import hashlib, pathlib, sys, zipfile
+import hashlib, json, pathlib, sys, zipfile
 
 ROOT = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else '.')
 OUT = ROOT / 'download/v8.3.6'
@@ -46,9 +46,14 @@ for old, new in EXT_FIX:
     card = card.replace(old, new)
 need('M6 4l12 8-12 8V4z' not in card, '▶ 不应再是 M6')
 need(card.count('M8 4l12 8-12 8V4z') == 2, '▶ 应为原生 M8（mini+full 两处）')
-man = zin.read('manifest.json').decode('utf-8')
-need(man.count('"version": "8.3.5"') == 1, 'manifest 版本串非 8.3.5 唯一命中')
-man = man.replace('"version": "8.3.5"', '"version": "8.3.6"')
+mf = json.loads(zin.read('manifest.json').decode('utf-8'))
+need(mf.get('version') == '8.3.5', '上一版包 manifest 版本非 8.3.5')
+need('geolocation' not in (mf.get('permissions') or []), '上一版包 manifest 已含 geolocation')
+mf['version'] = '8.3.6'
+# v8.3.6 补齐 geolocation：扩展页 navigator.geolocation 必须有该权限，
+# 否则天气「定位」按钮拿不到坐标（网页版标准 Web 权限流程不受影响）。
+mf['permissions'] = list(mf.get('permissions') or []) + ['geolocation']
+man = json.dumps(mf, ensure_ascii=False, indent=2) + '\n'
 newtab = OUT / f'ChuShi-NewTab-v{VER}.zip'
 with zipfile.ZipFile(newtab, 'w', zipfile.ZIP_DEFLATED) as z:
     for e in zin.infolist():
@@ -62,7 +67,11 @@ with zipfile.ZipFile(newtab) as z:
     names = set(z.namelist())
     for must in ('ext-bg.js', 'ext-card.js', 'sandbox.js', 'manifest.json', 'index.html'):
         need(must in names, f'zip 缺 {must}')
-    need('"version": "8.3.6"' in z.read('manifest.json').decode('utf-8'), 'manifest 未升到 8.3.6')
+    mf2 = json.loads(z.read('manifest.json').decode('utf-8'))
+    need(mf2.get('version') == '8.3.6', 'manifest 未升到 8.3.6')
+    need('geolocation' in (mf2.get('permissions') or []), '新包 manifest 缺 geolocation 权限')
+    for _p in ('storage', 'tabs', 'scripting'):
+        need(_p in (mf2.get('permissions') or []), f'新包 manifest 缺 {_p}')
     c2 = z.read('ext-card.js').decode('utf-8')
     for feat in ('left:9px;right:9px', 'grid-template-columns:minmax(0,1fr)',
                  'nowrap;overflow:hidden;text-overflow:ellipsis', 'overflow-wrap:anywhere',
@@ -93,13 +102,10 @@ lyric = OUT / f'ChuShi-Lyric-Source-{LYRIC_VER}.plugin'
 lyric.write_bytes((PREV / f'ChuShi-Lyric-Source-{LYRIC_VER}.plugin').read_bytes())
 print(f'  carried {bridge.name} + {lyric.name}')
 
-# ---------- 4) SHA256SUMS（组件四件套，与历版同口径）----------
-import os
-sums = []
-for f in sorted(os.listdir(OUT)):
-    p = OUT / f
-    if p.is_file() and f != 'SHA256SUMS.txt':
-        sums.append(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + f)
+# ---------- 4) SHA256SUMS（组件四件套，与历版同口径：说明/AllInOne 不计入）----------
+comps = sorted([f'ChuShi-NewTab-v{VER}.zip', f'ChuShi-Music-Bridge-{BRIDGE_VER}.plugin',
+                f'ChuShi-Music-Preset-{PRESET_VER}.cshz', f'ChuShi-Lyric-Source-{LYRIC_VER}.plugin'])
+sums = [hashlib.sha256((OUT / f).read_bytes()).hexdigest() + '  ' + f for f in comps]
 (OUT / 'SHA256SUMS.txt').write_text('\n'.join(sums) + '\n', encoding='utf-8')
 print('  SHA256SUMS.txt x', len(sums))
 
@@ -128,6 +134,11 @@ lrc→yrc 升级）照常重建，该更新的一个不漏。
 ### ③ 播放/暂停键按下时会位移（面板）
 主键按下时原本会整键缩放（视觉上像位移），本版改为不变形的高亮反馈。
 ▶ 字形保持原样——它的视觉重心本来就落在按钮中心。
+
+### ④ 天气「定位」在扩展里点不出坐标（补齐 geolocation 权限）
+扩展页（chrome-extension://）读取经纬度必须显式声明 geolocation 权限，旧包漏了，
+点「定位」拿不到坐标、只能手动搜城市。本版补上该权限（网页版走标准 Web 权限流程，
+不受影响）。
 
 ## 升级步骤
 1. 「初始」更新到 v{VER}：覆盖安装 `ChuShi-NewTab-v{VER}.zip`（**删净旧的解压目录** →

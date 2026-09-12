@@ -35,7 +35,7 @@ OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
 EXT_SRC = ROOT / "extension-src"    # v8.2.0 SW/内容脚本源
-VERSION = "8.3.5"
+VERSION = "8.3.6"
 DEST = ROOT / f"download/v{VERSION}/ChuShi-NewTab-v{VERSION}.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():
@@ -143,7 +143,11 @@ manifest = {
     # SW 用 executeScript 补针；host_permissions +http/https 通配 = 与
     # content_scripts 同域，安装授权提示无增量）。用户更新流程是删目录重
     # 解压（全新安装），无增量权限审批问题。
-    "permissions": ["storage", "tabs", "scripting"],
+    # v8.3.6：+geolocation——天气面板「定位」按钮在扩展页读经纬度必须有它。
+    # MV3 下 chrome-extension:// 页面的 navigator.geolocation 若未声明该权限会
+    # 直接拿不到坐标（只能手动搜城市）；网页版走标准 Web 权限流程，不受影响。
+    # PRIVACY.md / README 一直按「扩展声明 geolocation」描述，本次补齐实现。
+    "permissions": ["storage", "tabs", "scripting", "geolocation"],
     "background": {"service_worker": "ext-bg.js"},
     "content_scripts": [
         {
