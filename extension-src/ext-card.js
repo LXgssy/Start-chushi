@@ -447,8 +447,10 @@
        顶部余量更足）。 */
     '.flyr{position:relative;z-index:1;height:140px;margin-top:10px;overflow:hidden;flex:none;' +
     '-webkit-mask-image:linear-gradient(180deg,transparent 0,#000 18px,#000 calc(100% - 18px),transparent 100%)}' +
-    '.flyr-in{position:absolute;left:0;right:0;top:0;transition:transform .45s cubic-bezier(.22,1,.36,1),opacity .3s ease;will-change:transform}' +
-    '.fln{padding:5px 4px;text-align:center;font-size:13.5px;font-weight:560;line-height:1.45;' +
+    '/* v8.3.6 歌词左右防裁切律（面板 .cs-lyr-in 同律）：当前行 scale(1.06) 把行盒横向扩出 ≈9px，被 .flyr{overflow:hidden} 左右各切一刀（翻译行首字被吃）；内层左右各留 9px 呼吸位，放大后的行盒仍在视口内。 */' +
+    '.flyr-in{position:absolute;left:9px;right:9px;top:0;transition:transform .45s cubic-bezier(.22,1,.36,1),opacity .3s ease;will-change:transform}' +
+    '/* v8.3.6 断行兜底：超长不可断词（URL/长英文单词）禁止横向溢出被裁。 */' +
+    '.fln{padding:5px 4px;text-align:center;font-size:13.5px;font-weight:560;line-height:1.45;overflow-wrap:anywhere;' +
     'color:#71717a;transform:scale(.94);transform-origin:50% 50%;' +
     'filter:blur(2px);' +
     'transition:color .35s ease,transform .45s cubic-bezier(.22,1,.36,1),filter .45s cubic-bezier(.22,1,.36,1)}' +
@@ -490,11 +492,12 @@
        环境实测离散跳变（0→17 一步，无中间值）——fr 插值不可信，length
        插值（height）100% 可靠。滚动 target 由 lyricFrame 逐帧追踪
        （lyrTrackUntil）。 */
-    '.fsubw{display:grid;grid-template-rows:1fr;height:0;opacity:0;overflow:hidden;' +
+    '/* v8.3.6 翻译行左右截断根治（面板 .cs-subw 同律）：只声明 grid-template-rows 时隐式列 auto=max-content——nowrap 翻译长句把列撑到卡外再由 overflow:hidden 硬切（左右都被切）。显式 minmax(0,1fr) 锁在卡内 + .fsub overflow:hidden 让 text-overflow:ellipsis 真正生效（截断变省略号）。 */' +
+    '.fsubw{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:1fr;height:0;opacity:0;overflow:hidden;' +
     'transition:height .38s cubic-bezier(.22,1,.36,1),opacity .38s ease}' +
     '.fln.on .fsubw{height:16px;opacity:1}' +
     '.fsubw .fsub{min-height:0;font-size:10.5px;font-weight:400;color:#a1a1aa;line-height:1.5;' +
-    'white-space:nowrap;text-overflow:ellipsis}' +
+    'white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
     '.fempty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;' +
     'font-size:12px;color:#5b5b63;letter-spacing:2px}' +
     '</style>' +
