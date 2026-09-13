@@ -2,7 +2,7 @@
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion, useSpring } from "framer-motion";
 import { Pencil, X } from "lucide-react";
 import {
   DndContext,
@@ -12,6 +12,7 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragMoveEvent,
   type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
@@ -23,8 +24,10 @@ import { useMorphHeight } from "./use-morph-height";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
-/** 磁贴 layout 动画：弹簧驱动，增删/重排/退出编辑均平滑归位 */
-const LAYOUT_SPRING = { type: "spring" as const, stiffness: 420, damping: 36 };
+/** 磁贴 layout 动画：弹簧驱动，增删/重排/退出编辑均平滑归位。
+ *  v8.4.3 起压到近临界阻尼（2*sqrt(k*m)≈40）——此前 36 有过冲，让位时会「弹一下」，
+ *  视觉上不够沉；近临界 = 快速就位、零反弹。 */
+const LAYOUT_SPRING = { type: "spring" as const, stiffness: 420, damping: 41, mass: 0.9 };
 
 /** 长按位移容差（px）：真机手指静置也有 1-3px 抖动，此前任何 pointermove 都清计时器，
     420ms 永远走不满——长按在真机上失效而合成触摸验证通过的根因；超出容差才算滚动意图 */
@@ -49,10 +52,13 @@ function TileIcon({
   link,
   iconStyle,
   jiggle = false,
+  lifted = false,
 }: {
   link: StartLink;
   iconStyle: IconStyle;
   jiggle?: boolean;
+  /** 抬起态（拖拽浮层）：叠双层投影 + 内圈上缘受光，替代原来单层 drop-shadow */
+  lifted?: boolean;
 }) {
   const host = hostOf(link.url);
   const sources = useMemo(() => (host ? orderedIconSources(host) : []), [host]);
@@ -87,6 +93,14 @@ function TileIcon({
           ((hue + 40) % 360) +
           " 46% 50% / .14))",
         borderColor: "hsl(" + hue + " 44% 60% / .28)",
+        ...(lifted
+          ? {
+              /* 内圈上缘一道高光（受光边）+ 紧贴接触影 + 大范围环境影，
+                 比单层 drop-shadow 更「有厚度」，也随倾斜一起转 */
+              boxShadow:
+                "inset 0 1px 0 rgba(255,255,255,.22), 0 2px 4px -2px rgba(0,0,0,.30), 0 18px 34px -14px rgba(0,0,0,.50), 0 8px 16px -10px rgba(0,0,0,.32)",
+            }
+          : {}),
       }}
     >
       {showFavicon ? (
@@ -148,13 +162,31 @@ function TileVisual({
 
 /** 拖起后原位留下的空位：虚线 + 中心点 + 名称占位，尺寸与磁贴一致（不发生重排） */
 function TilePlaceholder() {
+  /* 「凹槽」而非虚线框：内阴影 + 一圈极轻强调色，像磁贴被从原位抬走后留下的位置；
+     出现时轻微弹性放大（不透明度从 0 起），避免「啪」地跳出来。 */
   return (
-    <div className="flex w-20 flex-col items-center gap-2" aria-hidden>
-      <span className="relative flex h-14 w-14 items-center justify-center rounded-[18px] border border-dashed border-zinc-400/60 bg-zinc-900/[0.04] dark:border-zinc-500/50 dark:bg-white/[0.05]">
-        <span className="h-1.5 w-1.5 rounded-full bg-zinc-400/50 dark:bg-zinc-500/50" />
+    <motion.div
+      initial={{ opacity: 0, scale: 0.92 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ type: "spring", stiffness: 420, damping: 41, mass: 0.9 }}
+      className="flex w-20 flex-col items-center gap-2"
+      aria-hidden
+    >
+      <span
+        className="relative flex h-14 w-14 items-center justify-center rounded-[18px]"
+        style={{
+          background: "color-mix(in srgb, var(--ui-accent) 6%, transparent)",
+          boxShadow:
+            "inset 0 1px 3px rgba(0,0,0,.10), inset 0 0 0 1px color-mix(in srgb, var(--ui-accent) 16%, transparent)",
+        }}
+      >
+        <span
+          className="h-1.5 w-1.5 rounded-full"
+          style={{ background: "color-mix(in srgb, var(--ui-accent) 42%, transparent)" }}
+        />
       </span>
       <span className="h-4 w-10 rounded-full bg-zinc-900/5 dark:bg-white/5" />
-    </div>
+    </motion.div>
   );
 }
 
@@ -162,11 +194,14 @@ interface TileProps {
   link: StartLink;
   iconStyle: IconStyle;
   editing: boolean;
+  /** 刚落位（拖拽浮层还在飞回来的 300ms 内）：原位继续留空位，
+      否则真磁贴会在浮层落地前就出现，出现「两个磁贴重叠」 */
+  settling: boolean;
   onEnterEdit: () => void;
   onDelete: (id: string) => void;
 }
 
-function Tile({ link, iconStyle, editing, onEnterEdit, onDelete }: TileProps) {
+function Tile({ link, iconStyle, editing, settling, onEnterEdit, onDelete }: TileProps) {
   /* dnd-kit 只用来「跟踪指针 + 判定落点」：重排仍走数组 splice，
      位置动画仍由 framer 的 layout 承载（两层各管一段，transform 不打架）。
      故此处刻意不套用 sortable 的 transform/transition。 */
@@ -227,7 +262,7 @@ function Tile({ link, iconStyle, editing, onEnterEdit, onDelete }: TileProps) {
       className="group relative select-none"
       {...listeners}
     >
-      {isDragging ? (
+      {isDragging || settling ? (
         <TilePlaceholder />
       ) : (
         <a
@@ -316,6 +351,8 @@ function QuickLinks({
   const rootRef = useRef<HTMLDivElement>(null);
   const [editing, setEditing] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
+  /* 落位缓冲：浮层飞回期间（约 300ms）原位继续显示凹槽，避免与真磁贴重叠 */
+  const [settlingId, setSettlingId] = useState<string | null>(null);
   /* 网格高度形变盒（v1.7.4）：删/增磁贴跨排界时网格行数变化，容器高度此前瞬跳
      → justify-center 的整列内容（时钟/搜索）随之瞬移——「删除抖动」的第二根因。
      现由 ResizeObserver 测高 + 弹簧高度盒承接（与 Dock 面板同套 morph 律），
@@ -336,6 +373,14 @@ function QuickLinks({
      越过阈值才把磁贴「抬起」。触摸端保持原有「长按 420ms 进编辑」不变
      （HTML5 时代触摸本来就不能拖，这里不引入回归）。 */
   const sensors = useSensors(useSensor(MouseSensor, { activationConstraint: { distance: 6 } }));
+
+  /* 拖拽的「高雅感」主要来自两件事：
+     ① 抬起不是硬转一个固定角度，而是跟着横向速度倾斜（被惯性甩起来的感觉），停下自动回正；
+     ② 回正/倾斜都用 spring 的 motion value 直接写样式，不触发 React 重渲染。
+     尊重 prefers-reduced-motion：勾了就完全不倾斜、不缩放。 */
+  const reduceMotion = useReducedMotion();
+  const tilt = useSpring(0, { stiffness: 240, damping: 26, mass: 0.5 });
+  const dragSample = useRef<{ x: number; t: number } | null>(null);
 
   /* 批量管理入口（v1.7.1）：右键菜单「批量管理磁贴」派发全局事件进入本模式——
      PC 端此前只能逐个悬浮编辑，无批量删除/连续编辑路径（触屏长按同款模式） */
@@ -363,7 +408,22 @@ function QuickLinks({
   const activeLink = activeId ? links.find((l) => l.id === activeId) ?? null : null;
 
   function handleDragStart(e: DragStartEvent) {
+    dragSample.current = null;
+    tilt.set(0);
     setActiveId(String(e.active.id));
+  }
+
+  /* 横向速度 → 倾斜角（px/s * 0.012，夹在 ±7°）：位移越大越倾斜，停下回正 */
+  function handleDragMove(e: DragMoveEvent) {
+    const rect = e.active.rect.current.translated;
+    if (!rect) return;
+    const now = performance.now();
+    const prev = dragSample.current;
+    dragSample.current = { x: rect.left, t: now };
+    if (!prev) return;
+    const dt = Math.max(16, now - prev.t);
+    const vx = ((rect.left - prev.x) / dt) * 1000;
+    tilt.set(Math.max(-7, Math.min(7, vx * 0.012)));
   }
 
   /* 越过邻居即就地重排：数组换了顺序 → framer layout 把其余磁贴弹开让位 */
@@ -383,7 +443,14 @@ function QuickLinks({
   }
 
   function handleDragEnd(_e: DragEndEvent) {
+    dragSample.current = null;
+    tilt.set(0); /* 松手即回正，落回时是水平落下的 */
+    const id = activeId;
     setActiveId(null);
+    if (id) {
+      setSettlingId(id);
+      window.setTimeout(() => setSettlingId((cur) => (cur === id ? null : cur)), 320);
+    }
   }
 
   function handleDelete(id: string) {
@@ -395,6 +462,7 @@ function QuickLinks({
       sensors={sensors}
       collisionDetection={closestCenter}
       onDragStart={handleDragStart}
+      onDragMove={handleDragMove}
       onDragOver={handleDragOver}
       onDragEnd={handleDragEnd}
       onDragCancel={handleDragEnd}
@@ -422,6 +490,7 @@ function QuickLinks({
                     link={l}
                     iconStyle={iconStyle}
                     editing={editing}
+                    settling={settlingId === l.id}
                     onEnterEdit={() => setEditing(true)}
                     onDelete={handleDelete}
                   />
@@ -474,22 +543,24 @@ function QuickLinks({
           抬起的磁贴带强调色晕 + 轻微倾斜，落回由 dropAnimation 弹回原位。 */}
       {portalReady
         ? createPortal(
-            <DragOverlay dropAnimation={{ duration: 240, easing: "cubic-bezier(0.22, 1, 0.36, 1)" }}>
+            <DragOverlay dropAnimation={{ duration: 300, easing: "cubic-bezier(0.22, 1, 0.36, 1)" }}>
               {activeLink ? (
                 <motion.div
-                  initial={{ scale: 0.9, rotate: 0 }}
-                  animate={{ scale: 1.1, rotate: -3 }}
-                  transition={{ type: "spring", stiffness: 520, damping: 30 }}
+                  initial={{ scale: reduceMotion ? 1 : 0.92 }}
+                  animate={{ scale: reduceMotion ? 1 : 1.07 }}
+                  transition={{ type: "spring", stiffness: 420, damping: 34, mass: 0.9 }}
+                  style={reduceMotion ? undefined : { rotate: tilt }}
                   className="flex w-20 flex-col items-center gap-2 rounded-xl"
                 >
-                  <span className="relative block" style={{ filter: "drop-shadow(0 16px 24px rgba(0,0,0,0.34))" }}>
+                  <span className="relative block">
+                    {/* 强调色晕：更大更淡，只负责「离地」的氛围，不抢主体 */}
                     <span
                       aria-hidden
-                      className="pointer-events-none absolute -inset-2 rounded-[24px] opacity-[0.32] blur-md"
-                      style={{ background: "radial-gradient(closest-side, var(--ui-accent), transparent 72%)" }}
+                      className="pointer-events-none absolute -inset-3 rounded-[26px] opacity-[0.26] blur-lg"
+                      style={{ background: "radial-gradient(closest-side, var(--ui-accent), transparent 74%)" }}
                     />
                     <span className="relative block">
-                      <TileIcon link={activeLink} iconStyle={iconStyle} />
+                      <TileIcon link={activeLink} iconStyle={iconStyle} lifted />
                     </span>
                   </span>
                   <span className="tile-label w-full truncate text-center text-xs font-light tracking-wide text-zinc-600 dark:text-zinc-300">
