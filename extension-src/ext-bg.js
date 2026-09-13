@@ -360,3 +360,171 @@ chrome.runtime.onConnect.addListener((port) => {
     stopSpecLoop();
   });
 });
+
+/* ============================================================================
+ * v8.4.5 云端静默更新器——「加载完成后直接缓存在本地」的数据面
+ *
+ * 用户指令链：壳架构反转为本地直载（shell-bridge.js 路由）后，云端更新的
+ * 职责收进后台：
+ *   1) 定期比对云端 version.json（镜像列表 SNAP_MIRRORS；缺文件/断网/
+ *      版本不更新 → 静默 no-op，新标签页流程零感知）；
+ *   2) 发现【严格更新】版本 → 后台并发下载文件集（限 4 路，尺寸校验，
+ *      HTML 文本改写 /cs-snap/ 前缀双保险之一）→ IndexedDB（库
+ *      chushi-snap）；
+ *   3) 全部落库成功 → 原子提交 meta（meta 是开关，半途失败永不提交，
+ *      壳侧永远只见完整版本）→ 清理旧版本文件；
+ *   4) 下一个新标签页起，壳把 iframe 指向 /cs-snap/index.html，子路径
+ *      SW（cs-snap/sw.js）从 IDB 服务快照——「新开标签页时直接就加载
+ *      最新的版本」。
+ * 触发面：onInstalled / onStartup / alarms 6h / storage.local 写 csSnapCheck
+ * （探针与未来「立即检查」入口共用的手动触发通道）。
+ * IDB 约定与 sw.js / shell-bridge.js 三份同构（勿单点改动）。
+ * ==========================================================================*/
+
+const SNAP_MIRRORS = ["https://lxgssy.github.io/Start-chushi"];
+const SNAP_CONCURRENCY = 4;
+const SNAP_ALARM = "chushi-snap-check";
+const SNAP_PERIOD_MIN = 360; /* 6h——云端迭代频度远低于此，代价可忽略 */
+const SNAP_DB = "chushi-snap";
+let snapChecking = false;
+
+/* 防重置律：MV3 SW 每次唤醒都跑顶层代码——alarms.create 无条件调用会把
+   计时器归零（经典永不触发 bug），必须先 get 再 create。 */
+chrome.alarms.get(SNAP_ALARM, (a) => {
+  if (!a) chrome.alarms.create(SNAP_ALARM, { periodInMinutes: SNAP_PERIOD_MIN, delayInMinutes: 2 });
+});
+chrome.alarms.onAlarm.addListener((a) => { if (a && a.name === SNAP_ALARM) void snapCheck(); });
+chrome.runtime.onInstalled.addListener(() => { setTimeout(() => void snapCheck(), 5000); });
+chrome.storage.onChanged.addListener((ch, area) => {
+  if (area === "local" && ch && ch.csSnapCheck) void snapCheck();
+});
+
+function snapCmpVer(a, b) {
+  const pa = String(a || "").split(".").map((x) => parseInt(x, 10) || 0);
+  const pb = String(b || "").split(".").map((x) => parseInt(x, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0);
+    if (d) return d;
+  }
+  return 0;
+}
+
+function snapOpenDb() {
+  return new Promise((resolve, reject) => {
+    const rq = indexedDB.open(SNAP_DB, 1);
+    rq.onupgradeneeded = () => {
+      const db = rq.result;
+      if (!db.objectStoreNames.contains("kv")) db.createObjectStore("kv");
+      if (!db.objectStoreNames.contains("files")) db.createObjectStore("files");
+    };
+    rq.onsuccess = () => resolve(rq.result);
+    rq.onerror = () => reject(rq.error);
+  });
+}
+function snapKvGet(db, key) {
+  return new Promise((resolve, reject) => {
+    const rq = db.transaction("kv", "readonly").objectStore("kv").get(key);
+    rq.onsuccess = () => resolve(rq.result || null);
+    rq.onerror = () => reject(rq.error);
+  });
+}
+function snapFilesPut(db, v, path, buf) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("files", "readwrite");
+    tx.objectStore("files").put(buf, v + "::" + path);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+function snapMetaPut(db, meta) {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("kv", "readwrite");
+    tx.objectStore("kv").put(meta, "meta");
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+function snapPruneVersions(db, keepV) {
+  return new Promise((resolve) => {
+    const tx = db.transaction("files", "readwrite");
+    const st = tx.objectStore("files");
+    const rq = st.openCursor();
+    rq.onsuccess = () => {
+      const cur = rq.result;
+      if (!cur) return;
+      const k = String(cur.key || "");
+      if (!k.startsWith(keepV + "::")) st.delete(cur.key);
+      cur.continue();
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => resolve();
+  });
+}
+
+/* HTML 文本改写（双保险之一）：构建产物 HTML 的引用是根绝对（/ext-script-N.js、
+   /next/...）——快照虚拟目录在 /cs-snap/ 下，改写后静态引用直接落进快照 SW
+   作用域；运行时动态请求由 SW 的 referrer 分支兜底。仅 *.html。 */
+function snapRewriteHtml(buf) {
+  try {
+    const txt = new TextDecoder("utf-8").decode(buf);
+    const out = txt.replace(/(src|href)(=("|')|=\s*)\/(?!\/)/gi, "$1$2/cs-snap/");
+    return new TextEncoder().encode(out).buffer;
+  } catch {
+    return buf; /* 改写失败不致命：SW referrer 分支兜底 */
+  }
+}
+
+async function snapCheck() {
+  if (snapChecking) return;
+  snapChecking = true;
+  let db = null;
+  try {
+    db = await snapOpenDb();
+    const meta = await snapKvGet(db, "meta");
+    const bundleVer = chrome.runtime.getManifest().version;
+    const floor = meta && meta.v && snapCmpVer(meta.v, bundleVer) > 0 ? meta.v : bundleVer;
+    for (const mirror of SNAP_MIRRORS) {
+      let manifest = null;
+      try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 10000);
+        const r = await fetch(mirror + "/version.json", { cache: "no-store", signal: ctrl.signal });
+        clearTimeout(t);
+        if (r.ok) manifest = await r.json();
+      } catch { /* 断网/被墙：静默 */ }
+      if (!manifest || !manifest.v || !Array.isArray(manifest.files) || !manifest.files.length) continue;
+      if (snapCmpVer(manifest.v, floor) <= 0) continue; /* 严格更新才动（永不降级） */
+      const v = String(manifest.v);
+      const files = manifest.files.filter((f) => f && typeof f.p === "string" && /^[\w./-]+$/.test(f.p));
+      if (!files.length) continue;
+      /* 并发下载（限 4 路）+ 尺寸校验 + HTML 改写 */
+      let cursor = 0, failed = false;
+      async function worker() {
+        while (!failed) {
+          const i = cursor++;
+          if (i >= files.length) return;
+          const f = files[i];
+          try {
+            const r = await fetch(mirror + "/" + f.p, { cache: "no-store" });
+            if (!r.ok) throw new Error("HTTP " + r.status);
+            let buf = await r.arrayBuffer();
+            if (Number.isFinite(f.s) && f.s > 0 && buf.byteLength !== f.s) {
+              throw new Error("size " + f.p + " " + buf.byteLength + "!=" + f.s);
+            }
+            if (/\.html?$/i.test(f.p)) buf = snapRewriteHtml(buf);
+            await snapFilesPut(db, v, f.p, buf);
+          } catch { failed = true; }
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(SNAP_CONCURRENCY, files.length) }, worker));
+      if (failed) continue; /* 半途失败：不提交 meta，壳侧零感知；下轮再试 */
+      await snapMetaPut(db, { v, files: files.map((f) => ({ p: f.p, s: f.s || 0 })), at: Date.now() });
+      await snapPruneVersions(db, v);
+      break; /* 本次检查只吃一个镜像 */
+    }
+  } catch { /* IDB 不可用等：静默 */ }
+  finally {
+    try { if (db) db.close(); } catch { /* noop */ }
+    snapChecking = false;
+  }
+}
