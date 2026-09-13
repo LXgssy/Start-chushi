@@ -1,0 +1,117 @@
+name: build-extension
+
+# 在 GitHub 的 Ubuntu runner 上用 bun 构建扩展并签名：
+#   bun install → bun run build:extension（静态导出到 out/）
+#   → scripts/build-extension.py（注入 manifest/脚本，产出 NewTab zip）
+#   → scripts/make-crx.py（用 CRX_PRIVATE_KEY 签名成 .crx）
+# 产物：download/v<版本>/ChuShi-NewTab-v<版本>.zip 与 .crx
+#   —— 进 Actions 附件；push tag 或勾选 release 时同时发 GitHub Release。
+#
+# 首次使用前：仓库 Secrets 里加 CRX_PRIVATE_KEY（更新签名私钥全文）。
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "版本号，如 8.4.0（写入扩展 manifest 与产物名）"
+        required: true
+      release:
+        description: "同时创建 GitHub Release"
+        type: boolean
+        default: true
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: v
+        name: Resolve version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            V="${{ github.event.inputs.version }}"
+          else
+            V="${GITHUB_REF_NAME#v}"
+          fi
+          printf '%s' "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "版本号需形如 x.y.z：$V"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Pin version into scripts/build-extension.py
+        run: |
+          python3 - "${{ steps.v.outputs.version }}" <<'PY'
+          import re, sys, pathlib
+          p = pathlib.Path("scripts/build-extension.py")
+          src = p.read_text(encoding="utf-8")
+          new = re.sub(r"^VERSION = .*$", 'VERSION = "%s"' % sys.argv[1], src, count=1, flags=re.M)
+          p.write_text(new, encoding="utf-8")
+          print([l for l in new.splitlines() if l.startswith("VERSION = ")][0])
+          PY
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install deps (bun)
+        run: bun install --frozen-lockfile
+
+      - name: Build page for extension (bun)
+        run: bun run build:extension
+
+      - name: Unpack v1.1.2 reference assets (build-extension.py 需要 /tmp/ext-ref)
+        run: |
+          mkdir -p /tmp/ext-ref
+          unzip -q -o download/v1.1.2/ChuShi-NewTab-v1.1.2.zip -d /tmp/ext-ref
+
+      - name: Package NewTab zip
+        run: python3 scripts/build-extension.py
+
+      - name: Pack signed CRX
+        env:
+          CRX_PRIVATE_KEY: ${{ secrets.CRX_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          V="${{ steps.v.outputs.version }}"
+          ZIP="download/v${V}/ChuShi-NewTab-v${V}.zip"
+          test -f "$ZIP" || { echo "未产出 $ZIP"; exit 1; }
+          if [ -z "${CRX_PRIVATE_KEY:-}" ]; then
+            echo "::warning::未配置 CRX_PRIVATE_KEY，本次只出 zip"
+            exit 0
+          fi
+          printf '%s' "$CRX_PRIVATE_KEY" > /tmp/crx-private-key.pem
+          python3 scripts/make-crx.py \
+            --zip "$ZIP" \
+            --key /tmp/crx-private-key.pem \
+            --pub updates/extension-key.pub.pem \
+            --out "download/v${V}/ChuShi-NewTab-v${V}.crx"
+          rm -f /tmp/crx-private-key.pem
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ChuShi-NewTab-v${{ steps.v.outputs.version }}
+          if-no-files-found: warn
+          path: |
+            download/v${{ steps.v.outputs.version }}/ChuShi-NewTab-v${{ steps.v.outputs.version }}.zip
+            download/v${{ steps.v.outputs.version }}/ChuShi-NewTab-v${{ steps.v.outputs.version }}.crx
+
+      - name: Publish GitHub Release
+        if: github.event_name == 'push' || inputs.release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.v.outputs.version }}
+          name: v${{ steps.v.outputs.version }}
+          generate_release_notes: true
+          fail_on_unmatched_files: false
+          files: |
+            download/v${{ steps.v.outputs.version }}/ChuShi-NewTab-v${{ steps.v.outputs.version }}.zip
+            download/v${{ steps.v.outputs.version }}/ChuShi-NewTab-v${{ steps.v.outputs.version }}.crx
