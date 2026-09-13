@@ -29,6 +29,24 @@ v8.4.4 新增：云端更新壳（学习青柠起始页 1.4.0 壳机制）——
   chrome.storage.local（页面零改动即获镜像能力）；cs-bridge.js（isolated
   world，顶层直访 Pages）与 shim 配对代写 —— 网页版与扩展同库；握手 10s
   超时回退本地完整版 index.html。
+v8.4.5 改版（用户指令「加载完成后直接缓存在本地，新开标签页时直接就加载
+  最新的版本即可，而且地址栏不要写一串网址」）——壳架构反转为「本地直载」：
+  ① 新标签页零网络：壳只做版本路由（IDB 快照 meta vs 扩展自版本），
+    iframe 指本地内嵌完整版 index.html（或快照 /cs-snap/index.html）；
+  ② 云端静默更新：ext-bg.js 更新器定期比对云端 version.json，严格更新
+    才下载文件集缓存进 IndexedDB（chushi-snap），原子提交 meta，下一
+    标签页起直载快照（cs-snap/sw.js 快照 SW 虚拟目录服务，离线可用）；
+  ③ 地址栏收敛：永不跳转外部网址；加载后 replaceState 到 ./index.html
+    （地址栏只剩扩展 ID + 文件名，F5 落自足应用顶层；Chrome 对扩展根
+    路径 "/" 是硬豁免 404 且 background SW 不拦 fetch——决胜实验 X2，
+    根形态无法 F5 兜底故不用）；
+  ④ cs-snap/sw.js（快照 SW，子路径作用域 cs-snap/，真实目录无下划线过
+    保留名规则）：/cs-snap/* 快照服务 + 快照文档 referrer 改写；
+    manifest sandbox.pages 增补 cs-snap/sandbox.html（虚拟路径保留
+    沙箱特权）；+alarms 权限；
+  ⑤ 云端快照载荷：build 额外产出 cloud-snapshot/（version.json + 页面
+    文件集）——部署到任意 https 镜像即激活云端更新（本版不推公开仓，
+    交付包内附载荷，部署由用户决定）。
 用法: python3 scripts/build-extension.py
 输出: download/<VERSION>/ChuShi-NewTab-v<VERSION>.zip
 """
@@ -44,7 +62,7 @@ OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
 EXT_SRC = ROOT / "extension-src"    # v8.2.0 SW/内容脚本源
-VERSION = "8.4.4"
+VERSION = "8.4.5"
 DEST = ROOT / f"download/v{VERSION}/ChuShi-NewTab-v{VERSION}.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():
@@ -118,8 +136,8 @@ manifest = {
     "description": "__MSG_extDesc__",
     "default_locale": "zh_CN",
     "icons": {"16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png"},
-    # v8.4.4：新标签页改为云端更新壳（iframe 载 GitHub Pages 版「初始」），
-    # 本地完整版 index.html 保留为回退（壳握手超时自动切换，见 shell-bridge.js）。
+    # v8.4.4：新标签页改为壳页。v8.4.5：壳反转为本地直载（零网络路由），
+    # 云端静默更新只影响后续标签页（见 ext-bg.js 更新器 / shell-bridge.js）。
     "chrome_url_overrides": {"newtab": "shell.html"},
     # v8.4.4：MAIN world 内容脚本（shim-page.js 伪造 chrome.storage）需 Chrome 111+。
     "minimum_chrome_version": "111",
@@ -160,7 +178,8 @@ manifest = {
     # MV3 下 chrome-extension:// 页面的 navigator.geolocation 若未声明该权限会
     # 直接拿不到坐标（只能手动搜城市）；网页版走标准 Web 权限流程，不受影响。
     # PRIVACY.md / README 一直按「扩展声明 geolocation」描述，本次补齐实现。
-    "permissions": ["storage", "tabs", "scripting", "geolocation"],
+    # v8.4.5：+alarms——云端静默更新器周期检查（ext-bg.js 更新器，6h）。
+    "permissions": ["storage", "tabs", "scripting", "geolocation", "alarms"],
     "background": {"service_worker": "ext-bg.js"},
     # v8.4.4：+ 壳桥页面端双注入（仅「初始」云端域，授权面无增量）——
     #   shim-page.js（MAIN world，document_start）：为云端页面伪造 chrome.storage.local，
@@ -190,7 +209,9 @@ manifest = {
             "all_frames": True,
         },
     ],
-    "sandbox": {"pages": ["sandbox.html"]},
+    # v8.4.5：+ cs-snap/sandbox.html——快照虚拟目录下的沙箱页必须保留
+    # 沙箱特权（unsafe-eval），否则云端快照模式预设脚本被 CSP 拦截。
+    "sandbox": {"pages": ["sandbox.html", "cs-snap/sandbox.html"]},
     "content_security_policy": {
         "sandbox": "sandbox allow-scripts; script-src 'self' 'unsafe-inline' 'unsafe-eval'; object-src 'self'"
     },
@@ -210,10 +231,20 @@ _card = (EXT_SRC / "ext-card.js").read_text(encoding="utf-8")
     encoding="utf-8")
 shutil.copy2(EXT_SRC / "ext-bg.js", STAGE / "ext-bg.js")
 # v8.4.4：云端更新壳三件（壳页 + 壳桥 + 页面端 shim/顶层桥）
+# v8.4.5：+ cs-snap/sw.js（快照 SW：子路径作用域，真实目录过保留名规则）
 for _shell in ("shell.html", "shell-bridge.js", "shim-page.js", "cs-bridge.js"):
     shutil.copy2(EXT_SRC / _shell, STAGE / _shell)
-print("扩展部件注入: ext-bg.js (SW 中继+歌词代理) + ext-card.js (三态卡=歌词引擎+UI)")
-print("云端更新壳注入: shell.html + shell-bridge.js (壳桥) + shim-page.js (MAIN shim) + cs-bridge.js (顶层桥)")
+if (STAGE / "cs-snap").exists():
+    shutil.rmtree(STAGE / "cs-snap")
+shutil.copytree(EXT_SRC / "cs-snap", STAGE / "cs-snap")
+# v8.4.5 沙箱双保险：cs-snap/ 内落真实沙箱文件副本——快照 SW 对 sandbox.*
+# 豁免（SW 合成沙箱特权页会挂死，对照实验实证），任何对
+# /cs-snap/sandbox.html 的请求都落网络拿到真文件，manifest sandbox.pages
+# 的 cs-snap/sandbox.html 条目保证特权不丢
+shutil.copy2(STAGE / "sandbox.html", STAGE / "cs-snap" / "sandbox.html")
+shutil.copy2(STAGE / "sandbox.js", STAGE / "cs-snap" / "sandbox.js")
+print("扩展部件注入: ext-bg.js (SW 中继+歌词代理+云端更新器) + ext-card.js (三态卡=歌词引擎+UI)")
+print("本地直载壳注入: shell.html + shell-bridge.js (壳运行时+云桥保留) + cs-snap/sw.js (快照 SW) + shim-page.js + cs-bridge.js")
 
 # 5) 防呆门：保留名 0 违规（UI 加载路径的硬校验）+ 扩展结构完整性
 bad = sorted(
@@ -225,13 +256,14 @@ if bad:
     sys.exit(f"保留名违规（Chromium UI 加载必拒）: {bad[:5]}")
 for must in ("manifest.json", "_locales/zh_CN/messages.json", "icons/icon128.png",
              "index.html", "sandbox.html", "sandbox.js", "ext-bg.js", "ext-card.js",
-             # v8.4.4 云端更新壳三件
-             "shell.html", "shell-bridge.js", "shim-page.js", "cs-bridge.js"):
+             # v8.4.4 云端更新壳三件 + v8.4.5 快照 SW（子路径作用域）
+             "shell.html", "shell-bridge.js", "shim-page.js", "cs-bridge.js", "cs-snap/sw.js"):
     if not (STAGE / must).exists():
         sys.exit(f"缺 {must}——产物不完整")
 # v8.2.1 门：SW/内容脚本语法自检（node --check；拼接后的 ext-card.js 才是真产物）
 # v8.4.4：+ 壳桥三件（shell-bridge/shim-page/cs-bridge）同门
-for ext_file in ("ext-bg.js", "ext-card.js", "shell-bridge.js", "shim-page.js", "cs-bridge.js"):
+# v8.4.5：+ 快照 SW（cs-snap/sw.js）同门
+for ext_file in ("ext-bg.js", "ext-card.js", "shell-bridge.js", "shim-page.js", "cs-bridge.js", "cs-snap/sw.js"):
     r = subprocess.run(["node", "--check", str(STAGE / ext_file)], capture_output=True, text=True)
     if r.returncode != 0:
         sys.exit(f"{ext_file} 语法门 FAIL: {r.stderr[:300]}")
@@ -293,7 +325,9 @@ for feat in ("chushi-spectrum", "spectrum-boot", "chushi-card", 'case "lyric":',
              "slice(0, 128)",                               # v8.2.9：频段细化透传
              "ensureCardInjected", "sweepInjectAll",        # v8.3.1：注入兜底
              "chrome.scripting.executeScript",              # v8.3.1：补针执行面
-             "chrome.tabs.onUpdated"):                      # v8.3.1：complete 补针钩子
+             "chrome.tabs.onUpdated",                      # v8.3.1：complete 补针钩子
+             "SNAP_MIRRORS", "version.json",               # v8.4.5：云端静默更新器
+             "chushi-snap", "SNAP_ALARM", "snapCheck"):    # v8.4.5：IDB 库名/报警/检查入口
     if feat not in _bg_js:
         sys.exit(f"ext-bg.js 缺特征 {feat} —— SW 歌词代理面缺失")
 if 'case "vis"' in _bg_js or "port.__vis" in _bg_js:
@@ -317,7 +351,20 @@ if "scripting" not in _m.get("permissions", []):
     sys.exit("manifest 缺 scripting 权限——v8.3.1 注入兜底缺失")
 if "http://*/*" not in _m.get("host_permissions", []) or "https://*/*" not in _m.get("host_permissions", []):
     sys.exit("manifest 缺 http/https 通配 host_permissions——v8.3.1 补针无执行权")
+# v8.4.5 门：本地直载壳三要素（路由 + 地址栏收敛 + 站点 SW）+ alarms + 快照沙箱特权
+if "alarms" not in _m.get("permissions", []):
+    sys.exit("manifest 缺 alarms 权限——v8.4.5 云端静默更新器缺失")
+if "cs-snap/sandbox.html" not in _m.get("sandbox", {}).get("pages", []):
+    sys.exit("manifest sandbox.pages 缺 cs-snap/sandbox.html——快照模式沙箱特权缺失")
+_sw_js = (STAGE / "cs-snap" / "sw.js").read_text(encoding="utf-8")
+for feat in ('"/cs-snap/"', "chushi-snap", "respondWith"):
+    if feat not in _sw_js:
+        sys.exit(f"cs-snap/sw.js 缺特征 {feat} —— 快照 SW 不完整")
+_sb_js = (STAGE / "shell-bridge.js").read_text(encoding="utf-8")
+if "replaceState" not in _sb_js or "cs-snap/sw.js" not in _sb_js:
+    sys.exit("shell-bridge.js 缺 replaceState/cs-snap 注册 —— 地址栏收敛未落地")
 print("防呆门通过: 保留名 0 违规 + 结构完整 + 零内联 + 零 /_next 残留 + SW/三态悬浮卡/歌词引擎/频谱端口在位")
+print("v8.4.5 门通过: alarms + 快照沙箱特权 + cs-snap/sw.js 快照服务 + 地址栏 replaceState 在位")
 
 # 6) zip（ext-script 引用为绝对路径 /ext-script-N.js，zip 根 = 扩展根）
 DEST.parent.mkdir(parents=True, exist_ok=True)
@@ -326,3 +373,32 @@ if DEST.exists():
 subprocess.run(["zip", "-rq", str(DEST), "."], cwd=STAGE, check=True)
 size = DEST.stat().st_size / 1024 / 1024
 print(f"OK -> {DEST} ({size:.1f} MB)")
+
+# 7) v8.4.5 云端快照载荷：version.json + 页面文件集（STAGE 去扩展运行件）。
+#    部署到任意 https 镜像根即激活云端更新（ext-bg.js 更新器严格更新才吃，
+#    永不降级）；本版不推公开仓，载荷随交付包附送，部署由用户决定。
+EXCLUDE = {"manifest.json", "ext-bg.js", "ext-card.js", "sw.js",
+           "shell.html", "shell-bridge.js", "shim-page.js", "cs-bridge.js", "version.json"}
+# 快照载荷排除壳运行件与快照 SW 自身（cs-snap/ 目录整个不进载荷）
+snap_dir = DEST.parent / "cloud-snapshot"
+if snap_dir.exists():
+    shutil.rmtree(snap_dir)
+snap_dir.mkdir(parents=True)
+files_list = []
+for p in sorted(STAGE.rglob("*")):
+    if not p.is_file():
+        continue
+    rel = p.relative_to(STAGE).as_posix()
+    if rel in EXCLUDE or rel.startswith("_locales/") or rel.startswith("cs-snap/"):
+        continue
+    dst = snap_dir / rel
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(p, dst)
+    files_list.append({"p": rel, "s": p.stat().st_size})
+(snap_dir / "version.json").write_text(
+    json.dumps({"v": VERSION, "files": files_list}, ensure_ascii=False) + "\n", encoding="utf-8")
+snap_zip = DEST.parent / f"ChuShi-CloudSnapshot-v{VERSION}.zip"
+if snap_zip.exists():
+    snap_zip.unlink()
+subprocess.run(["zip", "-rq", str(snap_zip), "."], cwd=snap_dir, check=True)
+print(f"云端快照载荷 -> {snap_zip} ({len(files_list)} 文件, v{VERSION})")
