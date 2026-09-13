@@ -19,6 +19,7 @@ import {
   type PresetSettingValues,
 } from "@/lib/startpage/preset-settings";
 import type { PresetSettingSection } from "./Dock";
+import ChangelogDialog from "./ChangelogDialog";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -424,6 +425,8 @@ function SettingsPanel({
   });
   const [urlInput, setUrlInput] = useState("");
   const [uploadHint, setUploadHint] = useState<string | null>(null);
+  /* 更新日志弹窗（底部「关于」分区） */
+  const [clOpen, setClOpen] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -556,6 +559,7 @@ function SettingsPanel({
     /* overflow-x-hidden：根除面板整体横向滑动（壁纸行的 -mx 外挂曾让根容器
        产生 x 向可滚 + 底部横滚动条，真机上面板随手势左右晃）；
        横向滑动只属于壁纸行 */
+    <>
     <div className="slim-scroll max-h-[380px] space-y-5 overflow-x-hidden overflow-y-auto pr-1">
       <Section title="外观">
         <Segmented
@@ -846,7 +850,24 @@ function SettingsPanel({
           所有数据仅保存在本浏览器中，不会上传。
         </p>
       </Section>
+
+      <div aria-hidden className="border-t border-zinc-900/5 dark:border-white/5" />
+
+      {/* v8.4.0 底部「关于」：更新日志入口（打开 ChangelogDialog，风格与数据分区同款胶囊按钮） */}
+      <Section title="关于">
+        <div className="flex flex-wrap items-center gap-2 pt-1 pb-2">
+          <button
+            type="button"
+            onClick={() => setClOpen(true)}
+            className="rounded-full border border-zinc-900/10 px-3.5 py-1.5 text-[11px] font-light tracking-wide text-zinc-600 transition-colors duration-300 hover:bg-zinc-900/5 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/10"
+          >
+            更新日志
+          </button>
+        </div>
+      </Section>
     </div>
+      <ChangelogDialog open={clOpen} onClose={() => setClOpen(false)} />
+    </>
   );
 }
 
