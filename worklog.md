@@ -118,3 +118,38 @@ Stage Summary:
 - 架构律：壳桥=两段独立信任（页面端握手 origin 确认 + host 端白名单校验）；MAIN world shim 让旧云端页零改动获得镜像能力；同值 no-op 守卫断回环
 - 新律：跨域 parent.origin 不可读——跨源白名单必须走「握手-确认-精确投递」；content_scripts 想进 iframe 必须 all_frames:true
 - 版本：v8.4.4；工作仓（Start-chushi-workspace 私有）随 workspace-archive.sh 同步；文叔叔发件
+
+---
+Task ID: 103-b
+Agent: main (Super Z)
+Task: Task 103 交付收尾——工作仓推送 + 文叔叔发件补录
+
+Work Log:
+- 【工作仓】token 由 origin URL 内嵌凭据重建（.pkgtmp/gh-token 600）；workspace-archive.sh 全链通过：黑名单/泄漏扫描 ✓ → private=True 断言 ✓ → 增量快照提交 → 推送 88f531f..f9d6093 → SHA 一致断言 ✓；公开仓 Start-chushi 未推送（用户指定，v8.4.4 仅本地 36ff0ac）
+- 【文叔叔】wss_upload.py（旧 API）addsend 返回 TR_ACCOUNT_WREM（设备信任）→ 改用 pw-lab/wss-send.py（v1.1.2 重建版新链路）一次成功；12 分块（1MB×12）；依赖补装 pycryptodomex（venv 内 pycryptodome 3.23 为 Crypto 命名空间，Cryptodome 需 domex 变体）
+- 【交付】v8.4.4-交付包.zip（11.8MB：扩展 zip + cshz + 更新说明 + SHA256SUMS）→ https://c.wss.ink/f/kv75434qsdh（1 天过期）；本补录随增量快照入工作仓
+
+Stage Summary:
+- 公开仓零推送 ✓；私有仓 f9d6093；文叔叔 c.wss.ink/f/kv75434qsdh
+- 新律：wss_upload.py 旧链路已被设备信任门拦（TR_ACCOUNT_WREM），一律改用 pw-lab/wss-send.py；pycryptodomex 与 pycryptodome 命名空间之别（Cryptodome vs Crypto）
+
+---
+Task ID: 104
+Agent: main (Super Z)
+Task: 用户三条指令——「加载完成后直接缓存在本地，新开标签页时直接就加载最新的版本即可，而且地址栏不要写一串网址」——v8.4.4 云端壳反转为本地直载壳
+
+Work Log:
+- 【架构反转】v8.4.4 壳（iframe 载 GitHub Pages + 10s 握手超时回退）→ v8.4.5 本地直载：壳只做版本路由（IndexedDB 快照 meta vs chrome.runtime.getManifest().version 取较新者）+ 地址栏收敛，启动路径零网络；内嵌完整版 index.html 即最新版
+- 【云端静默更新器】ext-bg.js 顶部追加：SNAP_MIRRORS 比对 version.json（严格更新才动，永不降级）→ 并发下载（限 4 路 + 尺寸校验 + HTML 文本改写 /cs-snap/ 前缀）→ IDB 库 chushi-snap（kv.meta 原子开关 + files."v::path"）→ snapPruneVersions 清旧版；触发面 onInstalled/onStartup/alarms 6h/storage 写 csSnapCheck（探针手动通道）；⚠ MV3 律：alarms.create 必须先 get 再 create（SW 每次唤醒跑顶层，无条件 create 归零计时器）
+- 【SW 三连决胜实验】（scripts/probe-sw-feasibility.mjs / probe-bg-sw-fetch.mjs / probe-root-nav.mjs）：X0 最小扩展=扩展页可注册 SW 且瞬时激活（⚠ navigator.serviceWorker.ready 永不 resolve 的坑，改 getRegistrations 轮询）；X1 带 background 的真扩展里【子路径作用域】页面 SW 可注册可拦截（scope 最长前缀匹配胜出）；X2 background SW 不参与 fetch 拦截 + 根作用域页面 SW 注册被拒（user denied permission，scope "/" 被 bg 占位）→ 结论：根路径 "/" 导航是扩展协议硬豁免 404，无任何 SW 兜底手段
+- 【快照虚拟目录】/__cssnap/ 作废（下划线目录违反 Chromium 保留名规则）→ /cs-snap/（真实目录，无下划线）；cs-snap/sw.js（scope=/cs-snap/）：/cs-snap/* 从 IDB 合成响应 + 快照文档 referrer 判定改写（运行时动态请求兜底）；壳快照模式先 ensureSnapSW(true) 等 activated（2.5s 上限）再设 iframe.src
+- 【地址栏定稿】replaceState("./index.html")——无参数无云端网址，F5 落自足应用顶层（真文件直载，绝无 404）；根形态（纯 ID）因 X2 不可 F5 弃用；**沙箱特权 × SW 合成挂死对照实验**（probe-t9-final.mjs：同内容异路径，sandbox.html 挂死 plain.html 正常）→ 双保险：SW 对 sandbox.* 豁免落网络 + cs-snap/ 内放真实沙箱文件副本 + manifest sandbox.pages 增补 cs-snap/sandbox.html；应用 sandbox 引用为 ${base}/sandbox.html?v=N 根绝对，快照模式天然落真实文件
+- 【坑录】①MultiEdit 非原子部分应用两次（docstring 重复插入、VERSION 残留）→ 逐行核实修复；②rsync --delete 方向写反把 /home/z 新文件冲掉（sw.js/shell*/ext-bg 回退）→ 全部重写，此后同步只走 /home/z → /tmp 单向；③探针 EXT_URL("/") 拼双斜杠假 FAIL
+- 【探针 14 门 ALL-GREEN】probe-v845-shell.mjs：T1 本地直载/T2 零云端请求/T3 boot 257ms/T4 开关原生双向同步/T5 地址栏+F5 自足/T6 快照 SW activated/T7 快照端到端（mock 镜像 version.json v99 → 下载 → 原子提交 → 新标签页直载 /cs-snap/index.html → mark.js 子资源 IDB 服务）/T8 旧版永不降级/T9 快照沙箱特权 eval-ok+origin null；pageerror=0
+- 【产物】download/v8.4.5/：ChuShi-NewTab-v8.4.5.zip（11.8MB）+ ChuShi-CloudSnapshot-v8.4.5.zip（云端快照载荷 69 文件+version.json，部署到任意 https 静态托管即激活云端更新）+ 初始SMTC音乐预设.cshz（同 v8.4.4，未改预设）+ 使用说明 + SHA256SUMS；manifest +alarms 权限、sandbox.pages 双条目、VERSION 8.4.5
+- 【发布】公开仓零推送（用户指令）；main 本地 77a7db5；工作仓随 workspace-archive.sh 同步；文叔叔发 v8.4.5-交付包.zip（24MB）
+
+Stage Summary:
+- 架构律：新标签页壳=「版本路由+地址栏收敛」两件事，启动路径零网络；云端更新=后台静默（严格更新+原子提交+永不降级），与新标签页流程完全解耦
+- 浏览器硬律（新）：①扩展根路径 "/" 导航恒 404 且不可被任何 SW 拦截（bg 占位 scope="/" 且不参与 fetch）②子路径作用域页面 SW 在带 bg 的真扩展里可用（最长前缀胜出）③SW 合成响应无法服务沙箱特权页（挂死）④扩展包内目录禁下划线开头（快照虚拟目录必须无下划线）
+- 交付律：本版不部署公开更新源（用户指定不碰公开仓），云端更新机制完整就绪待用户自选托管
