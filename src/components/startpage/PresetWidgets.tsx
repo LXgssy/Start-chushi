@@ -96,7 +96,12 @@ function pushSmtcSnapshot(wkey: string, reqId?: unknown) {
 }
 
 /* v8.2.9 面板开关 → 扩展浮窗镜像（cardAcc/cardForceWord 同律）：
-   律动 → cardGlow；浮窗 → cardEnabled。默认 true（与面板默认一致）。 */
+   律动 → cardGlow；浮窗 → cardEnabled。默认 true（与面板默认一致）。
+   v8.4.4 壳桥律：云端壳内页面没有 chrome API——manifest 已注入 MAIN world
+   shim（shim-page.js）把 chrome.storage.local 伪造为 postMessage 桥 →
+   壳桥（shell-bridge.js/cs-bridge.js）校验 origin 后代写真 chrome.storage；
+   本函数零改动（真 API 与 shim 伪造 API 同签名），镜像在三种运行面统一：
+   扩展内页（真 API）/ 壳内云端页（shim→壳桥）/ 纯网页（无 chrome，静默）。 */
 function mirrorExtCard(fw: string | undefined, glow: string | undefined, flt: string | undefined) {
   try {
     const ext = (window as unknown as {
@@ -112,6 +117,18 @@ function mirrorExtCard(fw: string | undefined, glow: string | undefined, flt: st
     /* 非 extension 环境（gh-pages 预览） */
   }
 }
+
+/* v8.4.4 反向实时同步：chrome.storage.local 变化 → 面板 kv 回写 +
+   widgetStoragePatch 下发（面板开关 UI 实时翻转）。
+   变化来源：浮窗（未来全局开关/其他镜像方）、其他「初始」标签页（扩展内
+   或壳内）、顶层直访 Pages 的 cs-bridge——任一处写键，所有表面跟随。
+   回环律：本页面自己 mirrorExtCard 写入触发的 onChanged 回声与新值恒等，
+   被下方「同值 no-op」守卫吸收（值不再变化即链断，无震荡）。 */
+const EXT_KV_MAP: Record<string, string> = {
+  cardEnabled: ":csFloat",
+  cardGlow: ":csGlow",
+  cardForceWord: ":csForceWord",
+};
 
 function PresetWidgets(props: {
   widgets: ActiveWidget[];
@@ -154,6 +171,47 @@ function PresetWidgets(props: {
     const glow = Object.entries(kv).find(([k]) => k.endsWith(":csGlow"));
     const flt = Object.entries(kv).find(([k]) => k.endsWith(":csFloat"));
     mirrorExtCard(fw ? fw[1] : undefined, glow ? glow[1] : undefined, flt ? flt[1] : undefined);
+  }, []);
+
+  /* v8.4.4 反向实时：chrome.storage.onChanged（扩展内真事件 / 壳内 shim
+     伪造事件，签名一致）→ 回写面板 kv + widgetStoragePatch 下发。
+     纯网页无 chrome.storage → 不挂，行为不变。 */
+  useEffect(() => {
+    const oc = (window as unknown as {
+      chrome?: {
+        storage?: {
+          onChanged?: {
+            addListener?: (fn: (ch: Record<string, { newValue?: unknown }>, area: string) => void) => void;
+            removeListener?: (fn: (ch: Record<string, { newValue?: unknown }>, area: string) => void) => void;
+          };
+        };
+      };
+    }).chrome?.storage?.onChanged;
+    if (!oc?.addListener) return;
+    const handler = (ch: Record<string, { newValue?: unknown }>, area: string) => {
+      if (area !== "local" || !ch || typeof ch !== "object") return;
+      for (const [extKey, suffix] of Object.entries(EXT_KV_MAP)) {
+        const chg = ch[extKey];
+        if (!chg) continue;
+        const val = chg.newValue === true || chg.newValue === "true" ? "true" : "false";
+        const kv = kvRef.current;
+        for (const [k, old] of Object.entries(kv)) {
+          if (!k.endsWith(suffix) || old === val) continue; // 同值 no-op = 回声吸收/回环断链
+          kvRef.current = { ...kvRef.current, [k]: val };
+          writeKv(kvRef.current);
+          const wkey = k.slice(0, k.length - suffix.length);
+          postToWidget(wkey, { type: "widgetStoragePatch", widgetKey: wkey, key: suffix.slice(1), value: val });
+        }
+      }
+    };
+    oc.addListener(handler);
+    return () => {
+      try {
+        if (oc.removeListener) oc.removeListener(handler);
+      } catch {
+        /* shim 场景移除失败不影响 */
+      }
+    };
   }, []);
 
   /* 媒体双通道（v5 全新实现）：

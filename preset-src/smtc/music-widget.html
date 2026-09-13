@@ -737,6 +737,23 @@ img{-webkit-user-drag:none;user-select:none}
     applyToggles();
     if (window.chushi && chushi.storage) chushi.storage.set("csFloat", floatOn);
   };
+  /* v8.4.4 反向实时同步：浮窗/他页改 chrome.storage → 宿主回写 kv 并下发
+     widgetStoragePatch → 本面板开关 UI 实时翻转；只认直接宿主帧。 */
+  window.addEventListener("message", function (ev) {
+    var d = ev.data;
+    if (!d || d.type !== "widgetStoragePatch") return;
+    if (ev.source !== window.parent) return;
+    if (d.key === "csFloat") {
+      var nv = d.value !== false && d.value !== "false";
+      if (nv !== floatOn) { floatOn = nv; applyToggles(); }
+    } else if (d.key === "csGlow") {
+      var ng = d.value !== false && d.value !== "false";
+      if (ng !== glowOn) { glowOn = ng; applyToggles(); if (!glowOn) beatFrame(null); }
+    } else if (d.key === "csForceWord") {
+      var nf = d.value === true || d.value === "true";
+      if (nf !== forceWord) { forceWord = nf; applyWbw(true); }
+    }
+  });
   if (window.chushi && chushi.storage) {
     chushi.storage.get("csForceWord").then(function (v) {
       if ((v === true) !== forceWord) { forceWord = v === true; applyWbw(true); }

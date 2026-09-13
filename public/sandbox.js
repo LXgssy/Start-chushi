@@ -1229,6 +1229,17 @@ function widgetMode() {
         /* noop */
       }
     }
+    /* v8.4.4 反向同步下行：宿主（PresetWidgets）监听 chrome.storage.onChanged
+       （真事件或壳桥 shim 伪造事件）后主动下发的开关补丁 → 原样透传部件，
+       music-widget 据此实时翻转 csFloat/csGlow/csForceWord 开关 UI。
+       与 widgetStorage 同路转发；部件侧以 event.source === window.parent 校验。 */
+    if (m.type === "widgetStoragePatch" && inner && inner.contentWindow) {
+      try {
+        inner.contentWindow.postMessage(m, "*");
+      } catch (e) {
+        /* noop */
+      }
+    }
     if ((m.type === "widgetSmtc" || m.type === "widgetSmtcResult" || m.type === "widgetSmtcTick" || m.type === "widgetSmtcSpectrum") && inner && inner.contentWindow) {
       /* SMTC 通道下行：快照推送/每拍锚点/控制回执/频谱帧原样透传进部件
          v8.2.7 根修：widgetSmtcSpectrum 此前漏在透传白名单外——宿主

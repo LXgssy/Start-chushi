@@ -80,137 +80,41 @@ Stage Summary:
 - 待办：Edge 商店提交材料仍未做
 
 ---
-Task ID: 94
+Task ID: 102
 Agent: main (Super Z)
-Task: 「初始」音乐系统 v8.2.9——桥响应迟钝根治（命令快排 200ms）+ 逐行歌词行级时钟 + 面板「律动/浮窗」双开关（右键隐藏退役）+ FFT 频段 16→128 + 三态动画修订（去封面飞形+钉位防跳）
+Task: 用户「读取一下现在的仓库」——仓库状态盘点 + 面板三症状（截断/复位/位移）对当前代码的实证核验
 
 Work Log:
-- 【现场】真工作树 /tmp/my-project（e8cf8a6=v8.2.8）；Edit 工具只认 /home/z → /home/z/work-v829/ 镜像编辑 + cp 回同步；llvm-mingw 20260826 重下（x86_64 lib 936 .a 对拍）
-- 【五连修】①桥命令串行链（poll→推状态→selftest→拉命令，最坏 ~4s/拍）拆出独立 200ms drainCmds + 面板 hublog 不阻塞节拍 + TRUTH_STALE_SEC 6→12（「面板冻结浮窗正常」= 年龄封顶过早钉守的精确病理）；②行级时钟分离（逐行 0ms/逐字 -100ms，ext-lyric+sandbox+widgetShim+两渲染层六处贯通）；③面板双开关 csGlow/csFloat → mirrorExtCard → cardGlow/cardEnabled，浮窗全局显隐+律动总开关（关=撤频谱订阅零开销）；④BANDS 128（实际映射律：2048 FFT 下低频侧线性化 段k≈bin k+2，探针实证 100Hz 峰在段 2；bass 分区带权 47~211Hz；hub.dll 引擎零扰律）；⑤去封面 clone 飞形 + 形变期钉位（left/top 随形变动画到夹紧位，cleanup 才提交 pos）
-- 【门禁】lyric-engine-v829 + dsp-gate-v829 五场景（场景包络 memset 隔离）+ verify-v827-ext 31/31 + verify-v827-panel 7/7 + sandbox 核心行为门全绿；widgetHtmlLen 24000→25600 双数字门同批改（Task 100 律）
-- 【发布】main b5db0ae + tag v8.2.9 + Release 386754467 七资产 SHA 回读 5/5；gh-pages 部署（v829 脚本级根治坑⑤：显式 remote add + push 失败即退 + SHA 配对 + 线上内容门；线上 sandbox.js 行级时钟/chunk 8.2.9 实测在位）；交付物 /home/z/my-project/download/v8.2.9/ 双落位
+- 发现远端 main 已前进 8 提交（另一会话产物）：v8.3.6 面板三修（1193085，9-12 晚，恰对应用户三条反馈）→ geolocation 修复 → v8.4.0~8.4.3（更新日志/快捷服务 favicon 回退/拖拽排序打磨/crx+CI）
+- 本地 worklog.md 为已知外部覆写损坏（删段），git checkout 还原后 --ff-only 快进同步至 148de0d (v8.4.3)，0 ahead
+- 写 scripts/probe-v836-panel.mjs（Playwright + sandbox.html 直载 + widgetSmtc 喂拍 + CDP 真实鼠标按下）：对 v8.4.3 重建 cshz 实测四门全过——A 左右截断 6.1px/边(旧)→0(新)；B 切行 0 方向反转（>3px 跳变皆为同向平滑滚动帧）；C :active 真实捕获 15 帧、按钮恒 46px 零位移、transform:none 在位；D 同内容重复 feed 歌词 DOM 零重建（lyricSig 内容指纹门生效）
+- 探针独立复现三根因（对旧版）：scale(1.06) 行盒横向扩出被 overflow:hidden 左右各切 6.1px；.cs-bmain:active scale(.94) 按下缩放被读作位移（合成事件不触发 :active 的教训→必须 CDP Input）；沙箱 whitelist 每次 feed 新建 lyric 包装对象→身份门恒假→整组 DOM 重建=复位。v8.3.6 三修与探针结论完全吻合
+- Release 盘点：v8.3.6 七资产齐（含音乐预设 8.3.6）；v8.4.0~8.4.3 各 2 资产（crx+zip，新 crx 打包线）
 
 Stage Summary:
-- 新律：①串行链路里命令与数据必须分道（专职快排循环）；②补偿常量必须分时基（逐字补偿不得拖累行级时钟）；③理论映射≠实际映射（频段选轴以探针实测为准）；④单帧包络值=raw×攻（测试场景 memset 隔离+稳态断言）；⑤同一真值的双消费端年龄语义必须一致
-- 待办：用户实机验收；Edge 商店提交材料仍未做
+- 结论：用户三条反馈（截断/复位/位移）的修复已在 v8.3.6 落地并随 v8.4.x 线延续，当前源码四门实证全绿；用户侧需确认实机版本 ≥ v8.3.6（推荐 v8.4.3）
+- 新律：探针合成 dispatchEvent 不触发 :active——按压类取证必须 CDP Input.dispatchMouseEvent；本地 worklog 脏改先 diff 判断是否外部覆写再 checkout
+- 待办：用户实机验收 v8.4.3；Edge 商店提交材料仍未做
 
 ---
-Task ID: 95
+Task ID: 103
 Agent: main (Super Z)
-Task: 用户两条实机反馈——①三态动画纠偏（要一镜到底：封面该飞但要修校准卡顿，现版线性无回弹、mini⇄full 有复位感）②不要休眠音乐面板（切歌后面板留在上一首）——v8.3.0
+Task: 用户「学习青柠起始页 1.4.0 crx 的云端更新机制并实现到『初始』（壳做桥：扩展页监听 iframe postMessage 校验 origin 代写 chrome.storage.local，保证面板与浮窗开关同步）；不推公开仓，推工作仓；文叔叔发件」
 
 Work Log:
-- 【现场】真工作树 /tmp/my-project（b5db0ae=v8.2.9）；/home/z/work-v829 镜像已过时（v8.2.8），重建 /home/z/work-v830 镜像编辑 + cp 回同步；hubsim/spectrumsim//tmp/ext-ref/playwright 均在位
-- 【动画①真弹簧】v8.2.9 的贝塞尔形变推翻：springFrames 半隐式欧拉采样单位弹簧（k=430/d=24，ζ≈0.58，~10% 过冲，4 子步积分防数值阻尼吃掉回弹），width/height/left/top/borderRadius 全走同一进度轨迹采样成 WAAPI 关键帧（样本间 linear）——dock POPPING 同族手感，cleanup 样式即终态
-- 【动画②封面连续锚】covClone 复活封面飞行并根治校准卡顿：两端矩形全部 getBoundingClientRect 实测（目标壳隐身布局实测，收缩方向确定性 56×56），cloneNode 带走辉光/律动内联样式，飞行走布局属性（非 transform scale，逐帧清晰），落地同帧同位交接零接缝；形变途中切歌经 trans.cloneImg 热跟随
-- 【动画③复位感双凶】cscardin 入场 CSS 动画改 .boot 仅首挂载——display:none→block 会重放 CSS 动画，旧版每次切换叠一层 0.96→1 缩放；内容改 t+60ms 级联上浮淡入（dock content-focus 同语言 26ms 级联，旧版等 35% 才开始=空壳感），形变期壳 overflow:hidden 裁切生长；目标壳保持可点（中断律），真封面延迟到 clone 落地才显形（防双封面）
-- 【休眠②】ext-bg visCount 门整体拆除（vis 上报分支+卡侧上报全删）：state 轮询只要还有卡片 Port 就 1Hz 常开——旧律全 hidden 即停，停摆期切歌真值永久丢失且无自愈；SW 因每秒广播保活不休眠（本律代价=目的）；频谱 specWanted 门照旧（渲染需求≠真值需求）；渲染休眠律（needFrame）保留不动 5070 回退；面板侧配套：smtc.ts bindVisHeal——后台标签 1s 节拍被 Chrome 重节流（最长 1/min），visibility→visible 瞬间 schedule(100) 立即补拍（beat busy 守卫下双拍无害）
-- 【门禁】build-extension.py v8.3.0：required +springFrames/morphFrames/covClone/surf.boot/cloneImg，bg required +cards.size===0、gone +case "vis"/port.__vis/postMessage type vis；EXTENSION_MODE 全量重建 out/（smtc.ts 变更入包）
-- 【取证】verify-v830-ext.mjs 13/13 全绿：F30a 弹簧过冲（形变峰值宽 330>终值 322+4=回弹存在）+F30b 收敛 416ms；F31 封面飞行（full→mini 40% 途中走廊采样 max 通道 253=clone 在飞非原地消失）；F5c 四态往返宽度全对+位置零漂移 Δ0（校准卡顿反证）；F32 全卡片隐藏期 SW 仍 1Hz 拉真值（hublog tick 增量 3 条/3.5s；⚠48 条环形缓冲快照计数法被稀释必假阴——必须按条目 tick>since 增量）+F32b 隐藏期切歌回前台首帧即新曲；v8.2.7 全量回归 31/31 PASS（辉光/拖动/歌词/零跳转/一镜到底中途帧全保）
-- 【调试实录】工具显示层吞 [h 序列（"hublog err" 显成 "ublog err]"）误导排障两轮——文件实际无损，Task 54 [m 同源；F32 取证器两版假阴（startsWith 漏 #seq 前缀 → 环形缓冲稀释）靠 tick 增量根治
-- 【发布】main + tag v8.3.0；交付 download/v8.3.0/ 七件（NewTab zip/桥 8.2.9 沿用/预设 8.2.9 沿用/歌词源 7.3.0 沿用/说明/SHA256SUMS/AllInOne）；gh-pages 不涉及（NewTab 扩展包独立）
+- 【机制考古】解包 upload/青柠起始页扩展_1.4.0.crx（Cr24/v3 头 1310B + zip payload）：壳=newtab-ext.html 521B 全屏 iframe 载 https://www.limestart.cn/；Android UA 直接跳网页；redirectNewTab 逃生门（壳读 storage.sync 决定重定向网页版）；内容脚本 customize-limestart.js 245B 单向挂 #ext 标记 div（data-ver 版本 + data-url chrome.runtime.getURL 壁纸）供云端页检测扩展 + web_accessible_resources wallpapers/* 本地壁纸提速；设置双轨（sync 给壳开关、页面设置住云端页自身 localStorage）；background.js 极薄（快捷键→?addUrl= 打网页）；popup 管设置+browsingData 清缓存。青柠无 postMessage 代写桥——用户方案是增强版（双向）
+- 【架构定稿 v8.4.4】新标签页 manifest newtab → shell.html（壳：全屏 iframe 载 https://lxgssy.github.io/Start-chushi/ + boot 遮罩 + geolocation/clipboard allow 委托）；shell-bridge.js（扩展页上下文协议 host）：origin 白名单 https://lxgssy.github.io + e.source===frame.contentWindow + 键名 ^[A-Za-z][A-Za-z0-9_:-]{0,127}$ + 单值 512KB/单批 1MB，op hello/get/set/remove/getAll，chrome.storage.onChanged 反向推送，握手 10s 超时 location.replace("index.html") 回退本地完整版
+- 【旧云端页零改动】线上 Pages=gh-pages 649a4ae（v8.2.9，有双开关但不识桥协议）→ shim-page.js（manifest content_scripts world:"MAIN" + run_at document_start + all_frames:true）伪造 window.chrome.storage.local（get/set/remove/clear/onChanged.addListener，不覆盖真 API）——页面既有 mirrorExtCard 调用链自动经桥落库
+- 【两段式信任律】跨域 parent.origin 不可读（SecurityError→""）导致 shim 首版静默退出——探针诊断 log 实锤（boot 到场但 marked:false）；改握手确认：hello（零敏感）"*" 投递→回复 event.origin 浏览器保证不可伪造→校验 chrome-extension:// 前缀→数据消息才精确 origin 投递（握手前 bootQueue 排队 flush）；顶层场景（cs-bridge）handshaked 直通
+- 【顶层桥】cs-bridge.js（isolated world，document_start）：直访 Pages（无壳）时与 shim 配对（同 window postMessage 跨 world），校验 e.origin===SELF + e.source===window 代写 chrome.storage——网页版与扩展同库
+- 【反向实时同步（同步闭环关键）】PresetWidgets.tsx：EXT_KV_MAP（cardEnabled→:csFloat/cardGlow→:csGlow/cardForceWord→:csForceWord）+ chrome.storage.onChanged（真/shim 伪造同签名统一）→ 同值 no-op 守卫（回声吸收+回环断链）→ kvRef 回写+writeKv+postToWidget widgetStoragePatch；sandbox.js 转发白名单 +patch；music-widget.html patch 消费端（ev.source===window.parent 校验，csFloat/csGlow/csForceWord 翻转，glow 关时 beatFrame(null) 熄灯，forceWord 重建歌词）——浮窗/他页改开关→面板 UI 实时翻转（此前单向）
+- 【数字门】cshz 超限 26207>25600：两道数字门同步放宽 26400（build-smtc-preset.py assert + preset.ts widgetHtmlLen，Task 100 律两处同改，向后兼容）
+- 【探针十门】scripts/probe-v844-shell.mjs（launchPersistentContext+channel chromium+headless 扩展加载，EXT_ID=sha256(ROOT) 映射）：T1 壳加载+握手/T2a iframe 在场/T2b MAIN shim 伪造/T3 上行落库/T4 下行 onChanged/T5a source 伪造拒绝/T5b 非法键拒绝/T6 云端不可达 10s 自动回退 index.html/T7a 顶层 shim/T7b cs-bridge 同库——ALL-GREEN，pageerror=0
+- 【坑录】①content_scripts all_frames 缺省 false→壳内 iframe（非顶层）不注入，首跑 T2b FAIL 实锤；②Pages 自身部件 iframe（父页同域）必须挡在 shim 信任面外（仅 chrome-extension:// 父页启用），否则伪造 storage 消息发同域父页无人监听空等超时；③/tmp/ext-ref 环境清理丢失→download/v1.1.2 zip 重解压恢复；④Write/Edit 工具限 /home/z——真树 /tmp/my-project 双向 rsync 工作流
+- 【产物】download/v8.4.4/（ChuShi-NewTab-v8.4.4.zip 11.8MB + 初始SMTC音乐预设.cshz 26207c + SHA256SUMS + 更新说明）；main 本地 commit（不推公开仓，用户指定）
 
 Stage Summary:
-- 新律：①display:none→block 重放 CSS 动画——入场动画必须类门控仅首挂载（三态切换复位感真凶之二）；②跨态连续动画的终点必须实测（目标壳隐身布局量测），估算终态=校准卡顿；③环形缓冲日志不能快照计数——按条目时间戳增量；④真值链路任何「节能门」都必须回答「门关期间的真值丢失如何自愈」，答不出就不能上；⑤后台标签定时器不可依赖——可见性恢复瞬间必须主动补拍
-- 待办：用户实机验收；Edge 商店提交材料仍未做
-
----
-Task ID: 97
-Agent: main (Super Z)
-Task: 用户反馈「没有推送到公开仓库」——v8.3.1 发布链补推（commit/tag/Release 全缺）
-
-Work Log:
-- 【现场】真工作树 /tmp/my-project（c8665a4=v8.3.1 本地已提交）；origin/main 停在 dfa7c32（v8.3.0）；.pkgtmp PAT 已丢失但 origin URL 内嵌 token 可用（curl API + push 全程零碍）
-- 【缺口定位】GitHub Releases v8.2.3–v8.3.0 全在位（均七资产），唯独 v8.3.1 整条发布链未做：c8665a4 未推、无 tag、无 Release；仓库自带 worklog 的 Task 96 记录完整（随 c8665a4 入仓）——上一会话在「打包双落位后、发布前」断电
-- 【补链】①交付物 SHA256SUMS 四件校验全过 → 补建 AllInOne 合并包（六件平铺对齐 v8.3.0 结构）→ commit fe6af19 → push main（dfa7c32..fe6af19）→ tag v8.3.1；②发布脚本 scripts/rel-v831.py（幂等：GET 404=不存在即创建、按名跳过已传资产、SHA 回读 4/4 断言）
-- 【新坑·CJK 资产名】GitHub 上传资产会剥非 ASCII 字符——「使用说明-v8.3.1.md」落地成「-v8.3.1.md」；v8.3.0 资产用 ASCII 名（ChuShi-v8.3.0-Usage-Notes.md）正是此律。修复三连：ASCII 副本入库（fb1c4eb：ChuShi-v8.3.1-Usage-Notes.md + AllInOne 内部文件名同步 ASCII，中文名原件保留）；脚本加陈旧资产清除；AllInOne 入 FORCE_REUPLOAD 强制重传集（内容变过不能按名跳过）；tag 移到最终交付态 fb1c4eb
-- 【发布核验】Release v8.3.1（id 386877336）七资产齐：NewTab zip 12.3MB / 桥 8.3.1 / 预设 8.2.9 沿用 / 歌词源 7.3.0 沿用 / SHA256SUMS / Usage-Notes / AllInOne 12.4MB；SHA 回读 4/4 OK；gh-pages 不涉及（远端停在 v8.2.9 部署 649a4ae，本版 web 面仅 smtc.ts 版本常量变化，沿用 v8.3.0「扩展包独立」先例）
-
-Stage Summary:
-- 新律：①GitHub Release 资产名剥 CJK——公开资产一律 ASCII 名（仓库文件可保中文，双名并存）；②按名幂等的资产上传必须区分「名字没变但内容变了」——FORCE_REUPLOAD 集是幂等上传的必备配套；③发布链五件套（commit/tag/Release/资产/SHA 回读）任一环断链都算未发布——「本地提交完成」≠「已推送」，用户视角只认公开仓库
-- 交付：https://github.com/LXgssy/Start-chushi/releases/tag/v8.3.1
-- 待办：用户实机验收 v8.3.1 九项反馈修复；Edge 商店提交材料仍未做
-
----
-Task ID: 96（补记·重建）
-Agent: main (Super Z)（前一会话，实录见仓库 worklog.md@v8.3.1）
-Task: 用户实机反馈八连——快捷服务浮窗缺失/弹簧克制/cover→mini 一镜到底/三态复位清零/高光渐入/弱歌律动（AGC）/chushi-spectrum 常驻/歌词动效——v8.3.1
-
-Work Log:
-- （本条为外层 worklog 补记；完整实录在仓库 worklog.md 的 Task 96 段，随 c8665a4 入库）
-- 核心结论：八项全部实现并打包（c8665a4 + download/v8.3.1/ 双落位），发布链断在会话断电——由 Task 97 补推完成
-
-Stage Summary:
-- 见仓库 worklog.md Task 96（cloneNode 内联样式律/弹簧阻尼观感律/AGC 峰值跟随律/keeper 常驻律等六新律）
-
----
-Task ID: 98
-Agent: main (Super Z)
-Task: 用户实机反馈两连——①v8.3.1 新加歌词动效没看到 ②缺「未播放/已播放歌词高斯模糊」——且动效要覆盖浮窗和「初始」面板——v8.3.2
-
-Work Log:
-- 【取证①】呼吸动效 v8.3.1 只落了浮窗（ext-card.js .fln scale 1.06/0.94），面板 music-widget.html 完全没动（仍 .55s 滚动/.5s 行色、无呼吸无模糊）——用户常看「初始」面板=「没看到」真因；且浮窗 13.5px 字号 ±6% 缩放本就难辨，缺模糊衬托
-- 【实现①②】双渲染层同律：①高斯模糊景深三档——未唱 blur(2px)/已唱 blur(1.1px)/当前行 blur(0) sharp，filter .45s 同曲线过渡（cubic-bezier(.22,1,.36,1)）与呼吸缩放叠加；②面板补呼吸 scale 1.06/0.94 + 三档模糊 + 滚动 .55s→.45s + 行色 .5s→.35s（CSS 与 JS 内联 transition 五处同步——面板 lyInr.style.transition 内联覆盖 CSS，漏改 JS 等于白改）
-- 【门禁】build-extension.py VERSION 8.3.2 + blur 三档特征门；build-smtc-preset.py 面板五特征门（scale/filter/双时序）；build-v832-assets.py 资产组装（桥 8.3.1/歌词源 7.3.0 沿用+校验，cshz 8.3.2 新建）；EXTENSION_MODE 全量重建（smtc.ts CLIENT_VER 8.3.2 入包——资产组装器强制校验宿主 bundle 版本号，漏重建必拒）
-- 【e2e 新门】verify-v832-panel.mjs 13/13（CDP 跨源直查 opaque iframe computed style：blur 三档精确值+matrix(1.06/0.94)+双时序+滚动位移+零报错）；verify-v832-ext.mjs 9/9（closed Shadow DOM 像素取证：逐行边缘能量剖面，当前行 35.2 vs 相邻行 0.7=50 倍锐利差、峰值亮度 244 vs 59，位置推移 6.2→12.4 效果跟随=动态景深非静态样式）；存量回归 v831 专项 14/14 + v827 全量 31/31（一次偶发 FAIL 无失败项复现，连跑两次全 PASS 判定时序抖动）+ 面板律动 7/7
-- 【取证器三坑】①hubsim 端口绑定前 POST /api/lyric 静默丢失→ping 就绪重试；②真桥 /api/lyric 响应形={ok:true,lyric:{...}} 包装（SW 解 j.lyric），裸 body=永远「暂无歌词」；③shim whitelist 走 ensureParsed 只认原始 yrc/lrc 文本，预解析 lines 被静默丢弃——面板测试必须喂原始 lrc
-- 【发布】main 3d224d0 + tag v8.3.2 + Release（id 387001630）七资产 SHA 回读 4/4；交付 download/v8.3.2/ 双落位（NewTab zip/preset 8.3.2/桥 8.3.1 沿用/歌词源沿用/SHA256SUMS/双名说明/AllInOne）；repo worklog 提交前发现被外部同步进程覆写丢 Task 96 段→git checkout 恢复后再追加
-
-Stage Summary:
-- 新律：①动效类需求「覆盖 A 和 B」必须双渲染层同版交付——单侧落地=用户必看不到；②JS 内联 style.transition 会覆盖 CSS transition，改时序必须双处同改；③closed Shadow DOM 用像素能量剖面取证（锐利/模糊 50 倍差），opaque iframe 可 CDP 直查 computed style；④mock 桥响应形必须对齐真桥包装（{ok,lyric}），裸形=静默空转；⑤worklog 会被外部同步覆写——提交前 git diff worklog 是新 Ritual
-- 交付：https://github.com/LXgssy/Start-chushi/releases/tag/v8.3.2
-- 待办：用户实机验收（浮窗+面板双端歌词动效）；Edge 商店提交材料仍未做
-
----
-Task ID: 99
-Agent: main (Super Z)
-Task: 用户实机反馈三连——①高光归位（封面底下，封面不加高光）②上一句歌词模糊「重置感」双根治 ③新「初始」标签页不聚焦地址栏——v8.3.3
-
-Work Log:
-- 取证：computed style 四环境复刻全平滑（排除类翻转）→ CDP screencast 抓过渡结束帧锐度 46→71.6 突跳（降层重栅格化）→ 帧带目检
-- 修复：①done 行常驻提层（will-change）②行界滞回门（前进即时/后退 650ms 持续/seek 护航窗旁路；ext-card + public/sandbox 双层）③封面滤镜退役能量全走背后辉光（增益拉满）④page.tsx 挂载短窗 body focus 偷回
-- 新坑实录：门复位键禁用对象身份（快照每拍新对象=门每拍复位）；旁路单源化（seek guard）；测试舞台 /tmp/ext-stage 会陈旧（out→stage 仅随 Next 构建刷新）——门「失效」半数是舞台旧码假象；面板 JS 压缩去注释→特征门必须代码级；目录扫描哈希混陈旧→显式清单
-- 取证器：verify-v833-ext 11/11 + verify-v833-panel 9/9 新增；v827 F13b/glow 套件/v830 F30a 按新律改判；终版九套全绿
-- 发布：main + tag v8.3.3 + Release 七资产 SHA 回读 4/4；交付 download/v8.3.3/ 双落位
-
-Stage Summary:
-- 交付：https://github.com/LXgssy/Start-chushi/releases/tag/v8.3.3
-- 待办：用户实机验收；Edge 商店提交材料仍未做
-
----
-Task ID: 100
-Agent: main (Super Z)
-Task: 用户实机反馈四连（附截图）——①歌词被边框吃掉一部分②标准态/完全态律动高光溢出容器③新歌词切上来「咯噔」④暂停/播放键按下「复位」——v8.3.4
-
-Work Log:
-- 【修复①防裁切】长行（多行换行+翻译行）居中余量不足侵入 mask 渐隐区——flyr 118→140 / cs-lyr 124→146 加高 + mask 固定 18px 渐隐 + 行 padding 呼吸（浮窗+面板双表面）
-- 【修复②防溢出】mini/full 壳 overflow:hidden——辉光被卡片圆角裁住（cover 态保持环绕光晕设计）
-- 【修复③防咯噔】翻译行 display 硬切（±17px 布局瞬跳）→ 显式 height 0↔16/17px 过渡 + 滚动 target 逐帧追踪（lyrTrackUntil）；实证：切行下方行 offsetTop Δ=0 零扰动
-- 【修复④防复位】乐观窗 2500ms 到期强制回落 → 真值对齐退役 + 顺延 + OPT_MAX 7s 硬上限（浮窗+面板同律）
-- 【实证三新律】①grid 0fr↔1fr 本环境离散跳变（getAnimations=[]）——高度动画一律显式 length；②will-change 是 raster 冻结器（F15b 对照 245/203/203）——on 行提层撤销，当前行白亮优先；③grid item padding/margin 计入 0fr min-content（残 2px）——轨道内间距走 line-height
-- 【门禁】VERSION 8.3.4 + 特征门 + CLIENT_VER 8.3.4 + EXTENSION_MODE 全量重建；verify-v834-ext 16/16（长行顶亮像素 1226/卡外无溢出 B28-30/辉光活着 B101/播放键像素差分 3.8s 不复位）+ verify-v834-panel 12/12 连跑两次；存量九套全绿（v833双/v832双/v831/v830/v827-glow/v827全量 PASS）
-- 【发布】main 9504051 + tag v8.3.4 + Release(id 387179049) 七资产 SHA 回读 4/4；worklog 外部压缩覆写→git checkout 恢复再追加；git add -A 因仓库大目录超时→显式清单 add（新律）；index.lock 残留清理
-
-Stage Summary:
-- 交付：https://github.com/LXgssy/Start-chushi/releases/tag/v8.3.4
-- 待办：用户实机验收（歌词不裁/高光不溢/切行不咯噔/播放键不复位）；Edge 商店提交材料仍未做
-
----
-Task ID: 101
-Agent: main (Super Z)
-Task: 用户实机反馈四连——①音乐面板无反应（歌词卡住/下一首播一半才显示/控制没效果）②中文歌逐字歌词重影（浮窗+面板）③seek 后歌词过快/过慢/要校准 ④高光照亮文字（文字层级须高于律动高光）——v8.3.5
-
-Work Log:
-- 【修复①桥 Worker 心跳】beat/drainCmds 跑在网易云 CEF 页面 setInterval——网易云窗口后台时 Chromium 强节流 DOM timer（可至 1/min）=桥停摆真根因（「下一首播一半才显示」的分钟级延迟+「控制没效果」全自洽）；桥 8.3.5 加 blob Worker 心跳（Worker timer 不在隐藏页节流域，postMessage 唤醒主线程跑 beat/drainCmds；原 interval 兜底，beatBusy/drainBusy 幂等守卫双驱动无害；onerror 自毁回退）+doSeek 读回终局即拍（ok/false 终局 60ms 后补 beat，真值提前 ~1s）；VER 8.3.1→8.3.5，PLUGIN_VER_MIN 同步 8.3.5 强制提示
-- 【修复②逐字重影】根因取证：.fw/.cs-w 词壳是 inline 相对定位，.ov（absolute）包含块顶=字体 em box 顶（content area），底字基线由 line box 排布——line-height 1.45 的半 leading 差 ≈3px，中文方块字笔画极敏感=重影（拉丁圆润不敏感，用户只见中文歌出影完全吻合）；修：词壳 inline-block 化（包含块=真块盒，内部 line box 与外部行盒基线对齐律一致）+.ov white-space:nowrap 双保险；浮窗 .fw + 面板 .cs-w 双表面同律
-- 【修复③seek 校准】三层：a)护航窗收窗容差 ±2s→±0.8s（真值落点差 1~2s 也收窗重锚=误差带内跳变，「每次跳转都要校准」体感主源）b)收窗拍 600ms smoothstep 软重锚（sandbox feed 全量重锚/tick reanchor 均硬锚→unguardSoft 机制软入轨，正负双向；ext-card 本有软带只收紧容差）c)护航窗 4.5→3s+桥读回即拍（真值 1~2.5s 内必到，过期多=seek 失败早诚实回锚）
-- 【修复④高光照字】层叠律取证：.glow/.cs-glow 是 positioned（z-index:0/auto），同 context 内 positioned 画在非定位内容之上——封面 img 有 z-index:1 压光但 .meta/.mtm/.rail/.cap/.flyr/.ftm/.fctl（浮窗 7 件）与 .cs-meta/.cs-seek/.cs-tm/.cs-ctl/.cs-foot/.cs-x（面板 6 件）全非定位→辉光 blur 晕出（-6~-8px+blur 10~13px≈16~21px）盖字；修：内容件全部 relative+z-index:1；高光语义不变（光仍在封面底下）
-- 【版本】CLIENT_VER 8.3.5+manifest 8.3.5+sandbox.ts iframe 缓存戳 bump（v=124/122）；build-extension.py 特征门+5 特征、build-smtc-preset.py 特征门+5 特征、build-v835-assets.py 新建（桥本版打包：md5 对拍+Worker 心跳特征门）、rel-v835.py（FORCE_REUPLOAD 六件）
-- 【取证新律】CDP DOM.getDocument({depth:-1,pierce:true}) 可深穿 closed Shadow DOM（probe 6 节点实证）——.fw computed display 与 .fw↔.ov getBoxModel 配对（parentId 映射，中途禁重拉快照防 nodeId 失效）；引擎取证改走 widget srcdoc 内 widgetShim（chushi.music 内嵌在 srcdoc 非 sandbox.html window）；opaque srcdoc rAF 节流下 DOM --p 不可测→引擎层 now(1) 断言
-- 【回归】v835 专项：浮窗 7/7（42 对词壳/覆盖层 Δ=0.00px）+面板 9/9；存量全绿：v834 双 16/16+12/12、v833 双 11/11+9/9、v832 双 13/13+9/9
-- 【发布】EXTENSION_MODE 全量重建+build-extension.py（防呆门过）→build-smtc-preset.py（25066 chars≤25600）→build-v835-assets.py（七件+特征门全过）→commit+tag v8.3.5+Release+SHA 回读
-
-Stage Summary:
-- 新律：①CEF 后台节流=桥停摆真身——页面内 timer 心跳必须搬 Worker；②inline 相对定位内的 absolute 覆盖层必有半 leading 基线错位——双层文本对齐一律 inline-block 化；③positioned 辉光天然画在非定位内容之上——内容件提层是唯一解；④CDP pierce 深穿 closed Shadow DOM 是浮窗取证新标准路径
-- 交付：https://github.com/LXgssy/Start-chushi/releases/tag/v8.3.5
-- 待办：用户实机验收（后台响应/重影/seek 对齐/文字不背光）；Edge 商店提交材料仍未做
+- 云端更新壳三件（shell.html/shell-bridge.js/shim-page.js/cs-bridge.js）+ 页面侧反向同步三处（PresetWidgets/sandbox.js/music-widget.html）+ 数字门 26400 双改
+- 架构律：壳桥=两段独立信任（页面端握手 origin 确认 + host 端白名单校验）；MAIN world shim 让旧云端页零改动获得镜像能力；同值 no-op 守卫断回环
+- 新律：跨域 parent.origin 不可读——跨源白名单必须走「握手-确认-精确投递」；content_scripts 想进 iframe 必须 all_frames:true
+- 版本：v8.4.4；工作仓（Start-chushi-workspace 私有）随 workspace-archive.sh 同步；文叔叔发件
