@@ -20,6 +20,15 @@ v8.3.1 新增：封面 clone display 拨正（cover→mini 一镜到底真凶）
 v8.3.2 新增：歌词高斯模糊景深（未唱 2px/已唱 1.1px/当前行 sharp，同曲线
   filter 过渡）+ 面板侧 music-widget.html 同步呼吸/模糊/时序（双渲染层
   动效完全对齐，用户：要覆盖浮窗和「初始」面板）。
+v8.4.4 新增：云端更新壳（学习青柠起始页 1.4.0 壳机制）——新标签页改为
+  shell.html（全屏 iframe 载 GitHub Pages 云端版「初始」，云端迭代即时
+  生效）；壳桥 shell-bridge.js（扩展页上下文）监听 iframe postMessage
+  （origin 白名单 https://lxgssy.github.io + e.source 校验）代写
+  chrome.storage.local，onChanged 反向推送 → 壳内页面与浮窗开关同步；
+  shim-page.js（MAIN world document_start）为旧版云端页伪造
+  chrome.storage.local（页面零改动即获镜像能力）；cs-bridge.js（isolated
+  world，顶层直访 Pages）与 shim 配对代写 —— 网页版与扩展同库；握手 10s
+  超时回退本地完整版 index.html。
 用法: python3 scripts/build-extension.py
 输出: download/<VERSION>/ChuShi-NewTab-v<VERSION>.zip
 """
@@ -35,7 +44,7 @@ OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
 EXT_SRC = ROOT / "extension-src"    # v8.2.0 SW/内容脚本源
-VERSION = "8.3.6"
+VERSION = "8.4.4"
 DEST = ROOT / f"download/v{VERSION}/ChuShi-NewTab-v{VERSION}.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():
@@ -109,7 +118,11 @@ manifest = {
     "description": "__MSG_extDesc__",
     "default_locale": "zh_CN",
     "icons": {"16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png"},
-    "chrome_url_overrides": {"newtab": "index.html"},
+    # v8.4.4：新标签页改为云端更新壳（iframe 载 GitHub Pages 版「初始」），
+    # 本地完整版 index.html 保留为回退（壳握手超时自动切换，见 shell-bridge.js）。
+    "chrome_url_overrides": {"newtab": "shell.html"},
+    # v8.4.4：MAIN world 内容脚本（shim-page.js 伪造 chrome.storage）需 Chrome 111+。
+    "minimum_chrome_version": "111",
     # v7.0.0：原生 DLL 枢纽——ChuShi SMTC Manager 的原生模块在本机回环
     # 开 HTTP 中继（26901，被占用时自动退 26902/26903）。host_permissions
     # 同时放行三端口（缺了它扩展版所有 127.0.0.1 请求被浏览器拦截，音乐
@@ -149,13 +162,33 @@ manifest = {
     # PRIVACY.md / README 一直按「扩展声明 geolocation」描述，本次补齐实现。
     "permissions": ["storage", "tabs", "scripting", "geolocation"],
     "background": {"service_worker": "ext-bg.js"},
+    # v8.4.4：+ 壳桥页面端双注入（仅「初始」云端域，授权面无增量）——
+    #   shim-page.js（MAIN world，document_start）：为云端页面伪造 chrome.storage.local，
+    #     页面既有 chrome.storage 调用（mirrorExtCard 开关镜像）零改动经桥落库；
+    #   cs-bridge.js（isolated world，顶层）：直访 Pages（无壳）时收 shim 消息代写，
+    #     网页版与扩展共享同一 chrome.storage —— 面板与浮窗开关全局同步。
     "content_scripts": [
         {
             "matches": ["http://*/*", "https://*/*"],
             "js": ["ext-card.js"],
             "run_at": "document_idle",
             "all_frames": False,
-        }
+        },
+        {
+            "matches": ["https://lxgssy.github.io/*"],
+            "js": ["shim-page.js"],
+            "run_at": "document_start",
+            "world": "MAIN",
+            # v8.4.4 必备 all_frames：壳内 gh-pages 页不是顶层 frame，缺省 false 不注入
+            "all_frames": True,
+        },
+        {
+            "matches": ["https://lxgssy.github.io/*"],
+            "js": ["cs-bridge.js"],
+            "run_at": "document_start",
+            # cs-bridge 仅顶层生效（脚本内 window.top 双保险）：壳内由壳桥负责
+            "all_frames": True,
+        },
     ],
     "sandbox": {"pages": ["sandbox.html"]},
     "content_security_policy": {
@@ -176,7 +209,11 @@ _card = (EXT_SRC / "ext-card.js").read_text(encoding="utf-8")
     "\n/* == ext-card.js (三态悬浮卡) == */\n" + _card,
     encoding="utf-8")
 shutil.copy2(EXT_SRC / "ext-bg.js", STAGE / "ext-bg.js")
+# v8.4.4：云端更新壳三件（壳页 + 壳桥 + 页面端 shim/顶层桥）
+for _shell in ("shell.html", "shell-bridge.js", "shim-page.js", "cs-bridge.js"):
+    shutil.copy2(EXT_SRC / _shell, STAGE / _shell)
 print("扩展部件注入: ext-bg.js (SW 中继+歌词代理) + ext-card.js (三态卡=歌词引擎+UI)")
+print("云端更新壳注入: shell.html + shell-bridge.js (壳桥) + shim-page.js (MAIN shim) + cs-bridge.js (顶层桥)")
 
 # 5) 防呆门：保留名 0 违规（UI 加载路径的硬校验）+ 扩展结构完整性
 bad = sorted(
@@ -187,11 +224,14 @@ bad = sorted(
 if bad:
     sys.exit(f"保留名违规（Chromium UI 加载必拒）: {bad[:5]}")
 for must in ("manifest.json", "_locales/zh_CN/messages.json", "icons/icon128.png",
-             "index.html", "sandbox.html", "sandbox.js", "ext-bg.js", "ext-card.js"):
+             "index.html", "sandbox.html", "sandbox.js", "ext-bg.js", "ext-card.js",
+             # v8.4.4 云端更新壳三件
+             "shell.html", "shell-bridge.js", "shim-page.js", "cs-bridge.js"):
     if not (STAGE / must).exists():
         sys.exit(f"缺 {must}——产物不完整")
 # v8.2.1 门：SW/内容脚本语法自检（node --check；拼接后的 ext-card.js 才是真产物）
-for ext_file in ("ext-bg.js", "ext-card.js"):
+# v8.4.4：+ 壳桥三件（shell-bridge/shim-page/cs-bridge）同门
+for ext_file in ("ext-bg.js", "ext-card.js", "shell-bridge.js", "shim-page.js", "cs-bridge.js"):
     r = subprocess.run(["node", "--check", str(STAGE / ext_file)], capture_output=True, text=True)
     if r.returncode != 0:
         sys.exit(f"{ext_file} 语法门 FAIL: {r.stderr[:300]}")

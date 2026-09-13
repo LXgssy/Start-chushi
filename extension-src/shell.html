@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<!-- 「初始」云端更新壳（v8.4.4）
+     学习青柠起始页 1.4.0 的壳机制：扩展新标签页只是一个壳，真正的内容
+     从云端（GitHub Pages 部署的「初始」网页版）加载——云端页面迭代即
+     扩展用户即时生效，无需重新发布扩展。
+     壳桥（shell-bridge.js）：监听 iframe postMessage（校验 origin 与
+     来源窗口）代写 chrome.storage.local，保证壳内云端页面与扩展浮窗
+     的开关同步；握手超时回退本地完整版 index.html。 -->
+<html lang="zh-CN">
+
+<head>
+	<meta charset="utf-8">
+	<title>新标签页</title>
+	<link rel="icon" href="icons/icon128.png">
+	<style>
+		html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0d12; }
+		iframe { border: 0; width: 100%; height: 100%; display: block; }
+		#csShellBoot {
+			position: fixed; inset: 0; display: flex; flex-direction: column; gap: 10px;
+			align-items: center; justify-content: center; background: #0b0d12;
+			color: #9aa3b2; font: 14px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+			transition: opacity .35s ease; z-index: 9; pointer-events: none;
+		}
+		#csShellBoot .cs-boot-dot {
+			width: 30px; height: 30px; border-radius: 50%;
+			border: 2px solid #2a3040; border-top-color: #7c8cf8;
+			animation: cs-boot-spin .9s linear infinite;
+		}
+		@keyframes cs-boot-spin { to { transform: rotate(360deg); } }
+	</style>
+</head>
+
+<body>
+	<iframe id="csShellFrame" allow="clipboard-read; clipboard-write; geolocation; fullscreen"
+		src="https://lxgssy.github.io/Start-chushi/" title="初始"></iframe>
+	<div id="csShellBoot"><div class="cs-boot-dot"></div><div>「初始」云端加载中…</div></div>
+	<script src="shell-bridge.js"></script>
+</body>
+
+</html>
