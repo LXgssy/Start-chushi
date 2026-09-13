@@ -22,6 +22,14 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.4.2",
+    title: "拖拽浮层飞出屏幕根治",
+    channel: "page",
+    highlights: [
+      "修掉 8.4.1 引入的问题：拖动磁贴时浮层不跟手反而飞出屏幕——高度盒的 contain: layout 成了内部 fixed 浮层的包含块，位移被叠加了两次；现把拖拽浮层 portal 到 body",
+    ],
+  },
+  {
     version: "8.4.1",
     title: "快捷服务图标免梯子 · 拖拽排序换新动画",
     channel: "page",

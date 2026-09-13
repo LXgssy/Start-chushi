@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { Pencil, X } from "lucide-react";
 import {
@@ -320,6 +321,16 @@ function QuickLinks({
      现由 ResizeObserver 测高 + 弹簧高度盒承接（与 Dock 面板同套 morph 律），
      换排时高度滑移，配合 main 的 padding 过渡整列连续无跳变 */
   const { contentH, measureRef } = useMorphHeight(500);
+  /* DragOverlay 必须挂到 document.body —— 它内部是 position: fixed，
+     而任意祖先只要带 contain: layout / transform / filter / will-change，
+     就会成为 fixed 后代的「包含块」：dnd-kit 用视口坐标算出的位移会被
+     叠加到那个祖先自身的坐标上，越拖越远，表现就是「一拖就飞出屏幕」。
+     本组件的高度盒带 contain: layout（v1.7.4 为高度形变加的），就是元凶。
+     浏览器端才 portal，SSR 阶段 document 不存在。 */
+  const [portalReady, setPortalReady] = useState(false);
+  useEffect(() => {
+    setPortalReady(true);
+  }, []);
 
   /* 拖拽排序（v8.4.0）：6px 位移阈值起拖——阈值内仍是普通点击（打开链接/编辑），
      越过阈值才把磁贴「抬起」。触摸端保持原有「长按 420ms 进编辑」不变
@@ -380,6 +391,14 @@ function QuickLinks({
   }
 
   return (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDragEnd={handleDragEnd}
+      onDragCancel={handleDragEnd}
+    >
     <div ref={rootRef} className="cl-links flex flex-col items-center">
       {/* 高度盒：px 弹簧跟随网格自然高度；relative 让 popLayout 退场磁贴的
           absolute 钉位落在本盒内；不裁剪溢出——退场磁贴/阴影/悬浮态不可被切 */}
@@ -390,14 +409,6 @@ function QuickLinks({
         animate={{ height: contentH == null ? "auto" : contentH }}
         transition={LAYOUT_SPRING}
       >
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragStart={handleDragStart}
-          onDragOver={handleDragOver}
-          onDragEnd={handleDragEnd}
-          onDragCancel={handleDragEnd}
-        >
           <div
             ref={measureRef}
             className="mx-auto flex max-w-[680px] flex-wrap items-start justify-center gap-x-4 gap-y-6 px-4"
@@ -456,35 +467,41 @@ function QuickLinks({
             </motion.div>
           </div>
 
-          {/* 拖拽浮层（v8.4.0）：抬起的磁贴带强调色晕 + 轻微倾斜，落回由 dropAnimation 弹回原位 */}
-          <DragOverlay dropAnimation={{ duration: 240, easing: "cubic-bezier(0.22, 1, 0.36, 1)" }}>
-            {activeLink ? (
-              <motion.div
-                initial={{ scale: 0.9, rotate: 0 }}
-                animate={{ scale: 1.1, rotate: -3 }}
-                transition={{ type: "spring", stiffness: 520, damping: 30 }}
-                className="flex w-20 flex-col items-center gap-2 rounded-xl"
-                style={{ cursor: "grabbing" }}
-              >
-                <span className="relative block" style={{ filter: "drop-shadow(0 16px 24px rgba(0,0,0,0.34))" }}>
-                  <span
-                    aria-hidden
-                    className="pointer-events-none absolute -inset-2 rounded-[24px] opacity-[0.32] blur-md"
-                    style={{ background: "radial-gradient(closest-side, var(--ui-accent), transparent 72%)" }}
-                  />
-                  <span className="relative block">
-                    <TileIcon link={activeLink} iconStyle={iconStyle} />
+        </motion.div>
+      </div>
+
+      {/* 拖拽浮层：portal 到 body（原因见 portalReady 处注释——contain/transform 祖先会把它顶飞）。
+          抬起的磁贴带强调色晕 + 轻微倾斜，落回由 dropAnimation 弹回原位。 */}
+      {portalReady
+        ? createPortal(
+            <DragOverlay dropAnimation={{ duration: 240, easing: "cubic-bezier(0.22, 1, 0.36, 1)" }}>
+              {activeLink ? (
+                <motion.div
+                  initial={{ scale: 0.9, rotate: 0 }}
+                  animate={{ scale: 1.1, rotate: -3 }}
+                  transition={{ type: "spring", stiffness: 520, damping: 30 }}
+                  className="flex w-20 flex-col items-center gap-2 rounded-xl"
+                >
+                  <span className="relative block" style={{ filter: "drop-shadow(0 16px 24px rgba(0,0,0,0.34))" }}>
+                    <span
+                      aria-hidden
+                      className="pointer-events-none absolute -inset-2 rounded-[24px] opacity-[0.32] blur-md"
+                      style={{ background: "radial-gradient(closest-side, var(--ui-accent), transparent 72%)" }}
+                    />
+                    <span className="relative block">
+                      <TileIcon link={activeLink} iconStyle={iconStyle} />
+                    </span>
                   </span>
-                </span>
-                <span className="tile-label w-full truncate text-center text-xs font-light tracking-wide text-zinc-600 dark:text-zinc-300">
-                  {activeLink.name}
-                </span>
-              </motion.div>
-            ) : null}
-          </DragOverlay>
-        </DndContext>
-      </motion.div>
-    </div>
+                  <span className="tile-label w-full truncate text-center text-xs font-light tracking-wide text-zinc-600 dark:text-zinc-300">
+                    {activeLink.name}
+                  </span>
+                </motion.div>
+              ) : null}
+            </DragOverlay>,
+            document.body,
+          )
+        : null}
+    </DndContext>
   );
 }
 
