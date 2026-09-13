@@ -153,3 +153,21 @@ Stage Summary:
 - 架构律：新标签页壳=「版本路由+地址栏收敛」两件事，启动路径零网络；云端更新=后台静默（严格更新+原子提交+永不降级），与新标签页流程完全解耦
 - 浏览器硬律（新）：①扩展根路径 "/" 导航恒 404 且不可被任何 SW 拦截（bg 占位 scope="/" 且不参与 fetch）②子路径作用域页面 SW 在带 bg 的真扩展里可用（最长前缀胜出）③SW 合成响应无法服务沙箱特权页（挂死）④扩展包内目录禁下划线开头（快照虚拟目录必须无下划线）
 - 交付律：本版不部署公开更新源（用户指定不碰公开仓），云端更新机制完整就绪待用户自选托管
+
+---
+Task ID: 105
+Agent: main (Super Z)
+Task: 用户「好了可以推送到公开仓了，之后所有更新就靠云推了」——v8.4.5 推公开仓 + 云端镜像上线 + Release 发布
+
+Work Log:
+- 【镜像部署】ChuShi-CloudSnapshot-v8.4.5.zip（69 文件+version.json+.nojekyll）铺上 gh-pages 根（649a4ae→b31bd0a），旧网页版构建退役；Pages 工作流 success 实证——SNAP_MIRRORS[0]=https://lxgssy.github.io/Start-chushi 即刻生效；树与 version.json 清单零缺零多、69 文件尺寸全符（中途一次 MISMATCH 系测试参数笔误：thumbs 尺寸对到 wallpapers，非镜像问题）
+- 【全量核验】scripts/verify-cloud-mirror.py：模拟 snapCheck 对线上镜像逐文件下载，尺寸+SHA256 与本地载荷双校验 ALL-GREEN；scripts/deploy-cloud-mirror.sh 固化未来云推链（worktree→清树铺载荷→清单一致性门→提交推送→Pages 收敛轮询→verify 全量核验）
+- 【CI 发布】tag v8.4.5 推送触发 build-extension 工作流（run 34766117964 success）：bun 构建+CRX_PRIVATE_KEY 签名，自动建 Release 出 zip(12372653B)+crx(12378241B)；下载核验 manifest 8.4.5 + SNAP_MIRRORS 指向已上线镜像 + cs-snap/shell/shim/bridge 件全在包内
+- 【Release 补齐】6 资产：CI zip/crx + ChuShi-CloudSnapshot-v8.4.5.zip + ChuShi-Music-Preset-8.4.5.cshz + ChuShi-v8.4.5-Usage-Notes.md + SHA256SUMS.txt（覆盖全部发布资产）；正文 PATCH 为中文云推说明（1850 字，rel-v845-body.py 固化）；无凭据复核 crx/zip 下载 200 全可达
+- 【main 同步】148de0d→17600ef 四提交推公开仓（v8.4.4/v8.4.5/worklog/脚本）；worktree /tmp/cs-mirror 用毕即清
+
+Stage Summary:
+- 公开仓三线全通：①gh-pages=云镜像（69 文件 ALL-GREEN）②main 代码至 17600ef ③Release v8.4.5 六资产
+- 云推全链定稿：改 VERSION → bun build → build-extension.py（第 7 段产载荷）→ deploy-cloud-mirror.sh → 装机端 ≤6h 静默自更新；crx/zip 由 tag 触发 CI 产出
+- 新律：gh-pages 根已被云镜像占用，网页版构建不再部署该分支（恢复须另选分支/前缀）；CI 重建产物与本地构建字节级不同，SHA256SUMS 必须以「实际发布资产」回算而非本地构建物
+- 用户从此更新路径：装机端后台自动云推（≤6h/启动时）；手动渠道=Release 页 crx
