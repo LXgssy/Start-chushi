@@ -145,6 +145,7 @@
     var fadeMs = 0;
     var soft = null;          /* {from,at,dur} 恢复期软重锚（淡入期防漂移） */
     var guard = null;         /* v8.0.9 seek 护航窗 {from,to,at,dur,song} */
+    var unguardSoft = null;   /* v8.3.5 收窗软重锚源 {from,at}——收窗拍硬锚→软入轨 */
     var guardGraceAt = 0;     /* v8.1.0 护航窗收窗豁免期起点（真值跟随回退不算锯齿） */
     /* v8.1.0 回退熔断：上游源交替/快照滞后的回退拍拒收（乱跳防线纵深） */
     var backStreak = 0;
@@ -510,13 +511,17 @@
       if (guard && t && typeof t.position === "number" && isFinite(t.position)) {
         if (!sameSong(lastSnap ? String(lastSnap.title || "") : "", guard.song)) {
           guard = null;
-        } else if (Math.abs(t.position - guard.to) > 2) {
+        } else if (Math.abs(t.position - guard.to) > 0.8) {
           /* 旧轨迹上的陈旧快照或 NCM seek 应用中的中间态快照：一律保位
              （posNow 沿目标轨迹），窗口过期再诚实仲裁——中间态弃窗就是
              拖动后歌词跳回拖前段落的那一跳（v8.1.0） */
           keepPos = posNow();
         } else {
           guard = null; /* 真值已到目标附近，护航完成 */
+          /* v8.3.5 收窗软重锚源：feed 全量重锚是硬锚——收窗拍真值与乐观
+             显示差 ≤0.8s，>0.35s 的部分直接硬锚 = 歌词「咯噔」一下。
+             记下当前显示位置，锚点重建后按偏差带软入轨（600ms）。 */
+          unguardSoft = { from: posNow(), at: Date.now() };
         }
       }
       /* v8.1.3：全量重锚即解除恒源钉守（新快照自带最新真值） */
@@ -531,6 +536,16 @@
           : t && typeof t.fetchedAt === "number" ? t.fetchedAt : Date.now(),
       };
       soft = null; /* 新快照全量重锚：软窗口作废 */
+      /* v8.3.5 收窗拍软重锚恢复：偏差 0.35~2.5 带 600ms smoothstep 入轨
+         （正负双向——前进/回退 seek 的收窗拍都不再跳变）；带内 <0.35s
+         维持硬锚（肉眼阈下无感）。 */
+      if (unguardSoft && t && typeof t.position === "number" && isFinite(t.position)) {
+        var udAbs = Math.abs(t.position - unguardSoft.from);
+        if (udAbs > 0.35 && udAbs <= 2.5) {
+          soft = { from: unguardSoft.from, at: unguardSoft.at, dur: SOFT_MS };
+        }
+      }
+      unguardSoft = null;
       push();
     }
 
@@ -562,11 +577,14 @@
         if (guard) {
           var gEl = Date.now() - guard.at;
           var gTo = Math.abs(tk.position - guard.to);
-          if (gEl < guard.dur && gTo > 2 && prevPlaying === !!tk.playing) {
+          if (gEl < guard.dur && gTo > 0.8 && prevPlaying === !!tk.playing) {
             return; /* 同态陈旧拍/中间态：忽略，目标轨迹继续走 */
           }
           guard = null; /* 真值到达 / 翻转放行 / 窗口过期 → 正常仲裁 */
           guardGraceAt = Date.now(); /* 收窗豁免期：真值跟随的回退不算锯齿 */
+          /* v8.3.5 收窗软重锚源（feed 同律）：下方 reanchor 若硬锚会跳变，
+             记显示位置供 reanchor 分支软入轨。 */
+          unguardSoft = { from: expected, at: Date.now() };
         }
         /* v8.1.0 回退熔断（仅稳态跟踪期，grace 6s 豁免）：播放中位置比
            插值显示位置倒退 0.6~6s 的拍先拒收——上游 InfLink/元素双源
@@ -612,6 +630,7 @@
             anchor.playing && delta < 0.35) {
           reanchor = false;
         }
+        if (!reanchor) unguardSoft = null; /* v8.3.5：slew 吸收拍清软源（防残留） */
         if (reanchor) {
           capPos = 0; /* 重锚即解除钉守；rejHist 保留——重现证据靠 8s 窗口自然过期 */
           if (prevPlaying === false && tk.playing === true &&
@@ -620,6 +639,14 @@
           } else if (Math.abs(delta) > 2 || prevPlaying !== !!tk.playing) {
             soft = null;
           }
+          /* v8.3.5 收窗拍软重锚：同态拍 delta 0.35~2.5 带 600ms smoothstep
+             入轨（from=收窗拍显示位置）——seek 收窗不再「咯噔」；翻转拍/
+             大偏差拍不适用（诚实语义优先）。 */
+          if (unguardSoft && prevPlaying === !!tk.playing &&
+              Math.abs(delta) > 0.35 && Math.abs(delta) <= 2.5) {
+            soft = { from: unguardSoft.from, at: unguardSoft.at, dur: SOFT_MS };
+          }
+          unguardSoft = null;
           anchor.position = Math.max(0, tk.position);
           anchor.fetchedAt = typeof tk.fetchedAt === "number" && tk.fetchedAt > 0 ? tk.fetchedAt : Date.now();
         }
@@ -631,10 +658,19 @@
       if (prevPlaying === true && anchor.playing === false) { fadeMs = computeFadeMs(); soft = null; }
     }
 
-    /* ---- 实时态（面板 rAF 每帧取用；v8.2.9 now(lineMode) 透传行级时钟） ---- */
-    function now(lineMode) {
-      var ms = posNow() * 1000;
-      var a = alignAt(ms, lineMode === true);
+    /* ---- v8.3.3 行界滞回门（宿主预计算层，全部部件受益） ----
+       稳态播放的 backward 重锚（[-2,-0.35] 单拍缝隙 / [-0.6,-2.5] 连续
+       第 2 拍放行）不设 smoothstep（soft 只在恢复播放翻转时设置）=
+       显示瞬间硬跳后退 → align 行号跨界翻转 → 部件侧上一行刚进 done
+       （blur 在飞）又被重点亮 = 取消+倒放+重演 = 用户所见「上一句模糊
+       有重置效果」。门律：前进即时（零延迟，逐行快一拍律不破）；后退/
+       间奏类候选须持续 650ms（真 seek 回退必然满足，重锚噪声 1-3 拍
+       即死）；seek 护航窗内（guard，仅 seek() 设置）或候选出现后位置又
+       大跳 >2.5s = 真 seek 立即放行。压制期回放最近接受帧的歌词字段
+       （词扫描短暂冻结不可感），时基/播放态/频谱字段取新值。 */
+    var gSong = "", gLine = null, gPend = null, gPendAt = 0, gPendMs = 0, gHold = null;
+    var GATE_MS = 650, GATE_JUMP_MS = 2500, GATE_HARD_MS = 400;
+    function frameOf(a, ms, lineMode) {
       var dur = anchor ? anchor.duration : 0;
       return {
         position: ms / 1000,
@@ -655,6 +691,45 @@
           ? clamp(spec.bass, 0, 1) : 0,
         bands: spec && spec.on && Array.isArray(spec.bands) ? spec.bands : null,
       };
+    }
+    function gateFrame(ms, lineMode) {
+      var a = alignAt(ms, lineMode === true);
+      /* 切歌/换词才复位（songId|title|lyricRev）——快照对象每拍都是新的，
+         拿对象身份做键 = 门每拍被误复位 = 门失效（v8.3.3 e2e 实锤后改律） */
+      /* whitelist 后 songId/title/lyricRev 在快照顶层（非 track 子对象） */
+      var sk = lastSnap ? [
+        lastSnap.songId || 0,
+        lastSnap.title || "",
+        lastSnap.lyricRev || "",
+      ].join("|") : "";
+      if (gSong !== sk) {
+        gSong = sk; gLine = null; gPend = null; gHold = null;
+      }
+      if (gLine === null || a.lineIndex === gLine) {
+        gLine = a.lineIndex; gPend = null; gHold = a;
+        return frameOf(a, ms, lineMode);
+      }
+      var nowG = Date.now();
+      if (gPend !== a.lineIndex) { gPend = a.lineIndex; gPendAt = nowG; gPendMs = ms; }
+      var fwd = a.lineIndex > gLine;
+      /* 旁路唯一信号 = seek 护航窗（guard 仅 seek() 乐观重锚时设置）：
+         backward 爬行源第 2 拍放行也走 reanchor，若拿硬重锚当旁路会把
+         翻转原样放行（自败）；真 seek 的行号回退必须零延迟。 */
+      var bypass = (guard && nowG - guard.at < (guard.dur || 3000)) ||
+        Math.abs(ms - gPendMs) > GATE_JUMP_MS;
+      if (fwd || bypass || nowG - gPendAt >= GATE_MS) {
+        gLine = a.lineIndex; gPend = null; gHold = a;
+        return frameOf(a, ms, lineMode);
+      }
+      /* 压制：回放最近接受帧的歌词字段，时基/播放态/频谱取新值 */
+      if (!gHold) { gLine = a.lineIndex; gHold = a; return frameOf(a, ms, lineMode); }
+      return frameOf(gHold, ms, lineMode);
+    }
+
+    /* ---- 实时态（面板 rAF 每帧取用；v8.2.9 now(lineMode) 透传行级时钟） ---- */
+    function now(lineMode) {
+      var ms = posNow() * 1000;
+      return gateFrame(ms, lineMode);
     }
 
     function snapshot() { return lastSnap; }
@@ -683,7 +758,7 @@
             from: posNow(),
             to: s,
             at: Date.now(),
-            dur: 4500,
+            dur: 3000, /* v8.3.5：4.5→3s——真值 1~2.5s 内必到（桥读回即拍），过期多=seek 失败早诚实回锚 */
             song: lastSnap ? String(lastSnap.title || "") : "",
           };
           anchor.position = s;
@@ -1148,6 +1223,17 @@ function widgetMode() {
       return;
     }
     if (m.type === "widgetStorage" && inner && inner.contentWindow) {
+      try {
+        inner.contentWindow.postMessage(m, "*");
+      } catch (e) {
+        /* noop */
+      }
+    }
+    /* v8.4.4 反向同步下行：宿主（PresetWidgets）监听 chrome.storage.onChanged
+       （真事件或壳桥 shim 伪造事件）后主动下发的开关补丁 → 原样透传部件，
+       music-widget 据此实时翻转 csFloat/csGlow/csForceWord 开关 UI。
+       与 widgetStorage 同路转发；部件侧以 event.source === window.parent 校验。 */
+    if (m.type === "widgetStoragePatch" && inner && inner.contentWindow) {
       try {
         inner.contentWindow.postMessage(m, "*");
       } catch (e) {
