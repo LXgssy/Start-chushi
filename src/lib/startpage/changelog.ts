@@ -22,6 +22,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.4.1",
+    title: "快捷服务图标免梯子 · 拖拽排序换新动画",
+    channel: "page",
+    highlights: [
+      "站点图标不再依赖单一海外图标服务：改为「站点自身 favicon → 国内可直连图标 API → 海外兜底」逐级回退，命中即记住，不挂加速器也能出图",
+      "拖拽排序重做：磁贴抬起带阴影与强调色光晕、原位留虚线空位、其余磁贴弹性让位，松手弹回",
+    ],
+  },
+  {
     version: "8.4.0",
     title: "云端更新通道 · 页面热更 + 更新日志",
     channel: "page",
