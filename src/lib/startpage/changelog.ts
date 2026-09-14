@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.4.7",
+    date: "2026-09-14",
+    title: "云端快照启动修复 · 网页版回归",
+    channel: "page",
+    highlights: [
+      "修复云端更新后新标签页卡「加载中」：快照页脚本引用改为改写免疫形态，旧壳无需换包即恢复",
+      "网页版回归：浏览器直接访问镜像地址将自动进入全新 /web/ 基线构建",
+    ],
+  },
+  {
     version: "8.4.6",
     date: "2026-09-13",
     title: "更新日志焕新 · 拖拽手感打磨",

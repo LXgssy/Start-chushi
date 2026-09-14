@@ -11,7 +11,9 @@ import type { NextConfig } from "next";
  */
 const isExport = process.env.EXPORT_MODE === "1";
 const isExtension = process.env.EXTENSION_MODE === "1";
-const BASE_PATH = "/Start-chushi";
+// v8.4.7：/web/ 子路径变体需要独立 basePath（部署在 gh-pages web/ 目录，
+// 与镜像根的快照载荷共存零碰撞）；缺省仍是仓库站点根（旧网页版形态）。
+const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "/Start-chushi";
 
 const nextConfig: NextConfig = {
   ...(isExtension

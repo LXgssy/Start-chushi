@@ -38,6 +38,15 @@ git worktree add --detach "$WT" origin/gh-pages
 # 清树铺载荷
 find "$WT" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
 unzip -q -o "$ZIP" -d "$WT"
+# v8.4.7：gh-pages 需要 .nojekyll（version.json 清单含它，s=0）
+touch "$WT/.nojekyll"
+# v8.4.7：网页版回归——/web/ 子路径部署 basePath 独立构建（与载荷共存零碰撞）
+WEB_DIR="$ROOT/download/v$VER/web-export"
+if [ -d "$WEB_DIR" ]; then
+  rm -rf "$WT/web"
+  cp -r "$WEB_DIR" "$WT/web"
+  echo "==> 网页版已并入: web/ ($(find "$WT/web" -type f | wc -l) 文件)"
+fi
 
 # 清单一致性门（推前）：version.json 与树逐文件对齐，零缺零多尺寸全符
 python3 - "$WT" <<'PY'
@@ -59,7 +68,7 @@ for dp, _, fns in os.walk("."):
         p = os.path.relpath(os.path.join(dp, fn))
         if p == ".git" or p.startswith(".git/"):  # worktree 的 .git 指针文件
             continue
-        if p not in mf and p != "version.json":
+        if p not in mf and p != "version.json" and not p.startswith("web/"):
             extra.append(p)
 if bad or extra:
     print("清单门未过:", bad[:10], extra[:10]); sys.exit(1)
