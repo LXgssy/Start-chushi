@@ -20,6 +20,7 @@ import {
 } from "@/lib/startpage/preset-settings";
 import type { PresetSettingSection } from "./Dock";
 import ChangelogDialog from "./ChangelogDialog";
+import CheckUpdateButton from "./CheckUpdateButton";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -854,8 +855,9 @@ function SettingsPanel({
       <div aria-hidden className="border-t border-zinc-900/5 dark:border-white/5" />
 
       {/* v8.4.0 底部「关于」：更新日志入口（打开 ChangelogDialog，风格与数据分区同款胶囊按钮） */}
+      {/* v8.4.8 「检查更新」：更新日志旁的手动云端更新入口（扩展宿主自显，网页版隐藏） */}
       <Section title="关于">
-        <div className="flex flex-wrap items-center gap-2 pt-1 pb-2">
+        <div className="flex flex-wrap items-start gap-2 pt-1 pb-2">
           <button
             type="button"
             onClick={() => setClOpen(true)}
@@ -863,6 +865,7 @@ function SettingsPanel({
           >
             更新日志
           </button>
+          <CheckUpdateButton />
         </div>
       </Section>
     </div>

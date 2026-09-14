@@ -210,3 +210,23 @@ Stage Summary:
 - 用户双病根治：扩展卡加载（8.4.6 快照键失配）+ 网页版 404（绝对路径×子路径）——全部走云推修复，存量用户 ≤6h 自愈，无需换包
 - 新律：①Turbopack 构建的引导分块键=「脚本标签 src 属性剥运行时硬编码前缀」，任何属性改写/前缀变换都会静默卡死引导，载荷必须免疫一切文本改写 ②载荷 HTML 属性免疫态（空格前置=）是唯一兼容新旧壳的通道 ③镜像根=载荷+hostname 门重定向 /web/，网页版与载荷共存
 - 用户侧预期：≤6h 新标签页自动恢复 v8.4.7（更新日志显示 8.4.7 条目）；网页版直接可访问
+
+---
+Task ID: 108
+Agent: main (Super Z)
+Task: 用户「写一个检查更新到更新日志旁边，这样可以由用户自己拉取更新，你现在就在8.4.5上改，然后用文叔叔发给我，并把这个改动同步到新版本」——v8.4.8 云推（检查更新按钮 + SW 免 referrer 硬化）
+
+Work Log:
+- 【版本澄清】用户口中「8.4.5」= 其手里最后一份文叔叔交付版的版本号；真树已在 v8.4.7（快照启动修复+网页版回归已云推）。本次在 v8.4.7 之上做 v8.4.8，交付包内含全部累积修复
+- 【检查更新按钮】新增 CheckUpdateButton.tsx（设置→关于，更新日志旁同款胶囊）：预判直连镜像 version.json（GitHub Pages 全开 CORS，10s 超时）→ 云端 ≤ 本地地板 max(内嵌版, 快照 meta) 秒回「已是最新」不触发下载 → 发现新版写 csSnapCheck{manual:true}（v8.4.5 起常驻手动通道，旧壳 8.4.5~8.4.7 全兼容）→ 双通道等结果：新壳读 csSnapStatus 状态机（checking/downloading done/total/updated/latest/error），旧壳轮询 IDB chushi-snap kv.meta（90s 预算）→ 「启用新版 vX」accent 胶囊 → 顶层导航回 shell.html 重走版本路由（地址栏仍被壳收敛为 index.html）；网页版宿主（无 chrome.runtime.id）整颗隐藏
+- 【ext-bg 手动回写】onChanged 识别 newValue.manual===true 才全程回写 csSnapStatus；6h 自动检查保持静默不打扰面板；探针旧值（时间戳）行为不变（T5 静默门实证）
+- 【顺手根治二 bug】①csSnapStatus 平铺键：snapStatus 原写 Object.assign({...}, st) 平铺进 storage 根，csSnapStatus 键永远不存在（探针 T4c null 实锤）→ 修复为 {csSnapStatus:{...}} 显式包键 ②SW 子资源免 referrer 硬化：chromium-1234+ 实测扩展 origin 文档的子资源请求 referrer 恒空（diag-swtrace: fe /mark.js ref=EMPTY mode=no-cors），v8.4.5~8.4.7 sw.js 的 referrer 判定分支永不命中 → 快照子资源穿透网络 ERR_FILE_NOT_FOUND（页面卡快照静默断资源）；改为受控 client 同源请求按路径查快照 serveSnapIfAny（命中即 IDB 供数、未命中穿透网络/包内真文件），嵌入版/壳页非受控 client 请求不进 handler 零冲突，沙箱豁免保持——跨 Chromium 版本健壮
+- 【探针】probe-v848.mjs 16 门 ALL-GREEN：boot/按钮在场/更新日志首条 8.4.8/已是最新快路径（mock 8.4.7）/手动下载→状态机 updated（mock 翻面 99.0.0）/启用新版/顶层重路由/快照直载/子资源 IDB 供数/旧通道静默/pageerror=0
+- 【坑录】①app 侧预判 fetch 与 ext-bg SNAP_MIRRORS 必须同探针重定向，否则 app 拉真实镜像秒判最新永不触发 mock ②探针 profile 必须白纸——残留快照 IDB（meta=99）把路由劫持去 /cs-snap/ 旧快照，SW 供数失败 frame 不建立 ③shell replaceState 后顶层 URL=…/index.html，frames() 匹配必须排除 mainFrame ④iframe src 属性就位≠导航落地，快照 frame 须轮询等 ⑤页面注册的子路径 SW 无 chrome.* API（普通 SW），SW 侧调试日志只能走 IDB ⑥storage 单键读改写日志有竞态，独立键才可靠 ⑦worklog 被外部覆写成缩略版，diff 判断后 checkout 恢复详版
+- 【云推+发布】deploy-cloud-mirror.sh 8.4.8：gh-pages 56f99a6→316b7c6、清单门 70 文件、Pages 收敛、SHA256 全量核验 ALL-GREEN；main 本次提交；tag v8.4.8 触发 CI Release；文叔叔发 v8.4.8-交付包；载荷 81 条目确认不含 cs-snap（SW 只随安装包走，旧装不受影响）
+- 【验证】快照 SW 供数面复盘：/cs-snap/* 导航按 meta 服务不变；子资源面 referrer 分支退役改路径命中；嵌入版完整可用（T1b）
+
+Stage Summary:
+- 「检查更新」落地：用户可随时手动拉取云端新版，下载进度与结果即时可见，一键启用；云推 v8.4.8 上线，存量装机 ≤6h 自愈
+- 新律：①扩展 origin 文档子资源 referrer 恒空——SW 供数判定禁依赖 referrer，一律按路径+命中查库 ②探针 app/ext-bg 双镜像重定向 + profile 白纸双纪律 ③storage 状态回写键必须显式包键，平铺写=键不存在 ④子路径页面 SW 无扩展 API，只有 IDB
+- 待办：Edge 商店提交材料仍未做

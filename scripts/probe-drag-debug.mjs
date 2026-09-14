@@ -19,7 +19,7 @@ await page.evaluate(() => {
   for (const t of ["mousedown", "mousemove", "pointerdown", "pointermove", "dragstart", "pointercancel", "dragend", "mouseup"]) {
     document.addEventListener(t, (e) => {
       window.__ev.push(t + (e.defaultPrevented ? "(prevented)" : "") + "@" + (e.target.tagName || "?") + "." + String(e.target.className || "").slice(0, 30));
-      // 不拦截，观察 React 是否已 preventDefault
+      if (t === "dragstart") e.preventDefault(); // 观察后拦下，看拖拽是否就能活
     }, true);
   }
 });

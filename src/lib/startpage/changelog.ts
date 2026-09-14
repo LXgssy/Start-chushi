@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.4.8",
+    date: "2026-09-14",
+    title: "检查更新 · 升级由你掌握",
+    channel: "page",
+    highlights: [
+      "设置 → 关于 新增「检查更新」：不必等后台自动检查，点一下立即拉取云端新版",
+      "检查、下载进度与结果即时可见；新版本到位后一键启用，失败也会如实相告",
+    ],
+  },
+  {
     version: "8.4.7",
     date: "2026-09-14",
     title: "云端快照启动修复 · 网页版回归",
