@@ -19,6 +19,7 @@ import {
 import { SortableContext, rectSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import type { IconStyle, StartLink } from "@/lib/startpage/types";
 import { hostOf } from "@/lib/startpage/link-utils";
+import { inExtIframe, openExternalUrl } from "@/lib/startpage/nav";
 import { clearIconSource, orderedIconSources, saveIconSource } from "@/lib/startpage/favicon";
 import { useMorphHeight } from "./use-morph-height";
 
@@ -259,6 +260,7 @@ const Tile = memo(function Tile({ link, iconStyle, editing, onEnterEdit, onDelet
       >
         <a
           href={link.url}
+          data-cl-tile="1"
           draggable={false}
           onDragStart={(e) => {
             /* 原生链接拖拽劫持（v8.4.6 探针实锤）：Chrome 原生 drag 阈值（~4px）
@@ -279,7 +281,23 @@ const Tile = memo(function Tile({ link, iconStyle, editing, onEnterEdit, onDelet
               if (editing) emitEditLink(link); // 编辑态短按 = 编辑该快捷服务
               return;
             }
-            // 非编辑态短按 = 正常打开链接
+            // 非编辑态短按 = 正常打开链接。
+            // v8.4.8「拒绝连接」修复：应用跑在壳（shell.html）的全屏 iframe 里，
+            // 不指定目标框架的 <a> 默认只在 iframe 内导航，而主流站点几乎都
+            // 拒绝被嵌（X-Frame-Options）→ 整页「xxx 拒绝了我们的连接请求」。
+            // 故在扩展壳内把普通左键点击提升到顶层框架整页打开（同 v8.4.4 前
+            // 行为）；修饰键/中键不拦，维持原生「新标签页打开」。
+            if (
+              e.button === 0 &&
+              !e.ctrlKey &&
+              !e.metaKey &&
+              !e.shiftKey &&
+              !e.altKey &&
+              inExtIframe()
+            ) {
+              e.preventDefault();
+              openExternalUrl(link.url);
+            }
           }}
           onContextMenu={(e) => {
             // 触屏长按进入编辑时阻止系统菜单（桌面右键不受影响）

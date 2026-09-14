@@ -53,6 +53,7 @@ import {
 } from "@/lib/startpage/types";
 import { fetchForecast, readWeatherSnapshot, writeWeatherSnapshot } from "@/lib/startpage/weather";
 import { getEngine } from "@/lib/startpage/engines";
+import { inExtIframe, openExternalUrl } from "@/lib/startpage/nav";
 import { sampleCoverLuminance } from "@/lib/startpage/luminance";
 import { smtc } from "@/lib/startpage/smtc";
 import { useToast } from "@/hooks/use-toast";
@@ -652,6 +653,32 @@ export default function Home() {
     setPanel(p);
     setDockWidget(null);
   }, []);
+  /* ---------- v8.4.8 · 外链提升兜底（扩展壳 iframe「拒绝连接」修复） ----------
+     应用跑在壳（shell.html）的全屏 iframe 里：任何不带 target 的 <a href>
+     默认只在 iframe 内导航，主流站点的 X-Frame-Options 会让整页呈现
+     「拒绝了我们的连接请求」。这里在捕获阶段统一拦截普通左键点击的
+     http(s) 锚点，提升到顶层框架整页打开；QuickLinks 磁贴自带同款逻辑
+     （且要区分编辑态），故用 data-cl-tile 标记跳过；修饰键/中键/_blank
+     均不拦，维持浏览器原生行为。 */
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (e.defaultPrevented || e.button !== 0) return;
+      if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+      const t = e.target as Element | null;
+      const a =
+        t && typeof t.closest === "function" ? t.closest("a[href]") : null;
+      if (!a || a.hasAttribute("data-cl-tile")) return;
+      if (a.target && a.target !== "_self") return;
+      const href = a.getAttribute("href") || "";
+      if (!/^https?:\/\//i.test(href)) return;
+      if (!inExtIframe()) return;
+      e.preventDefault();
+      openExternalUrl(href);
+    };
+    document.addEventListener("click", onDocClick, true);
+    return () => document.removeEventListener("click", onDocClick, true);
+  }, []);
+
   const openAddLink = useCallback(() => emitEditLink(null), []);
   /* 批量管理磁贴（v1.7.1）：PC 端右键菜单直达——进入磁贴编辑模式（连点/连删/拖拽排序），
      模式内点击空白处退出；与触屏长按进入的同一模式 */
@@ -665,7 +692,7 @@ export default function Home() {
   }, [toast]);
   const runSearch = useCallback((engineId: string, q: string) => {
     const engine = getEngine(engineId);
-    window.location.href = engine.search(q);
+    openExternalUrl(engine.search(q)); // v8.4.8：壳 iframe 内提升到顶层整页打开
   }, []);
   const toggleTheme = useCallback(
     () =>
@@ -902,7 +929,7 @@ export default function Home() {
           toast({ title: ev.title, description: ev.description || undefined });
           break;
         case "open":
-          if (/^https:\/\//i.test(ev.url)) window.location.href = ev.url;
+          if (/^https:\/\//i.test(ev.url)) openExternalUrl(ev.url); // v8.4.8：提升到顶层
           break;
         case "copy":
           navigator.clipboard
@@ -1003,7 +1030,7 @@ export default function Home() {
     (a: PresetAction) => {
       switch (a.type) {
         case "open":
-          window.location.href = a.url;
+          openExternalUrl(a.url); // v8.4.8：壳 iframe 内提升到顶层整页打开
           break;
         case "search":
           runSearch(a.engine, a.q);
@@ -1063,7 +1090,7 @@ export default function Home() {
     [toast]
   );
   const openUrlFromPage = useCallback((url: string) => {
-    window.location.href = url;
+    openExternalUrl(url); // v8.4.8：壳 iframe 内提升到顶层整页打开
   }, []);
 
   /* ---------- 链接保存 / 删除 ---------- */
