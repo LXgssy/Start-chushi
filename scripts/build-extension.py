@@ -98,6 +98,15 @@ for code in scripts:
     html = html.replace(f"<script>{code}</script>", f'<script src="/ext-script-{n}.js"></script>', 1)
 (STAGE / "index.html").write_text(html, encoding="utf-8")
 print(f"index.html: 外置 {n} 个内联脚本")
+# v8.4.7 网页版重定向必须是【相对引用】：镜像根上绝对 /ext-script-1.js 会
+# 解析到域名根 404，重定向永远不执行；相对 ext-script-1.js 在镜像根解析为
+# /Start-chushi/ext-script-1.js（存在），在扩展快照解析为 /cs-snap/ext-
+# script-1.js（SW 供数）。重定向是自研脚本，不受 Turbopack /next/ 键约束。
+if n >= 1 and "lxgssy.github.io" not in (STAGE / "ext-script-1.js").read_text(encoding="utf-8"):
+    sys.exit("ext-script-1.js 不是网页版重定向引导——注入序被破坏")
+html = html.replace('<script src="/ext-script-1.js">', '<script src ="ext-script-1.js">', 1)
+(STAGE / "index.html").write_text(html, encoding="utf-8")
+print("index.html: 重定向引导已改相对引用（免疫态）")
 
 # 2.5) Chromium 保留名改造：「加载已解压的扩展程序」拒绝任何 `_` 开头的路径组件
 # （Chromium 规则：下划线开头组件仅允许 _locales/_platform_specific/_metadata；
