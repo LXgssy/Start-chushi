@@ -242,10 +242,11 @@ Work Log:
 - 【修复·全出口】磁贴（QuickLinks onClick 左键无修饰键时 preventDefault+提升，编辑态/长按逻辑不受影响，锚点加 data-cl-tile 标记）；page.tsx 四处（runSearch / 沙箱 open / 预设 open / openUrlFromPage）；SearchBar navigate()（保留 newTab 设置）；CommandPalette 三处（搜索引擎/打开网址/链接）；另挂 page.tsx 全局捕获监听兜底散落 <a>（WeatherPanel 数据源链接等；跳过 data-cl-tile / _blank / 修饰键 / 非 http(s)）
 - 【探针】probe-v848.mjs 增 T8：独立标签页（必须在 T4 翻面前跑——v99 假快照页无监听器）；T8b 以 a[data-cl-tile] 出现为水合信号（SSR 静态 HTML 有子节点≠水合，首版 T8 在 effect 挂监听器前点击而假阴）；T8a 动态锚点点击 → 顶层整页跳 mock（page.waitForURL /probe-hoist/）。18 门 ALL-GREEN（T1 boot/T2 按钮在场+日志首条/T3 已是最新/T4 手动下载→updated/T5 旧通道静默/T6 快照直载+mark.js/T7 pageerror=0/T8 提升）
 - 【云推补课】上轮（Task 108）v8.4.8 已推过 gh-pages（316b7c6=旧构建 buildId mUISk0s…）；本轮新构建（buildId Rnm3fNz…）重推 d6b447e——deploy 收敛轮询只比对 v 字段，同版本号双推时被旧清单骗过，首轮 verify 拿新 zip 对旧清单报 7 BAD（404/sha 不符）；等 Pages 二次收敛后全量 verify 70 文件 ALL-GREEN
-- 【交付重建】更新说明-v8.4.8.txt 补「拒绝连接修复」条目；SHA256SUMS 重算；v8.4.8-交付包.zip 重打（zip+cshz+说明+校验）；文叔叔重传（public https://c.wss.ink/f/kvhiicrm2j1）
+- 【交付重建】更新说明-v8.4.8.txt 补「拒绝连接修复」条目；SHA256SUMS 重算；v8.4.8-交付包.zip 重打（zip+cshz+说明+校验）；文叔叔重传（public https://c.wss.ink/f/kvhn1xe8uxf（SHA 修正后重传终版））
 - 【坑录】①SSR 静态导出「body 有子节点」≠水合完成，effect 挂的监听器要等水合信号 ②同版本号云推二次收敛必须以清单内容（buildId 目录名）而非 v 字段为准 ③verify-cloud-mirror fetch 的是线上 version.json 对本地 zip，两端构建不一致时 BAD 列表=新旧清单差集
 
 Stage Summary:
 - 用户报告的「快捷服务拒绝连接」根治：所有外链出口（磁贴/搜索/指令面板/预设/沙箱/散落锚点）在扩展壳内一律提升到顶层整页打开，行为与 v8.4.4 前一致；网页版零影响
 - 云端 v8.4.8 重推收敛（70 文件 SHA256 ALL-GREEN），存量 8.4.5~8.4.7 装机 ≤6h 自动获得本修复（页面通道，无需换包）
 - 新交付包已重传文叔叔，内含检查更新+拒绝连接修复双项
+- 【补记】tag v8.4.8 重打至 50b3c5a 强推 → CI 34852379863 success；Release 6 资产全对齐新构建（zip/crx CI 产出，快照 zip/说明/SHA256SUMS 经 API 替换）；交付包以修正版 SHA256SUMS 重打重传文叔叔终版
