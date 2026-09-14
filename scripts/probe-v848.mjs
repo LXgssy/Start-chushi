@@ -10,6 +10,9 @@
 //   T6 一键启用：点「启用新版」→ 顶层回 shell.html 重路由 → iframe=/cs-snap/
 //      index.html → SW 从 IDB 供数 → 快照内容 + 子资源 mark.js 均为 v99
 //   T7 全程 pageerror = 0
+//   T8 外链提升回归（v8.4.8「拒绝连接」修复）：在壳 iframe 的真 app 里点击
+//      外部 http(s) 锚点 → 顶层整页跳走（修复前：iframe 内导航被 XFO 拒绝）；
+//      另验磁贴锚点已带 data-cl-tile 标记（走磁贴自有提升逻辑）
 //
 // 探针镜像重定向手法承自 probe-v845-shell.mjs：sed SNAP_MIRRORS → 本地
 // http.server（mock version.json 可翻面，时序确定性）。
@@ -112,6 +115,56 @@ try {
   gate("T1b 本地 app 渲染", !!rendered);
   gate("T1c app 宿主有 chrome.runtime.id", !!(appFrame && await appFrame.evaluate(() =>
     !!(window.chrome && chrome.runtime && chrome.runtime.id))));
+
+  /* ---------- T8 外链提升（独立标签页，不污染主流程；必须在 T4 翻面/T6
+     提交快照之前——那时真 app 才在场，v99 快照是 mock 假页无监听器） ---------- */
+  const page8 = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  try {
+    await page8.goto(EXT_URL("shell.html"), { waitUntil: "load", timeout: 20000 });
+    await page8.waitForFunction(() => {
+      const f = document.getElementById("csShellFrame");
+      return f && f.src && f.src.endsWith("index.html");
+    }, { timeout: 8000 }).catch(() => null);
+    const f8 = page8.frames().find((f) => f !== page8.mainFrame() && /\/index\.html$/.test(f.url()));
+    if (f8) {
+      await withTimeout(f8.waitForFunction(() =>
+        document.body && document.body.children.length > 0, { timeout: 15000 })
+        .then(() => true).catch(() => false), 16000, "T8 app render");
+      /* 水合信号：磁贴锚点带 data-cl-tile（React effect 已挂监听器）。
+         同时兼作 T8b 断言。SSR 静态 HTML 一上来就有子节点，不能作水合依据。 */
+      const hydrated = await withTimeout(f8.waitForFunction(() =>
+        !!document.querySelector("a[data-cl-tile]"), { timeout: 12000 })
+        .then(() => true).catch(() => false), 13000, "T8 hydration");
+      gate("T8b 磁贴锚点带 data-cl-tile（磁贴自有提升逻辑）", hydrated);
+      /* 重试点击（每次新锚点新 URL），任一次顶层跳走即过 */
+      let topHit = false;
+      for (let i = 0; i < 3 && !topHit; i++) {
+        const hoistUrl = `http://127.0.0.1:${PORT}/probe-hoist?r=${i}-${Date.now()}`;
+        try {
+          await f8.evaluate((u) => {
+            const old = document.getElementById("probe-hoist-a");
+            if (old) old.remove();
+            const a = document.createElement("a");
+            a.href = u;
+            a.id = "probe-hoist-a";
+            document.body.appendChild(a);
+            a.click(); /* 捕获阶段全局监听器应拦下 → 提升到顶层框架整页打开 */
+          }, hoistUrl);
+        } catch { break; /* frame 已随顶层导航销毁 */ }
+        topHit = await withTimeout(
+          page8.waitForURL(/probe-hoist/, { timeout: 4000 }).then(() => true).catch(() => false),
+          5000, "T8 hoist nav");
+      }
+      gate("T8a 外链提升：顶层整页跳转（拒绝连接修复）", topHit,
+        (page8.url() || "").slice(0, 70));
+    } else {
+      gate("T8 外链提升流程", false, "app frame not found");
+    }
+  } catch (e8) {
+    gate("T8 外链提升流程", false, String(e8).slice(0, 120));
+  } finally {
+    try { await page8.close(); } catch { }
+  }
 
   /* ---------- T2 关于分区按钮在场 ---------- */
   const settingsBtn = appFrame.locator('nav[aria-label="快捷操作"] button[aria-label*="设置"]').first();

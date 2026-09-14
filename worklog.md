@@ -230,3 +230,22 @@ Stage Summary:
 - 「检查更新」落地：用户可随时手动拉取云端新版，下载进度与结果即时可见，一键启用；云推 v8.4.8 上线，存量装机 ≤6h 自愈
 - 新律：①扩展 origin 文档子资源 referrer 恒空——SW 供数判定禁依赖 referrer，一律按路径+命中查库 ②探针 app/ext-bg 双镜像重定向 + profile 白纸双纪律 ③storage 状态回写键必须显式包键，平铺写=键不存在 ④子路径页面 SW 无扩展 API，只有 IDB
 - 待办：Edge 商店提交材料仍未做
+
+---
+Task ID: 109
+Agent: main (Super Z)
+Task: 用户「为什么会出现点击快捷服务后显示网页拒绝连接」——v8.4.8 补「外链提升」修复并重发
+
+Work Log:
+- 【根因】v8.4.5 壳架构副作用实锤：新标签页顶层是 shell.html，应用整体跑在其全屏 iframe 里（本地直载/cs-snap 快照同为扩展 origin）。QuickLinks 磁贴是普通 <a href>（无 target），点击默认只在 iframe 内导航；主流站点几乎都带 X-Frame-Options: DENY/SAMEORIGIN（或 CSP frame-ancestors），Chrome 拒绝被嵌 → 整页「xxx 拒绝了我们的连接请求」（REFUSED_TO_CONNECT）。v8.4.4 前应用本身是顶层文档（整页跳转）故无此问题；中键/Ctrl 点击开新标签页一直正常，所以「时灵时不灵」
+- 【修复·nav.ts】新建 src/lib/startpage/nav.ts：inExtIframe()（chrome.runtime.id + self!==top，跨域访问 top 抛异常也算在 iframe）+ openExternalUrl(url, newTab)（扩展壳 iframe 内 → window.top.location.href 提升到顶层整页打开，同源 chrome-extension 可直写；newTab → window.open 开顶层新标签；跨域父页兜底 window.open；网页版保持 location.assign 行为不变）
+- 【修复·全出口】磁贴（QuickLinks onClick 左键无修饰键时 preventDefault+提升，编辑态/长按逻辑不受影响，锚点加 data-cl-tile 标记）；page.tsx 四处（runSearch / 沙箱 open / 预设 open / openUrlFromPage）；SearchBar navigate()（保留 newTab 设置）；CommandPalette 三处（搜索引擎/打开网址/链接）；另挂 page.tsx 全局捕获监听兜底散落 <a>（WeatherPanel 数据源链接等；跳过 data-cl-tile / _blank / 修饰键 / 非 http(s)）
+- 【探针】probe-v848.mjs 增 T8：独立标签页（必须在 T4 翻面前跑——v99 假快照页无监听器）；T8b 以 a[data-cl-tile] 出现为水合信号（SSR 静态 HTML 有子节点≠水合，首版 T8 在 effect 挂监听器前点击而假阴）；T8a 动态锚点点击 → 顶层整页跳 mock（page.waitForURL /probe-hoist/）。18 门 ALL-GREEN（T1 boot/T2 按钮在场+日志首条/T3 已是最新/T4 手动下载→updated/T5 旧通道静默/T6 快照直载+mark.js/T7 pageerror=0/T8 提升）
+- 【云推补课】上轮（Task 108）v8.4.8 已推过 gh-pages（316b7c6=旧构建 buildId mUISk0s…）；本轮新构建（buildId Rnm3fNz…）重推 d6b447e——deploy 收敛轮询只比对 v 字段，同版本号双推时被旧清单骗过，首轮 verify 拿新 zip 对旧清单报 7 BAD（404/sha 不符）；等 Pages 二次收敛后全量 verify 70 文件 ALL-GREEN
+- 【交付重建】更新说明-v8.4.8.txt 补「拒绝连接修复」条目；SHA256SUMS 重算；v8.4.8-交付包.zip 重打（zip+cshz+说明+校验）；文叔叔重传（public https://c.wss.ink/f/kvhiicrm2j1）
+- 【坑录】①SSR 静态导出「body 有子节点」≠水合完成，effect 挂的监听器要等水合信号 ②同版本号云推二次收敛必须以清单内容（buildId 目录名）而非 v 字段为准 ③verify-cloud-mirror fetch 的是线上 version.json 对本地 zip，两端构建不一致时 BAD 列表=新旧清单差集
+
+Stage Summary:
+- 用户报告的「快捷服务拒绝连接」根治：所有外链出口（磁贴/搜索/指令面板/预设/沙箱/散落锚点）在扩展壳内一律提升到顶层整页打开，行为与 v8.4.4 前一致；网页版零影响
+- 云端 v8.4.8 重推收敛（70 文件 SHA256 ALL-GREEN），存量 8.4.5~8.4.7 装机 ≤6h 自动获得本修复（页面通道，无需换包）
+- 新交付包已重传文叔叔，内含检查更新+拒绝连接修复双项

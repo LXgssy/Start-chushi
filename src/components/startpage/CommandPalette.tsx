@@ -41,6 +41,7 @@ import {
   Sun,
 } from "lucide-react";
 import { ENGINES, looksLikeUrl, toUrl } from "@/lib/startpage/engines";
+import { openExternalUrl } from "@/lib/startpage/nav";
 import type { InstalledPreset, PresetAction, PresetPayload } from "@/lib/startpage/preset";
 import type { StartLink } from "@/lib/startpage/types";
 
@@ -263,7 +264,7 @@ function PaletteInner({
                             onSelect={() =>
                               exec(() => {
                                 onClose();
-                                window.location.href = e.search(q);
+                                openExternalUrl(e.search(q)); // v8.4.8：壳内提升到顶层
                               })
                             }
                             className={ITEM_CLASS}
@@ -280,7 +281,7 @@ function PaletteInner({
                             value={`open-url-${q}`}
                             onSelect={() =>
                               exec(() => {
-                                window.location.href = toUrl(q);
+                                openExternalUrl(toUrl(q)); // v8.4.8：壳内提升到顶层
                               })
                             }
                             className={ITEM_CLASS}
@@ -351,7 +352,7 @@ function PaletteInner({
                             value={`link-${l.name}-${l.url}`}
                             onSelect={() =>
                               exec(() => {
-                                window.location.href = l.url;
+                                openExternalUrl(l.url); // v8.4.8：壳内提升到顶层
                               })
                             }
                             className={ITEM_CLASS}

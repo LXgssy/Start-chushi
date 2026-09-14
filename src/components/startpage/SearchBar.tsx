@@ -5,6 +5,7 @@ import * as Popover from "@radix-ui/react-popover";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, Check, ChevronDown, Search } from "lucide-react";
 import { ENGINES, getEngine, looksLikeUrl, toUrl } from "@/lib/startpage/engines";
+import { openExternalUrl } from "@/lib/startpage/nav";
 import type { Settings } from "@/lib/startpage/types";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
@@ -135,8 +136,8 @@ function SearchBar({
   }, [query, focused, suggestOn]);
 
   function navigate(url: string, newTab: boolean) {
-    if (newTab) window.open(url, "_blank");
-    else window.location.assign(url);
+    // v8.4.8：扩展壳 iframe 内提升到顶层框架（拒绝连接修复）；网页版行为不变
+    openExternalUrl(url, newTab);
   }
 
   function submit(newTab: boolean, word?: string) {
