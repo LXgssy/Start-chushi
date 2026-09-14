@@ -112,6 +112,30 @@ async function serveSnap(path) {
   });
 }
 
+/* —— v8.4.8 免 referrer 子资源供数 ——
+ * 受控 client（快照文档）发出的同源请求，凡路径命中快照文件即由 IDB
+ * 供数；未命中返回 null（调用方穿透网络/包内真文件）。
+ * 背景：Chromium（chromium-1234+ 探针实录）对扩展 origin 文档的子资源
+ * 请求 referrer 为空——v8.4.5~8.4.7 的 referrer 判定分支永不命中，快照
+ * 子资源穿透网络 ERR_FILE_NOT_FOUND（diag-swtrace: fe /mark.js ref=EMPTY）。
+ * 嵌入版/壳页不在本 SW 作用域内（非受控 client），其请求不进本 handler，
+ * 与包内真文件零冲突。 */
+async function serveSnapIfAny(path) {
+  const key = String(path || "").split("?")[0];
+  if (!key) return null;
+  const meta = await snapMeta();
+  if (!meta || !meta.v) return null;
+  const buf = await snapFile(meta.v, key);
+  if (buf == null) return null;
+  return new Response(buf, {
+    headers: {
+      "Content-Type": contentTypeOf(key),
+      "Cache-Control": "no-store",
+      "X-Chushi-Snap": meta.v,
+    },
+  });
+}
+
 self.addEventListener("install", (e) => self.skipWaiting());
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
 
@@ -132,15 +156,20 @@ self.addEventListener("fetch", (e) => {
     return;
   }
 
-  /* 2) 快照文档发出的根相对子资源（referrer 判定改写） */
-  if (req.referrer) {
+  /* 2) 快照文档的根相对子资源（v8.4.8 免 referrer 硬化）：受控 client 的
+     同源请求按路径查快照，命中即 IDB 供数，未命中穿透网络/包内真文件。
+     沙箱特权页保持豁免（SW 合成挂死实证）；v8.4.5~8.4.7 的 referrer
+     判定分支退役（新 Chromium referrer 恒空，见 serveSnapIfAny 注）。
+     嵌入版/壳页非受控 client，请求不进本 handler，零冲突。 */
+  let seg = "";
+  try { seg = decodeURIComponent(url.pathname.replace(/^\/+/, "")).split("?")[0]; }
+  catch (_) { return; }
+  if (seg === "sandbox.html" || seg === "sandbox.js") return;
+  e.respondWith((async () => {
     try {
-      const ref = new URL(req.referrer);
-      if (ref.origin === self.location.origin && ref.pathname.startsWith(SNAP_PREFIX)) {
-        e.respondWith(serveSnap(decodeURIComponent(url.pathname.replace(/^\/+/, ""))));
-        return;
-      }
-    } catch (_) { /* referrer 异常：直通 */ }
-  }
-  /* 其余：零打扰直通 */
+      const hit = await serveSnapIfAny(seg);
+      if (hit) return hit;
+    } catch (_) { /* 快照读失败：穿透 */ }
+    return fetch(req);
+  })());
 });

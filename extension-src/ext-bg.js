@@ -388,6 +388,15 @@ const SNAP_PERIOD_MIN = 360; /* 6h——云端迭代频度远低于此，代价�
 const SNAP_DB = "chushi-snap";
 let snapChecking = false;
 
+/* v8.4.8：手动检查的过程回写（storage.local.csSnapStatus）——UI「检查更新」
+   按钮的结果反馈通道（checking/downloading/updated/latest/error）；自动
+   检查（6h/启动/装机）保持静默，不打扰面板。旧壳读此键零依赖，仅新增。 */
+function snapStatus(st) {
+  try {
+    chrome.storage.local.set({ csSnapStatus: Object.assign({ at: Date.now() }, st) }, () => void chrome.runtime.lastError);
+  } catch (_) { /* noop */ }
+}
+
 /* 防重置律：MV3 SW 每次唤醒都跑顶层代码——alarms.create 无条件调用会把
    计时器归零（经典永不触发 bug），必须先 get 再 create。 */
 chrome.alarms.get(SNAP_ALARM, (a) => {
@@ -396,7 +405,12 @@ chrome.alarms.get(SNAP_ALARM, (a) => {
 chrome.alarms.onAlarm.addListener((a) => { if (a && a.name === SNAP_ALARM) void snapCheck(); });
 chrome.runtime.onInstalled.addListener(() => { setTimeout(() => void snapCheck(), 5000); });
 chrome.storage.onChanged.addListener((ch, area) => {
-  if (area === "local" && ch && ch.csSnapCheck) void snapCheck();
+  if (area !== "local" || !ch || !ch.csSnapCheck) return;
+  /* v8.4.8：{ manual: true } = UI「检查更新」按钮触发 → snapCheck 全程
+     回写 csSnapStatus；旧值（探针写的时间戳等）保持静默，行为不变。 */
+  const nv = ch.csSnapCheck.newValue;
+  const manual = !!(nv && typeof nv === "object" && nv.manual === true);
+  void snapCheck(manual);
 });
 
 function snapCmpVer(a, b) {
@@ -467,15 +481,21 @@ function snapPruneVersions(db, keepV) {
    快照静默卡加载。改用「属性空格前置 =」免疫态（build-extension.py 2.7 段，
    src ="/next/…" 合法 HTML 且绕过一切属性改写），载荷按原样字节入库。 */
 
-async function snapCheck() {
+async function snapCheck(manual) {
   if (snapChecking) return;
   snapChecking = true;
   let db = null;
+  let gotManifest = false; /* 至少一个镜像吐出合法 version.json（区分断网与已最新） */
+  let outcome = ""; /* "" | "updated" | "download-error" */
+  let lastV = null;
+  let floorVer = ""; /* 本地地板 = max(内嵌版, 快照 meta)，供 finally 回写（try 内 const 不可见） */
   try {
+    if (manual) snapStatus({ state: "checking" });
     db = await snapOpenDb();
     const meta = await snapKvGet(db, "meta");
     const bundleVer = chrome.runtime.getManifest().version;
     const floor = meta && meta.v && snapCmpVer(meta.v, bundleVer) > 0 ? meta.v : bundleVer;
+    floorVer = floor;
     for (const mirror of SNAP_MIRRORS) {
       let manifest = null;
       try {
@@ -486,12 +506,15 @@ async function snapCheck() {
         if (r.ok) manifest = await r.json();
       } catch { /* 断网/被墙：静默 */ }
       if (!manifest || !manifest.v || !Array.isArray(manifest.files) || !manifest.files.length) continue;
+      gotManifest = true;
       if (snapCmpVer(manifest.v, floor) <= 0) continue; /* 严格更新才动（永不降级） */
       const v = String(manifest.v);
+      lastV = v;
       const files = manifest.files.filter((f) => f && typeof f.p === "string" && /^[\w./-]+$/.test(f.p));
       if (!files.length) continue;
-      /* 并发下载（限 4 路）+ 尺寸校验 + HTML 改写 */
-      let cursor = 0, failed = false;
+      /* 并发下载（限 4 路）+ 尺寸校验；手动检查逐文件回写进度 */
+      let cursor = 0, failed = false, done = 0;
+      const total = files.length;
       async function worker() {
         while (!failed) {
           const i = cursor++;
@@ -505,17 +528,27 @@ async function snapCheck() {
               throw new Error("size " + f.p + " " + buf.byteLength + "!=" + f.s);
             }
             await snapFilesPut(db, v, f.p, buf);
+            done += 1;
+            if (manual) snapStatus({ state: "downloading", v, done, total });
           } catch { failed = true; }
         }
       }
       await Promise.all(Array.from({ length: Math.min(SNAP_CONCURRENCY, files.length) }, worker));
-      if (failed) continue; /* 半途失败：不提交 meta，壳侧零感知；下轮再试 */
+      if (failed) { outcome = "download-error"; continue; } /* 半途失败：不提交 meta，壳侧零感知；下轮再试 */
       await snapMetaPut(db, { v, files: files.map((f) => ({ p: f.p, s: f.s || 0 })), at: Date.now() });
       await snapPruneVersions(db, v);
+      outcome = "updated";
       break; /* 本次检查只吃一个镜像 */
     }
-  } catch { /* IDB 不可用等：静默 */ }
-  finally {
+  } catch {
+    outcome = outcome || "download-error"; /* IDB 不可用等异常：按失败上报 */
+  } finally {
+    if (manual) {
+      if (outcome === "updated") snapStatus({ state: "updated", v: lastV });
+      else if (outcome === "download-error") snapStatus({ state: "error", err: "download", v: lastV });
+      else if (gotManifest) snapStatus({ state: "latest", v: floorVer || lastV || "" });
+      else snapStatus({ state: "error", err: "network" });
+    }
     try { if (db) db.close(); } catch { /* noop */ }
     snapChecking = false;
   }
