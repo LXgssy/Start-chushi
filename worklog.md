@@ -190,3 +190,23 @@ Stage Summary:
 - 首个完整走「云推」链的版本：改码→构建→deploy-cloud-mirror.sh→CI Release，未发任何新 crx 给存量用户（他们 6h 内自动升级）
 - 新律：①原生 <a> 拖拽与 dnd-kit 激活阈值存在竞态，凡是 dnd-kit 拖锚点元素必须 draggable={false}+dragstart preventDefault ②DragOverlay dropAnimation 期间子树冻结但 MotionValue 引用仍活——浮层落地过渡一律走 MV 不走 animate 属性 ③worktree 清单门必须豁免 .git 指针文件 ④探针跨功能段必须验证前段遮罩清理（z-30 backdrop 教训）
 - 待办：用户实机验收（云推 6h 内到位）；Edge 商店提交材料仍未做
+
+---
+Task ID: 107
+Agent: main (Super Z)
+Task: 用户「现在网页版进不去，扩展包新开网页也一直卡在加载页面，修复这个问题」——v8.4.7 云推修复
+
+Work Log:
+- 【取证】线上镜像 v8.4.6 载荷=裸构建产物：index.html 根绝对 /next/* 引用在 github.io 子路径全 404 → 网页版白屏实锤（Playwright 线上复现 ~18 个 404）
+- 【复现】真实 v8.4.5 包（git 提交版）+ 真实 ext-bg 更新器全链复现用户卡死：更新器下载 70 文件正常、快照导航 200 + X-Chushi-Snap、全部静态资源 200、TURBOPACK 全局在、flight 六段全推——但 __next_f 六段永不消费、pulse 占位符永驻 = 静默卡死
+- 【根因】bootdiff 逐拍对照 + 运行时块逆向：Turbopack 运行时块内硬编码分块键前缀 t="/next/"（构建期 basePath），注册键=脚本标签 src 属性剥 "/next/"、加载键=编译期相对路径（static/chunks/…，描述符 otherChunks 同）——ext-bg snapRewriteHtml 把标签改成 /cs-snap/next/… 后注册键剥离失败 → 引导分块（otherChunks→runtimeModuleIds 94553）永不 resolve → 排水器（1b722dc 内 DOMContentLoaded 分支）永不跑 → 静默卡死。二分实验：X2 真实文件子路径+根解析=BOOT（子路径无罪）、X4 respondWith 重包装=BOOT（SW 合成无罪），毒=改写后键失配
+- 【修复】载荷「属性空格前置 =」免疫态：src ="/next/…" 合法 HTML 且恰好绕过 (src|href)=("|')\/ 改写正则 → 旧壳/新壳下载后标签保持字面 /next/…，快照子资源经 referrer 分支从 IDB 原样供数，键空间与根路径一致 → 启动恢复；ext-bg snapRewriteHtml 退役（字节原样入库）；免疫态门进 build 防呆（未逃逸根绝对引用零容忍）
+- 【网页版回归】/web/ basePath 独立构建（next.config BASE_PATH 参数化 NEXT_PUBLIC_BASE_PATH）与载荷同仓共存零碰撞；镜像根 hostname 门重定向（ext-script-1，扩展内零打扰）——首版重定向用绝对引用在镜像根 404 永不执行，改相对引用后全通
+- 【验证】final-gate：真实 8.4.5 壳 × 真实改写语义 × 真实 cs-snap SW → BOOT ✓；线上镜像端到端（真实更新器直连 lxgssy.github.io）：meta v=8.4.7 70 文件、快照 200 X-Chushi-Snap=8.4.7、快照出 UI ✓；网页版出 UI ✓；verify-cloud-mirror 70 文件 SHA256 全绿
+- 【发布】gh-pages 重推（70 文件+web/+.nojekyll，部署脚本补 .nojekyll 自动落+web/ 同部署+清单门豁免 web/）；main faa52f0+f20ec17；tag v8.4.7 CI success（run 34821299188）；Release 5 资产（crx 12379974B / zip 12374275B / 快照 12291918B 修复后重传 / 中文说明 / SHA256SUMS 三资产）+ 正文 PATCH
+- 【坑录】①工作树被外部还原到 9 月初旧版（build-extension.py 退回 v1.2.0 古董、-3785 行）——git checkout -- . 恢复，HEAD 是好的，已发布产物未受污染 ②Node URL 对 chrome-extension:// scheme 返回 origin=null ③探针种子忘 TextEncoder → 字符串 .buffer=undefined → IDB 全空值假象 ④载荷级内联注入插 <head> 最前会把 charset meta 顶出 1024 字节窗口（必须放 meta 后）⑤A1b FAIL 为探针姿势伪影（在壳页查 iframe 内 UI）
+
+Stage Summary:
+- 用户双病根治：扩展卡加载（8.4.6 快照键失配）+ 网页版 404（绝对路径×子路径）——全部走云推修复，存量用户 ≤6h 自愈，无需换包
+- 新律：①Turbopack 构建的引导分块键=「脚本标签 src 属性剥运行时硬编码前缀」，任何属性改写/前缀变换都会静默卡死引导，载荷必须免疫一切文本改写 ②载荷 HTML 属性免疫态（空格前置=）是唯一兼容新旧壳的通道 ③镜像根=载荷+hostname 门重定向 /web/，网页版与载荷共存
+- 用户侧预期：≤6h 新标签页自动恢复 v8.4.7（更新日志显示 8.4.7 条目）；网页版直接可访问
