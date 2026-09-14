@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.4.9",
+    date: "2026-09-14",
+    title: "快捷服务外链回归 · 云端更新链路打通",
+    channel: "page",
+    highlights: [
+      "快捷服务与搜索跳转不再显示「拒绝连接」：壳内所有外链出口统一改为顶层整页打开",
+      "云端更新链路打通：此后的页面更新自动发布，装机端点「设置 → 关于 → 检查更新」即可拉到",
+    ],
+  },
+  {
     version: "8.4.8",
     date: "2026-09-14",
     title: "检查更新 · 升级由你掌握",
