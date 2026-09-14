@@ -57,6 +57,8 @@ for dp, _, fns in os.walk("."):
         continue
     for fn in fns:
         p = os.path.relpath(os.path.join(dp, fn))
+        if p == ".git" or p.startswith(".git/"):  # worktree 的 .git 指针文件
+            continue
         if p not in mf and p != "version.json":
             extra.append(p)
 if bad or extra:

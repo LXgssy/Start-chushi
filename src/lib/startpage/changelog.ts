@@ -22,7 +22,36 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.4.6",
+    date: "2026-09-13",
+    title: "更新日志焕新 · 拖拽手感打磨",
+    channel: "page",
+    highlights: [
+      "更新日志界面重设计：时间线版式、版本节点、通道徽标与级联入场",
+      "拖拽排序手感优化：拖动全程零整列重渲染，落位与浮层无缝交接，消除复位顿挫",
+    ],
+  },
+  {
+    version: "8.4.5",
+    date: "2026-09-13",
+    title: "本地直载壳 · 云端静默更新",
+    channel: "page",
+    highlights: [
+      "新标签页本地直载：启动零网络、断网完整可用，实测毫秒级秒开",
+      "云端更新转后台静默：定期自动检查、严格更新永不降级，无感升级",
+      "地址栏收敛为纯扩展地址，不再出现一串云端网址",
+    ],
+  },
+  {
+    version: "8.4.4",
+    date: "2026-09-13",
+    title: "壳桥双向同步",
+    channel: "page",
+    highlights: ["面板与浮窗的开关经壳桥实时互相同步，任一侧切换另一侧立即跟随"],
+  },
+  {
     version: "8.4.3",
+    date: "2026-09-13",
     title: "拖拽动画再打磨",
     channel: "page",
     highlights: [
@@ -36,6 +65,7 @@ export const CHANGELOG: ChangelogEntry[] = [
   },
   {
     version: "8.4.2",
+    date: "2026-09-13",
     title: "拖拽浮层飞出屏幕根治",
     channel: "page",
     highlights: [
@@ -44,6 +74,7 @@ export const CHANGELOG: ChangelogEntry[] = [
   },
   {
     version: "8.4.1",
+    date: "2026-09-13",
     title: "快捷服务图标免梯子 · 拖拽排序换新动画",
     channel: "page",
     highlights: [
