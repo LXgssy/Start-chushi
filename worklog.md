@@ -171,3 +171,22 @@ Stage Summary:
 - 云推全链定稿：改 VERSION → bun build → build-extension.py（第 7 段产载荷）→ deploy-cloud-mirror.sh → 装机端 ≤6h 静默自更新；crx/zip 由 tag 触发 CI 产出
 - 新律：gh-pages 根已被云镜像占用，网页版构建不再部署该分支（恢复须另选分支/前缀）；CI 重建产物与本地构建字节级不同，SHA256SUMS 必须以「实际发布资产」回算而非本地构建物
 - 用户从此更新路径：装机端后台自动云推（≤6h/启动时）；手动渠道=Release 页 crx
+
+---
+Task ID: 106
+Agent: main (Super Z)
+Task: 用户「再美化一下更新日志的页面，让它看起来更高级，然后优化一下拖拽快捷服务时的手感以及动画，让动画不要出现卡手以及动画复位卡顿」——v8.4.6 云推
+
+Work Log:
+- 【更新日志重设计】ChangelogDialog 时间线版式：左侧版本轨道（最新=强调色节点+光晕，历史=灰阶空心节点，轨道线 accent 35% 渐隐）、首条「最新」徽标、日期右齐、通道徽标（page=accent 淡底 / shell=zinc）、条目级联入场（stagger 35ms 弹簧上浮）、滚动区上下 14px 渐隐遮罩、页眉 overline+强调色渐变分隔线；changelog.ts 补 8.4.4/8.4.5/8.4.6 三条 + 近期版本日期
+- 【卡手实锤】probe-drag-debug.mjs 取证：磁贴 <a> 的原生链接拖拽（Chrome drag 阈值 ~4px）先于 dnd-kit MouseSensor 6px 激活阈值触发，dragstart 一出 pointer 流被原生拖拽征用（事件流实证 dragstart@A 后 move 全打在拖拽影像层 DIV 上）——磁贴时灵时不灵/卡手真身；修法：磁贴 a 加 draggable={false}+onDragStart preventDefault，dnd-kit 稳定接管（对照实验：拦下 dragstart 浮层即活）
+- 【复位顿挫根治】旧版两层硬切：①DragOverlay dropAnimation 期间子树冻结，抬起态（scale1.07+光晕+厚影+倾斜）冻到落地瞬间硬切磁贴静置态 → 抬起态三件套全改 motion value（liftScale/glowO/shadowO useSpring），MotionValue 绑定穿越冻结子树，松手 set(1/0/0) 与 300ms 飞回同频，落地=静置外观零跳变（厚影从图标 boxShadow 拆出独立层才可淡出）②磁贴「凹槽⇄本体」320ms 延迟挂载硬切 → 磁贴常驻不卸载（拖拽期透明+穿透），松手 160ms 淡入与凹槽 150ms 淡出交叉，settlingId 状态整体退役
+- 【跟手】Tile memo 化 + enterEdit/removeLink useCallback（此前每次跨格 setLinks 整列磁贴全量重渲染+framer 全量重测布局）+ 浮层 will-change 合成层提升；TileIcon/TileVisual 的 lifted 死参数清理
+- 【坑录】①glow/shadow 的 MotionValue 绑在普通 span 上 TS2322 且运行时不生效，必须 motion.span ②deploy-cloud-mirror.sh 清单门误报 worktree 的 .git 指针文件，补 .git 豁免 ③探针 T1 后设置面板未关，其全屏 z-30 遮罩吃掉后续拖拽事件（T2-pre 磁贴可达门防复发）④headless 软渲染 rAF 绝对帧距无意义，T5 改对比法（拖拽期长帧 ≤ 空闲基线+6）⑤外层 /home/z 工作区 scripts 被外部清理——真树 /tmp 为准
+- 【验证】probe-v846.mjs 16 门 ALL-GREEN：更新日志 6 门（弹窗/v8.4.6 首条/最新徽标/26 条/日期/ESC）+ 拖拽 10 门（可达/浮层挂 body+will-change/凹槽在位/被拖磁贴隐身/跨格重排/浮层凹槽零残留/长帧对比/pageerror=0）；截图核验暗色时间线与拖拽中态
+- 【云推+发布】VERSION 8.4.6 → 重打包（zip 11.8MB+快照 69 文件）→ deploy-cloud-mirror.sh 8.4.6（清单门过、gh-pages b31bd0a→e9c53b1、Pages 收敛、69 文件尺寸+SHA256 全量核验 ALL-GREEN）→ tag v8.4.6 CI success → Release 5 资产（crx 12379468B/zip 12373718B/快照/说明/SHA256SUMS）+ 中文正文；main d7f4917
+
+Stage Summary:
+- 首个完整走「云推」链的版本：改码→构建→deploy-cloud-mirror.sh→CI Release，未发任何新 crx 给存量用户（他们 6h 内自动升级）
+- 新律：①原生 <a> 拖拽与 dnd-kit 激活阈值存在竞态，凡是 dnd-kit 拖锚点元素必须 draggable={false}+dragstart preventDefault ②DragOverlay dropAnimation 期间子树冻结但 MotionValue 引用仍活——浮层落地过渡一律走 MV 不走 animate 属性 ③worktree 清单门必须豁免 .git 指针文件 ④探针跨功能段必须验证前段遮罩清理（z-30 backdrop 教训）
+- 待办：用户实机验收（云推 6h 内到位）；Edge 商店提交材料仍未做
