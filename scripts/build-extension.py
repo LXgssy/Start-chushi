@@ -62,7 +62,7 @@ OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
 EXT_SRC = ROOT / "extension-src"    # v8.2.0 SW/内容脚本源
-VERSION = "8.4.6"
+VERSION = "8.4.7"
 DEST = ROOT / f"download/v{VERSION}/ChuShi-NewTab-v{VERSION}.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():
@@ -80,6 +80,14 @@ shutil.copytree(OUT, STAGE, dirs_exist_ok=True)
 
 # 2) index.html 内联脚本外置（theme 引导 + Next Flight 数据），MV3 普通页禁内联脚本
 html = (STAGE / "index.html").read_text(encoding="utf-8")
+# v8.4.7 网页版回归引导：载荷 index.html 被浏览器直接访问（github.io 镜像根）
+# 时重定向到 /web/（basePath 独立构建的网页版）。扩展内/快照内 hostname 是
+# 扩展 ID，条件恒假 = 零打扰。外置后成为 ext-script 首脚本，先于一切应用脚本。
+html = html.replace(
+    "<head>",
+    '<head><script>(function(){if(location.hostname==="lxgssy.github.io")location.replace("web/")})();</script>',
+    1,
+)
 scripts = re.findall(r"<script>(.*?)</script>", html, re.S)
 n = 0
 for code in scripts:
@@ -126,6 +134,27 @@ for p in sorted(STAGE.rglob("*"), key=lambda x: len(x.parts), reverse=True):
     p.rename(p.parent / p.name.lstrip("_"))
     renamed += 1
 print(f"保留名改造: 目录/文件改名 {renamed} 个")
+
+# 2.7) v8.4.7 快照启动修复（本次事故根因）：Turbopack 运行时块内硬编码
+#   分块键前缀 t="/next/"（构建期 basePath），注册键=脚本标签 src 属性剥
+#   "/next/"，加载键=编译期相对路径（"static/chunks/…"）——两者必须在字面
+#   "/next/" 前提下才相等。v8.4.5~8.4.6 的 ext-bg snapRewriteHtml 把快照
+#   HTML 的 src/href 前缀成 /cs-snap/next/… → 注册键剥离失败 → 引导分块
+#   永不 resolve → 快照静默卡加载（探针 final-gate 实证）。
+#   修法=「属性空格前置 =」免疫态：src ="/next/…" 是合法 HTML 且恰好绕过
+#   (src|href)=("|')\/ 改写正则 → 旧壳/新壳下载后标签保持字面 /next/…，
+#   快照文档的一切 /next/* 子资源经 cs-snap SW referrer 分支从 IDB 原样供
+#   数，键空间与根路径完全一致 → 启动恢复。对包内 HTML 同样生效（根路径
+#   语义等价），包/载荷单文件同源。
+_patched = 0
+for _hp in STAGE.rglob("*.html"):
+    _ht = _hp.read_text(encoding="utf-8")
+    _ht2 = re.sub(r'(\ssrc)="(/(?!/))', r'\1 ="\2', _ht)
+    _ht2 = re.sub(r'(\shref)="(/(?!/))', r'\1 ="\2', _ht2)
+    if _ht2 != _ht:
+        _hp.write_text(_ht2, encoding="utf-8")
+        _patched += 1
+print(f"免疫态改写: {_patched} 个 HTML 的根绝对 src/href 已前置空格")
 
 # 3) manifest.json（相对路径引用，扩展根即站点根）
 manifest = {
@@ -339,6 +368,13 @@ if [s for s in re.findall(r"<script>(.*?)</script>", _html, re.S) if s.strip()]:
     sys.exit("index.html 残留内联脚本（MV3 CSP 必拦）")
 if '"/_next' in _html or "/_next/" in _html:
     sys.exit("index.html 残留 /_next 引用——替换漏网")
+# v8.4.7 门：免疫态必须完整——任何未前置空格的根绝对 src/href 都会被旧版
+# 更新器改写 → 快照键失配 → 卡加载（本次事故）。零容忍。
+_leak = re.findall(r'(src|href)="(/(?!/))', _html)
+if _leak:
+    sys.exit(f"index.html 存在 {len(_leak)} 处未免疫根绝对引用——改写漏网")
+if 'src ="' not in _html:
+    sys.exit("index.html 缺免疫态引用——空格前置未生效")
 # v8.2.0 门：manifest 必含 background + content_scripts + 频谱端口
 _m = json.loads((STAGE / "manifest.json").read_text(encoding="utf-8"))
 if "background" not in _m or "service_worker" not in _m["background"]:

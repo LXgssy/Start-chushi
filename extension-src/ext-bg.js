@@ -369,8 +369,8 @@ chrome.runtime.onConnect.addListener((port) => {
  *   1) 定期比对云端 version.json（镜像列表 SNAP_MIRRORS；缺文件/断网/
  *      版本不更新 → 静默 no-op，新标签页流程零感知）；
  *   2) 发现【严格更新】版本 → 后台并发下载文件集（限 4 路，尺寸校验，
- *      HTML 文本改写 /cs-snap/ 前缀双保险之一）→ IndexedDB（库
- *      chushi-snap）；
+ *      v8.4.7 起字节原样入库——载荷 HTML 自带改写免疫态，见 2.7 段说明）
+ *      → IndexedDB（库 chushi-snap）；
  *   3) 全部落库成功 → 原子提交 meta（meta 是开关，半途失败永不提交，
  *      壳侧永远只见完整版本）→ 清理旧版本文件；
  *   4) 下一个新标签页起，壳把 iframe 指向 /cs-snap/index.html，子路径
@@ -461,18 +461,11 @@ function snapPruneVersions(db, keepV) {
   });
 }
 
-/* HTML 文本改写（双保险之一）：构建产物 HTML 的引用是根绝对（/ext-script-N.js、
-   /next/...）——快照虚拟目录在 /cs-snap/ 下，改写后静态引用直接落进快照 SW
-   作用域；运行时动态请求由 SW 的 referrer 分支兜底。仅 *.html。 */
-function snapRewriteHtml(buf) {
-  try {
-    const txt = new TextDecoder("utf-8").decode(buf);
-    const out = txt.replace(/(src|href)(=("|')|=\s*)\/(?!\/)/gi, "$1$2/cs-snap/");
-    return new TextEncoder().encode(out).buffer;
-  } catch {
-    return buf; /* 改写失败不致命：SW referrer 分支兜底 */
-  }
-}
+/* v8.4.7：HTML 文本改写已退役。事故根因：Turbopack 运行时块内硬编码分块键
+   前缀 t="/next/"（构建期 basePath），注册键=脚本标签 src 属性剥 "/next/"，
+   加载键=编译期相对路径——前缀改写让两者失配 → 引导分块永不 resolve →
+   快照静默卡加载。改用「属性空格前置 =」免疫态（build-extension.py 2.7 段，
+   src ="/next/…" 合法 HTML 且绕过一切属性改写），载荷按原样字节入库。 */
 
 async function snapCheck() {
   if (snapChecking) return;
@@ -511,7 +504,6 @@ async function snapCheck() {
             if (Number.isFinite(f.s) && f.s > 0 && buf.byteLength !== f.s) {
               throw new Error("size " + f.p + " " + buf.byteLength + "!=" + f.s);
             }
-            if (/\.html?$/i.test(f.p)) buf = snapRewriteHtml(buf);
             await snapFilesPut(db, v, f.p, buf);
           } catch { failed = true; }
         }
