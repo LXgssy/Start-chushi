@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion, useReducedMotion, useSpring } from "framer-motion";
 import { Pencil, X } from "lucide-react";
@@ -52,13 +52,10 @@ function TileIcon({
   link,
   iconStyle,
   jiggle = false,
-  lifted = false,
 }: {
   link: StartLink;
   iconStyle: IconStyle;
   jiggle?: boolean;
-  /** 抬起态（拖拽浮层）：叠双层投影 + 内圈上缘受光，替代原来单层 drop-shadow */
-  lifted?: boolean;
 }) {
   const host = hostOf(link.url);
   const sources = useMemo(() => (host ? orderedIconSources(host) : []), [host]);
@@ -93,14 +90,6 @@ function TileIcon({
           ((hue + 40) % 360) +
           " 46% 50% / .14))",
         borderColor: "hsl(" + hue + " 44% 60% / .28)",
-        ...(lifted
-          ? {
-              /* 内圈上缘一道高光（受光边）+ 紧贴接触影 + 大范围环境影，
-                 比单层 drop-shadow 更「有厚度」，也随倾斜一起转 */
-              boxShadow:
-                "inset 0 1px 0 rgba(255,255,255,.22), 0 2px 4px -2px rgba(0,0,0,.30), 0 18px 34px -14px rgba(0,0,0,.50), 0 8px 16px -10px rgba(0,0,0,.32)",
-            }
-          : {}),
       }}
     >
       {showFavicon ? (
@@ -137,17 +126,15 @@ function TileVisual({
   link,
   iconStyle,
   jiggle = false,
-  lifted = false,
 }: {
   link: StartLink;
   iconStyle: IconStyle;
   jiggle?: boolean;
-  lifted?: boolean;
 }) {
   return (
     <>
       <motion.span
-        whileHover={jiggle || lifted ? undefined : { y: -4, scale: 1.06 }}
+        whileHover={jiggle ? undefined : { y: -4, scale: 1.06 }}
         transition={{ duration: 0.35, ease: EASE }}
         className="block cursor-grab active:cursor-grabbing"
       >
@@ -194,14 +181,14 @@ interface TileProps {
   link: StartLink;
   iconStyle: IconStyle;
   editing: boolean;
-  /** 刚落位（拖拽浮层还在飞回来的 300ms 内）：原位继续留空位，
-      否则真磁贴会在浮层落地前就出现，出现「两个磁贴重叠」 */
-  settling: boolean;
   onEnterEdit: () => void;
   onDelete: (id: string) => void;
 }
 
-function Tile({ link, iconStyle, editing, settling, onEnterEdit, onDelete }: TileProps) {
+/** memo 化（v8.4.6）：拖拽跨格只动数组顺序，未受影响磁贴的 props 恒等 →
+ *  React 直接跳过重渲染。此前每次跨格整列磁贴全量重渲染 + framer 全量
+ *  重测布局，是快速滑动时「卡手」的主力来源。 */
+const Tile = memo(function Tile({ link, iconStyle, editing, onEnterEdit, onDelete }: TileProps) {
   /* dnd-kit 只用来「跟踪指针 + 判定落点」：重排仍走数组 splice，
      位置动画仍由 framer 的 layout 承载（两层各管一段，transform 不打架）。
      故此处刻意不套用 sortable 的 transform/transition。 */
@@ -262,11 +249,23 @@ function Tile({ link, iconStyle, editing, settling, onEnterEdit, onDelete }: Til
       className="group relative select-none"
       {...listeners}
     >
-      {isDragging || settling ? (
-        <TilePlaceholder />
-      ) : (
+      {/* 真磁贴常驻不卸载（v8.4.6）：拖拽期间只「隐身」（透明 + 穿透），
+          松手立刻 160ms 淡入——浮层飞回落点即磁贴本体，交接无缝；
+          旧版是「凹槽 ⇄ 磁贴」硬切 + 320ms 延迟挂载，复位顿挫的来源 */}
+      <motion.div
+        animate={{ opacity: isDragging ? 0 : 1 }}
+        transition={{ duration: 0.16, ease: "easeOut" }}
+        style={{ pointerEvents: isDragging ? ("none" as const) : undefined }}
+      >
         <a
           href={link.url}
+          draggable={false}
+          onDragStart={(e) => {
+            /* 原生链接拖拽劫持（v8.4.6 探针实锤）：Chrome 原生 drag 阈值（~4px）
+               先于 dnd-kit 的 6px 激活阈值触发，dragstart 一出 pointer 流即被
+               原生拖拽征用——磁贴时灵时不灵、拖起来「卡手」的真身。 */
+            e.preventDefault();
+          }}
           onClick={(e) => {
             if (justEntered.current) {
               // 长按进入编辑的那次松手：只退出点击，不打开编辑器
@@ -295,7 +294,22 @@ function Tile({ link, iconStyle, editing, settling, onEnterEdit, onDelete }: Til
         >
           <TileVisual link={link} iconStyle={iconStyle} jiggle={editing} />
         </a>
-      )}
+      </motion.div>
+
+      {/* 凹槽垫层：拖拽期间盖在隐身磁贴的位置上，松手 150ms 淡出（与磁贴淡入交叉） */}
+      <AnimatePresence>
+        {isDragging && (
+          <motion.div
+            key="slot"
+            className="absolute inset-0"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0, transition: { duration: 0.15 } }}
+          >
+            <TilePlaceholder />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {editing ? (
         /* 编辑态：右上角删除键（短按磁贴即编辑，无需铅笔角标） */
@@ -333,7 +347,7 @@ function Tile({ link, iconStyle, editing, settling, onEnterEdit, onDelete }: Til
       )}
     </motion.div>
   );
-}
+});
 
 function QuickLinks({
   links,
@@ -351,8 +365,6 @@ function QuickLinks({
   const rootRef = useRef<HTMLDivElement>(null);
   const [editing, setEditing] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
-  /* 落位缓冲：浮层飞回期间（约 300ms）原位继续显示凹槽，避免与真磁贴重叠 */
-  const [settlingId, setSettlingId] = useState<string | null>(null);
   /* 网格高度形变盒（v1.7.4）：删/增磁贴跨排界时网格行数变化，容器高度此前瞬跳
      → justify-center 的整列内容（时钟/搜索）随之瞬移——「删除抖动」的第二根因。
      现由 ResizeObserver 测高 + 弹簧高度盒承接（与 Dock 面板同套 morph 律），
@@ -380,6 +392,13 @@ function QuickLinks({
      尊重 prefers-reduced-motion：勾了就完全不倾斜、不缩放。 */
   const reduceMotion = useReducedMotion();
   const tilt = useSpring(0, { stiffness: 240, damping: 26, mass: 0.5 });
+  /* 抬起态三件套（v8.4.6）：缩放 / 强调色光晕 / 厚投影全部走 motion value。
+     松手时三者同时弹回落位（1 / 0 / 0），与浮层 300ms 飞回同频——浮层落地
+     瞬间外观 == 磁贴静置外观，交接零跳变。旧版 scale 走 animate 属性，
+     dropAnimation 期间子树被冻结，抬起态原样冻到落地才硬切 = 复位顿挫。 */
+  const liftScale = useSpring(1, { stiffness: 420, damping: 34, mass: 0.9 });
+  const glowO = useSpring(0, { stiffness: 260, damping: 30 });
+  const shadowO = useSpring(0, { stiffness: 260, damping: 30 });
   const dragSample = useRef<{ x: number; t: number } | null>(null);
 
   /* 批量管理入口（v1.7.1）：右键菜单「批量管理磁贴」派发全局事件进入本模式——
@@ -410,6 +429,13 @@ function QuickLinks({
   function handleDragStart(e: DragStartEvent) {
     dragSample.current = null;
     tilt.set(0);
+    /* 拾起小弹跳：0.92 就位再弹到 1.07（jump 免掉 1→0.92 的反向插值） */
+    liftScale.jump(reduceMotion ? 1 : 0.92);
+    liftScale.set(reduceMotion ? 1 : 1.07);
+    glowO.jump(0);
+    glowO.set(0.26);
+    shadowO.jump(0);
+    shadowO.set(1);
     setActiveId(String(e.active.id));
   }
 
@@ -445,17 +471,21 @@ function QuickLinks({
   function handleDragEnd(_e: DragEndEvent) {
     dragSample.current = null;
     tilt.set(0); /* 松手即回正，落回时是水平落下的 */
-    const id = activeId;
+    /* 抬起态三件套同步弹回落位：与 300ms 飞回同频，落地 = 静置外观 */
+    liftScale.set(1);
+    glowO.set(0);
+    shadowO.set(0);
     setActiveId(null);
-    if (id) {
-      setSettlingId(id);
-      window.setTimeout(() => setSettlingId((cur) => (cur === id ? null : cur)), 320);
-    }
   }
 
-  function handleDelete(id: string) {
-    setLinks((prev) => prev.filter((l) => l.id !== id));
-  }
+  /* 回调稳定化（v8.4.6）：配合 Tile 的 memo，跨格重排时未受影响磁贴零重渲染 */
+  const enterEdit = useCallback(() => setEditing(true), []);
+  const removeLink = useCallback(
+    (id: string) => {
+      setLinks((prev) => prev.filter((l) => l.id !== id));
+    },
+    [setLinks],
+  );
 
   return (
     <DndContext
@@ -490,9 +520,8 @@ function QuickLinks({
                     link={l}
                     iconStyle={iconStyle}
                     editing={editing}
-                    settling={settlingId === l.id}
-                    onEnterEdit={() => setEditing(true)}
-                    onDelete={handleDelete}
+                    onEnterEdit={enterEdit}
+                    onDelete={removeLink}
                   />
                 ))}
               </AnimatePresence>
@@ -545,22 +574,36 @@ function QuickLinks({
         ? createPortal(
             <DragOverlay dropAnimation={{ duration: 300, easing: "cubic-bezier(0.22, 1, 0.36, 1)" }}>
               {activeLink ? (
+                /* v8.4.6：缩放/光晕/投影全走 motion value（见 handleDragStart/End），
+                   will-change 提升合成层——拖动跟手，落地与磁贴静置态无缝。 */
                 <motion.div
-                  initial={{ scale: reduceMotion ? 1 : 0.92 }}
-                  animate={{ scale: reduceMotion ? 1 : 1.07 }}
-                  transition={{ type: "spring", stiffness: 420, damping: 34, mass: 0.9 }}
-                  style={reduceMotion ? undefined : { rotate: tilt }}
-                  className="flex w-20 flex-col items-center gap-2 rounded-xl"
+                  style={reduceMotion ? undefined : { rotate: tilt, scale: liftScale }}
+                  className="pointer-events-none flex w-20 cursor-grabbing flex-col items-center gap-2 rounded-xl will-change-transform"
                 >
                   <span className="relative block">
                     {/* 强调色晕：更大更淡，只负责「离地」的氛围，不抢主体 */}
-                    <span
+                    <motion.span
                       aria-hidden
-                      className="pointer-events-none absolute -inset-3 rounded-[26px] opacity-[0.26] blur-lg"
-                      style={{ background: "radial-gradient(closest-side, var(--ui-accent), transparent 74%)" }}
+                      className="pointer-events-none absolute -inset-3 rounded-[26px] blur-lg"
+                      style={{
+                        background:
+                          "radial-gradient(closest-side, var(--ui-accent), transparent 74%)",
+                        opacity: glowO,
+                      }}
+                    />
+                    {/* 厚投影层：独立层 + 透明度驱动，落位前淡出——旧版写在图标
+                        boxShadow 里无法淡出，落地瞬间「厚影→薄影」硬切 */}
+                    <motion.span
+                      aria-hidden
+                      className="pointer-events-none absolute inset-0 rounded-[18px]"
+                      style={{
+                        boxShadow:
+                          "0 2px 4px -2px rgba(0,0,0,.30), 0 18px 34px -14px rgba(0,0,0,.50), 0 8px 16px -10px rgba(0,0,0,.32)",
+                        opacity: shadowO,
+                      }}
                     />
                     <span className="relative block">
-                      <TileIcon link={activeLink} iconStyle={iconStyle} lifted />
+                      <TileIcon link={activeLink} iconStyle={iconStyle} />
                     </span>
                   </span>
                   <span className="tile-label w-full truncate text-center text-xs font-light tracking-wide text-zinc-600 dark:text-zinc-300">
