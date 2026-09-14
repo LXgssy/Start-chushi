@@ -134,23 +134,33 @@ jobs:
           fi
 
       - name: Wait for Pages convergence
+        # 关键：比「清单字节」而不是「版本号」。同版本重部署（内容变了但 v 没变）时，
+        # 只比版本号会立刻放行，可 Pages 还在重建 —— 随后的线上核验就会比到旧载荷。
         run: |
           set -euo pipefail
-          V="${{ steps.v.outputs.version }}"
+          LOCAL_SHA=$(sha256sum /tmp/cs-mirror/version.json | cut -d' ' -f1)
+          echo "本地清单 sha256=$LOCAL_SHA"
           GOT=""
-          for i in $(seq 1 18); do
+          for i in $(seq 1 30); do
             sleep 10
-            GOT=$(curl -s "https://lxgssy.github.io/Start-chushi/version.json" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("v",""))' 2>/dev/null || true)
-            echo "  attempt $i: v=${GOT:-无}"
-            [ "$GOT" = "$V" ] && break
+            GOT=$(curl -s "https://lxgssy.github.io/Start-chushi/version.json" | sha256sum | cut -d' ' -f1 || true)
+            echo "  attempt $i: sha=${GOT:0:12}"
+            [ "$GOT" = "$LOCAL_SHA" ] && break
           done
-          [ "$GOT" = "$V" ] || { echo "Pages 未在 3 分钟内收敛到 v$V"; exit 1; }
-          echo "version.json 已上线: v=$GOT"
+          [ "$GOT" = "$LOCAL_SHA" ] || { echo "Pages 未在 5 分钟内收敛到本地清单"; exit 1; }
+          echo "线上清单与本地逐字节一致"
 
       - name: Verify live mirror (size + SHA256)
         run: |
+          set -euo pipefail
           V="${{ steps.v.outputs.version }}"
-          python3 scripts/verify-cloud-mirror.py "download/v${V}/ChuShi-CloudSnapshot-v${V}.zip"
+          PAYLOAD="download/v${V}/ChuShi-CloudSnapshot-v${V}.zip"
+          for i in 1 2 3; do
+            if python3 scripts/verify-cloud-mirror.py "$PAYLOAD"; then echo "线上核验通过"; exit 0; fi
+            echo "::warning::第 $i 次核验未过，20s 后重试"
+            sleep 20
+          done
+          echo "线上核验连续 3 次失败"; exit 1
 
       - uses: actions/upload-artifact@v4
         with:
