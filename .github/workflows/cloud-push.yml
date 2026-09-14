@@ -1,0 +1,159 @@
+name: cloud-push
+
+# 云推：把 ChuShi-CloudSnapshot 载荷铺到 gh-pages 根（= ext-bg.js 的 SNAP_MIRRORS[0]），
+# 复刻 scripts/deploy-cloud-mirror.sh 的全流程，并在 Pages 收敛后用
+# scripts/verify-cloud-mirror.py 对线上镜像做逐文件 尺寸+SHA256 全量核验。
+#
+# 触发与发版一致（打 v* tag / 手动填版本号）：
+# 云端更新器只在 version.json 的 v 变化时才吃新载荷 —— 所以「版本号递增」是云推生效的前提。
+# 已装扩展的用户会在后台（alarms 6h / onInstalled / 面板「检查更新」）静默吃到新版，
+# 不需要换扩展包；只有壳自身变了才需要发 .crx。
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "版本号，如 8.4.9（本工作流会写进 scripts/build-extension.py）"
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cloud-push
+  cancel-in-progress: false
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: v
+        name: Resolve version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            V="${{ github.event.inputs.version }}"
+          else
+            V="${GITHUB_REF_NAME#v}"
+          fi
+          printf '%s' "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "版本号需形如 x.y.z：$V"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Pin version into scripts/build-extension.py
+        run: |
+          python3 - "${{ steps.v.outputs.version }}" <<'PY'
+          import re, sys, pathlib
+          p = pathlib.Path("scripts/build-extension.py")
+          s = p.read_text(encoding="utf-8")
+          s = re.sub(r"^VERSION = .*$", 'VERSION = "%s"' % sys.argv[1], s, count=1, flags=re.M)
+          p.write_text(s, encoding="utf-8")
+          print([l for l in s.splitlines() if l.startswith("VERSION = ")][0])
+          PY
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install deps (bun)
+        run: bun install --frozen-lockfile
+
+      - name: Build page for extension (bun)
+        run: bun run build:extension
+
+      - name: Unpack v1.1.2 reference assets
+        run: |
+          mkdir -p /tmp/ext-ref
+          unzip -q -o download/v1.1.2/ChuShi-NewTab-v1.1.2.zip -d /tmp/ext-ref
+
+      - name: Package (产出 CloudSnapshot 载荷)
+        run: python3 scripts/build-extension.py
+
+      - name: Stage gh-pages content
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          V="${{ steps.v.outputs.version }}"
+          ZIP="download/v${V}/ChuShi-CloudSnapshot-v${V}.zip"
+          test -f "$ZIP" || { echo "载荷不存在: $ZIP"; exit 1; }
+          rm -rf /tmp/cs-mirror
+          git clone --depth 1 --branch gh-pages "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" /tmp/cs-mirror
+          find /tmp/cs-mirror -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          unzip -q -o "$ZIP" -d /tmp/cs-mirror
+          touch /tmp/cs-mirror/.nojekyll
+          ls -A /tmp/cs-mirror | head -20
+          du -sh /tmp/cs-mirror
+
+      - name: Manifest consistency gate
+        run: |
+          python3 - /tmp/cs-mirror <<'PY'
+          import json, os, sys
+          os.chdir(sys.argv[1])
+          m = json.load(open("version.json"))
+          mf = {f["p"]: f["s"] for f in m["files"]}
+          bad = []
+          for p, s in mf.items():
+              if not os.path.isfile(p):
+                  bad.append("缺 " + p)
+              elif s and os.path.getsize(p) != s:
+                  bad.append(f"尺寸 {p}: {os.path.getsize(p)}!={s}")
+          extra = []
+          for dp, _, fns in os.walk("."):
+              if dp.startswith("./.git"):
+                  continue
+              for fn in fns:
+                  p = os.path.relpath(os.path.join(dp, fn))
+                  if p == ".git" or p.startswith(".git/"):
+                      continue
+                  if p not in mf and p != "version.json" and not p.startswith("web/"):
+                      extra.append(p)
+          if bad or extra:
+              print("清单门未过:", bad[:10], extra[:10]); sys.exit(1)
+          print(f"清单门过：{len(mf)} 文件全对齐 (v{m['v']})")
+          PY
+
+      - name: Commit & push gh-pages
+        run: |
+          set -euo pipefail
+          V="${{ steps.v.outputs.version }}"
+          cd /tmp/cs-mirror
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "镜像内容无变化（同版本重复部署）"
+          else
+            git commit -q -m "deploy: cloud mirror v${V} — gh-pages 根=云端快照载荷（清单一致性门通过）"
+            git push origin HEAD:gh-pages
+            echo "已推送 gh-pages"
+          fi
+
+      - name: Wait for Pages convergence
+        run: |
+          set -euo pipefail
+          V="${{ steps.v.outputs.version }}"
+          GOT=""
+          for i in $(seq 1 18); do
+            sleep 10
+            GOT=$(curl -s "https://lxgssy.github.io/Start-chushi/version.json" | python3 -c 'import json,sys;print(json.load(sys.stdin).get("v",""))' 2>/dev/null || true)
+            echo "  attempt $i: v=${GOT:-无}"
+            [ "$GOT" = "$V" ] && break
+          done
+          [ "$GOT" = "$V" ] || { echo "Pages 未在 3 分钟内收敛到 v$V"; exit 1; }
+          echo "version.json 已上线: v=$GOT"
+
+      - name: Verify live mirror (size + SHA256)
+        run: |
+          V="${{ steps.v.outputs.version }}"
+          python3 scripts/verify-cloud-mirror.py "download/v${V}/ChuShi-CloudSnapshot-v${V}.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ChuShi-CloudSnapshot-v${{ steps.v.outputs.version }}
+          if-no-files-found: error
+          path: download/v${{ steps.v.outputs.version }}/ChuShi-CloudSnapshot-v${{ steps.v.outputs.version }}.zip
