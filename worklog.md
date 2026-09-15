@@ -306,3 +306,21 @@ Stage Summary:
 - v8.5.0 全功能落地：工具栏弹窗快捷面板（流畅模式/不聚焦地址栏/完整设置直达）+ 设置面板双入口 + 下载进度条真实化并结构约束 + 页面级流畅降级（磨砂/动画/合成层/极光/液态玻璃五路关停）
 - popup 属扩展包体（换 crx 才有）；流畅模式/聚焦选项/进度条随页面云推可达；18 门探针全绿
 - 交付 download/v8.5.0/（zip+快照载荷 73 文件）；云推另记
+
+---
+Task ID: 113
+Agent: main (Super Z)
+Task: 用户「快捷服务抽屉样式推倒重写（中键唤出）+ 批量编辑抖动动画加回 + 云推」——v8.6.1 发布（含与并行会话 v8.6.0 的同版号碰撞处置）
+
+Work Log:
+- 【接手盘点】压缩前会话已按参考图完成抽屉重写主体（QuickLinks.tsx 全屏纱罩+磁贴墙 portal 到 body、中键 mousedown button===1 唤出/再按 toggle、交互元素守卫、搜索区雾化让位、Dock z-48 抬升、.jiggle 抖动、cs-lite 纱罩降级）并构建 v8.6.0 双包但未提交；恢复工作区被误删的 cloud-push.yml
+- 【同版号碰撞】推 main 被拒——并行会话已发布 8.5.6→8.6.0（其 8.6.0=「右键即编辑+磁贴黑边修复+抽屉改底部弹出面板」）且 gh-pages 已在 v8.6.0。处置：git branch backup 保全本地全屏重写 → reset 到 origin/main → 以远端为基底重做合并（Task 110 同版号卡死窗口期教训 + git add -A 禁区律）
+- 【合并决策】抽屉形态取本地全屏磁贴墙（用户指令「删掉重写+模仿图片」在其之后）；远端磁贴级修复全数移植：①黑边修复（1px border→inset 环+translateZ 独立合成层）②右键即编辑（右键磁贴直达编辑器，删悬浮铅笔角标）③intro 自承载入场（.link-intro 挂玻璃本体，祖先 opacity<1=磨砂失效律）；远端其余改进原样保留（shell-bridge stealFocusAtTop 顶层焦点、noOmniboxFocus 独立正语义字段、cloud-push.yml 核验重试）；linksStyle 设置随 docked 变体一并移除（抽屉成唯一形态，避免死设置）；版本升 8.6.1
+- 【探针揪出三真 bug】①ESC 失效：中键 preventDefault 阻断 mousedown 默认聚焦，壳架构下焦点在顶层 shell 文档，键盘事件进不了 appFrame（escSeen=0 实证）→ 修复=window.top 同源顶层挂同一份 ESC 监听双保险 + 中键唤出后 window.focus()（user activation 使跨框聚焦合法）②抽屉开着点 Dock 面板打不开：capture pointerdown 关抽屉 → cs-drawer 类即刻移除 → Dock 跌回 z-40 → 退场中纱罩（opacity 动画中仍可命中）重新盖住 Dock → click 被吞（分时采样 dialogs 恒 0 实证）→ 修复=类同步挂 mount latch（+340ms）+ 抽屉根 exit pointerEvents:none ③TDZ：mount 声明在依赖数组求值点之后 → Cannot access before initialization → 声明上移
+- 【坑录】本会话输出管道会把文本子串 [m 当 ANSI 序列吞显（[mounted→ounted 假象）——od -c 字节级核实文件无损，勿被显示假象误导
+- 【终验+发布】probe-v861 13 PASS / 0 FAIL（中键唤出/cs-drawer 同步/64px 磁贴/ESC/中键磁贴原生新标签 popup=1/右键菜单直达编辑态 jiggle=7 删角标=6/完成退场/纱罩收起/Dock 点击面板开/日志首条 8.6.1/pageerror=0）；重建 zip 101 文件+快照 73 文件；main+tag v8.6.1+deploy-cloud-mirror.sh+线上核验
+
+Stage Summary:
+- 快捷服务抽屉 v8.6.1 全屏磁贴墙形态发布：中键唤出/三路收起、批量管理抖动回归、磨砂玻璃与强调色语言不变、流畅模式天然兼容；同版号碰撞按「远端优先+本地形态替换+升版」处置，零丢失合并
+- 壳架构键盘新律：键盘事件只达焦点文档——中键 preventDefault 会阻断聚焦，跨框交互必须 window.focus() 或同源顶层挂监听
+- 退场动画新律：fixed 浮层退场期间仍可命中（opacity 不禁 hit-test），靠它垫 z 序的交互类同步必须挂卸载 latch 而非状态开关
