@@ -22,6 +22,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.5.7",
+    date: "2026-09-15",
+    title: "入场动画全线同步",
+    channel: "page",
+    highlights: [
+      "「新建快捷服务」按钮归队：改用与磁贴同一套自承载入场（0.95s、延迟 0.38s）——磁贴与加号现在同一拍升起、同一拍收尾",
+    ],
+  },
+  {
     version: "8.5.6",
     date: "2026-09-15",
     title: "快捷服务入场归位",
