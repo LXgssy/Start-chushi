@@ -1269,7 +1269,7 @@ export default function Home() {
       </main>
 
       {/* 底部 Dock：入场上浮移至 nav.dock-intro 自身，禅雾化走 .zen-dock
-          （原 framer 包裹层 opacity 动画会隔死 dock 磨砂，已移除） */}
+          （原 framer 包裹层 opacity 动画会隔死 dock 磨砂，已移除） */
       <Dock
         panel={panel}
         setPanel={setPanel}
