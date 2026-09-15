@@ -7,8 +7,11 @@
  *      IndexedDB（库 chushi-snap），本壳只消费其 meta，从不等下载；
  *   —— 新开标签页直接加载最新版本：路由结果 = max(内嵌版, 快照版)；
  *   —— 地址栏：永不跳转任何 http(s) 网址（壳始终是扩展自家页面），加载后
- *      replaceState 到 ./index.html —— 地址栏只剩扩展 ID + 文件名，且 F5
- *      落在自足的应用顶层（index.html 可独立运行，等于 v8.3.x 行为）；
+ *      replaceState 到 ./shell.html —— 地址栏只剩扩展 ID + 文件名。
+ *      v8.6.2 修复「刷新初始页丢失更新」：旧落点 index.html 会让 F5 直接
+ *      重载内嵌版、完全绕过版本路由 —— 云端快照新版在刷新后被打回旧版
+ *      （用户实测）。落 shell.html 则 F5 重新走一遍路由 = 永远展示
+ *      max(内嵌版, 快照版)；
  *      ⚠ Chrome 硬限制：扩展根路径 "/" 导航是 ERR_FILE_NOT_FOUND 且
  *      background SW 不参与 fetch 拦截（决胜实验 X2），根形态无法 F5
  *      兜底，故弃用。
@@ -149,10 +152,14 @@
                    首次安装后的首个标签页即完成注册，幂等 */
                 ensureSnapSW(false);
                 /* 地址栏收敛（用户指令三）：永不跳转外部网址；replaceState
-                   到 ./index.html —— 地址栏只剩扩展 ID + 文件名，F5 落在
-                   自足应用顶层（Chrome 对扩展根路径 "/" 是硬豁免的 404
-                   且 background SW 不拦 fetch——决胜实验 X2，根形态弃用） */
-                try { history.replaceState(null, "", "index.html"); } catch (_) { /* 保留原地址 */ }
+                   到 ./shell.html —— 地址栏只剩扩展 ID + 文件名。
+                   v8.6.2 修复「刷新初始页丢失更新」：旧落点 index.html 会让
+                   F5 直接重载内嵌版、完全绕过版本路由 —— 云端快照新版在
+                   刷新后被打回旧版。改落 shell.html 后 F5 重新走一遍路由，
+                   永远展示 max(内嵌版, 快照版)。Chrome 对扩展根路径 "/" 是
+                   硬豁免的 404 且 background SW 不拦 fetch（决胜实验 X2），
+                   根形态弃用 */
+                try { history.replaceState(null, "", "shell.html"); } catch (_) { /* 保留原地址 */ }
         });
         frame.addEventListener("load", fadeBoot);
 
@@ -284,10 +291,11 @@
                 } catch (_) { /* noop */ }
         });
 
-        /* —— 云端模式健康监测：仅当 iframe 指向云端时启用（本地直载永不回退） —— */
+        /* —— 云端模式健康监测：仅当 iframe 指向云端时启用（本地直载永不回退） ——
+           回退落 shell.html 而非 index.html：保持壳在场，版本路由继续兜底（v8.6.2） */
         setTimeout(() => {
                 if (!handshaken && /^https:/i.test(frame.src || "")) {
-                        try { location.replace("index.html"); } catch (_) { location.href = "index.html"; }
+                        try { location.replace("shell.html"); } catch (_) { location.href = "shell.html"; }
                 }
         }, HANDSHAKE_TIMEOUT);
 })();
