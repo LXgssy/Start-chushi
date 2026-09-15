@@ -172,3 +172,26 @@ export async function parsePack(file: File): Promise<PackParseResult> {
 
   return { ok: true, preset, packName: file.name };
 }
+
+/* ---------- 官方内嵌预设的资产内联（v8.4.11，⌘K → 官方预设）----------
+ * 官方预设随应用打包（official-presets.json，scripts/build-official-presets.py
+ * 生成，与仓库 examples/ 同源）。数据形态 = manifest（asset: 引用原样保留）
+ * + assets base64 表，安装时 parsePreset 先过结构校验（长度按内联前计，
+ * 与 parsePack 同序），再走这里换成与 .cshz 导入完全相同的 data:URL 形态。
+ * 资产集合由打包脚本保证与引用一致；缺失引用保持原样（不抛错）。 */
+export function inlineOfficialAssets(
+  preset: PresetPayload,
+  assets: Record<string, { b64: string; mime: string }>
+): PresetPayload {
+  const subst = (text: string): string =>
+    text.replace(ASSET_REF_RE, (m, base: string) => {
+      const a = assets[base];
+      return a ? `data:${a.mime};base64,${a.b64}` : m;
+    });
+  return {
+    ...preset,
+    pages: preset.pages?.map((p) => ({ ...p, html: subst(p.html) })),
+    animations: preset.animations?.map((a) => ({ ...a, css: subst(a.css) })),
+    widgets: preset.widgets?.map((w) => ({ ...w, html: subst(w.html) })),
+  };
+}

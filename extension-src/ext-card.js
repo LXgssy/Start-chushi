@@ -559,6 +559,25 @@
   var SURFS = { cover: coverEl, mini: card, full: fcard };
   var WIDTH = { cover: 56, mini: 264, full: 324 };
 
+  /* ---------- v8.4.11 滚轮归属：指针在小窗上时不再带动宿主页面滚动 ----------
+   * 卡片自身没有内部滚动面（歌词自动跟唱，进度条走指针拖动），悬在卡片上
+   * 滚轮唯一的效果就是滚走底下的网页（closed shadow 也不拦 wheel 冒泡）。
+   * 三面壳上捕获段拦截（passive:false 才能 preventDefault）；Ctrl+滚轮
+   * 放行——那是页面缩放手势，不属于「滚动页面」。 */
+  function swallowWheel(el) {
+    if (!el) return;
+    el.addEventListener(
+      "wheel",
+      function (e) {
+        if (e.ctrlKey) return;
+        e.preventDefault();
+        e.stopPropagation();
+      },
+      { passive: false, capture: true }
+    );
+  }
+  for (var surfKey in SURFS) swallowWheel(SURFS[surfKey]);
+
   /* ---------- 位置：三态共用，拖动 + 持久 + 按当前态宽度钳制 ---------- */
   var pos = { x: Math.max(12, (window.innerWidth || 1200) - 296), y: 76 };
   function loadPos() {

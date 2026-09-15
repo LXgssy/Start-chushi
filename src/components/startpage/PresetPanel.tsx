@@ -59,7 +59,7 @@ export default function PresetPanel({
 }: {
   tab: PresetTab;
   presets: InstalledPreset[];
-  onInstall: (p: PresetPayload, name: string) => void;
+  onInstall: (p: PresetPayload) => void;
   onRemove: (id: string) => void;
   /** 关闭宿主浮层（指令面板 / 对话框） */
   onClose: () => void;
@@ -114,7 +114,7 @@ export default function PresetPanel({
       setErrors(r.errors);
       return;
     }
-    onInstall(r.preset, r.preset.name);
+    onInstall(r.preset);
     onClose();
   }
 
@@ -128,7 +128,7 @@ export default function PresetPanel({
           setErrors(r.errors);
           return;
         }
-        onInstall(r.preset, r.preset.name);
+        onInstall(r.preset);
         onClose();
       } else if (/\.json$/i.test(f.name) || f.type === "application/json") {
         let raw: unknown;
@@ -143,7 +143,7 @@ export default function PresetPanel({
           setErrors(r.errors);
           return;
         }
-        onInstall(r.preset, r.preset.name);
+        onInstall(r.preset);
         onClose();
       } else {
         setErrors(["不支持的文件类型：请选择 .json 预设文件或 .cshz / .zip 预设包"]);

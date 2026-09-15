@@ -1116,25 +1116,28 @@ html .zen-pomo[data-tone="on-light"] {
 
 
 /* ================================================================
-   ⌘K 选项选中高光门控（v1.1.3）
-   cmdk 恒有一个 data-selected 项作为键盘导航锚点；不加门控的话，
-   指针离开面板后高光常驻（观感 = 「鼠标不在面板上也一直选中一个选项」）。
+   ⌘K 选项选中高光门控（v1.1.3 建立；v8.4.11 mouse 模式改纯 :hover）
+   cmdk 恒有一个 data-selected 项作为键盘导航锚点——它只在指针
+   「移进某选项」那一刻更新，指针随后移到输入行/分组标题/列表空隙
+   仍残留在上一项上 = 「鼠标不在选项上方却一直有高光」。
    data-nav 三态由 CommandPalette 写在 Command 根上：
    idle = 指针不在面板内且未用键盘 → 不显示任何选中高光；
-   mouse = 指针在面板内 → 高光跟随悬停选中；
-   kbd = 方向键导航 → 高光可见（键盘可达性不回退）。 */
-[data-nav="mouse"] [cmdk-item][data-selected="true"],
+   mouse = 指针在面板内 → 高光只随 CSS :hover 出现（指针真正压在
+           选项上才亮，移开即熄；cmdk 的 data-selected 仍承担
+           Enter 执行锚点，视觉与其解耦）；
+   kbd = 方向键导航 → 高光跟随 data-selected（键盘可达性不回退）。 */
+[data-nav="mouse"] [cmdk-item]:hover,
 [data-nav="kbd"] [cmdk-item][data-selected="true"] {
   background: rgb(24 24 27 / 0.06);
   color: rgb(24 24 27);
 }
-.dark [data-nav="mouse"] [cmdk-item][data-selected="true"],
+.dark [data-nav="mouse"] [cmdk-item]:hover,
 .dark [data-nav="kbd"] [cmdk-item][data-selected="true"] {
   background: rgb(255 255 255 / 0.1);
   color: rgb(244 244 245);
 }
-/* ↩ 执行提示与高光同律：仅在 mouse/kbd 模式随选中项显示 */
-[data-nav="mouse"] [cmdk-item][data-selected="true"] .enter-hint,
+/* ↩ 执行提示与高光同律：mouse 随 :hover、kbd 随选中项显示 */
+[data-nav="mouse"] [cmdk-item]:hover .enter-hint,
 [data-nav="kbd"] [cmdk-item][data-selected="true"] .enter-hint {
   display: inline;
 }

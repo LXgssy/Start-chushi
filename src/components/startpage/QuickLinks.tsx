@@ -91,6 +91,13 @@ function TileIcon({
           ((hue + 40) % 360) +
           " 46% 50% / .14))",
         borderColor: "hsl(" + hue + " 44% 60% / .28)",
+        /* v8.4.11 半透明 → 磨砂玻璃：背景色相渐变保留（设计不变），底下
+           壁纸/极光经 backdrop 模糊透出，顶部一道玻璃内高光——与「初始」
+           页面 glass-card / 磨砂遮罩同一材质语言。 */
+        backdropFilter: "blur(14px) saturate(1.6)",
+        WebkitBackdropFilter: "blur(14px) saturate(1.6)",
+        boxShadow:
+          "inset 0 1px 0 rgba(255,255,255,.18), inset 0 0 0 1px rgba(255,255,255,.05), 0 1px 2px rgba(0,0,0,.05)",
       }}
     >
       {showFavicon ? (

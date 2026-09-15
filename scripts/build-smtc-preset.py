@@ -99,7 +99,10 @@ preset = {
             "surface": "dock",
             "icon": "music",
             "width": 340,
-            "height": 92,  # 初始空态高度；接入媒体后部件自 resize 到 248，宿主弹簧跟随
+            # v8.4.11：92→128 与部件内 H.em 同步放宽——空态内容在 92 里 flex
+            # 居中溢出，音符图标上半被卡片 overflow:hidden 裁掉（「只露一半」）。
+            # 宿主弹簧按自报高度跟随，接入媒体后仍自 resize 到 248
+            "height": 128,  # 初始空态高度；接入媒体后部件自 resize 到 248，宿主弹簧跟随
             "html": html,
         }
     ],
