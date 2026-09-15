@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.5.8",
+    date: "2026-09-15",
+    title: "地址栏开关归位 · 快捷服务可选抽屉",
+    channel: "shell",
+    highlights: [
+      "修复弹窗「新标签页不聚焦地址栏」开关失效（开不开地址栏都显示扩展地址）：是否自发导航改为按开关判断，且默认关闭 = 浏览器默认（地址栏聚焦、不显示扩展地址）",
+      "快捷服务新增两种形态：常驻（默认）与抽屉（默认收起，指针移入或点「快捷服务」把手展开）——设置 → 链接里选择",
+    ],
+  },
+  {
     version: "8.5.7",
     date: "2026-09-15",
     title: "入场动画全线同步",
