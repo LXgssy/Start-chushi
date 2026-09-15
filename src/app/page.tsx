@@ -1253,9 +1253,13 @@ export default function Home() {
           )}
 
           {!layout.hideLinks && (
+            {/* v8.5.4：本区块不再套 intro-rise。磨砂玻璃存活原则（globals.css）：
+                祖先 opacity<1 / filter≠none 会成为 backdrop root，令后代
+                backdrop-filter 采样不到壁纸 —— 磨砂整体失效、动画结束才瞬跳恢复。
+                v8.4.11 起快捷图标本身就是磨砂玻璃，故此处只留 zen-fade（非禅态不产生
+                opacity/filter），入场交给磁贴自身。 */}
             <section
-              className="intro-rise zen-fade mt-[clamp(2rem,8vh,4.5rem)] w-full"
-              style={{ animationDelay: "0.38s" }}
+              className="zen-fade mt-[clamp(2rem,8vh,4.5rem)] w-full"
               aria-label="快捷链接"
             >
               <QuickLinks links={links} setLinks={setLinks} iconStyle={settings.iconStyle} columns={layout.linksColumns} />

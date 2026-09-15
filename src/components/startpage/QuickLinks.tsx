@@ -250,8 +250,11 @@ const Tile = memo(function Tile({ link, iconStyle, editing, onEnterEdit, onDelet
     <motion.div
       ref={setNodeRef}
       layout
-      initial={{ opacity: 0, y: 14 }}
-      animate={{ opacity: 1, y: 0 }}
+      /* v8.5.4：入场只用位移、不再动 opacity —— 磁贴里是磨砂玻璃，祖先 opacity<1
+         会成为 backdrop root，令玻璃采样不到壁纸（新开标签页「过一会才渲染」的根因）。
+         玻璃自身的 opacity 才安全；这里是祖先，故一律不碰。 */
+      initial={{ y: 14 }}
+      animate={{ y: 0 }}
       exit={{ opacity: 0, scale: 0.86, transition: { duration: 0.22 } }}
       transition={LAYOUT_SPRING}
       className="group relative select-none"
