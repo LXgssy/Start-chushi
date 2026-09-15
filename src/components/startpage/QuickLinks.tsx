@@ -22,8 +22,10 @@
  *
  * 两形态共享：
  *   · 拖拽排序（dnd-kit 跟踪 + framer layout 弹簧让位 + 速度倾斜/光晕/厚影浮层）
- *   · 批量管理（右键菜单 start:links-manage / 触屏长按磁贴 / 抽屉内「批量管理」pill）：
- *     磁贴抖动动画（.jiggle，v8.6.2 强化 ±2° 交替反向 + 流畅模式豁免）+ 角标删除
+ *   · 批量管理（右键菜单 start:links-manage / 触屏长按磁贴；v8.6.3 移除抽屉内
+ *     「批量管理」pill——独立按钮多余，用户指令删除）：
+ *     整单元抖动动画（.jiggle，v8.6.2 强化 ±2° 交替反向 + 流畅模式豁免；
+ *     v8.6.3 上移到「图标+名称」整单元包裹层，添加位同频）+ 角标删除
  *     + 短按磁贴进编辑器
  *   · 免梯子多源 favicon 回退（TileIcon）+ 壳 iframe 外链顶层打开（v8.4.8）
  *
@@ -115,7 +117,7 @@ function TileIcon({
     <span
       aria-hidden
       className={
-        "relative flex items-center justify-center overflow-hidden shadow-sm " +
+        "cl-fade-leaf relative flex items-center justify-center overflow-hidden shadow-sm " +
         (sm ? "h-14 w-14 rounded-[18px] " : "h-16 w-16 rounded-[20px] ") +
         (intro ? "link-intro" : "")
       }
@@ -166,10 +168,12 @@ function TileIcon({
 }
 
 /** 磁贴视觉（图标 + 名称）：正常磁贴与拖拽浮层共用，保证「拖起来的就是原来那个」。
- *  v8.6.2 抖动换位：.jiggle 挂在本包裹层而非玻璃本体——玻璃与 .link-intro
+ *  v8.6.2 抖动换位：.jiggle 挂在包裹层而非玻璃本体——玻璃与 .link-intro
  *  同元素时，后定义的 intro-rise 动画在级联上覆盖 .jiggle（同特异性后胜），
  *  抖动自 v8.5.6 intro 机制引入起就被静默杀死（用户实测「没有抖动」）；
- *  移到包裹层后两者互不相干，退出编辑也不触发 intro 重播。 */
+ *  v8.6.3 再上移到「图标+名称」整单元包裹层——iOS/青柠编辑态抖的是整个
+ *  单元，此前只有图标框摆、名称静置，观感即「名称没跟着图标一起动」。
+ *  包裹层 transform 动画不形成 backdrop root，磨砂存活律无虞。 */
 function TileVisual({
   link,
   iconStyle,
@@ -184,25 +188,25 @@ function TileVisual({
   sm?: boolean;
 }) {
   return (
-    <>
+    <span
+      className={"flex w-full flex-col items-center gap-2.5" + (jiggle ? " jiggle" : "")}
+    >
       <motion.span
         whileHover={jiggle ? undefined : { y: -4, scale: 1.06 }}
         transition={{ duration: 0.35, ease: EASE }}
-        className={
-          "block cursor-grab active:cursor-grabbing" + (jiggle ? " jiggle" : "")
-        }
+        className="block cursor-grab active:cursor-grabbing"
       >
         <TileIcon link={link} iconStyle={iconStyle} intro={intro} sm={sm} />
       </motion.span>
       <span
         className={
-          "tile-label w-full truncate text-center text-xs font-light tracking-wide text-zinc-600 dark:text-zinc-300" +
+          "tile-label cl-fade-leaf w-full truncate text-center text-xs font-light tracking-wide text-zinc-600 dark:text-zinc-300" +
           (intro ? " link-intro" : "")
         }
       >
         {link.name}
       </span>
-    </>
+    </span>
   );
 }
 
@@ -507,6 +511,18 @@ function QuickLinks({
     return () => el.classList.remove("cs-drawer");
   }, [mount, drawer]);
 
+  /* v8.6.3 退场同步类：open=false 且 latch 未卸（340ms 退场窗）→
+     html.cs-drawer-closing，磁贴叶（玻璃/名称/添加位）经 .cl-fade-leaf 与
+     纱罩同频淡出（globals.css）。类必须挂 <html> 而非抽屉根——AnimatePresence
+     退场子树冻结在最后一次 open=true 的 props 上，组件树内改 className 不可达；
+     html 选择器命中活 DOM，修「关抽屉时图标没跟着模糊一起淡出」。 */
+  useEffect(() => {
+    const el = document.documentElement;
+    if (mount && drawer && !open) el.classList.add("cs-drawer-closing");
+    else el.classList.remove("cs-drawer-closing");
+    return () => el.classList.remove("cs-drawer-closing");
+  }, [open, mount, drawer]);
+
   /* ESC：对话框层在场时让位（页面级 ESC 层联先处理它们）；编辑态先退编辑。
      壳架构下焦点可能留在顶层 shell 文档（中键 preventDefault 阻断聚焦、
      window.focus() 在部分时机被浏览器拒绝），键盘事件只达顶层 —— 故同源
@@ -656,7 +672,9 @@ function QuickLinks({
           </AnimatePresence>
         </SortableContext>
 
-        {/* 添加磁贴 */}
+        {/* 添加磁贴（v8.6.3：抖动上移整单元包裹层——+框与「添加」随磁贴同频
+            摆动，修「新建按钮没跟着图标一起动」；data-cl-tile=add 让页面右键
+            菜单让位，右键自身只吞默认菜单不弹任何菜单） */}
         <motion.div
           layout
           initial={{ opacity: 0, y: 14 }}
@@ -666,30 +684,34 @@ function QuickLinks({
         >
           <button
             type="button"
+            data-cl-tile="add"
             onClick={() => emitEditLink(null)}
+            onContextMenu={(e) => e.preventDefault()}
             aria-label="添加快捷链接"
             className="group flex w-20 flex-col items-center gap-2.5 rounded-xl outline-none focus-visible:ring-2 accent-ring"
           >
-            <span
-              className={
-                "flex items-center justify-center border border-dashed transition-all duration-300 " +
-                (sm ? "h-14 w-14 rounded-[18px] text-xl " : "h-16 w-16 rounded-[20px] text-2xl ") +
-                (editing
-                  ? "jiggle border-zinc-400/70 text-zinc-500 dark:border-zinc-500 dark:text-zinc-400"
-                  : "border-zinc-300 text-zinc-400 group-hover:-translate-y-1 group-hover:border-zinc-400/70 group-hover:text-zinc-600 dark:border-zinc-700 dark:text-zinc-600 dark:group-hover:border-zinc-500 dark:group-hover:text-zinc-300")
-              }
-            >
-              +
-            </span>
-            <span
-              className={
-                "text-center text-xs font-light tracking-wide transition-colors duration-300 " +
-                (editing
-                  ? "text-zinc-500 dark:text-zinc-400"
-                  : "text-transparent group-hover:text-zinc-500 dark:group-hover:text-zinc-400")
-              }
-            >
-              添加
+            <span className={"flex w-full flex-col items-center gap-2.5" + (editing ? " jiggle" : "")}>
+              <span
+                className={
+                  "cl-fade-leaf flex items-center justify-center border border-dashed transition-all duration-300 " +
+                  (sm ? "h-14 w-14 rounded-[18px] text-xl " : "h-16 w-16 rounded-[20px] text-2xl ") +
+                  (editing
+                    ? "border-zinc-400/70 text-zinc-500 dark:border-zinc-500 dark:text-zinc-400"
+                    : "border-zinc-300 text-zinc-400 group-hover:-translate-y-1 group-hover:border-zinc-400/70 group-hover:text-zinc-600 dark:border-zinc-700 dark:text-zinc-600 dark:group-hover:border-zinc-500 dark:group-hover:text-zinc-300")
+                }
+              >
+                +
+              </span>
+              <span
+                className={
+                  "cl-fade-leaf text-center text-xs font-light tracking-wide transition-colors duration-300 " +
+                  (editing
+                    ? "text-zinc-500 dark:text-zinc-400"
+                    : "text-transparent group-hover:text-zinc-500 dark:group-hover:text-zinc-400")
+                }
+              >
+                添加
+              </span>
             </span>
           </button>
         </motion.div>
@@ -725,7 +747,8 @@ function QuickLinks({
                   initial={false}
                   /* 退场窗口：根立即禁命中（Dock 抬升期 click 吞没根治，v8.6.1）；
                      v8.6.2 根不再承担 opacity 动画（祖先 opacity<1 = backdrop root =
-                     磁贴磨砂失效），退场时长由纱罩淡出 + 容器 transform 收尾决定 */
+                     磁贴磨砂失效）；v8.6.3 退场同步由 html.cs-drawer-closing 驱动
+                     磁贴叶（.cl-fade-leaf）自承载淡出，与纱罩 0.26s 同频 */
                   exit={{ pointerEvents: "none" }}
                 >
                   {/* 纱罩：整页高斯模糊 + 轻染色（v8.6.2 用户指令——不再纯色遮罩）。
@@ -756,32 +779,6 @@ function QuickLinks({
                   >
                     <div ref={rootRef} className="cl-links pointer-events-auto flex flex-col items-center">
                       {renderGrid(false)}
-
-                      {/* 批量管理入口（抽屉内）：iOS 式「管理 ⇄ 完成」。
-                          必须留在 rootRef 内：①pointer-events 继承 auto（外层容器是
-                          pointer-events-none，v8.6.2 探针抓出「pill 不可点」）；②点击
-                          不算「磁贴区外」，不会误触发退出编辑 */}
-                      <button
-                        type="button"
-                        onClick={() => setEditing((v) => !v)}
-                        aria-label={editing ? "完成批量管理" : "批量管理磁贴"}
-                        className={
-                          "mt-9 rounded-full border px-4 py-1.5 text-xs font-light tracking-wide transition-colors duration-300 " +
-                          (editing
-                            ? ""
-                            : "border-zinc-900/10 text-zinc-500 hover:border-zinc-900/20 hover:text-zinc-700 dark:border-white/15 dark:text-zinc-400 dark:hover:border-white/25 dark:hover:text-zinc-200")
-                        }
-                        style={
-                          editing
-                            ? {
-                                color: "var(--ui-accent)",
-                                borderColor: "color-mix(in srgb, var(--ui-accent) 38%, transparent)",
-                              }
-                            : undefined
-                        }
-                      >
-                        {editing ? "完成" : "批量管理"}
-                      </button>
                     </div>
                   </motion.div>
                 </motion.div>
