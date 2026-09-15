@@ -22,6 +22,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.5.3",
+    date: "2026-09-15",
+    title: "快捷开关回归工具栏弹窗",
+    channel: "shell",
+    highlights: [
+      "「流畅模式」与「新标签页不聚焦地址栏」回归工具栏弹窗，一键切换；页面设置里保持不出现",
+    ],
+  },
+  {
     version: "8.5.2",
     date: "2026-09-15",
     title: "焦点归位 · 弹窗精简 · 进度条不再抖",
