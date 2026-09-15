@@ -1257,7 +1257,7 @@ export default function Home() {
                 祖先 opacity<1 / filter≠none 会成为 backdrop root，令后代
                 backdrop-filter 采样不到壁纸 —— 磨砂整体失效、动画结束才瞬跳恢复。
                 v8.4.11 起快捷图标本身就是磨砂玻璃，故此处只留 zen-fade（非禅态不产生
-                opacity/filter），入场交给磁贴自身。 }
+                opacity/filter），入场交给磁贴自身。 */
             <section
               className="zen-fade mt-[clamp(2rem,8vh,4.5rem)] w-full"
               aria-label="快捷链接"
@@ -1269,7 +1269,7 @@ export default function Home() {
       </main>
 
       {/* 底部 Dock：入场上浮移至 nav.dock-intro 自身，禅雾化走 .zen-dock
-          （原 framer 包裹层 opacity 动画会隔死 dock 磨砂，已移除） */
+          （原 framer 包裹层 opacity 动画会隔死 dock 磨砂，已移除） */}
       <Dock
         panel={panel}
         setPanel={setPanel}
