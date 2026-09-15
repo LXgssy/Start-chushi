@@ -9,8 +9,10 @@
  * 骨架仍是同一套对话框语言：.veil-in 遮罩、.glass-card panel-rise 卡片、
  * .content-focus 聚拢、slim-scroll 细滚动条、zinc 刻度文字。只读展示，无副作用。 */
 
-import { memo, useEffect } from "react";
+import { memo, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
+import { ArrowLeft } from "lucide-react";
 import { PresenceClass } from "./PresenceClass";
 import { CHANGELOG } from "@/lib/startpage/changelog";
 
@@ -31,6 +33,14 @@ const itemVariants = {
 };
 
 function ChangelogDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  /* v8.4.9：portal 到 body —— 本弹窗原挂在 SettingsPanel（z-30 层叠上下文）内，
+   * veil 自身的 z-50 只在该上下文内生效，整层被 dock（z-40）压住：弹窗底部
+   * 「返回设置」按钮落进 dock 条区域，真鼠标点击被 dock 拦截（dbg-backbtn 取证：
+   * elementFromPoint 命中 BUTTON.dock-btn）。沿 PresetDocs 同款解法 + Task 54 律
+   * 「全屏浮层一律 portal 到 body」。SSR 惰性初始化，open=false 水合零差异。 */
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
   /* 打开时接管 ESC（捕获阶段拦下并阻止冒泡）：先关本弹窗，不要顺手把设置面板也关了 */
   useEffect(() => {
     if (!open) return;
@@ -43,7 +53,8 @@ function ChangelogDialog({ open, onClose }: { open: boolean; onClose: () => void
     return () => window.removeEventListener("keydown", onKey, true);
   }, [open, onClose]);
 
-  return (
+  if (!mounted) return null;
+  return createPortal(
     <AnimatePresence>
       {open && (
         <PresenceClass
@@ -211,11 +222,27 @@ function ChangelogDialog({ open, onClose }: { open: boolean; onClose: () => void
               <p className="mt-3 text-center text-[10px] tracking-[0.2em] text-zinc-300 dark:text-zinc-600">
                 共 {CHANGELOG.length} 个版本
               </p>
+
+              {/* v8.4.9 「返回设置」：显式回设置面板的入口（此前只有 ESC / 点遮罩，无可见按钮） */}
+              <div className="mt-4 flex justify-center">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="group flex items-center gap-1.5 rounded-full border border-zinc-900/10 px-4 py-1.5 text-[11px] font-light tracking-[0.2em] text-zinc-600 transition-colors duration-300 hover:bg-zinc-900/5 hover:text-zinc-800 dark:border-white/10 dark:text-zinc-300 dark:hover:bg-white/10 dark:hover:text-zinc-100"
+                >
+                  <ArrowLeft
+                    className="h-3 w-3 transition-transform duration-300 group-hover:-translate-x-0.5"
+                    strokeWidth={1.5}
+                  />
+                  返回设置
+                </button>
+              </div>
             </div>
           </motion.div>
         </PresenceClass>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
 }
 

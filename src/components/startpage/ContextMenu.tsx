@@ -17,15 +17,15 @@ import { AnimatePresence } from "framer-motion";
 import { PresenceClass } from "./PresenceClass";
 import {
   BookOpen,
-  Command,
   Download,
   Images,
   Leaf,
   ListChecks,
   Plus,
-  Settings2,
   SunMoon,
 } from "lucide-react";
+/* v8.4.9 自绘套件（设计不变，零笔画交叉） */
+import { CsCommand, CsSettings2 } from "./cs-icons";
 
 export interface ContextMenuAction {
   id: string;
@@ -162,13 +162,13 @@ export default function ContextMenu({
 
 /* ---------- 动作图标集中导出（page.tsx 组装 actions 用） ---------- */
 export const CM_ICONS = {
-  palette: <Command strokeWidth={1.5} />,
+  palette: <CsCommand strokeWidth={1.5} />,
   addLink: <Plus strokeWidth={1.5} />,
   manageLinks: <ListChecks strokeWidth={1.5} />,
   theme: <SunMoon strokeWidth={1.5} />,
   zen: <Leaf strokeWidth={1.5} />,
   wallpaper: <Images strokeWidth={1.5} />,
-  settings: <Settings2 strokeWidth={1.5} />,
+  settings: <CsSettings2 strokeWidth={1.5} />,
   export: <Download strokeWidth={1.5} />,
   docs: <BookOpen strokeWidth={1.5} />,
 };

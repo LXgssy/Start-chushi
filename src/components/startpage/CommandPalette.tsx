@@ -25,18 +25,21 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { PresenceClass } from "./PresenceClass";
 import { useMorphHeight } from "./use-morph-height";
 import PresetPanel, { type PresetTab } from "./PresetPanel";
+/* v8.4.9 自绘套件（设计不变，零笔画交叉） */
 import {
-  CheckSquare,
-  CloudSun,
+  CsCheckSquare,
+  CsCloudSun,
+  CsNotebookPen,
+  CsSettings2,
+} from "./cs-icons";
+import {
   Compass,
   Download,
   Globe,
   Moon,
-  NotebookPen,
   Package,
   PackagePlus,
   Plus,
-  Settings2,
   Sparkles,
   Sun,
 } from "lucide-react";
@@ -295,10 +298,10 @@ function PaletteInner({
                     )}
 
                     <CmdGroup heading="打开">
-                      <StaticItem icon={<CheckSquare />} label="待办清单" onSelect={() => exec(() => setPanel("todo"))} />
-                      <StaticItem icon={<NotebookPen />} label="便签" onSelect={() => exec(() => setPanel("note"))} />
-                      <StaticItem icon={<CloudSun />} label="天气" onSelect={() => exec(() => setPanel("weather"))} />
-                      <StaticItem icon={<Settings2 />} label="设置" onSelect={() => exec(() => setPanel("settings"))} />
+                      <StaticItem icon={<CsCheckSquare />} label="待办清单" onSelect={() => exec(() => setPanel("todo"))} />
+                      <StaticItem icon={<CsNotebookPen />} label="便签" onSelect={() => exec(() => setPanel("note"))} />
+                      <StaticItem icon={<CsCloudSun />} label="天气" onSelect={() => exec(() => setPanel("weather"))} />
+                      <StaticItem icon={<CsSettings2 />} label="设置" onSelect={() => exec(() => setPanel("settings"))} />
                     </CmdGroup>
 
                     <CmdGroup heading="操作">
