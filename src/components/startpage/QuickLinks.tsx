@@ -53,10 +53,13 @@ function TileIcon({
   link,
   iconStyle,
   jiggle = false,
+  intro = false,
 }: {
   link: StartLink;
   iconStyle: IconStyle;
   jiggle?: boolean;
+  /** v8.5.6：入场动画挂在玻璃本体上（自承载）——挂到祖先会让磨砂失效 */
+  intro?: boolean;
 }) {
   const host = hostOf(link.url);
   const sources = useMemo(() => (host ? orderedIconSources(host) : []), [host]);
@@ -81,7 +84,8 @@ function TileIcon({
       aria-hidden
       className={
         "relative flex h-14 w-14 items-center justify-center overflow-hidden rounded-[18px] border shadow-sm " +
-        (jiggle ? "jiggle" : "")
+        (jiggle ? "jiggle " : "") +
+        (intro ? "link-intro" : "")
       }
       style={{
         background:
@@ -134,10 +138,12 @@ function TileVisual({
   link,
   iconStyle,
   jiggle = false,
+  intro = false,
 }: {
   link: StartLink;
   iconStyle: IconStyle;
   jiggle?: boolean;
+  intro?: boolean;
 }) {
   return (
     <>
@@ -146,9 +152,14 @@ function TileVisual({
         transition={{ duration: 0.35, ease: EASE }}
         className="block cursor-grab active:cursor-grabbing"
       >
-        <TileIcon link={link} iconStyle={iconStyle} jiggle={jiggle} />
+        <TileIcon link={link} iconStyle={iconStyle} jiggle={jiggle} intro={intro} />
       </motion.span>
-      <span className="tile-label w-full truncate text-center text-xs font-light tracking-wide text-zinc-600 dark:text-zinc-300">
+      <span
+        className={
+          "tile-label w-full truncate text-center text-xs font-light tracking-wide text-zinc-600 dark:text-zinc-300" +
+          (intro ? " link-intro" : "")
+        }
+      >
         {link.name}
       </span>
     </>
@@ -247,14 +258,13 @@ const Tile = memo(function Tile({ link, iconStyle, editing, onEnterEdit, onDelet
   }
 
   return (
-      /* v8.5.4：入场只用位移、不再动 opacity —— 磁贴里是磨砂玻璃，祖先 opacity<1
-         会成为 backdrop root，令玻璃采样不到壁纸（新开标签页「过一会才渲染」的根因）。
-         玻璃自身的 opacity 才安全；这里是祖先，故一律不碰。 */
+      /* v8.5.6：包裹层不再承担入场 —— v8.5.4 起它连 opacity 都不能碰（祖先 opacity<1
+         会成为 backdrop root，令磨砂采样不到壁纸）。入场改由磁贴内部「玻璃本体 + 名称」
+         自承载（.link-intro / TileIcon 的 intro），时间线与其它区块一致。 */
     <motion.div
       ref={setNodeRef}
       layout
-      initial={{ y: 14 }}
-      animate={{ y: 0 }}
+      initial={false}
       exit={{ opacity: 0, scale: 0.86, transition: { duration: 0.22 } }}
       transition={LAYOUT_SPRING}
       className="group relative select-none"
@@ -320,7 +330,7 @@ const Tile = memo(function Tile({ link, iconStyle, editing, onEnterEdit, onDelet
           aria-label={editing ? "编辑 " + link.name : link.name}
           className="flex w-20 touch-pan-y flex-col items-center gap-2 rounded-xl outline-none focus-visible:ring-2 accent-ring"
         >
-          <TileVisual link={link} iconStyle={iconStyle} jiggle={editing} />
+          <TileVisual link={link} iconStyle={iconStyle} jiggle={editing} intro />
         </a>
       </motion.div>
 

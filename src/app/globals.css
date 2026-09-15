@@ -1003,6 +1003,14 @@ html.photo-mode .dock-btn[data-active="true"] {
   animation: intro-rise 0.95s cubic-bezier(0.22, 1, 0.36, 1) 0.24s backwards;
 }
 
+/* ---------- 快捷磁贴入场：自承载（v8.5.6；与原 section 级同参 0.95s/延迟 0.38s） ----------
+   磨砂玻璃存活原则：动画只能落在玻璃元素自身，落在祖先会让后代 backdrop-filter
+   采样不到壁纸、磨砂整体失效。故时间线与其它区块一致，但动画挂在「图标玻璃本体」
+   与「名称」两个叶子上，而不是磁贴包裹层。 ---------- */
+.link-intro {
+  animation: intro-rise calc(0.95s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) 0.38s backwards;
+}
+
 /* ---------- dock 入场：自承载（原 page.tsx framer 包裹层 opacity 动画移除，同参 0.8s/延迟 0.55s）；
    居中是 Tailwind v4 独立 translate 属性，与 keyframes 的 transform 合成不覆盖 ---------- */
 .dock-intro {
