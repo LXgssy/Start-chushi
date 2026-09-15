@@ -4,14 +4,15 @@ import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyn
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { PresenceClass } from "./PresenceClass";
 import { useMorphHeight } from "./use-morph-height";
+/* v8.4.9 Dock 图标换自绘套件（设计不变，逐笔消除交叉，审计表见 cs-icons.tsx） */
 import {
-  CheckSquare,
-  CloudSun,
-  Command,
-  NotebookPen,
-  Settings2,
-  Timer,
-} from "lucide-react";
+  CsCheckSquare,
+  CsCloudSun,
+  CsCommand,
+  CsNotebookPen,
+  CsSettings2,
+  CsTimer,
+} from "./cs-icons";
 import WeatherGlyph from "./WeatherGlyph";
 import WeatherPanel from "./WeatherPanel";
 import TodoPanel from "./TodoPanel";
@@ -705,7 +706,7 @@ export default function Dock({
           ) : weather.code != null ? (
             <WeatherGlyph code={weather.code} size={16} />
           ) : (
-            <CloudSun className="h-[17px] w-[17px]" strokeWidth={1.5} />
+            <CsCloudSun className="h-[17px] w-[17px]" strokeWidth={1.5} />
           )}
           {weather.temp != null && (
             <span className="ml-1 tabular-nums text-xs">{weather.temp}°</span>
@@ -728,7 +729,7 @@ export default function Dock({
           {presetIcons.todo ? (
             <PresetGlyph spec={presetIcons.todo} />
           ) : (
-            <CheckSquare className="h-[17px] w-[17px]" strokeWidth={1.5} />
+            <CsCheckSquare className="h-[17px] w-[17px]" strokeWidth={1.5} />
           )}
         </DockButton>
 
@@ -745,7 +746,7 @@ export default function Dock({
           {presetIcons.note ? (
             <PresetGlyph spec={presetIcons.note} />
           ) : (
-            <NotebookPen className="h-[17px] w-[17px]" strokeWidth={1.5} />
+            <CsNotebookPen className="h-[17px] w-[17px]" strokeWidth={1.5} />
           )}
         </DockButton>
 
@@ -764,7 +765,7 @@ export default function Dock({
           {presetIcons.pomodoro ? (
             <PresetGlyph spec={presetIcons.pomodoro} />
           ) : (
-            <Timer className="h-[17px] w-[17px]" strokeWidth={1.5} />
+            <CsTimer className="h-[17px] w-[17px]" strokeWidth={1.5} />
           )}
           <AnimatePresence initial={false}>
             {pomoText && (
@@ -806,7 +807,7 @@ export default function Dock({
           {presetIcons.command ? (
             <PresetGlyph spec={presetIcons.command} />
           ) : (
-            <Command className="h-[17px] w-[17px]" strokeWidth={1.5} />
+            <CsCommand className="h-[17px] w-[17px]" strokeWidth={1.5} />
           )}
           <kbd className="pointer-events-none absolute -bottom-9 left-1/2 hidden -translate-x-1/2 whitespace-nowrap rounded-md border border-zinc-900/10 bg-white/80 px-1.5 py-0.5 font-sans text-[10px] tracking-wider text-zinc-500 opacity-0 shadow-sm backdrop-blur transition-opacity duration-300 group-hover:opacity-100 sm:block dark:border-white/10 dark:bg-[#17171c]/90 dark:text-zinc-400">
             ⌘K
@@ -828,7 +829,7 @@ export default function Dock({
           {presetIcons.settings ? (
             <PresetGlyph spec={presetIcons.settings} />
           ) : (
-            <Settings2 className="h-[17px] w-[17px]" strokeWidth={1.5} />
+            <CsSettings2 className="h-[17px] w-[17px]" strokeWidth={1.5} />
           )}
         </DockButton>
 

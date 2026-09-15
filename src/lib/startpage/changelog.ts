@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.4.10",
+    date: "2026-09-15",
+    title: "图标重绘 · 笔触清理",
+    channel: "page",
+    highlights: [
+      "Dock 与指令面板图标整套重绘：设计不变，逐根笔画消除相互穿越",
+      "待办对勾收进方框、便签装订线不再刺穿边框、天气太阳与云留出清爽间隙",
+      "更新日志新增「返回设置」按钮，看完即回",
+    ],
+  },
+  {
     version: "8.4.9",
     date: "2026-09-14",
     title: "快捷服务外链回归 · 云端更新链路打通",
