@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.5.4",
+    date: "2026-09-15",
+    title: "磨砂秒显 · 地址栏归位",
+    channel: "shell",
+    highlights: [
+      "修复新开标签页时快捷图标磨砂玻璃「过一会才出现」：入场动画不再叠在玻璃的祖先上（祖先透明度会让磨砂整体失效）",
+      "修复地址栏不显示扩展地址、新标签页仍被抢焦点：覆盖页改为跳板，顶层导航到壳页",
+    ],
+  },
+  {
     version: "8.5.3",
     date: "2026-09-15",
     title: "快捷开关回归工具栏弹窗",
