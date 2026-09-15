@@ -775,6 +775,19 @@ function SettingsPanel({
           ]}
           onChange={(v) => onPatch({ iconStyle: v })}
         />
+        {/* v8.6.2 快捷服务样式：常驻（v8.5.9 原样式）/ 抽屉（v8.6.x 磁贴墙，默认）。
+            linksForm 缺省（8.5.x 时代数据或 8.6.0/8.6.1 写入的设置）一律视作抽屉，
+            与 8.6.x 起的实际形态延续；旧 linksStyle 键不再读取 */}
+        <Segmented
+          segKey="links-form"
+          label="快捷服务样式"
+          value={settings.linksForm ?? "drawer"}
+          options={[
+            { value: "docked", label: "常驻" },
+            { value: "drawer", label: "抽屉" },
+          ]}
+          onChange={(v) => onPatch({ linksForm: v })}
+        />
         <div className="flex items-center justify-between gap-4 py-2.5">
           <span className="text-xs font-light tracking-wide text-zinc-600 dark:text-zinc-300">
             称呼

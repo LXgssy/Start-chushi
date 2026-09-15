@@ -16,6 +16,8 @@ export interface TodoItem {
 export type ThemeMode = "light" | "dark" | "system";
 export type BackgroundMode = "glow" | "pure" | "photo";
 export type IconStyle = "letter" | "favicon";
+/** 快捷服务样式（v8.6.2）：常驻 / 抽屉（v8.5.x 曾以 linksStyle 短暂存在，见 Settings.linksForm） */
+export type LinksForm = "docked" | "drawer";
 
 export type PanelId = "weather" | "todo" | "note" | "pomodoro" | "settings" | null;
 
@@ -66,7 +68,15 @@ export interface Settings {
    *  显示在地址栏里（v8.3.7 实测唯一可靠手段）。
    *  用独立的正语义字段而非取反：老数据没有这个键 = false = 天然落到「默认关闭」，
    *  不必做一次性迁移；旧的 focusOmnibox 键直接忽略。 */
-  noOmniboxFocus: boolean;}
+  noOmniboxFocus: boolean;
+  /** 快捷服务样式（v8.6.2）：docked = 常驻（v8.5.9 原样式，磁贴一直铺在页面搜索区下方）；
+   *  drawer = 抽屉（v8.6.x 现状，页面空白处中键单击唤出全屏磁贴墙）。
+   *  默认 drawer 与 8.6.x 延续；刻意用新字段名 linksForm 而非复用 v8.5.x 的
+   *  linksStyle —— 老用户存量数据里残留的 linksStyle（多为 8.5.x 默认值 docked）
+   *  若被直接恢复，会让 8.6.x 起一直用抽屉的用户升级后突變回常驻；新字段从零开始，
+   *  缺省即抽屉，想要原样式去设置面板显式切换。 */
+  linksForm: LinksForm;
+}
 
 export const DEFAULT_SETTINGS: Settings = {
   themeMode: "dark",
@@ -85,6 +95,7 @@ export const DEFAULT_SETTINGS: Settings = {
   pomodoro: DEFAULT_DURATIONS,
   perfLite: false,
   noOmniboxFocus: false,
+  linksForm: "drawer",
 };
 
 export interface WeatherHour {

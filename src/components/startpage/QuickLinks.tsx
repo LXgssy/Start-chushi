@@ -1,20 +1,33 @@
 "use client";
 
 /**
- * 「初始」快捷服务抽屉（v8.6.0 全量重写）
+ * 「初始」快捷服务 · 双形态（v8.6.2）
  *
- * 形态：全屏抽屉（portal 到 body）——页面任意空白处【中键单击】唤出：
- *   轻染色纱罩浮起，磁贴墙居中呈现（磨砂玻璃磁贴 + 下方标签 + 尾部「添加」位），
- *   搜索区雾化让位（html.cs-drawer .cl-drawer-fade）、Dock 抬升到纱罩之上保持可点
- *   （点击 Dock 先收抽屉再开面板）。ESC / 点击纱罩空白 / 再按中键 关闭。
+ * settings.linksForm 二选一（设置 → 链接 →「快捷服务样式」）：
  *
- * 保留的既有能力：
+ * ① docked 常驻（v8.5.9 原样式回归）：磁贴墙一直铺在页面搜索区下方（56px 磨砂
+ *   磁贴），无纱罩、无中键、无 portal；编辑入口 = 触屏长按磁贴 / 右键磁贴编辑
+ *   单项 / 页面右键菜单「批量管理磁贴」（v1.7.1）。
+ *
+ * ② drawer 抽屉（v8.6.x 现状，默认）：页面任意空白处【中键单击】唤出全屏磁贴墙
+ *   （portal 到 body，64px 磁贴）：
+ *     · v8.6.2 纱罩重做——纯色遮罩 → 【整页高斯模糊】（backdrop blur 28px +
+ *       轻染色渐变，深浅两套），磁贴浮在磨砂化的整页之上；
+ *     · v8.6.2 磨砂存活——纱罩/容器动画不再携带 opacity（祖先 opacity<1 会成为
+ *       backdrop root，开关抽屉瞬间磁贴磨砂消失，用户实测），入场退场只动
+ *       transform，淡入淡出由纱罩自承载；搜索区不再雾化让位（.cl-drawer-fade
+ *       退役），整页模糊本身就是「让位」，搜索栏磨砂从此恒定在线；
+ *     · ESC / 点击纱罩空白 / 再按中键 关闭；Dock 抬升到纱罩之上保持可点
+ *       （点击 Dock 先收抽屉再开面板）。
+ *
+ * 两形态共享：
  *   · 拖拽排序（dnd-kit 跟踪 + framer layout 弹簧让位 + 速度倾斜/光晕/厚影浮层）
  *   · 批量管理（右键菜单 start:links-manage / 触屏长按磁贴 / 抽屉内「批量管理」pill）：
- *     磁贴抖动动画（.jiggle）+ 角标删除 + 短按磁贴进编辑器
+ *     磁贴抖动动画（.jiggle，v8.6.2 强化 ±2° 交替反向 + 流畅模式豁免）+ 角标删除
+ *     + 短按磁贴进编辑器
  *   · 免梯子多源 favicon 回退（TileIcon）+ 壳 iframe 外链顶层打开（v8.4.8）
  *
- * 唤出守卫：中键落在交互元素（a/button/input/.cl-dock/[role=dialog] 等）、
+ * 唤出守卫（仅抽屉）：中键落在交互元素（a/button/input/.cl-dock/[role=dialog] 等）、
  * 禅模式（html.zen）、hideLinks（disabled）时不响应；页面空白中键默认的
  * 自动滚动被 preventDefault 吞掉。
  */
@@ -36,7 +49,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { SortableContext, rectSortingStrategy, useSortable } from "@dnd-kit/sortable";
-import type { IconStyle, StartLink } from "@/lib/startpage/types";
+import type { IconStyle, LinksForm, StartLink } from "@/lib/startpage/types";
 import { hostOf } from "@/lib/startpage/link-utils";
 import { inExtIframe, openExternalUrl } from "@/lib/startpage/nav";
 import { clearIconSource, orderedIconSources, saveIconSource } from "@/lib/startpage/favicon";
@@ -62,7 +75,7 @@ function hueOf(s: string): number {
 
 /* ---------- 站点图标（免梯子多源回退，v8.4.0）----------
  * 站点自身 /favicon.ico → 国内可直连 API → DuckDuckGo；任一成功即记住该
- * host 的可用源，全失败才落字母。抽屉版磁贴放大（56 → 64px）。
+ * host 的可用源，全失败才落字母。尺寸双态：抽屉 64px / 常驻 56px（原样式）。
  * v8.6.1 移植：①1px border 换 inset 环 + 独立合成层（translateZ）——
  * 悬浮放大时 1px 边框落在分数像素上渲染出黑边（线上 8.6.0 修复同源）；
  * ②intro 自承载入场——动画只落在玻璃本体，祖先 opacity<1 会成为
@@ -70,14 +83,15 @@ function hueOf(s: string): number {
 function TileIcon({
   link,
   iconStyle,
-  jiggle = false,
   intro = false,
+  sm = false,
 }: {
   link: StartLink;
   iconStyle: IconStyle;
-  jiggle?: boolean;
   /** 入场动画挂玻璃本体（自承载）：祖先 opacity<1 = backdrop root = 磨砂失效 */
   intro?: boolean;
+  /** 常驻形态 56px（抽屉 64px） */
+  sm?: boolean;
 }) {
   const host = hostOf(link.url);
   const sources = useMemo(() => (host ? orderedIconSources(host) : []), [host]);
@@ -101,8 +115,8 @@ function TileIcon({
     <span
       aria-hidden
       className={
-        "relative flex h-16 w-16 items-center justify-center overflow-hidden rounded-[20px] shadow-sm " +
-        (jiggle ? "jiggle " : "") +
+        "relative flex items-center justify-center overflow-hidden shadow-sm " +
+        (sm ? "h-14 w-14 rounded-[18px] " : "h-16 w-16 rounded-[20px] ") +
         (intro ? "link-intro" : "")
       }
       style={{
@@ -127,8 +141,8 @@ function TileIcon({
           key={src}
           src={src}
           alt=""
-          width={32}
-          height={32}
+          width={sm ? 28 : 32}
+          height={sm ? 28 : 32}
           loading="lazy"
           draggable={false}
           referrerPolicy="no-referrer"
@@ -140,7 +154,7 @@ function TileIcon({
             if (idx + 1 < sources.length) setIdx(idx + 1);
             else setExhausted(true);
           }}
-          className="h-8 w-8 rounded-md object-contain"
+          className={sm ? "h-7 w-7 rounded-md object-contain" : "h-8 w-8 rounded-md object-contain"}
         />
       ) : (
         <span className="tile-letter text-xl font-light tracking-wide text-zinc-700 dark:text-zinc-100">
@@ -151,26 +165,34 @@ function TileIcon({
   );
 }
 
-/** 磁贴视觉（图标 + 名称）：正常磁贴与拖拽浮层共用，保证「拖起来的就是原来那个」 */
+/** 磁贴视觉（图标 + 名称）：正常磁贴与拖拽浮层共用，保证「拖起来的就是原来那个」。
+ *  v8.6.2 抖动换位：.jiggle 挂在本包裹层而非玻璃本体——玻璃与 .link-intro
+ *  同元素时，后定义的 intro-rise 动画在级联上覆盖 .jiggle（同特异性后胜），
+ *  抖动自 v8.5.6 intro 机制引入起就被静默杀死（用户实测「没有抖动」）；
+ *  移到包裹层后两者互不相干，退出编辑也不触发 intro 重播。 */
 function TileVisual({
   link,
   iconStyle,
   jiggle = false,
   intro = false,
+  sm = false,
 }: {
   link: StartLink;
   iconStyle: IconStyle;
   jiggle?: boolean;
   intro?: boolean;
+  sm?: boolean;
 }) {
   return (
     <>
       <motion.span
         whileHover={jiggle ? undefined : { y: -4, scale: 1.06 }}
         transition={{ duration: 0.35, ease: EASE }}
-        className="block cursor-grab active:cursor-grabbing"
+        className={
+          "block cursor-grab active:cursor-grabbing" + (jiggle ? " jiggle" : "")
+        }
       >
-        <TileIcon link={link} iconStyle={iconStyle} jiggle={jiggle} intro={intro} />
+        <TileIcon link={link} iconStyle={iconStyle} intro={intro} sm={sm} />
       </motion.span>
       <span
         className={
@@ -185,7 +207,7 @@ function TileVisual({
 }
 
 /** 拖起后原位留下的空位：凹槽 + 中心点 + 名称占位，尺寸与磁贴一致（不发生重排） */
-function TilePlaceholder() {
+function TilePlaceholder({ sm = false }: { sm?: boolean }) {
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.92 }}
@@ -195,7 +217,10 @@ function TilePlaceholder() {
       aria-hidden
     >
       <span
-        className="relative flex h-16 w-16 items-center justify-center rounded-[20px]"
+        className={
+          "relative flex items-center justify-center rounded-[20px] " +
+          (sm ? "h-14 w-14 rounded-[18px]" : "h-16 w-16")
+        }
         style={{
           background: "color-mix(in srgb, var(--ui-accent) 6%, transparent)",
           boxShadow:
@@ -216,12 +241,14 @@ interface TileProps {
   link: StartLink;
   iconStyle: IconStyle;
   editing: boolean;
+  /** 常驻形态 56px */
+  sm?: boolean;
   onEnterEdit: () => void;
   onDelete: (id: string) => void;
 }
 
 /** memo 化：拖拽跨格只动数组顺序，未受影响磁贴的 props 恒等 → 跳过重渲染 */
-const Tile = memo(function Tile({ link, iconStyle, editing, onEnterEdit, onDelete }: TileProps) {
+const Tile = memo(function Tile({ link, iconStyle, editing, sm = false, onEnterEdit, onDelete }: TileProps) {
   /* dnd-kit 只用来「跟踪指针 + 判定落点」：重排走数组 splice，位置动画由
      framer layout 承载（两层各管一段，transform 不打架） */
   const { setNodeRef, listeners, isDragging } = useSortable({ id: link.id });
@@ -337,7 +364,7 @@ const Tile = memo(function Tile({ link, iconStyle, editing, onEnterEdit, onDelet
           aria-label={editing ? "编辑 " + link.name : link.name}
           className="flex w-20 touch-pan-y flex-col items-center gap-2.5 rounded-xl outline-none focus-visible:ring-2 accent-ring"
         >
-          <TileVisual link={link} iconStyle={iconStyle} jiggle={editing} intro />
+          <TileVisual link={link} iconStyle={iconStyle} jiggle={editing} intro sm={sm} />
         </a>
       </motion.div>
 
@@ -351,7 +378,7 @@ const Tile = memo(function Tile({ link, iconStyle, editing, onEnterEdit, onDelet
             animate={{ opacity: 1 }}
             exit={{ opacity: 0, transition: { duration: 0.15 } }}
           >
-            <TilePlaceholder />
+            <TilePlaceholder sm={sm} />
           </motion.div>
         )}
       </AnimatePresence>
@@ -384,6 +411,7 @@ function QuickLinks({
   iconStyle,
   columns,
   disabled = false,
+  form = "drawer",
 }: {
   links: StartLink[];
   setLinks: (updater: (prev: StartLink[]) => StartLink[]) => void;
@@ -391,9 +419,13 @@ function QuickLinks({
   /** 预设 layout.linksColumns：限制每行磁贴数（磁贴 5rem + 间距 1rem + 内边距 2rem
    *  → max-width = 6N+1 rem）；未设时保持默认宽度 */
   columns?: number;
-  /** layout.hideLinks：抽屉整体停用（中键/批量管理均不响应） */
+  /** layout.hideLinks：整体停用（中键/批量管理均不响应） */
   disabled?: boolean;
+  /** v8.6.2 快捷服务样式：docked = 常驻（v8.5.9 原样式，内联网格）；
+   *  drawer = 抽屉（默认，中键唤出全屏磁贴墙） */
+  form?: LinksForm;
 }) {
+  const drawer = form === "drawer";
   const rootRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -418,18 +450,22 @@ function QuickLinks({
   const shadowO = useSpring(0, { stiffness: 260, damping: 30 });
   const dragSample = useRef<{ x: number; t: number } | null>(null);
 
-  /* 批量管理入口（右键菜单）：打开抽屉并直接进入编辑模式 */
+  /* 批量管理入口（右键菜单）：抽屉 = 开抽屉直进编辑；常驻 = 原地进编辑 */
   useEffect(() => {
+    if (disabled) return;
     const onManage = () => {
-      if (disabled) return;
-      setOpen(true);
-      setEditing(true);
+      if (drawer) {
+        setOpen(true);
+        setEditing(true);
+      } else {
+        setEditing(true);
+      }
     };
     window.addEventListener("start:links-manage", onManage);
     return () => window.removeEventListener("start:links-manage", onManage);
-  }, [disabled]);
+  }, [disabled, drawer]);
 
-  /* ---------- 中键唤出/关闭 ----------
+  /* ---------- 中键唤出/关闭（仅抽屉形态） ----------
      mousedown button===1：页面空白处唤出/收起抽屉。守卫：交互元素（磁贴原生
      「新标签页打开」不动）、Dock、对话框/面板、禅模式、hideLinks；并吞掉
      空白处中键默认的自动滚动。
@@ -438,7 +474,7 @@ function QuickLinks({
      主动 window.focus() 把键盘归位到 app（点击自带的 user activation 让
      这次跨框聚焦合法），否则 ESC 等快捷键在「未先左键点过页面」时全部失灵。 */
   useEffect(() => {
-    if (disabled) return;
+    if (disabled || !drawer) return;
     const onMiddle = (e: MouseEvent) => {
       if (e.button !== 1) return;
       if (document.documentElement.classList.contains("zen")) return;
@@ -456,9 +492,9 @@ function QuickLinks({
     };
     document.addEventListener("mousedown", onMiddle);
     return () => document.removeEventListener("mousedown", onMiddle);
-  }, [disabled]);
+  }, [disabled, drawer]);
 
-  /* html.cs-drawer 同步：搜索区雾化让位 + Dock 抬升到纱罩之上（globals.css）。
+  /* html.cs-drawer 同步（仅抽屉）：Dock 抬升到纱罩之上（globals.css）。
      挂在 mount latch 而非 open：点击 Dock 关抽屉时 capture pointerdown 先
      setOpen(false)，若类即刻移除，Dock 从 z-48 跌回 z-40，而退场中的纱罩
      （z-45、透明度动画中仍可命中）会重新盖住 Dock —— pointerup 落纱罩，
@@ -466,17 +502,18 @@ function QuickLinks({
      窗口内 Dock 保持可点。 */
   useEffect(() => {
     const el = document.documentElement;
-    if (mount) el.classList.add("cs-drawer");
+    if (mount && drawer) el.classList.add("cs-drawer");
     else el.classList.remove("cs-drawer");
     return () => el.classList.remove("cs-drawer");
-  }, [mount]);
+  }, [mount, drawer]);
 
   /* ESC：对话框层在场时让位（页面级 ESC 层联先处理它们）；编辑态先退编辑。
      壳架构下焦点可能留在顶层 shell 文档（中键 preventDefault 阻断聚焦、
      window.focus() 在部分时机被浏览器拒绝），键盘事件只达顶层 —— 故同源
-     顶层（window.top ≠ window 时）挂同一份监听双保险。 */
+     顶层（window.top ≠ window 时）挂同一份监听双保险。
+     v8.6.2：常驻形态也要能 ESC 退编辑 → 注册条件 open || editing。 */
   useEffect(() => {
-    if (!open) return;
+    if (!open && !editing) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (document.querySelector("[role='dialog']")) return;
@@ -484,7 +521,7 @@ function QuickLinks({
         setEditing(false);
         return;
       }
-      setOpen(false);
+      if (drawer) setOpen(false);
     };
     window.addEventListener("keydown", onKey);
     const top = window.top;
@@ -493,7 +530,7 @@ function QuickLinks({
       window.removeEventListener("keydown", onKey);
       if (top && top !== window) top.removeEventListener("keydown", onKey);
     };
-  }, [open, editing]);
+  }, [open, editing, drawer]);
 
   /* 抽屉打开期间点 Dock：先收抽屉（capture 先于 Dock 自身逻辑），面板随后正常打开 */
   useEffect(() => {
@@ -506,7 +543,7 @@ function QuickLinks({
     return () => document.removeEventListener("pointerdown", onDown, true);
   }, [open]);
 
-  /* 编辑模式：点击磁贴区域外（纱罩/Dock）退出（与移动端系统直觉一致） */
+  /* 编辑模式：点击磁贴区域外（纱罩/页面空白/Dock）退出（与移动端系统直觉一致） */
   useEffect(() => {
     if (!editing) return;
     const onDown = (e: PointerEvent) => {
@@ -585,7 +622,7 @@ function QuickLinks({
      （AnimatePresence 不能直接包 createPortal——framer v12 对 PORTAL 类型
      子元素的 presence 注册失效，首开整树不渲染；故把 AnimatePresence 放进
      portal 内部包纯 motion.div，外层用 latch 控制存续。） */
-    useEffect(() => {
+  useEffect(() => {
     if (open) {
       setMount(true);
       return;
@@ -594,6 +631,71 @@ function QuickLinks({
     const t = setTimeout(() => setMount(false), 340);
     return () => clearTimeout(t);
   }, [open, mount]);
+
+  /** 磁贴墙（两形态共用 JSX）：docked 56px / drawer 64px。
+   *  cl-links-grid：nth-child(even) 反向抖动（globals.css，青柠同款交替摆）。 */
+  const renderGrid = (sm: boolean) => (
+    <div className="relative w-full">
+      <div
+        className="cl-links-grid mx-auto flex max-w-[680px] flex-wrap items-start justify-center gap-x-4 gap-y-6 px-4"
+        style={columns ? { maxWidth: 6 * columns + 1 + "rem" } : undefined}
+      >
+        <SortableContext items={links.map((l) => l.id)} strategy={rectSortingStrategy}>
+          <AnimatePresence mode="popLayout">
+            {links.map((l) => (
+              <Tile
+                key={l.id}
+                link={l}
+                iconStyle={iconStyle}
+                sm={sm}
+                editing={editing}
+                onEnterEdit={enterEdit}
+                onDelete={removeLink}
+              />
+            ))}
+          </AnimatePresence>
+        </SortableContext>
+
+        {/* 添加磁贴 */}
+        <motion.div
+          layout
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0 }}
+          transition={LAYOUT_SPRING}
+        >
+          <button
+            type="button"
+            onClick={() => emitEditLink(null)}
+            aria-label="添加快捷链接"
+            className="group flex w-20 flex-col items-center gap-2.5 rounded-xl outline-none focus-visible:ring-2 accent-ring"
+          >
+            <span
+              className={
+                "flex items-center justify-center border border-dashed transition-all duration-300 " +
+                (sm ? "h-14 w-14 rounded-[18px] text-xl " : "h-16 w-16 rounded-[20px] text-2xl ") +
+                (editing
+                  ? "jiggle border-zinc-400/70 text-zinc-500 dark:border-zinc-500 dark:text-zinc-400"
+                  : "border-zinc-300 text-zinc-400 group-hover:-translate-y-1 group-hover:border-zinc-400/70 group-hover:text-zinc-600 dark:border-zinc-700 dark:text-zinc-600 dark:group-hover:border-zinc-500 dark:group-hover:text-zinc-300")
+              }
+            >
+              +
+            </span>
+            <span
+              className={
+                "text-center text-xs font-light tracking-wide transition-colors duration-300 " +
+                (editing
+                  ? "text-zinc-500 dark:text-zinc-400"
+                  : "text-transparent group-hover:text-zinc-500 dark:group-hover:text-zinc-400")
+              }
+            >
+              添加
+            </span>
+          </button>
+        </motion.div>
+      </div>
+    </div>
+  );
 
   return (
     <DndContext
@@ -605,128 +707,91 @@ function QuickLinks({
       onDragEnd={handleDragEnd}
       onDragCancel={handleDragEnd}
     >
-      {mount && portalReady
+      {/* ---------- 形态一：常驻（v8.5.9 原样式）——内联网格，无纱罩无中键 ---------- */}
+      {form === "docked" && (
+        <div ref={rootRef} className="cl-links flex w-full flex-col items-center">
+          {renderGrid(true)}
+        </div>
+      )}
+
+      {/* ---------- 形态二：抽屉（默认）——portal 全屏磁贴墙 ---------- */}
+      {form === "drawer" && mount && portalReady
         ? createPortal(
             <AnimatePresence>
               {open && (
-              <motion.div
-                key="cl-drawer"
-                className="fixed inset-0 z-[45]"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0, pointerEvents: "none" }}
-                transition={{ duration: 0.26, ease: EASE }}
-              >
-                {/* 纱罩：轻染色，无 backdrop 模糊——搜索区已雾化让位，极光/壁纸即背景；
-                    流畅模式天然兼容。点空白关闭（编辑态交给编辑退出逻辑）。 */}
-                <div
-                  aria-hidden
-                  className="cl-drawer-veil absolute inset-0"
-                  onPointerDown={(e) => {
-                    if (e.button !== 0) return;
-                    if (!editing) setOpen(false);
-                  }}
-                />
                 <motion.div
-                  className="pointer-events-none flex h-full w-full flex-col items-center justify-center px-6 pb-24"
-                  initial={{ opacity: 0, scale: 0.965, y: 12 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.97, y: 8 }}
-                  transition={{ duration: 0.34, ease: EASE }}
+                  key="cl-drawer"
+                  className="fixed inset-0 z-[45]"
+                  initial={false}
+                  /* 退场窗口：根立即禁命中（Dock 抬升期 click 吞没根治，v8.6.1）；
+                     v8.6.2 根不再承担 opacity 动画（祖先 opacity<1 = backdrop root =
+                     磁贴磨砂失效），退场时长由纱罩淡出 + 容器 transform 收尾决定 */
+                  exit={{ pointerEvents: "none" }}
                 >
-                  <div ref={rootRef} className="cl-links pointer-events-auto flex flex-col items-center">
-                    {/* relative：popLayout 退场磁贴的 absolute 钉位落在本盒内 */}
-                    <div className="relative w-full">
-                      <div
-                        className="mx-auto flex max-w-[680px] flex-wrap items-start justify-center gap-x-4 gap-y-6 px-4"
-                        style={columns ? { maxWidth: 6 * columns + 1 + "rem" } : undefined}
+                  {/* 纱罩：整页高斯模糊 + 轻染色（v8.6.2 用户指令——不再纯色遮罩）。
+                      淡入淡出由纱罩【自身】opacity 承载（自承载不形成祖先 backdrop
+                      root，磁贴磨砂不受影响）；模糊经 cs-lite 通配自动降级为纯色纱 */}
+                  <motion.div
+                    aria-hidden
+                    className="cl-drawer-veil absolute inset-0"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0, transition: { duration: 0.26, ease: EASE } }}
+                    transition={{ duration: 0.26, ease: EASE }}
+                    onPointerDown={(e) => {
+                      if (e.button !== 0) return;
+                      if (!editing) setOpen(false);
+                    }}
+                  />
+                  {/* 磁贴墙容器：只动 transform（y/scale）——v8.5.6 磨砂存活律：
+                      祖先 opacity<1 会成为 backdrop root 令磁贴磨砂在开关抽屉的
+                      动画期间整体失效（v8.6.1 用户实测）；transform 不形成
+                      backdrop root，入场/退场全程磨砂在线 */}
+                  <motion.div
+                    className="pointer-events-none flex h-full w-full flex-col items-center justify-center px-6 pb-24"
+                    initial={{ y: 18, scale: 0.985 }}
+                    animate={{ y: 0, scale: 1 }}
+                    exit={{ y: 12, scale: 0.99, transition: { duration: 0.26, ease: EASE } }}
+                    transition={{ duration: 0.34, ease: EASE }}
+                  >
+                    <div ref={rootRef} className="cl-links pointer-events-auto flex flex-col items-center">
+                      {renderGrid(false)}
+
+                      {/* 批量管理入口（抽屉内）：iOS 式「管理 ⇄ 完成」。
+                          必须留在 rootRef 内：①pointer-events 继承 auto（外层容器是
+                          pointer-events-none，v8.6.2 探针抓出「pill 不可点」）；②点击
+                          不算「磁贴区外」，不会误触发退出编辑 */}
+                      <button
+                        type="button"
+                        onClick={() => setEditing((v) => !v)}
+                        aria-label={editing ? "完成批量管理" : "批量管理磁贴"}
+                        className={
+                          "mt-9 rounded-full border px-4 py-1.5 text-xs font-light tracking-wide transition-colors duration-300 " +
+                          (editing
+                            ? ""
+                            : "border-zinc-900/10 text-zinc-500 hover:border-zinc-900/20 hover:text-zinc-700 dark:border-white/15 dark:text-zinc-400 dark:hover:border-white/25 dark:hover:text-zinc-200")
+                        }
+                        style={
+                          editing
+                            ? {
+                                color: "var(--ui-accent)",
+                                borderColor: "color-mix(in srgb, var(--ui-accent) 38%, transparent)",
+                              }
+                            : undefined
+                        }
                       >
-                        <SortableContext items={links.map((l) => l.id)} strategy={rectSortingStrategy}>
-                          <AnimatePresence mode="popLayout">
-                            {links.map((l) => (
-                              <Tile
-                                key={l.id}
-                                link={l}
-                                iconStyle={iconStyle}
-                                editing={editing}
-                                onEnterEdit={enterEdit}
-                                onDelete={removeLink}
-                              />
-                            ))}
-                          </AnimatePresence>
-                        </SortableContext>
-
-                        {/* 添加磁贴 */}
-                        <motion.div
-                          layout
-                          initial={{ opacity: 0, y: 14 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0 }}
-                          transition={LAYOUT_SPRING}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => emitEditLink(null)}
-                            aria-label="添加快捷链接"
-                            className="group flex w-20 flex-col items-center gap-2.5 rounded-xl outline-none focus-visible:ring-2 accent-ring"
-                          >
-                            <span
-                              className={
-                                "flex h-16 w-16 items-center justify-center rounded-[20px] border border-dashed text-2xl font-extralight transition-all duration-300 " +
-                                (editing
-                                  ? "jiggle border-zinc-400/70 text-zinc-500 dark:border-zinc-500 dark:text-zinc-400"
-                                  : "border-zinc-300 text-zinc-400 group-hover:-translate-y-1 group-hover:border-zinc-400/70 group-hover:text-zinc-600 dark:border-zinc-700 dark:text-zinc-600 dark:group-hover:border-zinc-500 dark:group-hover:text-zinc-300")
-                              }
-                            >
-                              +
-                            </span>
-                            <span
-                              className={
-                                "text-center text-xs font-light tracking-wide transition-colors duration-300 " +
-                                (editing
-                                  ? "text-zinc-500 dark:text-zinc-400"
-                                  : "text-transparent group-hover:text-zinc-500 dark:group-hover:text-zinc-400")
-                              }
-                            >
-                              添加
-                            </span>
-                          </button>
-                        </motion.div>
-                      </div>
+                        {editing ? "完成" : "批量管理"}
+                      </button>
                     </div>
-
-                    {/* 批量管理入口（抽屉内）：iOS 式「管理 ⇄ 完成」 */}
-                    <button
-                      type="button"
-                      onClick={() => setEditing((v) => !v)}
-                      aria-label={editing ? "完成批量管理" : "批量管理磁贴"}
-                      className={
-                        "mt-9 rounded-full border px-4 py-1.5 text-xs font-light tracking-wide transition-colors duration-300 " +
-                        (editing
-                          ? ""
-                          : "border-zinc-900/10 text-zinc-500 hover:border-zinc-900/20 hover:text-zinc-700 dark:border-white/15 dark:text-zinc-400 dark:hover:border-white/25 dark:hover:text-zinc-200")
-                      }
-                      style={
-                        editing
-                          ? {
-                              color: "var(--ui-accent)",
-                              borderColor: "color-mix(in srgb, var(--ui-accent) 38%, transparent)",
-                            }
-                          : undefined
-                      }
-                    >
-                      {editing ? "完成" : "批量管理"}
-                    </button>
-                  </div>
+                  </motion.div>
                 </motion.div>
-              </motion.div>
               )}
             </AnimatePresence>,
             document.body,
           )
         : null}
 
-      {/* 拖拽浮层：portal 到 body，z 抬到纱罩（z-45）之上保证拖动全程可见 */}
+      {/* 拖拽浮层：portal 到 body（两形态共用），z 抬到纱罩（z-45）之上保证拖动全程可见 */}
       {portalReady
         ? createPortal(
             <DragOverlay
@@ -758,7 +823,7 @@ function QuickLinks({
                       }}
                     />
                     <span className="relative block">
-                      <TileIcon link={activeLink} iconStyle={iconStyle} />
+                      <TileIcon link={activeLink} iconStyle={iconStyle} sm={form === "docked"} />
                     </span>
                   </span>
                   <span className="tile-label w-full truncate text-center text-xs font-light tracking-wide text-zinc-600 dark:text-zinc-300">

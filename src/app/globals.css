@@ -439,14 +439,26 @@ html.photo-mode .dock-btn[data-active="true"] {
   color: rgb(255 255 255);
 }
 
-/* ---------- 编辑模式磁贴摇晃 ---------- */
+/* ---------- 编辑模式磁贴摇晃（v8.6.2 强化：±2°/0.28s，交替反向——青柠/iOS 同款，
+            批量管理状态一眼可辨；v8.6.1 的 ±1.4°/0.38s 幅度过小被用户当「没抖动」） ----------
+   transform 序列内保留 translateZ(0)：动画声明会覆盖磁贴玻璃本体的内联
+   transform，不把合成层提示写进关键帧的话，抖动期间黑边修复（独立合成层）会脱错 */
 @keyframes jiggle {
-  0%, 100% { transform: rotate(-1.4deg) scale(1); }
-  50%      { transform: rotate(1.4deg) scale(1.03); }
+  0%, 100% { transform: translateZ(0) rotate(-2deg); }
+  50%      { transform: translateZ(0) rotate(2deg); }
 }
 .jiggle {
-  animation: jiggle 0.38s ease-in-out infinite;
+  animation: jiggle 0.28s linear infinite;
   transform-origin: center;
+}
+/* 偶数磁贴反向摆（青柠同款交替节奏，比整齐划一更像 iOS 编辑态） */
+.cl-links-grid > *:nth-child(even) .jiggle {
+  animation-direction: reverse;
+}
+/* 流畅模式豁免：抖动是编辑态的功能性指示（非装饰），白名单回原速
+   （否则 html.cs-lite 通配 0.001s 把它杀死——用户实测「抖动不见了」） */
+html.cs-lite .jiggle {
+  animation-duration: 0.28s !important;
 }
 
 /* ---------- 仅无悬停设备（触屏）显示 ---------- */
@@ -1210,11 +1222,15 @@ html.cs-lite.dark .veil-in {
   background: rgba(9, 9, 11, 0.5) !important;
 }
 
-/* ---------- v8.6.1 快捷服务抽屉（中键唤出全屏磁贴墙）----------
-   纱罩 = 轻染色、无 backdrop 模糊：搜索区已雾化让位（.cl-drawer-fade），
-   极光/壁纸本身就是背景，磁贴自带的磨砂材质照旧生效——流畅模式天然兼容。
-   抽屉打开期间（html.cs-drawer）：搜索区雾化让位、Dock 抬升到纱罩（z-45）
-   之上保持可点，点击 Dock 先收抽屉再开面板。
+/* ---------- v8.6.2 快捷服务抽屉（中键唤出全屏磁贴墙）----------
+   纱罩 = 【整页高斯模糊】+ 轻染色（用户指令：不要纯黑遮罩，模糊整个页面）：
+   backdrop blur(28px)+saturate 把壁纸/极光/搜索栏/Dock 以外的整页磨砂化，
+   搜索区雾化让位机制（.cl-drawer-fade）退役——它的 opacity+filter 过渡正是
+   「开关抽屉时搜索栏磨砂消失」的元凶（opacity<1/filter≠none 的祖先 = backdrop
+   root，后代 backdrop-filter 采样不到壁纸）。现在搜索栏磨砂恒定在线，让位感
+   由整页模糊承担。磁贴浮在磨砂化的整页之上，双层磨砂（纱罩 28px + 磁贴 14px）。
+   抽屉打开期间（html.cs-drawer）：Dock 抬升到纱罩（z-45）之上保持可点，
+   点击 Dock 先收抽屉再开面板。
    类同步挂组件卸载 latch（+340ms）而非 open 开关：点击 Dock 关抽屉时
    capture pointerdown 先置 open=false，若类即刻移除 Dock 跌回 z-40，
    退场中的纱罩（opacity 动画期间仍可命中）会重新盖住 Dock——pointerup
@@ -1222,36 +1238,25 @@ html.cs-lite.dark .veil-in {
 .cl-drawer-veil {
   background: linear-gradient(
     180deg,
-    rgba(255, 255, 255, 0.42),
-    rgba(255, 255, 255, 0.28) 42%,
-    rgba(255, 255, 255, 0.36)
+    rgba(255, 255, 255, 0.32),
+    rgba(255, 255, 255, 0.2) 42%,
+    rgba(255, 255, 255, 0.28)
   );
+  backdrop-filter: blur(28px) saturate(1.5);
 }
 .dark .cl-drawer-veil {
+  /* 深色态：zinc-900 轻纱替代旧 zinc-950 厚涂（「纯黑遮罩」差评），模糊承担主分离 */
   background: linear-gradient(
     180deg,
-    rgba(9, 9, 11, 0.52),
-    rgba(9, 9, 11, 0.38) 42%,
-    rgba(9, 9, 11, 0.5)
+    rgba(24, 24, 27, 0.42),
+    rgba(24, 24, 27, 0.28) 42%,
+    rgba(24, 24, 27, 0.38)
   );
 }
 html.cs-drawer .cl-dock {
   z-index: 48;
 }
-.cl-drawer-fade,
-html.cs-drawer .cl-drawer-fade {
-  transition:
-    opacity 0.45s cubic-bezier(0.22, 1, 0.36, 1),
-    filter 0.45s cubic-bezier(0.22, 1, 0.36, 1),
-    transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
-}
-html.cs-drawer .cl-drawer-fade {
-  opacity: 0;
-  filter: blur(12px);
-  transform: scale(0.985);
-  pointer-events: none;
-}
-/* 流畅模式：无模糊可依赖，纱罩纯色加深保证磁贴可读性 */
+/* 流畅模式：cs-lite 通配已把 backdrop-filter 压为 none，纱罩纯色加深保证磁贴可读性 */
 html.cs-lite .cl-drawer-veil {
   background: linear-gradient(
     180deg,

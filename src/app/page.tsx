@@ -1247,10 +1247,12 @@ export default function Home() {
           )}
 
           {/* 搜索：入场上浮移至 .search-pill 自身（玻璃元素祖先禁止 opacity/filter 动画）。
-              cl-drawer-fade：抽屉打开时雾化让位（globals.css，html.cs-drawer） */}
+              v8.6.2：cl-drawer-fade 雾化让位退役——它的 opacity+filter 过渡是「开关
+              抽屉时搜索栏磨砂消失」的元凶（backdrop root 律）；抽屉让位感由纱罩整页
+              高斯模糊承担，搜索栏磨砂恒定在线 */}
           {!layout.hideSearch && (
             <section
-              className="cl-drawer-fade mt-[clamp(1.8rem,6vh,3.5rem)] w-full"
+              className="mt-[clamp(1.8rem,6vh,3.5rem)] w-full"
               aria-label="搜索"
             >
               <div className="flex justify-center">
@@ -1258,18 +1260,38 @@ export default function Home() {
               </div>
             </section>
           )}
+
+          {/* 快捷服务·常驻形态（v8.6.2，settings.linksForm = docked）：磁贴墙一直铺在
+              搜索区下方（v8.5.9 原样式回归，56px 磁贴）。抽屉形态不在此渲染（portal 到
+              body，见 main 外），避免空壳 section 抬高居中布局。v8.5.4 磨砂存活律：
+              本区块只留 zen-fade（非禅态不产生 opacity/filter），入场交给磁贴自身 */}
+          {!layout.hideLinks && (settings.linksForm ?? "drawer") === "docked" && (
+            <section
+              className="zen-fade mt-[clamp(2rem,8vh,4.5rem)] w-full"
+              aria-label="快捷链接"
+            >
+              <QuickLinks
+                links={links}
+                setLinks={setLinks}
+                iconStyle={settings.iconStyle}
+                columns={layout.linksColumns}
+                form="docked"
+              />
+            </section>
+          )}
         </div>
       </main>
 
-      {/* 快捷服务抽屉（v8.6.1 全屏磁贴墙重写）：页面空白处中键单击唤出，
-          自 portal 到 body（纱罩 z-45，Dock 点击自动收起）；hideLinks 时整体停用。
-          v8.5.4 磨砂存活律：磁贴磨砂自承载，此包裹层不担 opacity/filter */}
-      {!layout.hideLinks && (
+      {/* 快捷服务·抽屉形态（v8.6.2，settings.linksForm = drawer，默认）：页面空白处
+          中键单击唤出，自 portal 到 body（纱罩 z-45 整页高斯模糊，Dock 点击自动收起）；
+          hideLinks 时整体停用。抽屉形态此处不产生内联 DOM，挂载位置不影响布局 */}
+      {!layout.hideLinks && (settings.linksForm ?? "drawer") === "drawer" && (
         <QuickLinks
           links={links}
           setLinks={setLinks}
           iconStyle={settings.iconStyle}
           columns={layout.linksColumns}
+          form="drawer"
         />
       )}
 
