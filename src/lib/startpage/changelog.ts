@@ -22,6 +22,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.5.1",
+    date: "2026-09-15",
+    title: "设置面板去重 · 快捷开关归位弹窗",
+    channel: "page",
+    highlights: [
+      "页面设置里不再重复出现「流畅模式」与「新标签页不聚焦地址栏」：它们统一由扩展工具栏弹窗提供，功能与默认值都不变",
+    ],
+  },
+  {
     version: "8.5.0",
     date: "2026-09-15",
     title: "扩展弹窗快捷面板 · 流畅模式",
