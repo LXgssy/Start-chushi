@@ -476,6 +476,10 @@ export default function Home() {
       if (activePage != null) return;
       const t = e.target as Element | null;
       if (t?.closest("input, textarea, select, [contenteditable='true']")) return;
+      /* v8.6.3：磁贴/添加位自带右键语义（右键即编辑该快捷服务，Tile 已
+         preventDefault 原生菜单）——页面菜单若再弹就是「进编辑还弹菜单」的
+         双重响应（用户实测），磁贴上整块让位 */
+      if (t && typeof t.closest === "function" && t.closest("[data-cl-tile]")) return;
       if (
         t &&
         typeof t.closest === "function" &&

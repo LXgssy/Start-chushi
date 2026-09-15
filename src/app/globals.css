@@ -461,6 +461,22 @@ html.cs-lite .jiggle {
   animation-duration: 0.28s !important;
 }
 
+/* ---------- v8.6.3 抽屉退场同步：磁贴单元随纱罩一同淡出 ----------
+   用户实测：关抽屉时整页模糊淡出了，磁贴却满透明度站到退场窗口最后一帧
+   被 portal 卸载——「图标没跟着模糊一起关」。修复 = 退场窗口
+   （html.cs-drawer-closing，随 mount latch 挂卸，见 QuickLinks）给玻璃与
+   名称【自身】加 opacity 0 过渡：opacity 落在带 backdrop-filter 的元素自身
+   不产生祖先 backdrop root（磨砂存活律无虞——祖先 opacity<1 才是毒），
+   淡出与纱罩 0.26s 同频同缓动。!important 压过仍在跑的 intro-rise
+   （级联序：important 声明 > animation），退场落在入场窗口内也能立即接管；
+   流畅模式下过渡被通配压近零 → 原地即刻消失，与 cs-lite 的瞬时语义一致。 */
+.cl-fade-leaf {
+  transition: opacity 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+}
+html.cs-drawer-closing .cl-fade-leaf {
+  opacity: 0 !important;
+}
+
 /* ---------- 仅无悬停设备（触屏）显示 ---------- */
 .touch-only {
   display: none;
