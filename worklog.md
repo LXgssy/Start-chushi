@@ -324,3 +324,18 @@ Stage Summary:
 - 快捷服务抽屉 v8.6.1 全屏磁贴墙形态发布：中键唤出/三路收起、批量管理抖动回归、磨砂玻璃与强调色语言不变、流畅模式天然兼容；同版号碰撞按「远端优先+本地形态替换+升版」处置，零丢失合并
 - 壳架构键盘新律：键盘事件只达焦点文档——中键 preventDefault 会阻断聚焦，跨框交互必须 window.focus() 或同源顶层挂监听
 - 退场动画新律：fixed 浮层退场期间仍可命中（opacity 不禁 hit-test），靠它垫 z 序的交互类同步必须挂卸载 latch 而非状态开关
+
+---
+Task ID: 113-补记
+Agent: main (Super Z)
+Task: v8.6.1 发布链终态记录
+
+Work Log:
+- 【双部署踩实】本地 deploy-cloud-mirror.sh（0402bd7，本地构建 buildId=FiYD…）先推成功，4 分钟后被 tag 触发的 CI cloud-push（e69dff5，CI 构建 buildId=AZ05…）覆盖——两者都是合法 v8.6.1 载荷（同一 tag 源码，Next.js 每次构建 BUILD_ID 随机）。verify-cloud-mirror.py 以【本地 zip】对线上必然 BAD（两端 buildId 不同→清单差集），此路径只适用于「本地构建=线上唯一来源」场景
+- 【正确姿势】新增 scripts/verify-online-selfconsistent.py：以【线上 version.json】为基准逐文件拉取核对尺寸+SHA256，不依赖本地构建——v8.6.1 实测 73/73 全对
+- 【终态】CI 三流水线 success（cloud-push 含 60s 静置+6×30s 重试线上核验 / build-extension 产出 Release / pages build）；Release v8.6.1 = crx 12,403,987B + zip 12,398,827B；线上 version.json v=8.6.0→8.6.1 生效，存量装机 ≤6h 静默升
+- 本地 backup-v860-fullscreen 分支保全全屏抽屉首个实现（未推送，仅存档）；download/v8.6.0 目录为本地构建残影（被 CI 载荷取代），不影响线上
+
+Stage Summary:
+- v8.6.1 全链路闭环：main c28267b + tag + Release(crx/zip) + gh-pages 云镜像四方同步，线上 73/73 自洽
+- 坑录沉淀：tag 发版流程里本地云推是冗余动作（CI 会覆盖），要么只跑 CI、要么本地推后不等 CI 覆盖再做线上自洽核验；「同版号二次部署」的核验基准必须是线上清单本身
