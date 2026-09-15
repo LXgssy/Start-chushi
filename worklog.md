@@ -250,92 +250,24 @@ Stage Summary:
 - 云端 v8.4.8 重推收敛（70 文件 SHA256 ALL-GREEN），存量 8.4.5~8.4.7 装机 ≤6h 自动获得本修复（页面通道，无需换包）
 - 新交付包已重传文叔叔，内含检查更新+拒绝连接修复双项
 - 【补记】tag v8.4.8 重打至 50b3c5a 强推 → CI 34852379863 success；Release 6 资产全对齐新构建（zip/crx CI 产出，快照 zip/说明/SHA256SUMS 经 API 替换）；交付包以修正版 SHA256SUMS 重打重传文叔叔终版
-
 ---
-Task ID: 110
+Task ID: 114
 Agent: main (Super Z)
-Task: 用户「更新日志界面加返回设置按钮 + 重绘所有图标（设计不变、消笔画重叠）+ 做完云推」——v8.4.10 云推发布
+Task: 用户「刷新初始页丢失更新修复 + 抽屉样式设置面板给选项（常驻/抽屉）+ 抽屉背景不要纯黑遮罩要整页高斯模糊 + 批量编辑抖动动画缺失 + 开关抽屉时搜索栏和图标磨砂消失 + 解包青柠 crx 参考『所有捷径』页」——v8.6.2 云推
 
 Work Log:
-- 【返回设置】ChangelogDialog 底部新增胶囊按钮（ArrowLeft+文字，hover 左移微动效），点击 onClose 回设置面板。首跑探针即断：真鼠标点击被拦——dbg-backbtn 取证 elementFromPoint 命中 BUTTON.dock-btn：弹窗 veil(z-50) 挂在 SettingsPanel(z-30 层叠上下文)内，z-50 只在父上下文内生效，整层被 dock(z-40) 压住，弹窗底部恰好落进 dock 条区域；ESC 关闭一直正常是因为键盘事件不走命中测试。修复=createPortal 到 body（PresetDocs 同款，Task 54「全屏浮层一律 portal」律），SSR 惰性挂载
-- 【图标审计】对全套在用图标逐根笔画取证（lucide 原始路径数据 + 256px 栅格 + 4x 截屏）：真交叉/撞笔仅三处——square-check-big 对勾长臂戳出框角、notebook-pen 四根装订环横穿左边框(X 交叉×4)、cloud-sun 太阳弧端贴云谷小尺寸糊团；Timer/Command/Settings2 及面板内 lucide 工具件全是干净 T 触/留白，逐字保留
-- 【cs-icons】新建自绘套件（24 网格/lucide 同语言，strokeWidth 默认 2 对齐 lucide 防静默变细）：CsCheckSquare=完整方框+对勾收进框内（勾尾距框边≥4 格）；CsNotebookPen=装订环改止于边框中线的 T 触短须（视觉不变零穿透），本体+笔原样；CsCloudSun=太阳弧 r4→3.4 上收（弧端与云净距≥2.5 格），四光芒线原位；CsTimer/CsCommand/CsSettings2 几何逐字收编。接入 Dock 六图标 + CommandPalette 打开组 + ContextMenu palette/settings
-- 【验证】probe-v849 23 门 ALL-GREEN：boot/按钮在场/日志首条/返回设置关弹窗且设置仍在/Dock 五图标 path d 的 DOM 取证/已是最新/手动下载→updated/旧通道静默/快照直载/外链提升回归/pageerror=0；4x 截屏视觉终验（待办勾进框、便签环不穿、天气留隙、⌘K 同步）
-- 【平行会话事故】gh-pages 发现两笔 v8.4.9 部署：d441101(00:29 北京,qu4imNX=仅升版本号的空构建,8.5h 窗口)与 380c58f(09:09,A84F=本会话全量构建)——并行会话在同一仓库/工作树活动（远端 main 三笔新提交+工作树不明 M 改动旁证）。同版本号严格大于才更新的规则下，窗口期拉取用户 floor=8.4.9 永远拿不到真内容→升版 8.4.10 救援，changelog 保留两条 8.4.9 历史条目
-- 【git 卫生】首轮 v8.4.10 提交误用 git add -A src/ 把并行会话工作树 WIP（chime/liquid-glass v2/music/use-pomodoro 等 5210 行未跟踪死代码，无任何跟踪文件 import，tree-shake 后产物等价）扫进提交且 tag 已触发 CI——push main 被拒（远端前进）反而留下一线生机：soft-reset 重做、reset 到远端、单笔干净提交（delta 恰 12 文件 +756-29）、删 tag 重推、删 Release 重跑 CI 换血资产
-- 【云推+发布】deploy-cloud-mirror.sh 8.4.10：清单门 70 文件、Pages 收敛、SHA256 全量核验 ALL-GREEN；main deed6b1 推送（基于并行会话 b0c7772 之上）；tag v8.4.10 CI success→Release 2 资产（crx 12383832B/zip 12378250B，manifest 8.4.10、返回设置与图标特征串在包内实证）；线上 version.json v=8.4.10
+- 【青柠侦察】解包 upload/青柠起始页扩展_1.4.0.crx（CRX3 头 12+hlen 偏移坑）→ 扩展只是 limestart.cn 的 iframe 壳，真正 UI 在站点本体；调研代理爬线上一手参数：二级界面=0.25s 纯淡入无遮罩、编辑拖拽时全图标 ±2°/0.25s linear infinite 交替反向（nth-child even reverse）、卡片 80×80 r15、弹层遮罩 blur(10px)+黑 35%、全局缓动 cubic-bezier(.65,.05,.1,1)；截图+DOM/CSS 摘录存 /tmp/lime-crx/recon/（备份 /home/z/my-project/recon-notes/）
+- 【刷新丢更新根因】shell-bridge.js 版本路由后 history.replaceState 落 index.html——F5 直接重载内嵌版、完全绕过路由，云端快照新版被打回旧版（用户实测）；修复：replaceState 改落 shell.html（F5 重新走路由=max(内嵌,快照)）+ 云端握手超时回退同步改 shell.html；探针 T1b/T10 断言落点
+- 【双形态回归】新字段 settings.linksForm（docked|drawer，默认 drawer）——刻意不复用 v8.5.x 的 linksStyle：存量数据残留的 "docked" 若被恢复会让 8.6.x 抽屉用户升级后突变回常驻；QuickLinks 重构双形态共享 Tile/拖拽/编辑/浮层，docked=v8.5.9 原样式（56px 内联网格、无纱罩无中键、pill 不渲染），drawer=中键唤出全屏磁贴墙（64px）；SettingsPanel 设置→链接 加「快捷服务样式」段控；page.tsx 双挂载点（docked 在 main 内搜索区下、drawer 在 main 外 portal）
+- 【整页高斯模糊】.cl-drawer-veil 加 backdrop-filter blur(28px) saturate(1.5) + 染色大减（浅色白 .32/.20/.28、深色 zinc-900 .42/.28/.38 替代 zinc-950 厚涂——「纯黑遮罩」差评）；流畅模式 cs-lite 通配自动退化纯色纱（加深兜底保留）
+- 【磨砂恒定在线】两处 backdrop-root 根因清除：①html.cs-drawer .cl-drawer-fade（搜索区 opacity+filter 雾化让位）整体退役——它的过渡正是「开关抽屉搜索栏磨砂消失」元凶，让位感由整页模糊承担；②抽屉根/容器动画去 opacity（initial={false}+exit 仅 pointerEvents，容器只动 y/scale transform），淡入淡出由纱罩自承载——探针 T3a 断言磁贴祖先链零 opacity<1/filter（入场动画中采样）
+- 【抖动真修复（比用户说的还深）】真凶不是没写：.jiggle 与 .link-intro 同挂玻璃本体，后者在 globals.css 更后位置（v8.5.6 引入）同特异性级联后胜 → intro-rise 覆盖 jiggle，抖动自 8.5.6 起被静默杀死（v8.6.1 探针只数了 class 在场，假阴性）；修复=.jiggle 移到 TileVisual 包裹层（与 intro 不同元素互不干扰，退出编辑也不重播 intro）；参数强化 ±2°/0.28s linear + translateZ(0) 写进关键帧（动画覆盖内联 transform 的窗口期保住黑边修复的合成层提示）+ cl-links-grid nth-child(even) 交替反向（青柠同款）+ html.cs-lite .jiggle 时长豁免（流畅模式通配 0.001s 不再误杀）
+- 【探针揪出第三 bug】批量管理 pill 被我移到 rootRef 外（pointer-events-none 容器下不可点 + 点击被「编辑态点外退出」误吞→toggle 翻回）；归位 rootRef 内（v8.6.1 原结构）双修
+- 【坑录】①CSS 压缩器（lightningcss 系）对 backdrop-filter 与 -webkit-backdrop-filter 双写会吞标准属性只留 -webkit-——getComputedStyle().backdropFilter 读出 none 探针假阴，本项目惯例只写标准属性（Chromium 76+ 无前缀）；②MultiEdit 非原子：失败编辑前的编辑已落盘，续接时必须先 diff 核实当前态；③探针冷启动首跑扩展注册偶发慢，bootNewTab 加一轮重试兜底；④Write/Edit 工具只到 /home/z——transfer/ 暂存 + cp 回 /tmp 真树的工作流稳定复用
+- 【验证】probe-v862 23 PASS / 0 FAIL：boot/刷新落点 shell.html/中键唤出/纱罩 blur(28px)/搜索区不卸载/入场中祖先零 opacity/filter/磁贴 blur(14px)/搜索栏磨砂在线/抖动 7 元素 0.28s/偶数反向/完成退场/纱罩收起/Dock 先收后开/设置段控在场/docked 持久化 reload/常驻 56px/常驻中键失效/流畅模式抖动豁免/流畅模式纱罩模糊关停/reload 落点/日志首条 8.6.2/pageerror=0；截图目检（整页磨砂/编辑态角标/常驻原样式）+ tsc 零新增（HEAD 预存 11 条噪音除外）
+- 【发布】main 197f24f + tag v8.6.2 → CI 三流水线 success（build-extension Release crx 12,404,823B + zip 12,399,574B；cloud-push gh-pages）→ 线上 version.json v=8.6.2 73 文件 + verify-online-selfconsistent 73/73 全对（遵守 Task 113 律：本地不再跑 deploy-cloud-mirror，CI 为唯一来源）
 
 Stage Summary:
-- 「返回设置」按钮落地且根治一层叠上下文劫持（新律：查 z 序问题先查祖先层叠上下文，z-50 在 z-30 上下文内打不过 z-40——固定层永远 portal 到 body）
-- 图标重绘完成：设计零漂移，全图标零笔画交叉（新律：重绘前先拉 lucide 原始路径做几何审计，视觉取证用真栅格不用想象）
-- 新律：共享工作树多会话并行时代，git add -A 是禁区（必须白名单加文件）；同版本号重复云推会卡死窗口期用户——发现即升版救援，changelog 折叠保历史连贯
-- 装机端路径：存量 ≤8.4.9 装机 ≤6h 静默升 8.4.10（页面通道）；手动渠道=Release 页 crx/zip
-
----
-Task ID: 111
-Agent: main (Super Z)
-Task: 用户六连「禁止小窗滚轮透传/便签保留/指令面板高光门控/官方预设入 ⌘K（含音乐插件）/音乐面板空态图标裁半修复/快捷图标磨砂玻璃」——v8.4.11 构建+探针+云推
-
-Work Log:
-- 【需求定位】①小窗=网页浮窗（ext-card.js 三态卡）：卡片无内部滚动面，悬卡滚轮唯一效果=滚走宿主页 → 三面壳（cover/mini/full）wheel 捕获段 preventDefault+stopPropagation（Ctrl+滚轮放行缩放手势）②指令面板高光：v1.1.3 门控漏了「指针在面板内但不在选项上」——cmdk 的 data-selected 只在指针进选项那一刻更新，移到输入行/分组标题/空隙仍残留上一项；修=mouse 模式改纯 :hover 视觉（globals.css），kbd 模式保持 data-selected（键盘可达性不回退），Enter 执行锚点仍走 cmdk 内部选中 ③官方预设=examples/焕新示例预设.json + 初始SMTC音乐预设.cshz（surface=dock 含音乐部件+SMTC 媒体控制脚本=「插件」）④音乐面板空态裁半根因实锤：cshz 部件 .cs-empty（34px 音符+标题+双行文案）在 92px 卡 flex 居中溢出，.cs-card overflow:hidden 裁掉上半——修=H.em 92→128 + e2 max-width 250→288（源头 preset-src/smtc/music-widget.html，build-smtc-preset.py 两道门同步）⑤快捷图标=QuickLinks TileIcon 半透明渐变 → +backdrop blur(14px) saturate(1.6) + 玻璃内高光（色相渐变保留，设计不变）⑥便签 NotePanel 零改动（用户明示保留原设计）
-- 【官方预设管线】scripts/build-official-presets.py：examples → src/lib/startpage/official-presets.json 单向同步（manifest 保留 asset: 引用 + assets base64 表）；pack.ts 新增 inlineOfficialAssets（与 parsePack 同序：parsePreset 先按内联前长度校验→内联成同形 data:URL）；page.tsx installPreset 增 {replaceByName} 替换语义（同名先移除再装=老用户一键重装即换代）+ installOfficialPreset（校验失败 toast 如实相告）；CommandPalette 增「官方预设」组（已装态显示 accent「已安装 · 点击重装更新」，StaticItem 增 hint）；onInstall prop 签名收敛 (p)=>void（name 参数本冗余，PresetPanel 三调用点同步）
-- 【探针】probe-v8411.mjs 35 门 ALL-GREEN：T10a 官方组两条目/T10b 高光三态（idle 透明→hover 亮→移空隙熄且 data-selected=true 实锤解耦）/T10c 安装→toast→dock 音乐按钮→舞台高 127/T10e 嵌套 srcdoc 帧取证 csEmpty need=126 ≤ csCard 126 零溢出（音符完整）/T10d 重装替换（toast 已更新+按钮数=1）/v8.4.8~10 全量回归（boot/外链提升/返回设置/图标几何/已是最新/手动下载→updated/旧通道静默/快照直载/pageerror=0）
-- 【坑录】①appFrame.keyboard 不存在（frame 无 keyboard，ESC 用 page.keyboard 落 iframe 焦点元素）②TS 把两条目 assets 联合成 "cover.svg"?: undefined（JSON 推断 union 归一化），接口赋值必须断言边界收口③扩展 zip 的 _next 被「保留名改造」改名为 next，特征扫描别按 _next 前缀过滤④官方预设数据在包内 = JSON.parse 内嵌串，data:URL 在安装时才内联（包内查 base64 恒 False 是正确形态）
-
-Stage Summary:
-- 六项全落地：浮窗滚轮归属/高光门控/官方预设（含插件）一键装+重装更新/音符图标完整/快捷图标磨砂玻璃/便签原样保留
-- 老用户修复路径：⌘K → 官方预设 → 音乐面板预设 → 重装即获空态修复（替换语义不产生副本）
-- 交付 download/v8.4.11/（zip+快照载荷 71 文件）；云端另推；装机端 ≤8.4.10 存量 ≤6h 静默自愈
-
----
-Task ID: 112
-Agent: main (Super Z)
-Task: 用户「下载更新进度条延伸到设置面板长度修复 + 青柠起始页同款工具栏扩展弹窗快捷面板（流畅模式 + 新标签页不聚焦地址栏，选项里说明）」——v8.5.0 构建探针云推
-
-Work Log:
-- 【进度条修复】先穷尽取证：v8.4.8~8.4.11 全部 CheckUpdateButton 历史版本均无进度条元素（git -p 考古 + 全局 grep），用户所见「进度条」实为 note 文字行；交付=补齐真实进度条（csSnapStatus.done/total → accent 色条）且宽度约束律写死结构（容器 w-[240px] max-w-full 随按钮列，条宽 min(100%)）——结构上不可能延伸到面板长度
-- 【popup 快捷面板】manifest 首次加 action.default_popup=popup.html（此前无 action 键点击无动作；ext-bg 无 onClicked 监听零冲突）+ popup.html/popup.js 零依赖原生面板（336px，zinc+accent 紫，深浅色跟随 settings.themeMode/system 回退 prefers）：流畅模式开关、新标签页不聚焦地址栏开关（取反语义 focusOmnibox）、打开完整设置（写一次性意图 start:ui-intent → 新开 shell.html 挂载时读后即焚 30s 时效 → 自动开设置面板）
-- 【数据面】popup 与新标签页同 origin 共享 localStorage start:settings；开关即时写、已开标签页经 storage 事件热跟随（page.tsx cs-lite 类即时切换）；设置字段 Settings +perfLite +focusOmnibox（默认 false/false，旧数据自然兜底）；设置面板同步加「性能」Section（流畅模式）与「搜索」Section（不聚焦地址栏）开关+说明文字（用户要求选项里说明地址栏显示扩展地址属正常现象）
-- 【流畅模式页面级】html.cs-lite 全局降级：全部 backdrop-filter 关停、CSS animation/transition 近零、will-change 清零、aurora-blob（blur 96px 大滤镜）隐藏、玻璃类不透明兜底底色保可读性；液态玻璃引擎 [data-lg] 磨砂体走变量驱动（blur(var(--lg-blur)) 且 important）——元素自身变量声明赢 :root 继承，cs-lite 截断 --lg-blur:0px/--lg-sat:1 = 数学恒等无磨砂 + 隐藏 .lg-ov 折射画布
-- 【三案探坑录】①cascade 假败局：Lightning CSS 把同规则内「标准+webkit 同值」合并删标准版留 -webkit- 版，而 Chromium 里 -webkit-backdrop-filter 并非 alias → 规则静默失效；修复=Chromium 111 目标根本无需前缀，删 -webkit- 行让标准版独存（browserslist chrome>=111 顺手入 package.json）；CSSStyleRule.cssRules（嵌套）恒存在（可为空），规则遍历先查自身声明再递归——否则全部 style 规则被当容器跳过（matched=[] 假象根因）②body.tabIndex 未设置时默认即 -1，不可作 effect 运行证据——改 dataset.csFocusGate（html 上，effect 门控结果）+ dataset.csFocusSteal（body 上，effect 实跑标记）③headless 无浏览器 omnibox，body.focus() 无焦点变化不派发 focusin——焦点断言一律走 dataset 不走事件计数
-- 【环境事故】会话中 page.tsx 显示层「[m」被当 ANSI 吞字造成「ounted 语法损坏」假象（python assert 反证文件完好）；工具显示层吞 [m 序列的教训：疑遭损坏时先 xxd 十六进制取证再动手修复
-- 【探针】probe-v850.mjs 18 门 ALL-GREEN：boot/popup 渲染+版本/初始开关态/cs-lite 热跟随+磨砂关停（matched 规则级取证）/settings 单字段落库（pomodoro 嵌套完好）/不聚焦地址栏双向门控（dataset 取证）/弹窗直达设置（真点按钮→新页自动开面板）/进度条出现+240px 约束+29% 比例（21/73）/更新日志首条 8.5.0+返回设置/pageerror=0（主页面+popup 双页）；探针侧 patch ext-bg snapCheck 下载禁用（mock 2 文件秒下完会以 updated 覆盖 downloading 态）
-- 【坑录】快照载荷含 popup.html/js（STAGE 收集面，2 个小文件无害零行为差异）；T7 需 mock 翻面 9.9.9 + 手写 csSnapStatus 驱动进度条（ext-bg 探针内禁用）
-
-Stage Summary:
-- v8.5.0 全功能落地：工具栏弹窗快捷面板（流畅模式/不聚焦地址栏/完整设置直达）+ 设置面板双入口 + 下载进度条真实化并结构约束 + 页面级流畅降级（磨砂/动画/合成层/极光/液态玻璃五路关停）
-- popup 属扩展包体（换 crx 才有）；流畅模式/聚焦选项/进度条随页面云推可达；18 门探针全绿
-- 交付 download/v8.5.0/（zip+快照载荷 73 文件）；云推另记
-
----
-Task ID: 113
-Agent: main (Super Z)
-Task: 用户「快捷服务抽屉样式推倒重写（中键唤出）+ 批量编辑抖动动画加回 + 云推」——v8.6.1 发布（含与并行会话 v8.6.0 的同版号碰撞处置）
-
-Work Log:
-- 【接手盘点】压缩前会话已按参考图完成抽屉重写主体（QuickLinks.tsx 全屏纱罩+磁贴墙 portal 到 body、中键 mousedown button===1 唤出/再按 toggle、交互元素守卫、搜索区雾化让位、Dock z-48 抬升、.jiggle 抖动、cs-lite 纱罩降级）并构建 v8.6.0 双包但未提交；恢复工作区被误删的 cloud-push.yml
-- 【同版号碰撞】推 main 被拒——并行会话已发布 8.5.6→8.6.0（其 8.6.0=「右键即编辑+磁贴黑边修复+抽屉改底部弹出面板」）且 gh-pages 已在 v8.6.0。处置：git branch backup 保全本地全屏重写 → reset 到 origin/main → 以远端为基底重做合并（Task 110 同版号卡死窗口期教训 + git add -A 禁区律）
-- 【合并决策】抽屉形态取本地全屏磁贴墙（用户指令「删掉重写+模仿图片」在其之后）；远端磁贴级修复全数移植：①黑边修复（1px border→inset 环+translateZ 独立合成层）②右键即编辑（右键磁贴直达编辑器，删悬浮铅笔角标）③intro 自承载入场（.link-intro 挂玻璃本体，祖先 opacity<1=磨砂失效律）；远端其余改进原样保留（shell-bridge stealFocusAtTop 顶层焦点、noOmniboxFocus 独立正语义字段、cloud-push.yml 核验重试）；linksStyle 设置随 docked 变体一并移除（抽屉成唯一形态，避免死设置）；版本升 8.6.1
-- 【探针揪出三真 bug】①ESC 失效：中键 preventDefault 阻断 mousedown 默认聚焦，壳架构下焦点在顶层 shell 文档，键盘事件进不了 appFrame（escSeen=0 实证）→ 修复=window.top 同源顶层挂同一份 ESC 监听双保险 + 中键唤出后 window.focus()（user activation 使跨框聚焦合法）②抽屉开着点 Dock 面板打不开：capture pointerdown 关抽屉 → cs-drawer 类即刻移除 → Dock 跌回 z-40 → 退场中纱罩（opacity 动画中仍可命中）重新盖住 Dock → click 被吞（分时采样 dialogs 恒 0 实证）→ 修复=类同步挂 mount latch（+340ms）+ 抽屉根 exit pointerEvents:none ③TDZ：mount 声明在依赖数组求值点之后 → Cannot access before initialization → 声明上移
-- 【坑录】本会话输出管道会把文本子串 [m 当 ANSI 序列吞显（[mounted→ounted 假象）——od -c 字节级核实文件无损，勿被显示假象误导
-- 【终验+发布】probe-v861 13 PASS / 0 FAIL（中键唤出/cs-drawer 同步/64px 磁贴/ESC/中键磁贴原生新标签 popup=1/右键菜单直达编辑态 jiggle=7 删角标=6/完成退场/纱罩收起/Dock 点击面板开/日志首条 8.6.1/pageerror=0）；重建 zip 101 文件+快照 73 文件；main+tag v8.6.1+deploy-cloud-mirror.sh+线上核验
-
-Stage Summary:
-- 快捷服务抽屉 v8.6.1 全屏磁贴墙形态发布：中键唤出/三路收起、批量管理抖动回归、磨砂玻璃与强调色语言不变、流畅模式天然兼容；同版号碰撞按「远端优先+本地形态替换+升版」处置，零丢失合并
-- 壳架构键盘新律：键盘事件只达焦点文档——中键 preventDefault 会阻断聚焦，跨框交互必须 window.focus() 或同源顶层挂监听
-- 退场动画新律：fixed 浮层退场期间仍可命中（opacity 不禁 hit-test），靠它垫 z 序的交互类同步必须挂卸载 latch 而非状态开关
-
----
-Task ID: 113-补记
-Agent: main (Super Z)
-Task: v8.6.1 发布链终态记录
-
-Work Log:
-- 【双部署踩实】本地 deploy-cloud-mirror.sh（0402bd7，本地构建 buildId=FiYD…）先推成功，4 分钟后被 tag 触发的 CI cloud-push（e69dff5，CI 构建 buildId=AZ05…）覆盖——两者都是合法 v8.6.1 载荷（同一 tag 源码，Next.js 每次构建 BUILD_ID 随机）。verify-cloud-mirror.py 以【本地 zip】对线上必然 BAD（两端 buildId 不同→清单差集），此路径只适用于「本地构建=线上唯一来源」场景
-- 【正确姿势】新增 scripts/verify-online-selfconsistent.py：以【线上 version.json】为基准逐文件拉取核对尺寸+SHA256，不依赖本地构建——v8.6.1 实测 73/73 全对
-- 【终态】CI 三流水线 success（cloud-push 含 60s 静置+6×30s 重试线上核验 / build-extension 产出 Release / pages build）；Release v8.6.1 = crx 12,403,987B + zip 12,398,827B；线上 version.json v=8.6.0→8.6.1 生效，存量装机 ≤6h 静默升
-- 本地 backup-v860-fullscreen 分支保全全屏抽屉首个实现（未推送，仅存档）；download/v8.6.0 目录为本地构建残影（被 CI 载荷取代），不影响线上
-
-Stage Summary:
-- v8.6.1 全链路闭环：main c28267b + tag + Release(crx/zip) + gh-pages 云镜像四方同步，线上 73/73 自洽
-- 坑录沉淀：tag 发版流程里本地云推是冗余动作（CI 会覆盖），要么只跑 CI、要么本地推后不等 CI 覆盖再做线上自洽核验；「同版号二次部署」的核验基准必须是线上清单本身
+- v8.6.2 全链路闭环：快捷服务「常驻（原样式）/抽屉」双形态设置回归、抽屉整页高斯模糊、磨砂恒定在线、抖动真修复（级联覆盖真相）、刷新丢更新根治（壳层）
+- 分发说明：页面层（双形态/模糊/抖动/磨砂）走云推 ≤6h 到存量装机；刷新修复在 shell-bridge.js 属壳层，需用户换装新 crx（Release 页）才生效——旧壳+新页面兼容无碍
+- 新律：①同一元素双动画类的级联后胜会静默杀死先定义的动画——状态类动画（jiggle）必须挂独立元素或更高特异性；②backdrop-filter 双写前缀会被压缩器吞标准属性；③动画类探针必须断言 computed animationName/duration，class 在场≠动画在跑
