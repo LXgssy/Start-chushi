@@ -566,13 +566,9 @@ function QuickLinks({
             </SortableContext>
 
             {/* 添加磁贴 */}
-            <motion.div
-              layout
-              initial={{ opacity: 0, y: 14 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0 }}
-              transition={LAYOUT_SPRING}
-            >
+            {/* v8.5.7：与磁贴同一套自承载入场（.link-intro）——此前这里是无延迟的
+                framer 弹簧，与磁贴的 0.38s 延迟不同步，看起来「没跟着入场」 */}
+            <motion.div layout initial={false} exit={{ opacity: 0 }} transition={LAYOUT_SPRING}>
               <button
                 type="button"
                 onClick={() => emitEditLink(null)}
@@ -581,7 +577,7 @@ function QuickLinks({
               >
                 <span
                   className={
-                    "flex h-14 w-14 items-center justify-center rounded-[18px] border border-dashed text-xl font-extralight transition-all duration-300 " +
+                    "link-intro flex h-14 w-14 items-center justify-center rounded-[18px] border border-dashed text-xl font-extralight transition-all duration-300 " +
                     (editing
                       ? "jiggle border-zinc-400/70 text-zinc-500 dark:border-zinc-500 dark:text-zinc-400"
                       : "border-zinc-300 text-zinc-400 group-hover:-translate-y-1 group-hover:border-zinc-400/70 group-hover:text-zinc-600 dark:border-zinc-700 dark:text-zinc-600 dark:group-hover:border-zinc-500 dark:group-hover:text-zinc-300")
@@ -591,7 +587,7 @@ function QuickLinks({
                 </span>
                 <span
                   className={
-                    "text-center text-xs font-light tracking-wide transition-colors duration-300 " +
+                    "link-intro text-center text-xs font-light tracking-wide transition-colors duration-300 " +
                     (editing
                       ? "text-zinc-500 dark:text-zinc-400"
                       : "text-transparent group-hover:text-zinc-500 dark:group-hover:text-zinc-400")
