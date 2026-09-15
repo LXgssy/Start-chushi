@@ -22,6 +22,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.5.6",
+    date: "2026-09-15",
+    title: "快捷服务入场归位",
+    channel: "page",
+    highlights: [
+      "快捷服务的入场动画回来了：与时钟/搜索/底栏同一条时间线（0.95s、延迟 0.38s）；动画挂在玻璃本体与名称上而不是包裹层，磨砂从第一帧就是活的",
+    ],
+  },
+  {
     version: "8.5.5",
     date: "2026-09-15",
     title: "磨砂秒显 · 地址栏归位",
