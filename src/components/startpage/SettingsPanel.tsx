@@ -804,46 +804,6 @@ function SettingsPanel({
           ]}
           onChange={(v) => onPatch({ searchSuggest: v === "on" })}
         />
-        {/* v8.5.0 新标签页不聚焦地址栏：默认开（焦点归位页面，敲键直接搜索）。
-         * 底层字段 focusOmnibox 取反语义（true=聚焦地址栏=浏览器默认），
-         * 与扩展弹窗快捷面板开关同名同义。说明里写明副作用：焦点不在地址栏
-         * 时地址栏显示「初始」的扩展地址，属正常现象（用户要求选项里说明） */}
-        <div className="flex items-center justify-between gap-4 py-1.5">
-          <div className="min-w-0">
-            <div className="text-xs font-light tracking-wide text-zinc-600 dark:text-zinc-300">
-              新标签页不聚焦地址栏
-            </div>
-            <div className="mt-0.5 text-[11px] font-extralight leading-relaxed tracking-wide text-zinc-400 dark:text-zinc-500">
-              开启后打开新标签页时光标聚焦页面，敲键直接搜索，此时地址栏显示「初始」的扩展地址，属正常现象；关闭则恢复浏览器默认，光标停在地址栏
-            </div>
-          </div>
-          <Switch
-            checked={!(settings.focusOmnibox === true)}
-            label="新标签页不聚焦地址栏"
-            onChange={(on) => onPatch({ focusOmnibox: !on })}
-          />
-        </div>
-      </Section>
-
-      <div aria-hidden className="border-t border-zinc-900/5 dark:border-white/5" />
-
-      {/* v8.5.0 性能：流畅模式（低配电脑优化），与扩展弹窗快捷面板同一设置字段 */}
-      <Section title="性能">
-        <div className="flex items-center justify-between gap-4 py-1.5">
-          <div className="min-w-0">
-            <div className="text-xs font-light tracking-wide text-zinc-600 dark:text-zinc-300">
-              流畅模式
-            </div>
-            <div className="mt-0.5 text-[11px] font-extralight leading-relaxed tracking-wide text-zinc-400 dark:text-zinc-500">
-              低配电脑优化：停用磨砂玻璃与装饰动画，优先帧率
-            </div>
-          </div>
-          <Switch
-            checked={!!settings.perfLite}
-            label="流畅模式"
-            onChange={(on) => onPatch({ perfLite: on })}
-          />
-        </div>
       </Section>
 
       <div aria-hidden className="border-t border-zinc-900/5 dark:border-white/5" />
