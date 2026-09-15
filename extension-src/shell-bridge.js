@@ -45,7 +45,7 @@
         let handshaken = false;
 
         /* ============ v8.5.8 新标签页地址栏/焦点：按开关走 ============
-           开关「新标签页不聚焦地址栏」= !settings.focusOmnibox。
+           开关「新标签页不聚焦地址栏」= settings.noOmniboxFocus（正语义，默认 false）。
            · 开：壳页自发导航一次到 shell.html?csfocus=1 —— 顶层离开覆盖页 URL，
              地址栏随即显示扩展地址、焦点让给页面（v8.3.7 实测唯一可靠手段）。
            · 关（默认）：什么都不做，停在覆盖页 URL = 浏览器默认（地址栏聚焦、
@@ -55,7 +55,7 @@
                         if (location.search.indexOf("csfocus=1") >= 0) return; /* 已导航过，不循环 */
                         const raw = localStorage.getItem("start:settings");
                         const st = raw ? JSON.parse(raw) : null;
-                        if (st && st.focusOmnibox === false) {
+                        if (st && st.noOmniboxFocus === true) {
                                 location.replace(location.pathname + "?csfocus=1");
                         }
                 } catch (_) { /* 隐私模式等：按默认（不导航）走 */ }
