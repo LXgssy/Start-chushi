@@ -17,6 +17,7 @@ import PresetWidgets, { type ActiveWidget } from "@/components/startpage/PresetW
 import SandboxPage, { type ActivePage } from "@/components/startpage/SandboxPage";
 import {
   dockIcon,
+  parsePreset,
   PRESET_TOKEN_KEYS,
   type InstalledPreset,
   type PresetAction,
@@ -26,6 +27,8 @@ import {
   type PresetMotion,
   type PresetPayload,
 } from "@/lib/startpage/preset";
+import { inlineOfficialAssets } from "@/lib/startpage/pack";
+import { OFFICIAL_PRESETS } from "@/lib/startpage/official-presets";
 import {
   sandboxBridge,
   type SandboxCommandInfo,
@@ -725,17 +728,25 @@ export default function Home() {
      置于 runSearch/toggleTheme 等稳定回调之后：依赖数组在定义时求值，
      放早了会 TDZ 崩页 */
   const installPreset = useCallback(
-    (payload: PresetPayload) => {
-      setPresets((prev) => [
-        ...prev,
-        {
-          id: uid(),
-          name: payload.name,
-          author: payload.author,
-          installedAt: Date.now(),
-          raw: payload,
-        },
-      ]);
+    (payload: PresetPayload, opts?: { replaceByName?: boolean }) => {
+      /* v8.4.11 替换语义（官方预设重装更新）：同名预设先移除再装——
+         官方预设换代（如音乐面板空态修复）时老用户一键重装即全量换新，
+         不产生重名副本；普通导入路径不变（append）。 */
+      const replacing =
+        opts?.replaceByName === true && presets.some((p) => p.name === payload.name);
+      setPresets((prev) => {
+        const base = opts?.replaceByName ? prev.filter((p) => p.name !== payload.name) : prev;
+        return [
+          ...base,
+          {
+            id: uid(),
+            name: payload.name,
+            author: payload.author,
+            installedAt: Date.now(),
+            raw: payload,
+          },
+        ];
+      });
       /* 磁贴一次性合入（url 去重，重复导入不产生副本） */
       if (payload.links.length > 0) {
         setLinks((prev) => {
@@ -766,7 +777,9 @@ export default function Home() {
         payload.layout ? "布局覆写" : null,
       ].filter(Boolean);
       toast({
-        title: `预设「${payload.name}」已安装`,
+        title: replacing
+          ? `官方预设「${payload.name}」已更新`
+          : `预设「${payload.name}」已安装`,
         description: [
           `新增 ${payload.commands.length} 条命令、${payload.dock.length} 个栏按钮、${payload.links.length} 个磁贴`,
           extras.length > 0 ? extras.join(" · ") : null,
@@ -775,7 +788,26 @@ export default function Home() {
           .join("；"),
       });
     },
-    [setPresets, setLinks, patchSettings, toast]
+    [setPresets, setLinks, patchSettings, toast, presets]
+  );
+
+  /* ---------- 官方预设一键安装（v8.4.11，⌘K → 官方预设）----------
+     内嵌包与仓库 examples/ 同源（scripts/build-official-presets.py 生成）；
+     资产内联复用 parsePack 同一 data:URL 形态；同名已装即替换更新。 */
+  const installOfficialPreset = useCallback(
+    (id: string) => {
+      const entry = OFFICIAL_PRESETS.find((x) => x.id === id);
+      if (!entry) return;
+      const parsed = parsePreset(entry.manifest);
+      if (!parsed.ok) {
+        toast({ title: "官方预设数据异常", description: parsed.errors.join("；") });
+        return;
+      }
+      installPreset(inlineOfficialAssets(parsed.preset, entry.assets), {
+        replaceByName: true,
+      });
+    },
+    [installPreset, toast]
   );
 
   const removePreset = useCallback(
@@ -1260,6 +1292,7 @@ export default function Home() {
         presets={presets}
         onInstall={installPreset}
         onRemove={removePreset}
+        onInstallOfficial={installOfficialPreset}
       />
 
       {/* 自定义页面 overlay（沙箱隔离，见 SandboxPage / sandbox.js pageMode） */}

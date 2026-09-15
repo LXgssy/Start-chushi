@@ -19,7 +19,7 @@
  *   退场被取消回跳）；framer 对卡片只保留 y/scale 弹簧与计时职责。
  */
 
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { Command } from "cmdk";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { PresenceClass } from "./PresenceClass";
@@ -37,6 +37,7 @@ import {
   Download,
   Globe,
   Moon,
+  Music2,
   Package,
   PackagePlus,
   Plus,
@@ -45,6 +46,7 @@ import {
 } from "lucide-react";
 import { ENGINES, looksLikeUrl, toUrl } from "@/lib/startpage/engines";
 import { openExternalUrl } from "@/lib/startpage/nav";
+import { OFFICIAL_PRESETS } from "@/lib/startpage/official-presets";
 import type { InstalledPreset, PresetAction, PresetPayload } from "@/lib/startpage/preset";
 import type { StartLink } from "@/lib/startpage/types";
 
@@ -68,8 +70,10 @@ function CommandPalette(props: {
   presetCommands: { title: string; action: PresetAction; key: string; presetName: string }[];
   runPresetAction: (a: PresetAction) => void;
   presets: InstalledPreset[];
-  onInstall: (p: PresetPayload, name: string) => void;
+  onInstall: (p: PresetPayload) => void;
   onRemove: (id: string) => void;
+  /** 官方预设一键安装/重装（v8.4.11）：id 见 OFFICIAL_PRESETS */
+  onInstallOfficial: (id: string) => void;
 }) {
   return <AnimatePresence>{props.open && <PaletteInner key="palette" {...props} />}</AnimatePresence>;
 }
@@ -88,6 +92,7 @@ function PaletteInner({
   presets,
   onInstall,
   onRemove,
+  onInstallOfficial,
 }: {
   open: boolean;
   onClose: () => void;
@@ -101,8 +106,9 @@ function PaletteInner({
   presetCommands: { title: string; action: PresetAction; key: string; presetName: string }[];
   runPresetAction: (a: PresetAction) => void;
   presets: InstalledPreset[];
-  onInstall: (p: PresetPayload, name: string) => void;
+  onInstall: (p: PresetPayload) => void;
   onRemove: (id: string) => void;
+  onInstallOfficial: (id: string) => void;
 }) {
   const [inputValue, setInputValue] = useState("");
   /* 选中高光门控（v1.1.3）：cmdk 恒有一个 data-selected 项作为键盘导航锚点，
@@ -158,6 +164,8 @@ function PaletteInner({
   }
 
   const q = inputValue.trim();
+  /* 官方预设已装判定（同名即装过；安装走替换语义，重装即更新部件） */
+  const installedNames = useMemo(() => new Set(presets.map((p) => p.name)), [presets]);
 
   /* PaletteInner 仅在 open 时由外层 AnimatePresence 挂载，退出动画经 PresenceContext
      传达给下方 PresenceClass 节点；不在此处再套 AnimatePresence（双层 presence 会让退出时机竞争）。
@@ -325,6 +333,27 @@ function PaletteInner({
                       <StaticItem icon={<Download />} label="导出数据备份" onSelect={() => exec(exportData)} />
                     </CmdGroup>
 
+                    {/* 官方预设（v8.4.11）：内置包一键安装，无需去仓库下载；
+                        同名已装时走替换更新（旧部件 html 一并换代——
+                        v8.4.11 前安装的音乐面板借此获得空态修复） */}
+                    <CmdGroup heading="官方预设">
+                      {OFFICIAL_PRESETS.map((p) => (
+                        <StaticItem
+                          key={p.id}
+                          icon={p.id === "music" ? <Music2 /> : <Sparkles />}
+                          label={p.label}
+                          onSelect={() => exec(() => onInstallOfficial(p.id))}
+                          hint={
+                            installedNames.has(p.name) ? (
+                              <span className="text-[var(--ui-accent)]">已安装 · 点击重装更新</span>
+                            ) : (
+                              p.tagline
+                            )
+                          }
+                        />
+                      ))}
+                    </CmdGroup>
+
                     {/* 预设命令：来自已安装预设（声明式白名单 action） */}
                     {presetCommands.length > 0 && (
                       <CmdGroup heading="预设命令">
@@ -409,15 +438,23 @@ function StaticItem({
   label,
   onSelect,
   icon,
+  hint,
 }: {
   label: string;
   onSelect: () => void;
   icon: React.ReactNode;
+  /** 右侧弱化说明（官方预设：标语 / 已装提示），可选 */
+  hint?: React.ReactNode;
 }) {
   return (
     <Command.Item value={label} onSelect={onSelect} className={ITEM_CLASS}>
       <span className="[&>svg]:h-4 [&>svg]:w-4 text-zinc-400 dark:text-zinc-500">{icon}</span>
       {label}
+      {hint != null && (
+        <span className="ml-auto hidden max-w-[45%] truncate text-xs font-extralight text-zinc-400 dark:text-zinc-600 sm:inline">
+          {hint}
+        </span>
+      )}
     </Command.Item>
   );
 }

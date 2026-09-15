@@ -216,7 +216,7 @@ img{-webkit-user-drag:none;user-select:none}
 /* ---------- 空态 ---------- */
 .cs-eic{color:var(--acc66)}
 .cs-e1{font-size:12.5px;font-weight:550;color:var(--ink)}
-.cs-e2{font-size:11px;color:var(--ink3);line-height:1.5;max-width:250px}
+.cs-e2{font-size:11px;color:var(--ink3);line-height:1.5;max-width:288px}
 .cs-hide{display:none!important}
 </style>
 </head>
@@ -297,7 +297,11 @@ img{-webkit-user-drag:none;user-select:none}
    v8.2.0 律动高光：宿主 now().bass（独立频谱助手 → 30Hz 已包络）驱动
    封面高光 opacity/scale —— 只写合成器友好属性；旧宿主无 bass 字段
    守卫降级静态高光；prefers-reduced-motion 用户不弹。 */
-  var H = { fl: 248, em: 92 }, LY_H = 146, W = 340; /* v8.3.4 LY_H 124→146（防裁切加高，cs-lyr 同步） */
+  /* v8.4.11 em 92→128：空态内容（34px 图标 + 标题 + 提示文案）在 92px 卡里
+     flex 居中后上下溢出，.cs-card overflow:hidden 把音符图标上半裁掉
+     （用户实机：「音乐图标只露出来一半」）。128 容纳 e2 折行双行，
+     e2 max-width 250→288 常态单行更舒展；接入媒体后仍自 resize 到 248 */
+  var H = { fl: 248, em: 128 }, LY_H = 146, W = 340; /* v8.3.4 LY_H 124→146（防裁切加高，cs-lyr 同步） */
   var DEF = "asset:cover.svg"; /* v8.0.1：asset 在生产宿主实测可用；失联时 onerror 藏 img 露渐变底，绝不破图 */
   function $(id) { return document.getElementById(id); }
 
