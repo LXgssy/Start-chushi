@@ -108,6 +108,10 @@ function CheckUpdateButton() {
   const [note, setNote] = useState("");
   const [targetV, setTargetV] = useState("");
   const [busy, setBusy] = useState(false);
+  /* v8.5.0 下载进度条：新壳 csSnapStatus 的 done/total 直接映射成条形。
+   * 宽度约束律：容器 w-[240px] max-w-full（与 note 同宽、随按钮列从左起），
+   * 条宽 = done/total 百分比且 min(100%) —— 结构上不可能延伸到面板长度。 */
+  const [prog, setProg] = useState<{ done: number; total: number } | null>(null);
 
   const runIdRef = useRef(0);
   const settledRef = useRef(false);
@@ -120,6 +124,7 @@ function CheckUpdateButton() {
     setPhase(p);
     setNote(n);
     setBusy(false);
+    setProg(null);
   }, []);
 
   const autoReset = useCallback((run: number) => {
@@ -150,6 +155,11 @@ function CheckUpdateButton() {
       if (st.state === "downloading") {
         setPhase("downloading");
         setTargetV(String(st.v || ""));
+        setProg(
+          Number.isFinite(st.total) && (st.total as number) > 0
+            ? { done: st.done || 0, total: st.total as number }
+            : null
+        );
         setNote(
           Number.isFinite(st.total) && (st.total as number) > 0
             ? `正在下载 v${st.v}（${st.done || 0}/${st.total}）…`
@@ -212,6 +222,7 @@ function CheckUpdateButton() {
     setBusy(true);
     setPhase("checking");
     setNote("正在检查更新…");
+    setProg(null);
 
     const bundleV = String(c.runtime.getManifest?.().version || "");
     const meta = await snapMetaRead();
@@ -328,6 +339,20 @@ function CheckUpdateButton() {
         )}
         <span>{label}</span>
       </button>
+      {phase === "downloading" && prog && prog.total > 0 && (
+        <div
+          aria-hidden
+          className="h-1 w-[240px] max-w-full overflow-hidden rounded-full bg-zinc-900/10 dark:bg-white/10"
+        >
+          <div
+            className="h-full rounded-full transition-[width] duration-500 ease-out"
+            style={{
+              width: `${Math.min(100, Math.max(3, Math.round((prog.done / prog.total) * 100)))}%`,
+              background: "var(--ui-accent, #8b5cf6)",
+            }}
+          />
+        </div>
+      )}
       <AnimatePresence>
         {note && (
           <motion.span

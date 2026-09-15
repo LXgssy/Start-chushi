@@ -270,3 +270,39 @@ Stage Summary:
 - 图标重绘完成：设计零漂移，全图标零笔画交叉（新律：重绘前先拉 lucide 原始路径做几何审计，视觉取证用真栅格不用想象）
 - 新律：共享工作树多会话并行时代，git add -A 是禁区（必须白名单加文件）；同版本号重复云推会卡死窗口期用户——发现即升版救援，changelog 折叠保历史连贯
 - 装机端路径：存量 ≤8.4.9 装机 ≤6h 静默升 8.4.10（页面通道）；手动渠道=Release 页 crx/zip
+
+---
+Task ID: 111
+Agent: main (Super Z)
+Task: 用户六连「禁止小窗滚轮透传/便签保留/指令面板高光门控/官方预设入 ⌘K（含音乐插件）/音乐面板空态图标裁半修复/快捷图标磨砂玻璃」——v8.4.11 构建+探针+云推
+
+Work Log:
+- 【需求定位】①小窗=网页浮窗（ext-card.js 三态卡）：卡片无内部滚动面，悬卡滚轮唯一效果=滚走宿主页 → 三面壳（cover/mini/full）wheel 捕获段 preventDefault+stopPropagation（Ctrl+滚轮放行缩放手势）②指令面板高光：v1.1.3 门控漏了「指针在面板内但不在选项上」——cmdk 的 data-selected 只在指针进选项那一刻更新，移到输入行/分组标题/空隙仍残留上一项；修=mouse 模式改纯 :hover 视觉（globals.css），kbd 模式保持 data-selected（键盘可达性不回退），Enter 执行锚点仍走 cmdk 内部选中 ③官方预设=examples/焕新示例预设.json + 初始SMTC音乐预设.cshz（surface=dock 含音乐部件+SMTC 媒体控制脚本=「插件」）④音乐面板空态裁半根因实锤：cshz 部件 .cs-empty（34px 音符+标题+双行文案）在 92px 卡 flex 居中溢出，.cs-card overflow:hidden 裁掉上半——修=H.em 92→128 + e2 max-width 250→288（源头 preset-src/smtc/music-widget.html，build-smtc-preset.py 两道门同步）⑤快捷图标=QuickLinks TileIcon 半透明渐变 → +backdrop blur(14px) saturate(1.6) + 玻璃内高光（色相渐变保留，设计不变）⑥便签 NotePanel 零改动（用户明示保留原设计）
+- 【官方预设管线】scripts/build-official-presets.py：examples → src/lib/startpage/official-presets.json 单向同步（manifest 保留 asset: 引用 + assets base64 表）；pack.ts 新增 inlineOfficialAssets（与 parsePack 同序：parsePreset 先按内联前长度校验→内联成同形 data:URL）；page.tsx installPreset 增 {replaceByName} 替换语义（同名先移除再装=老用户一键重装即换代）+ installOfficialPreset（校验失败 toast 如实相告）；CommandPalette 增「官方预设」组（已装态显示 accent「已安装 · 点击重装更新」，StaticItem 增 hint）；onInstall prop 签名收敛 (p)=>void（name 参数本冗余，PresetPanel 三调用点同步）
+- 【探针】probe-v8411.mjs 35 门 ALL-GREEN：T10a 官方组两条目/T10b 高光三态（idle 透明→hover 亮→移空隙熄且 data-selected=true 实锤解耦）/T10c 安装→toast→dock 音乐按钮→舞台高 127/T10e 嵌套 srcdoc 帧取证 csEmpty need=126 ≤ csCard 126 零溢出（音符完整）/T10d 重装替换（toast 已更新+按钮数=1）/v8.4.8~10 全量回归（boot/外链提升/返回设置/图标几何/已是最新/手动下载→updated/旧通道静默/快照直载/pageerror=0）
+- 【坑录】①appFrame.keyboard 不存在（frame 无 keyboard，ESC 用 page.keyboard 落 iframe 焦点元素）②TS 把两条目 assets 联合成 "cover.svg"?: undefined（JSON 推断 union 归一化），接口赋值必须断言边界收口③扩展 zip 的 _next 被「保留名改造」改名为 next，特征扫描别按 _next 前缀过滤④官方预设数据在包内 = JSON.parse 内嵌串，data:URL 在安装时才内联（包内查 base64 恒 False 是正确形态）
+
+Stage Summary:
+- 六项全落地：浮窗滚轮归属/高光门控/官方预设（含插件）一键装+重装更新/音符图标完整/快捷图标磨砂玻璃/便签原样保留
+- 老用户修复路径：⌘K → 官方预设 → 音乐面板预设 → 重装即获空态修复（替换语义不产生副本）
+- 交付 download/v8.4.11/（zip+快照载荷 71 文件）；云端另推；装机端 ≤8.4.10 存量 ≤6h 静默自愈
+
+---
+Task ID: 112
+Agent: main (Super Z)
+Task: 用户「下载更新进度条延伸到设置面板长度修复 + 青柠起始页同款工具栏扩展弹窗快捷面板（流畅模式 + 新标签页不聚焦地址栏，选项里说明）」——v8.5.0 构建探针云推
+
+Work Log:
+- 【进度条修复】先穷尽取证：v8.4.8~8.4.11 全部 CheckUpdateButton 历史版本均无进度条元素（git -p 考古 + 全局 grep），用户所见「进度条」实为 note 文字行；交付=补齐真实进度条（csSnapStatus.done/total → accent 色条）且宽度约束律写死结构（容器 w-[240px] max-w-full 随按钮列，条宽 min(100%)）——结构上不可能延伸到面板长度
+- 【popup 快捷面板】manifest 首次加 action.default_popup=popup.html（此前无 action 键点击无动作；ext-bg 无 onClicked 监听零冲突）+ popup.html/popup.js 零依赖原生面板（336px，zinc+accent 紫，深浅色跟随 settings.themeMode/system 回退 prefers）：流畅模式开关、新标签页不聚焦地址栏开关（取反语义 focusOmnibox）、打开完整设置（写一次性意图 start:ui-intent → 新开 shell.html 挂载时读后即焚 30s 时效 → 自动开设置面板）
+- 【数据面】popup 与新标签页同 origin 共享 localStorage start:settings；开关即时写、已开标签页经 storage 事件热跟随（page.tsx cs-lite 类即时切换）；设置字段 Settings +perfLite +focusOmnibox（默认 false/false，旧数据自然兜底）；设置面板同步加「性能」Section（流畅模式）与「搜索」Section（不聚焦地址栏）开关+说明文字（用户要求选项里说明地址栏显示扩展地址属正常现象）
+- 【流畅模式页面级】html.cs-lite 全局降级：全部 backdrop-filter 关停、CSS animation/transition 近零、will-change 清零、aurora-blob（blur 96px 大滤镜）隐藏、玻璃类不透明兜底底色保可读性；液态玻璃引擎 [data-lg] 磨砂体走变量驱动（blur(var(--lg-blur)) 且 important）——元素自身变量声明赢 :root 继承，cs-lite 截断 --lg-blur:0px/--lg-sat:1 = 数学恒等无磨砂 + 隐藏 .lg-ov 折射画布
+- 【三案探坑录】①cascade 假败局：Lightning CSS 把同规则内「标准+webkit 同值」合并删标准版留 -webkit- 版，而 Chromium 里 -webkit-backdrop-filter 并非 alias → 规则静默失效；修复=Chromium 111 目标根本无需前缀，删 -webkit- 行让标准版独存（browserslist chrome>=111 顺手入 package.json）；CSSStyleRule.cssRules（嵌套）恒存在（可为空），规则遍历先查自身声明再递归——否则全部 style 规则被当容器跳过（matched=[] 假象根因）②body.tabIndex 未设置时默认即 -1，不可作 effect 运行证据——改 dataset.csFocusGate（html 上，effect 门控结果）+ dataset.csFocusSteal（body 上，effect 实跑标记）③headless 无浏览器 omnibox，body.focus() 无焦点变化不派发 focusin——焦点断言一律走 dataset 不走事件计数
+- 【环境事故】会话中 page.tsx 显示层「[m」被当 ANSI 吞字造成「ounted 语法损坏」假象（python assert 反证文件完好）；工具显示层吞 [m 序列的教训：疑遭损坏时先 xxd 十六进制取证再动手修复
+- 【探针】probe-v850.mjs 18 门 ALL-GREEN：boot/popup 渲染+版本/初始开关态/cs-lite 热跟随+磨砂关停（matched 规则级取证）/settings 单字段落库（pomodoro 嵌套完好）/不聚焦地址栏双向门控（dataset 取证）/弹窗直达设置（真点按钮→新页自动开面板）/进度条出现+240px 约束+29% 比例（21/73）/更新日志首条 8.5.0+返回设置/pageerror=0（主页面+popup 双页）；探针侧 patch ext-bg snapCheck 下载禁用（mock 2 文件秒下完会以 updated 覆盖 downloading 态）
+- 【坑录】快照载荷含 popup.html/js（STAGE 收集面，2 个小文件无害零行为差异）；T7 需 mock 翻面 9.9.9 + 手写 csSnapStatus 驱动进度条（ext-bg 探针内禁用）
+
+Stage Summary:
+- v8.5.0 全功能落地：工具栏弹窗快捷面板（流畅模式/不聚焦地址栏/完整设置直达）+ 设置面板双入口 + 下载进度条真实化并结构约束 + 页面级流畅降级（磨砂/动画/合成层/极光/液态玻璃五路关停）
+- popup 属扩展包体（换 crx 才有）；流畅模式/聚焦选项/进度条随页面云推可达；18 门探针全绿
+- 交付 download/v8.5.0/（zip+快照载荷 73 文件）；云推另记

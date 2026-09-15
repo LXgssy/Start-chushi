@@ -55,6 +55,14 @@ export interface Settings {
    *  均不变）effect 不重跑，壁纸停在旧画面（导入后不刷新的根因） */
   wallpaperRev: number;
   pomodoro: PomodoroDurations;
+  /** 流畅模式（v8.5.0，低配电脑优化）：开启后页面降级渲染——磨砂玻璃换
+   *  纯色底、装饰动画/长驻合成层停用，牺牲质感换帧率。入口：扩展弹窗
+   *  快捷面板与设置面板；跨文档实时生效靠 storage 事件（见 page.tsx） */
+  perfLite: boolean;
+  /** 聚焦浏览器地址栏（v8.5.0）：false（默认）= 新开标签页时焦点归位
+   *  页面（v8.3.3 行为，敲键直接进搜索，地址栏显示「初始」的扩展地址）；
+   *  true = 恢复浏览器默认（焦点落在地址栏）。 */
+  focusOmnibox: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -72,6 +80,8 @@ export const DEFAULT_SETTINGS: Settings = {
   wallpaperUrl: "",
   wallpaperRev: 0,
   pomodoro: DEFAULT_DURATIONS,
+  perfLite: false,
+  focusOmnibox: false,
 };
 
 export interface WeatherHour {
