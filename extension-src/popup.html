@@ -1,8 +1,11 @@
 <!doctype html>
 <!-- 「初始」扩展弹窗快捷面板（v8.5.0）。
      点击浏览器工具栏「初始」图标弹出的轻量设置面板（青柠起始页同款交互）。
-     v8.5.2 起只保留「完整设置直达」这一个入口：v8.5.0 引入的两个快捷
-     开关已按用户要求整体移除，设置项不再由弹窗提供，页面侧也不再有选项。
+     v1 收录两项高频开关 + 完整设置直达：
+       · 流畅模式（低配电脑优化）—— settings.perfLite
+       · 新标签页不聚焦地址栏 —— settings.focusOmnibox（取反语义）
+     与新标签页共享同一 localStorage 键（start:settings，同扩展 origin），
+     开关即时写入、已开标签页经 storage 事件热跟随（page.tsx 消费）。
      样式零依赖（内联 CSS）：zinc 刻度 + 强调紫，深浅色跟随
      settings.themeMode（system 回退 prefers-color-scheme）。
      CSP 律：MV3 扩展页禁内联 script，逻辑全部走外链 popup.js。 -->
@@ -67,6 +70,65 @@
         color: var(--fg3);
         font-variant-numeric: tabular-nums;
       }
+      .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 13px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .row-text {
+        min-width: 0;
+      }
+      .row-title {
+        font-size: 12px;
+        font-weight: 300;
+        letter-spacing: 0.05em;
+      }
+      .row-desc {
+        margin-top: 3px;
+        font-size: 10.5px;
+        font-weight: 300;
+        line-height: 1.55;
+        letter-spacing: 0.03em;
+        color: var(--fg3);
+      }
+      /* 迷你开关：与设置面板 Switch 同构（38x22 胶囊 + 16px 旋钮） */
+      .sw {
+        position: relative;
+        flex-shrink: 0;
+        width: 38px;
+        height: 22px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: var(--track);
+        cursor: pointer;
+        outline: none;
+        transition: background-color 0.25s ease, border-color 0.25s ease;
+      }
+      .sw:focus-visible {
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--acc) 45%, transparent);
+      }
+      .sw[aria-checked="true"] {
+        background: var(--acc);
+        border-color: transparent;
+      }
+      .sw .knob {
+        position: absolute;
+        left: 3px;
+        top: 50%;
+        width: 16px;
+        height: 16px;
+        border-radius: 999px;
+        background: #fff;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+        transform: translateY(-50%);
+        transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      .sw[aria-checked="true"] .knob {
+        transform: translate(16px, -50%);
+      }
       .more {
         display: flex;
         align-items: center;
@@ -108,6 +170,34 @@
     </header>
 
     <main>
+      <section class="row">
+        <div class="row-text">
+          <div class="row-title">流畅模式</div>
+          <div class="row-desc">低配电脑优化：停用磨砂玻璃与装饰动画，优先帧率。</div>
+        </div>
+        <button class="sw" id="sw-lite" role="switch" aria-checked="false" aria-label="流畅模式">
+          <span class="knob"></span>
+        </button>
+      </section>
+
+      <section class="row">
+        <div class="row-text">
+          <div class="row-title">新标签页不聚焦地址栏</div>
+          <div class="row-desc">
+            开启（默认）：打开新标签页时光标聚焦页面，敲键直接搜索，地址栏会显示「初始」的扩展地址，属正常现象；关闭：恢复浏览器默认，光标停在地址栏。
+          </div>
+        </div>
+        <button
+          class="sw"
+          id="sw-nofocus"
+          role="switch"
+          aria-checked="true"
+          aria-label="新标签页不聚焦地址栏"
+        >
+          <span class="knob"></span>
+        </button>
+      </section>
+
       <button class="more" id="open-settings">打开完整设置</button>
     </main>
 
