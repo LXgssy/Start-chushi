@@ -3,7 +3,7 @@
      点击浏览器工具栏「初始」图标弹出的轻量设置面板（青柠起始页同款交互）。
      v1 收录两项高频开关 + 完整设置直达：
        · 流畅模式（低配电脑优化）—— settings.perfLite
-       · 新标签页不聚焦地址栏 —— settings.focusOmnibox（取反语义）
+       · 新标签页不聚焦地址栏 —— settings.noOmniboxFocus
      与新标签页共享同一 localStorage 键（start:settings，同扩展 origin），
      开关即时写入、已开标签页经 storage 事件热跟随（page.tsx 消费）。
      样式零依赖（内联 CSS）：zinc 刻度 + 强调紫，深浅色跟随

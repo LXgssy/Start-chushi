@@ -22,6 +22,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.5.9",
+    date: "2026-09-15",
+    title: "地址栏开关默认落地",
+    channel: "shell",
+    highlights: [
+      "「新标签页不聚焦地址栏」改用独立字段存储：默认关闭对它同样成立——老数据不用手动关一次",
+    ],
+  },
+  {
     version: "8.5.8",
     date: "2026-09-15",
     title: "地址栏开关归位 · 快捷服务可选抽屉",

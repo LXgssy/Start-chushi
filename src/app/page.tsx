@@ -216,12 +216,12 @@ export default function Home() {
      type-to-search（start:focus-search，body 聚焦不挡 window 键事件）。
      只在前 ~1.2s 抢（多次重试赢 Chrome 的 omnibox 焦点竞速；页面内已有
      具体焦点元素——输入框/部件 iframe——一律不碰），之后绝不和用户抢。
-     v8.5.0：受 settings.focusOmnibox 门控——默认 false 保持焦点归位；
-     开启「聚焦地址栏」后跳过抢焦点，恢复浏览器默认（焦点留在地址栏，
-     地址栏处于可输入态而非显示「初始」扩展地址）。 */
+     v8.5.8：改由 settings.noOmniboxFocus 门控（默认 false = 浏览器默认，不抢）；
+     只有弹窗开关「新标签页不聚焦地址栏」打开时才在页面内补一次抢焦点
+     （真正让出地址栏焦点是壳层的自发导航，见 shell-bridge.js focusRouting）。 */
   useEffect(() => {
-    document.documentElement.dataset.csFocusGate = settings.focusOmnibox ? "omnibox" : "page";
-    if (!mounted || settings.focusOmnibox) return;
+    document.documentElement.dataset.csFocusGate = settings.noOmniboxFocus ? "page" : "omnibox";
+    if (!mounted || !settings.noOmniboxFocus) return;
     const body = document.body;
     body.dataset.csFocusSteal = "1"; /* tabIndex 未设时 body 默认即 -1，不可作证据 */
     if (body.tabIndex !== -1) body.tabIndex = -1;
@@ -241,7 +241,7 @@ export default function Home() {
       timers.forEach((t) => clearTimeout(t));
       window.removeEventListener("focus", onFocus);
     };
-  }, [mounted, settings.focusOmnibox]);
+  }, [mounted, settings.noOmniboxFocus]);
 
   /* ---------- v8.5.0 流畅模式（低配电脑优化）----------
      html.cs-lite 全局降级类：globals.css 据此把磨砂玻璃换成纯色底、
