@@ -1011,10 +1011,10 @@ html.photo-mode .dock-btn[data-active="true"] {
   animation: intro-rise calc(0.95s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) 0.38s backwards;
 }
 
-/* v8.6.0：抽屉里的磁贴不再播页面级入场 —— 0.38s 延迟 + 0.95s 会把抽屉内的内容
-   拖慢一拍（抽屉本身已有从底部弹出的动画承担入场） */
-.cl-drawer .link-intro {
-  animation: none;
+/* v8.6.1：全屏抽屉每次唤出磁贴都重新入场（portal 重挂载），但 0.38s 延迟
+   对「中键→看墙」的即时预期偏慢，收紧到 0.06s；0.95s 本体时长保留（温润上浮） */
+.cl-links .link-intro {
+  animation-delay: 0.06s;
 }
 
 /* ---------- dock 入场：自承载（原 page.tsx framer 包裹层 opacity 动画移除，同参 0.8s/延迟 0.55s）；
@@ -1208,4 +1208,63 @@ html.cs-lite:not(.dark) .veil-in {
 }
 html.cs-lite.dark .veil-in {
   background: rgba(9, 9, 11, 0.5) !important;
+}
+
+/* ---------- v8.6.1 快捷服务抽屉（中键唤出全屏磁贴墙）----------
+   纱罩 = 轻染色、无 backdrop 模糊：搜索区已雾化让位（.cl-drawer-fade），
+   极光/壁纸本身就是背景，磁贴自带的磨砂材质照旧生效——流畅模式天然兼容。
+   抽屉打开期间（html.cs-drawer）：搜索区雾化让位、Dock 抬升到纱罩（z-45）
+   之上保持可点，点击 Dock 先收抽屉再开面板。
+   类同步挂组件卸载 latch（+340ms）而非 open 开关：点击 Dock 关抽屉时
+   capture pointerdown 先置 open=false，若类即刻移除 Dock 跌回 z-40，
+   退场中的纱罩（opacity 动画期间仍可命中）会重新盖住 Dock——pointerup
+   落纱罩、click 被吞，面板永远打不开。 */
+.cl-drawer-veil {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.42),
+    rgba(255, 255, 255, 0.28) 42%,
+    rgba(255, 255, 255, 0.36)
+  );
+}
+.dark .cl-drawer-veil {
+  background: linear-gradient(
+    180deg,
+    rgba(9, 9, 11, 0.52),
+    rgba(9, 9, 11, 0.38) 42%,
+    rgba(9, 9, 11, 0.5)
+  );
+}
+html.cs-drawer .cl-dock {
+  z-index: 48;
+}
+.cl-drawer-fade,
+html.cs-drawer .cl-drawer-fade {
+  transition:
+    opacity 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+html.cs-drawer .cl-drawer-fade {
+  opacity: 0;
+  filter: blur(12px);
+  transform: scale(0.985);
+  pointer-events: none;
+}
+/* 流畅模式：无模糊可依赖，纱罩纯色加深保证磁贴可读性 */
+html.cs-lite .cl-drawer-veil {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.55),
+    rgba(255, 255, 255, 0.45) 42%,
+    rgba(255, 255, 255, 0.52)
+  );
+}
+html.cs-lite.dark .cl-drawer-veil {
+  background: linear-gradient(
+    180deg,
+    rgba(9, 9, 11, 0.62),
+    rgba(9, 9, 11, 0.52) 42%,
+    rgba(9, 9, 11, 0.6)
+  );
 }

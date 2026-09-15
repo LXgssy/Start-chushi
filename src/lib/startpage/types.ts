@@ -17,8 +17,6 @@ export type ThemeMode = "light" | "dark" | "system";
 export type BackgroundMode = "glow" | "pure" | "photo";
 export type IconStyle = "letter" | "favicon";
 
-/** 快捷服务形态（v8.5.8）：docked = 常驻（默认）；drawer = 抽屉 */
-export type LinksStyle = "docked" | "drawer";
 export type PanelId = "weather" | "todo" | "note" | "pomodoro" | "settings" | null;
 
 /** 番茄钟时长设置（分钟） */
@@ -68,11 +66,7 @@ export interface Settings {
    *  显示在地址栏里（v8.3.7 实测唯一可靠手段）。
    *  用独立的正语义字段而非取反：老数据没有这个键 = false = 天然落到「默认关闭」，
    *  不必做一次性迁移；旧的 focusOmnibox 键直接忽略。 */
-  noOmniboxFocus: boolean;
-  /** 快捷服务形态（v8.5.8）：docked = 常驻（默认，磁贴一直铺着）；
-   *  drawer = 抽屉（默认收起，指针进入把手/面板或点把手才展开）。入口：设置 → 链接 */
-  linksStyle: LinksStyle;
-}
+  noOmniboxFocus: boolean;}
 
 export const DEFAULT_SETTINGS: Settings = {
   themeMode: "dark",
@@ -91,7 +85,6 @@ export const DEFAULT_SETTINGS: Settings = {
   pomodoro: DEFAULT_DURATIONS,
   perfLite: false,
   noOmniboxFocus: false,
-  linksStyle: "docked",
 };
 
 export interface WeatherHour {

@@ -775,17 +775,6 @@ function SettingsPanel({
           ]}
           onChange={(v) => onPatch({ iconStyle: v })}
         />
-        {/* v8.5.8 快捷服务形态：常驻 / 抽屉 */}
-        <Segmented
-          segKey="links-style"
-          label="快捷服务样式"
-          value={settings.linksStyle}
-          options={[
-            { value: "docked", label: "常驻" },
-            { value: "drawer", label: "抽屉" },
-          ]}
-          onChange={(v) => onPatch({ linksStyle: v })}
-        />
         <div className="flex items-center justify-between gap-4 py-2.5">
           <span className="text-xs font-light tracking-wide text-zinc-600 dark:text-zinc-300">
             称呼

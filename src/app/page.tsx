@@ -597,7 +597,10 @@ export default function Home() {
         return;
       }
       // 「/」聚焦搜索；任意可打印字符直接开始搜索
-      const locked = paletteOpen || editor.open || panel != null || ctxMenu || devDocs;
+      /* 快捷服务抽屉打开时同样锁定（打字进搜索会聚焦到已雾化的输入框） */
+      const locked =
+        paletteOpen || editor.open || panel != null || ctxMenu || devDocs ||
+        document.documentElement.classList.contains("cs-drawer");
       if (locked || isTypingTarget(document.activeElement)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
@@ -1243,36 +1246,32 @@ export default function Home() {
             </section>
           )}
 
-          {/* 搜索：入场上浮移至 .search-pill 自身（玻璃元素祖先禁止 opacity/filter 动画） */}
+          {/* 搜索：入场上浮移至 .search-pill 自身（玻璃元素祖先禁止 opacity/filter 动画）。
+              cl-drawer-fade：抽屉打开时雾化让位（globals.css，html.cs-drawer） */}
           {!layout.hideSearch && (
-            <section className="mt-[clamp(1.8rem,6vh,3.5rem)] w-full" aria-label="搜索">
+            <section
+              className="cl-drawer-fade mt-[clamp(1.8rem,6vh,3.5rem)] w-full"
+              aria-label="搜索"
+            >
               <div className="flex justify-center">
                 <SearchBar settings={settings} onPatchSettings={patchSettings} />
               </div>
             </section>
           )}
-
-          {!layout.hideLinks && (
-            /* v8.5.4：本区块不再套 intro-rise。磨砂玻璃存活原则（globals.css）：
-                祖先 opacity<1 / filter≠none 会成为 backdrop root，令后代
-                backdrop-filter 采样不到壁纸 —— 磨砂整体失效、动画结束才瞬跳恢复。
-                v8.4.11 起快捷图标本身就是磨砂玻璃，故此处只留 zen-fade（非禅态不产生
-                opacity/filter），入场交给磁贴自身。 */
-            <section
-              className="zen-fade mt-[clamp(2rem,8vh,4.5rem)] w-full"
-              aria-label="快捷链接"
-            >
-              <QuickLinks
-                links={links}
-                setLinks={setLinks}
-                iconStyle={settings.iconStyle}
-                columns={layout.linksColumns}
-                variant={settings.linksStyle}
-              />
-            </section>
-          )}
         </div>
       </main>
+
+      {/* 快捷服务抽屉（v8.6.1 全屏磁贴墙重写）：页面空白处中键单击唤出，
+          自 portal 到 body（纱罩 z-45，Dock 点击自动收起）；hideLinks 时整体停用。
+          v8.5.4 磨砂存活律：磁贴磨砂自承载，此包裹层不担 opacity/filter */}
+      {!layout.hideLinks && (
+        <QuickLinks
+          links={links}
+          setLinks={setLinks}
+          iconStyle={settings.iconStyle}
+          columns={layout.linksColumns}
+        />
+      )}
 
       {/* 底部 Dock：入场上浮移至 nav.dock-intro 自身，禅雾化走 .zen-dock
           （原 framer 包裹层 opacity 动画会隔死 dock 磨砂，已移除） */}
