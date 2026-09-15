@@ -3,7 +3,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion, useReducedMotion, useSpring } from "framer-motion";
-import { ChevronDown, Pencil, X } from "lucide-react";
+import { X } from "lucide-react";
 import {
   DndContext,
   DragOverlay,
@@ -29,6 +29,9 @@ const EASE = [0.22, 1, 0.36, 1] as const;
  *  v8.4.3 起压到近临界阻尼（2*sqrt(k*m)≈40）——此前 36 有过冲，让位时会「弹一下」，
  *  视觉上不够沉；近临界 = 快速就位、零反弹。 */
 const LAYOUT_SPRING = { type: "spring" as const, stiffness: 420, damping: 41, mass: 0.9 };
+
+/** v8.6.0 抽屉面板（从底部整块弹出）：比磁贴让位更沉一点，避免面板「弹一下」 */
+const SHEET_SPRING = { type: "spring" as const, stiffness: 360, damping: 42, mass: 1.05 };
 
 /** 长按位移容差（px）：真机手指静置也有 1-3px 抖动，此前任何 pointermove 都清计时器，
     420ms 永远走不满——长按在真机上失效而合成触摸验证通过的根因；超出容差才算滚动意图 */
@@ -83,7 +86,9 @@ function TileIcon({
     <span
       aria-hidden
       className={
-        "relative flex h-14 w-14 items-center justify-center overflow-hidden rounded-[18px] border shadow-sm " +
+        /* v8.6.0：1px border 换成 inset 环 —— 悬浮放大时 1px 边框落在分数像素上
+           会渲染出黑边；inset 环随层一起缩放，不再有这条缝 */
+        "relative flex h-14 w-14 items-center justify-center overflow-hidden rounded-[18px] shadow-sm " +
         (jiggle ? "jiggle " : "") +
         (intro ? "link-intro" : "")
       }
@@ -94,14 +99,18 @@ function TileIcon({
           " 42% 62% / .22), hsl(" +
           ((hue + 40) % 360) +
           " 46% 50% / .14))",
-        borderColor: "hsl(" + hue + " 44% 60% / .28)",
         /* v8.4.11 半透明 → 磨砂玻璃：背景色相渐变保留（设计不变），底下
            壁纸/极光经 backdrop 模糊透出，顶部一道玻璃内高光——与「初始」
-           页面 glass-card / 磨砂遮罩同一材质语言。 */
+           页面 glass-card / 磨砂遮罩同一材质语言。
+           v8.6.0：加独立合成层 —— backdrop-filter 与父级 transform 同用时，
+           Chromium 在动画收尾可能露出未模糊的深色边（用户报的「黑边」）；同时把
+           1px border 并进 inset 环（边框落在分数像素上也会显黑缝）。 */
+        transform: "translateZ(0)",
+        backfaceVisibility: "hidden",
         backdropFilter: "blur(14px) saturate(1.6)",
         WebkitBackdropFilter: "blur(14px) saturate(1.6)",
         boxShadow:
-          "inset 0 1px 0 rgba(255,255,255,.18), inset 0 0 0 1px rgba(255,255,255,.05), 0 1px 2px rgba(0,0,0,.05)",
+          "inset 0 0 0 1px hsl(" + hue + " 44% 60% / .28), inset 0 1px 0 rgba(255,255,255,.18), 0 1px 2px rgba(0,0,0,.05)",
       }}
     >
       {showFavicon ? (
@@ -320,8 +329,11 @@ const Tile = memo(function Tile({ link, iconStyle, editing, onEnterEdit, onDelet
             }
           }}
           onContextMenu={(e) => {
-            // 触屏长按进入编辑时阻止系统菜单（桌面右键不受影响）
-            if (timer.current || longPressed.current) e.preventDefault();
+            /* v8.6.0：桌面右键不再弹系统菜单 —— 直接进该快捷服务的编辑界面；
+               触屏长按只拦菜单（长按本身已进编辑态，避免再叠一层对话框） */
+            e.preventDefault();
+            if (timer.current || longPressed.current) return;
+            emitEditLink(link);
           }}
           onPointerDown={armLongPress}
           onPointerUp={clearTimer}
@@ -349,8 +361,8 @@ const Tile = memo(function Tile({ link, iconStyle, editing, onEnterEdit, onDelet
         )}
       </AnimatePresence>
 
-      {editing ? (
-        /* 编辑态：右上角删除键（短按磁贴即编辑，无需铅笔角标） */
+      {editing && (
+        /* 编辑态：右上角删除键（v8.6.0 起非编辑态不再有悬浮铅笔角标——右键即进编辑） */
         <button
           type="button"
           aria-label={"删除 " + link.name}
@@ -364,23 +376,6 @@ const Tile = memo(function Tile({ link, iconStyle, editing, onEnterEdit, onDelet
           className="absolute -right-1.5 -top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-red-500/90 text-white shadow-md transition-transform duration-200 hover:scale-110"
         >
           <X className="h-3.5 w-3.5" strokeWidth={2} />
-        </button>
-      ) : (
-        /* 桌面悬浮编辑按钮（触屏设备隐藏，长按磁贴进入编辑） */
-        <button
-          type="button"
-          aria-label={"编辑 " + link.name}
-          tabIndex={-1}
-          onMouseDown={(e) => e.stopPropagation()}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.preventDefault();
-            clearTimer();
-            emitEditLink(link);
-          }}
-          className="hover-only pointer-events-none absolute -right-1.5 -top-1.5 z-10 flex h-6 w-6 scale-75 items-center justify-center rounded-full bg-zinc-900/80 text-zinc-200 opacity-0 shadow backdrop-blur transition-all duration-300 group-hover:pointer-events-auto group-hover:scale-100 group-hover:opacity-100 dark:bg-white/90 dark:text-zinc-900"
-        >
-          <Pencil className="h-3 w-3" strokeWidth={1.5} />
         </button>
       )}
     </motion.div>
@@ -422,13 +417,44 @@ function QuickLinks({
     setPortalReady(true);
   }, []);
 
-  /* v8.5.8 抽屉形态：默认收起；指针进入（把手或面板）展开、离开收起；点把手也能开关。
-     只动高度不动 opacity —— 祖先 opacity<1 会成为 backdrop root，让磁贴磨砂失效。 */
+  /* v8.6.0 抽屉形态重做（用户：整块面板从底部弹出，中键点页面空白处触发）。
+     面板只动 transform（translateY），不动 opacity —— 祖先 opacity<1 会成为
+     backdrop root，让磁贴磨砂失效；遮罩是兄弟层，可以放心淡入淡出。 */
   const drawer = variant === "drawer";
   const [drawerOpen, setDrawerOpen] = useState(false);
   useEffect(() => {
     setDrawerOpen(false);
   }, [variant]);
+
+  /* 中键（滚轮键）点页面空白处 = 开关抽屉；命中交互元素不接管，并拦掉中键自动滚动 */
+  useEffect(() => {
+    if (!drawer) return;
+    const onDown = (e: MouseEvent) => {
+      if (e.button !== 1) return;
+      const t = e.target as Element | null;
+      if (
+        t &&
+        typeof t.closest === "function" &&
+        t.closest("a,button,input,textarea,select,label,iframe,[role='dialog'],[data-cl-sheet],[data-cl-tile]")
+      ) {
+        return;
+      }
+      e.preventDefault();
+      setDrawerOpen((v) => !v);
+    };
+    document.addEventListener("mousedown", onDown, true);
+    return () => document.removeEventListener("mousedown", onDown, true);
+  }, [drawer]);
+
+  /* ESC 收起抽屉（捕获阶段先吃，别顺手把别的浮层也关了） */
+  useEffect(() => {
+    if (!drawer || !drawerOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setDrawerOpen(false);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [drawer, drawerOpen]);
 
   /* 拖拽排序（v8.4.0）：6px 位移阈值起拖——阈值内仍是普通点击（打开链接/编辑），
      越过阈值才把磁贴「抬起」。触摸端保持原有「长按 420ms 进编辑」不变
@@ -546,39 +572,42 @@ function QuickLinks({
       onDragEnd={handleDragEnd}
       onDragCancel={handleDragEnd}
     >
-    <div
+    {/* v8.6.0 抽屉形态：容器本身就是「从底部整块弹出的面板」（fixed 贴底 +
+        translateY 100%→0）。关闭态只是移出屏幕，磁贴保持挂载（不重挂、不重播入场）。 */}
+    <motion.div
       ref={rootRef}
-      className="cl-links flex flex-col items-center"
-      onPointerEnter={drawer ? () => setDrawerOpen(true) : undefined}
-      onPointerLeave={drawer ? () => setDrawerOpen(false) : undefined}
+      data-cl-sheet={drawer ? "1" : undefined}
+      className={
+        drawer
+          ? "cl-links cl-drawer slim-scroll fixed inset-x-0 bottom-0 z-50 max-h-[70vh] overflow-y-auto rounded-t-[24px] border-t border-zinc-900/10 bg-white/80 pb-6 shadow-[0_-18px_44px_-24px_rgba(0,0,0,.45)] dark:border-white/10 dark:bg-zinc-900/80"
+          : "cl-links flex flex-col items-center"
+      }
+      initial={false}
+      animate={drawer ? { y: drawerOpen ? 0 : "100%" } : undefined}
+      transition={drawer ? SHEET_SPRING : undefined}
     >
-      {/* v8.5.8 抽屉把手：收起态唯一可见元素；点一下也能开关（触屏/键盘可达） */}
       {drawer && (
-        <button
-          type="button"
-          onClick={() => setDrawerOpen((v) => !v)}
-          aria-expanded={drawerOpen}
-          aria-label={drawerOpen ? "收起快捷服务" : "展开快捷服务"}
-          className="glass-chip accent-hover mb-2 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-light tracking-wide text-zinc-500 transition-colors duration-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
-        >
-          快捷服务
-          <motion.span
-            animate={{ rotate: drawerOpen ? 180 : 0 }}
-            transition={{ duration: 0.3, ease: EASE }}
-            className="block"
+        <div className="flex items-center justify-between px-6 pb-1 pt-5">
+          <div className="text-[11px] font-normal uppercase tracking-[0.18em] text-zinc-400 dark:text-zinc-500">
+            快捷服务
+          </div>
+          <button
+            type="button"
+            aria-label="收起快捷服务"
+            onClick={() => setDrawerOpen(false)}
+            className="flex h-6 w-6 items-center justify-center rounded-full text-zinc-400 transition-colors duration-200 hover:bg-zinc-900/5 hover:text-zinc-600 dark:hover:bg-white/10 dark:hover:text-zinc-200"
           >
-            <ChevronDown className="h-3 w-3" strokeWidth={1.5} aria-hidden />
-          </motion.span>
-        </button>
+            <X className="h-3.5 w-3.5" strokeWidth={1.5} />
+          </button>
+        </div>
       )}
       {/* 高度盒：px 弹簧跟随网格自然高度；relative 让 popLayout 退场磁贴的
-          absolute 钉位落在本盒内；不裁剪溢出——退场磁贴/阴影/悬浮态不可被切。
-          v8.5.8 抽屉态：高度在 0 / 自然高之间切换（只动高度、不动 opacity） */}
+          absolute 钉位落在本盒内；不裁剪溢出——退场磁贴/阴影/悬浮态不可被切 */}
       <motion.div
-        className={drawer && !drawerOpen ? "relative w-full overflow-hidden" : "relative w-full"}
+        className="relative w-full"
         style={{ contain: "layout" }}
         initial={false}
-        animate={{ height: drawer && !drawerOpen ? 0 : contentH == null ? "auto" : contentH }}
+        animate={{ height: contentH == null ? "auto" : contentH }}
         transition={LAYOUT_SPRING}
       >
           <div
@@ -636,7 +665,22 @@ function QuickLinks({
           </div>
 
         </motion.div>
-      </div>
+
+      {/* 遮罩：点它收起抽屉。兄弟层而非磁贴祖先 —— 不会让磨砂失效 */}
+      <AnimatePresence>
+        {drawer && drawerOpen && (
+          <motion.div
+            key="cs-drawer-veil"
+            className="fixed inset-0 z-40 bg-black/25"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.25, ease: EASE }}
+            onClick={() => setDrawerOpen(false)}
+          />
+        )}
+      </AnimatePresence>
+    </motion.div>
 
       {/* 拖拽浮层：portal 到 body（原因见 portalReady 处注释——contain/transform 祖先会把它顶飞）。
           抬起的磁贴带强调色晕 + 轻微倾斜，落回由 dropAnimation 弹回原位。 */}

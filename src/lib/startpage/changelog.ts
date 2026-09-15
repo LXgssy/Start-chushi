@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.6.0",
+    date: "2026-09-15",
+    title: "右键即编辑 · 磁贴黑边修复 · 抽屉改底部弹出",
+    channel: "page",
+    highlights: [
+      "快捷服务磁贴不再有右上角悬浮编辑角标：直接右键即进入该快捷服务的编辑界面",
+      "修复鼠标移开时磁贴「浮起复位」露黑边：1px 边框改为 inset 环 + 玻璃提为独立合成层",
+      "抽屉形态重做：整块面板从屏幕底部弹出，中键点页面空白处开关（点遮罩、关闭键或 ESC 也能关）",
+    ],
+  },
+  {
     version: "8.5.9",
     date: "2026-09-15",
     title: "地址栏开关默认落地",

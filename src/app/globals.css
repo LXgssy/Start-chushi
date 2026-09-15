@@ -1011,6 +1011,12 @@ html.photo-mode .dock-btn[data-active="true"] {
   animation: intro-rise calc(0.95s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) 0.38s backwards;
 }
 
+/* v8.6.0：抽屉里的磁贴不再播页面级入场 —— 0.38s 延迟 + 0.95s 会把抽屉内的内容
+   拖慢一拍（抽屉本身已有从底部弹出的动画承担入场） */
+.cl-drawer .link-intro {
+  animation: none;
+}
+
 /* ---------- dock 入场：自承载（原 page.tsx framer 包裹层 opacity 动画移除，同参 0.8s/延迟 0.55s）；
    居中是 Tailwind v4 独立 translate 属性，与 keyframes 的 transform 合成不覆盖 ---------- */
 .dock-intro {
