@@ -250,3 +250,23 @@ Stage Summary:
 - 云端 v8.4.8 重推收敛（70 文件 SHA256 ALL-GREEN），存量 8.4.5~8.4.7 装机 ≤6h 自动获得本修复（页面通道，无需换包）
 - 新交付包已重传文叔叔，内含检查更新+拒绝连接修复双项
 - 【补记】tag v8.4.8 重打至 50b3c5a 强推 → CI 34852379863 success；Release 6 资产全对齐新构建（zip/crx CI 产出，快照 zip/说明/SHA256SUMS 经 API 替换）；交付包以修正版 SHA256SUMS 重打重传文叔叔终版
+
+---
+Task ID: 110
+Agent: main (Super Z)
+Task: 用户「更新日志界面加返回设置按钮 + 重绘所有图标（设计不变、消笔画重叠）+ 做完云推」——v8.4.10 云推发布
+
+Work Log:
+- 【返回设置】ChangelogDialog 底部新增胶囊按钮（ArrowLeft+文字，hover 左移微动效），点击 onClose 回设置面板。首跑探针即断：真鼠标点击被拦——dbg-backbtn 取证 elementFromPoint 命中 BUTTON.dock-btn：弹窗 veil(z-50) 挂在 SettingsPanel(z-30 层叠上下文)内，z-50 只在父上下文内生效，整层被 dock(z-40) 压住，弹窗底部恰好落进 dock 条区域；ESC 关闭一直正常是因为键盘事件不走命中测试。修复=createPortal 到 body（PresetDocs 同款，Task 54「全屏浮层一律 portal」律），SSR 惰性挂载
+- 【图标审计】对全套在用图标逐根笔画取证（lucide 原始路径数据 + 256px 栅格 + 4x 截屏）：真交叉/撞笔仅三处——square-check-big 对勾长臂戳出框角、notebook-pen 四根装订环横穿左边框(X 交叉×4)、cloud-sun 太阳弧端贴云谷小尺寸糊团；Timer/Command/Settings2 及面板内 lucide 工具件全是干净 T 触/留白，逐字保留
+- 【cs-icons】新建自绘套件（24 网格/lucide 同语言，strokeWidth 默认 2 对齐 lucide 防静默变细）：CsCheckSquare=完整方框+对勾收进框内（勾尾距框边≥4 格）；CsNotebookPen=装订环改止于边框中线的 T 触短须（视觉不变零穿透），本体+笔原样；CsCloudSun=太阳弧 r4→3.4 上收（弧端与云净距≥2.5 格），四光芒线原位；CsTimer/CsCommand/CsSettings2 几何逐字收编。接入 Dock 六图标 + CommandPalette 打开组 + ContextMenu palette/settings
+- 【验证】probe-v849 23 门 ALL-GREEN：boot/按钮在场/日志首条/返回设置关弹窗且设置仍在/Dock 五图标 path d 的 DOM 取证/已是最新/手动下载→updated/旧通道静默/快照直载/外链提升回归/pageerror=0；4x 截屏视觉终验（待办勾进框、便签环不穿、天气留隙、⌘K 同步）
+- 【平行会话事故】gh-pages 发现两笔 v8.4.9 部署：d441101(00:29 北京,qu4imNX=仅升版本号的空构建,8.5h 窗口)与 380c58f(09:09,A84F=本会话全量构建)——并行会话在同一仓库/工作树活动（远端 main 三笔新提交+工作树不明 M 改动旁证）。同版本号严格大于才更新的规则下，窗口期拉取用户 floor=8.4.9 永远拿不到真内容→升版 8.4.10 救援，changelog 保留两条 8.4.9 历史条目
+- 【git 卫生】首轮 v8.4.10 提交误用 git add -A src/ 把并行会话工作树 WIP（chime/liquid-glass v2/music/use-pomodoro 等 5210 行未跟踪死代码，无任何跟踪文件 import，tree-shake 后产物等价）扫进提交且 tag 已触发 CI——push main 被拒（远端前进）反而留下一线生机：soft-reset 重做、reset 到远端、单笔干净提交（delta 恰 12 文件 +756-29）、删 tag 重推、删 Release 重跑 CI 换血资产
+- 【云推+发布】deploy-cloud-mirror.sh 8.4.10：清单门 70 文件、Pages 收敛、SHA256 全量核验 ALL-GREEN；main deed6b1 推送（基于并行会话 b0c7772 之上）；tag v8.4.10 CI success→Release 2 资产（crx 12383832B/zip 12378250B，manifest 8.4.10、返回设置与图标特征串在包内实证）；线上 version.json v=8.4.10
+
+Stage Summary:
+- 「返回设置」按钮落地且根治一层叠上下文劫持（新律：查 z 序问题先查祖先层叠上下文，z-50 在 z-30 上下文内打不过 z-40——固定层永远 portal 到 body）
+- 图标重绘完成：设计零漂移，全图标零笔画交叉（新律：重绘前先拉 lucide 原始路径做几何审计，视觉取证用真栅格不用想象）
+- 新律：共享工作树多会话并行时代，git add -A 是禁区（必须白名单加文件）；同版本号重复云推会卡死窗口期用户——发现即升版救援，changelog 折叠保历史连贯
+- 装机端路径：存量 ≤8.4.9 装机 ≤6h 静默升 8.4.10（页面通道）；手动渠道=Release 页 crx/zip
