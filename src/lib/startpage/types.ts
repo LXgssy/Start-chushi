@@ -16,6 +16,9 @@ export interface TodoItem {
 export type ThemeMode = "light" | "dark" | "system";
 export type BackgroundMode = "glow" | "pure" | "photo";
 export type IconStyle = "letter" | "favicon";
+
+/** 快捷服务形态（v8.5.8）：docked = 常驻（默认）；drawer = 抽屉 */
+export type LinksStyle = "docked" | "drawer";
 export type PanelId = "weather" | "todo" | "note" | "pomodoro" | "settings" | null;
 
 /** 番茄钟时长设置（分钟） */
@@ -59,10 +62,15 @@ export interface Settings {
    *  纯色底、装饰动画/长驻合成层停用，牺牲质感换帧率。入口：扩展弹窗
    *  快捷面板与设置面板；跨文档实时生效靠 storage 事件（见 page.tsx） */
   perfLite: boolean;
-  /** 聚焦浏览器地址栏（v8.5.0）：false（默认）= 新开标签页时焦点归位
-   *  页面（v8.3.3 行为，敲键直接进搜索，地址栏显示「初始」的扩展地址）；
-   *  true = 恢复浏览器默认（焦点落在地址栏）。 */
+  /** 聚焦浏览器地址栏（v8.5.0 引入，v8.5.8 默认值翻转）：
+   *  true（默认）= 浏览器默认行为——焦点落在地址栏、地址栏不显示扩展地址；
+   *  false = 弹窗开关「新标签页不聚焦地址栏」打开：壳页自发导航一次，让出地址栏
+   *  焦点并把扩展地址显示在地址栏（v8.3.7 实测唯一可靠手段）。
+   *  弹窗开关取反语义：开关 = 不聚焦地址栏 = !focusOmnibox。 */
   focusOmnibox: boolean;
+  /** 快捷服务形态（v8.5.8）：docked = 常驻（默认，磁贴一直铺着）；
+   *  drawer = 抽屉（默认收起，指针进入把手/面板或点把手才展开）。入口：设置 → 链接 */
+  linksStyle: LinksStyle;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -81,7 +89,8 @@ export const DEFAULT_SETTINGS: Settings = {
   wallpaperRev: 0,
   pomodoro: DEFAULT_DURATIONS,
   perfLite: false,
-  focusOmnibox: false,
+  focusOmnibox: true,
+  linksStyle: "docked",
 };
 
 export interface WeatherHour {

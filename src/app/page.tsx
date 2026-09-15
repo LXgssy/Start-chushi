@@ -1262,7 +1262,13 @@ export default function Home() {
               className="zen-fade mt-[clamp(2rem,8vh,4.5rem)] w-full"
               aria-label="快捷链接"
             >
-              <QuickLinks links={links} setLinks={setLinks} iconStyle={settings.iconStyle} columns={layout.linksColumns} />
+              <QuickLinks
+                links={links}
+                setLinks={setLinks}
+                iconStyle={settings.iconStyle}
+                columns={layout.linksColumns}
+                variant={settings.linksStyle}
+              />
             </section>
           )}
         </div>

@@ -3,7 +3,7 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion, useReducedMotion, useSpring } from "framer-motion";
-import { Pencil, X } from "lucide-react";
+import { ChevronDown, Pencil, X } from "lucide-react";
 import {
   DndContext,
   DragOverlay,
@@ -17,7 +17,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { SortableContext, rectSortingStrategy, useSortable } from "@dnd-kit/sortable";
-import type { IconStyle, StartLink } from "@/lib/startpage/types";
+import type { IconStyle, LinksStyle, StartLink } from "@/lib/startpage/types";
 import { hostOf } from "@/lib/startpage/link-utils";
 import { inExtIframe, openExternalUrl } from "@/lib/startpage/nav";
 import { clearIconSource, orderedIconSources, saveIconSource } from "@/lib/startpage/favicon";
@@ -392,6 +392,7 @@ function QuickLinks({
   setLinks,
   iconStyle,
   columns,
+  variant = "docked",
 }: {
   links: StartLink[];
   setLinks: (updater: (prev: StartLink[]) => StartLink[]) => void;
@@ -399,6 +400,8 @@ function QuickLinks({
   /** 预设 layout.linksColumns：限制每行磁贴数（磁贴 5rem + 间距 1rem + 容器内边距 2rem
    *  → max-width = 6N+1 rem，border-box 下正好容纳 N 列；未设时保持默认宽度） */
   columns?: number;
+  /** v8.5.8 快捷服务形态：docked（默认，常驻）| drawer（抽屉） */
+  variant?: LinksStyle;
 }) {
   const rootRef = useRef<HTMLDivElement>(null);
   const [editing, setEditing] = useState(false);
@@ -418,6 +421,14 @@ function QuickLinks({
   useEffect(() => {
     setPortalReady(true);
   }, []);
+
+  /* v8.5.8 抽屉形态：默认收起；指针进入（把手或面板）展开、离开收起；点把手也能开关。
+     只动高度不动 opacity —— 祖先 opacity<1 会成为 backdrop root，让磁贴磨砂失效。 */
+  const drawer = variant === "drawer";
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  useEffect(() => {
+    setDrawerOpen(false);
+  }, [variant]);
 
   /* 拖拽排序（v8.4.0）：6px 位移阈值起拖——阈值内仍是普通点击（打开链接/编辑），
      越过阈值才把磁贴「抬起」。触摸端保持原有「长按 420ms 进编辑」不变
@@ -535,14 +546,39 @@ function QuickLinks({
       onDragEnd={handleDragEnd}
       onDragCancel={handleDragEnd}
     >
-    <div ref={rootRef} className="cl-links flex flex-col items-center">
+    <div
+      ref={rootRef}
+      className="cl-links flex flex-col items-center"
+      onPointerEnter={drawer ? () => setDrawerOpen(true) : undefined}
+      onPointerLeave={drawer ? () => setDrawerOpen(false) : undefined}
+    >
+      {/* v8.5.8 抽屉把手：收起态唯一可见元素；点一下也能开关（触屏/键盘可达） */}
+      {drawer && (
+        <button
+          type="button"
+          onClick={() => setDrawerOpen((v) => !v)}
+          aria-expanded={drawerOpen}
+          aria-label={drawerOpen ? "收起快捷服务" : "展开快捷服务"}
+          className="glass-chip accent-hover mb-2 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-light tracking-wide text-zinc-500 transition-colors duration-300 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+        >
+          快捷服务
+          <motion.span
+            animate={{ rotate: drawerOpen ? 180 : 0 }}
+            transition={{ duration: 0.3, ease: EASE }}
+            className="block"
+          >
+            <ChevronDown className="h-3 w-3" strokeWidth={1.5} aria-hidden />
+          </motion.span>
+        </button>
+      )}
       {/* 高度盒：px 弹簧跟随网格自然高度；relative 让 popLayout 退场磁贴的
-          absolute 钉位落在本盒内；不裁剪溢出——退场磁贴/阴影/悬浮态不可被切 */}
+          absolute 钉位落在本盒内；不裁剪溢出——退场磁贴/阴影/悬浮态不可被切。
+          v8.5.8 抽屉态：高度在 0 / 自然高之间切换（只动高度、不动 opacity） */}
       <motion.div
-        className="relative w-full"
+        className={drawer && !drawerOpen ? "relative w-full overflow-hidden" : "relative w-full"}
         style={{ contain: "layout" }}
         initial={false}
-        animate={{ height: contentH == null ? "auto" : contentH }}
+        animate={{ height: drawer && !drawerOpen ? 0 : contentH == null ? "auto" : contentH }}
         transition={LAYOUT_SPRING}
       >
           <div
