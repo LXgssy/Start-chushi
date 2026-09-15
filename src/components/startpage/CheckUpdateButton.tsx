@@ -21,7 +21,6 @@
  */
 
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
 import { RefreshCw } from "lucide-react";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
@@ -353,28 +352,24 @@ function CheckUpdateButton() {
           />
         </div>
       )}
-      <AnimatePresence>
-        {note && (
-          <motion.span
-            key={note}
-            initial={{ opacity: 0, y: 3 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -3 }}
-            transition={{ duration: 0.3, ease: EASE }}
-            className="max-w-[240px] text-[10.5px] font-extralight leading-relaxed tracking-wide"
-            style={{
-              color:
-                phase === "error"
-                  ? "rgba(244,63,94,.75)"
-                  : phase === "updated" || phase === "latest"
-                    ? "var(--ui-accent, #8b5cf6)"
-                    : undefined,
-            }}
-          >
-            {note}
-          </motion.span>
-        )}
-      </AnimatePresence>
+      {/* v8.5.2：note 改成常驻固定单行槽。原先按文案做 key 的进出场动画，
+          下载进度每跳一次就换元素（新旧两条同时挂在 DOM 上），列表高度随之反复
+          增长 —— 表现就是「进度条一直下移、设置面板被拉伸」。现在槽位高度恒定、
+          文案就地更新，布局零位移。 */}
+      <span
+        aria-live="polite"
+        className="block h-[15px] w-[240px] max-w-full truncate text-[10.5px] font-extralight leading-[15px] tracking-wide"
+        style={{
+          color:
+            phase === "error"
+              ? "rgba(244,63,94,.75)"
+              : phase === "updated" || phase === "latest"
+                ? "var(--ui-accent, #8b5cf6)"
+                : undefined,
+        }}
+      >
+        {note}
+      </span>
     </div>
   );
 }

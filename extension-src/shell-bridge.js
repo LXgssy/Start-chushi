@@ -139,6 +139,28 @@
         });
         frame.addEventListener("load", fadeBoot);
 
+        /* ============ v8.5.2 新标签页焦点归位（顶层）============
+           事故：页面跑在壳的 iframe 里，页面内 body.focus() 只能动子框架的
+           焦点，浏览器地址栏照旧被 Chrome/Edge 占着 —— 表现为「开着不聚焦
+           地址栏，新开标签页还是聚焦地址栏」。焦点归位必须由顶层文档做：
+           短窗内多次把焦点交给 iframe 元素（键盘输入直接落进页面，
+           type-to-search 生效）；只在焦点仍在外壳自身时抢，用户点了别处
+           一律不打扰；1.6s 后彻底收手。 */
+        (function stealFocusAtTop() {
+                const t0 = Date.now();
+                const steal = () => {
+                        if (Date.now() - t0 > 1600) return;
+                        const ae = document.activeElement;
+                        if (ae && ae !== document.body && ae !== document.documentElement && ae !== frame) return;
+                        try { frame.focus({ preventScroll: true }); } catch (_) { /* noop */ }
+                        if (document.activeElement !== frame) {
+                                try { document.body.tabIndex = -1; document.body.focus({ preventScroll: true }); } catch (_) { /* noop */ }
+                        }
+                };
+                [30, 120, 260, 450, 700, 1000, 1400].forEach((d) => setTimeout(steal, d));
+                window.addEventListener("focus", () => setTimeout(steal, 0));
+        })();
+
         /* ============ 以下为 v8.4.4 云端桥原样保留（云端模式兼容） ============ */
 
         /* —— 尺寸/键名白名单（任一违规整批拒绝） —— */
