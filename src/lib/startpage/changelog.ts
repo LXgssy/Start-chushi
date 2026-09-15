@@ -22,7 +22,7 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
-    version: "8.5.4",
+    version: "8.5.5",
     date: "2026-09-15",
     title: "磨砂秒显 · 地址栏归位",
     channel: "shell",
