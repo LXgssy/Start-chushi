@@ -1,10 +1,9 @@
 /* 「初始」扩展弹窗快捷面板逻辑（v8.5.0）。
  *
+ * v8.5.2：两个快捷开关（流畅模式 / 新标签页不聚焦地址栏）整体移除，
+ * 本页只保留「完整设置直达」+ 主题跟随。
  * 数据面：与新标签页共享同一 localStorage 键 start:settings（popup.html
- * 与 index.html 同扩展 origin，storage 天然互通）。开关即时写入：
- *   · perfLite：page.tsx 监听 storage 事件 → html.cs-lite 热切换；
- *   · focusOmnibox（本面板开关取反语义：开关=「不聚焦地址栏」）：
- *     下一次新标签页生效（焦点归位是启动行为，无需热切换）。
+ * 与 index.html 同扩展 origin，storage 天然互通）。
  * 主题：跟随 settings.themeMode（dark/light/system；system 回退
  * prefers-color-scheme），写入期间监听 storage 事件实时跟随。
  * 完整设置直达：写一次性意图标志 start:ui-intent 后新开 shell.html，
@@ -32,15 +31,6 @@
     }
   }
 
-  function writeSettings(patch) {
-    var next = Object.assign({}, readSettings(), patch);
-    try {
-      localStorage.setItem(KEY, JSON.stringify(next));
-    } catch (e) {
-      /* 隐私模式等场景静默失败 */
-    }
-  }
-
   /* ---------- 主题跟随 ---------- */
   function applyTheme() {
     var mode = readSettings().themeMode;
@@ -57,11 +47,6 @@
     document.documentElement.classList.toggle("dark", dark);
   }
 
-  /* ---------- 开关渲染 ---------- */
-  function setSw(btn, on) {
-    btn.setAttribute("aria-checked", on ? "true" : "false");
-  }
-
   /* ---------- 版本号 ---------- */
   try {
     var m = chrome.runtime.getManifest();
@@ -69,25 +54,6 @@
   } catch (e) {
     /* 非 extension 宿主：留空 */
   }
-
-  /* ---------- 初始化开关态 ---------- */
-  var s0 = readSettings();
-  var liteOn = !!s0.perfLite;
-  var noFocusOn = !(s0.focusOmnibox === true); // 取反语义：开关=「不聚焦地址栏」
-  setSw($("#sw-lite"), liteOn);
-  setSw($("#sw-nofocus"), noFocusOn);
-
-  $("#sw-lite").addEventListener("click", function () {
-    var on = $("#sw-lite").getAttribute("aria-checked") !== "true";
-    setSw($("#sw-lite"), on);
-    writeSettings({ perfLite: on });
-  });
-
-  $("#sw-nofocus").addEventListener("click", function () {
-    var on = $("#sw-nofocus").getAttribute("aria-checked") !== "true";
-    setSw($("#sw-nofocus"), on);
-    writeSettings({ focusOmnibox: !on });
-  });
 
   /* ---------- 完整设置直达（新标签页 + 一次性意图标志） ---------- */
   $("#open-settings").addEventListener("click", function () {
