@@ -215,10 +215,15 @@ export default function Home() {
      焦点偷回页面：body 设 tabIndex=-1 后 focus()，敲键自然落入全局
      type-to-search（start:focus-search，body 聚焦不挡 window 键事件）。
      只在前 ~1.2s 抢（多次重试赢 Chrome 的 omnibox 焦点竞速；页面内已有
-     具体焦点元素——输入框/部件 iframe——一律不碰），之后绝不和用户抢。 */
+     具体焦点元素——输入框/部件 iframe——一律不碰），之后绝不和用户抢。
+     v8.5.0：受 settings.focusOmnibox 门控——默认 false 保持焦点归位；
+     开启「聚焦地址栏」后跳过抢焦点，恢复浏览器默认（焦点留在地址栏，
+     地址栏处于可输入态而非显示「初始」扩展地址）。 */
   useEffect(() => {
-    if (!mounted) return;
+    document.documentElement.dataset.csFocusGate = settings.focusOmnibox ? "omnibox" : "page";
+    if (!mounted || settings.focusOmnibox) return;
     const body = document.body;
+    body.dataset.csFocusSteal = "1"; /* tabIndex 未设时 body 默认即 -1，不可作证据 */
     if (body.tabIndex !== -1) body.tabIndex = -1;
     const t0 = Date.now();
     const steal = () => {
@@ -236,6 +241,48 @@ export default function Home() {
       timers.forEach((t) => clearTimeout(t));
       window.removeEventListener("focus", onFocus);
     };
+  }, [mounted, settings.focusOmnibox]);
+
+  /* ---------- v8.5.0 流畅模式（低配电脑优化）----------
+     html.cs-lite 全局降级类：globals.css 据此把磨砂玻璃换成纯色底、
+     停装饰动画/过渡与长驻合成层。入口两处：扩展弹窗快捷面板（popup.js
+     直改同一 localStorage 键）与设置面板。跨文档实时跟随：popup 改
+     localStorage 时本页收到 storage 事件即时切类（同文档修改不触发
+     storage 事件，所以自身路径仍走 settings.perfLite 依赖）。 */
+  useEffect(() => {
+    if (!mounted) return;
+    const root = document.documentElement;
+    root.classList.toggle("cs-lite", !!settings.perfLite);
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== KEYS.settings || e.newValue == null) return;
+      try {
+        const next = JSON.parse(e.newValue) as { perfLite?: boolean };
+        root.classList.toggle("cs-lite", !!next.perfLite);
+      } catch {
+        /* 残缺 JSON 忽略 */
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [mounted, settings.perfLite]);
+
+  /* ---------- v8.5.0 弹窗快捷面板「打开完整设置」意图消费 ----------
+     popup 写一次性标志 start:ui-intent 后新开标签页；本 effect 在挂载时
+     读后即焚（30s 时效防陈旧触发），命中则直接打开设置面板。仅在新
+     标签页启动路径消费（popup 只新建页，不唤已开页，v1 行为）。 */
+  useEffect(() => {
+    if (!mounted) return;
+    try {
+      const raw = localStorage.getItem("start:ui-intent");
+      if (!raw) return;
+      localStorage.removeItem("start:ui-intent");
+      const j = JSON.parse(raw) as { panel?: string; ts?: number };
+      if (j?.panel && Date.now() - (j.ts || 0) < 30000) {
+        setPanel(j.panel as PanelId);
+      }
+    } catch {
+      /* 残缺标志静默清理失败也无害 */
+    }
   }, [mounted]);
 
   /* ---------- 预设自定义 CSS（animations 字段，导入时已净化）----------

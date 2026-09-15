@@ -1141,3 +1141,57 @@ html .zen-pomo[data-tone="on-light"] {
 [data-nav="kbd"] [cmdk-item][data-selected="true"] .enter-hint {
   display: inline;
 }
+
+/* ---------- v8.5.0 流畅模式（html.cs-lite）----------
+   低配电脑优化：牺牲质感换帧率。入口两处（扩展弹窗快捷面板 popup.js 与
+   设置面板「性能」，同一 settings.perfLite 字段）；page.tsx 切类 +
+   storage 事件跨文档实时跟随。三层降级：
+   ① 模糊成本：全部 backdrop-filter 关停（磨砂是低配 GPU 最大头），
+      主要玻璃类补不透明兜底底色保可读性；
+   ② 动画成本：全局 CSS animation/transition 时长近零、长驻合成层
+      （will-change）清零——transitionend 仍会触发（时长缩短≠事件取消），
+      依赖过渡结束回调的高度自适应逻辑不受影响；
+   ③ 装饰成本：极光辉光 blob（blur 96px 大滤镜层）整体隐藏。 */
+html.cs-lite *,
+html.cs-lite *::before,
+html.cs-lite *::after {
+  backdrop-filter: none !important;
+  animation-duration: 0.001s !important;
+  animation-delay: 0s !important;
+  transition-duration: 0.001s !important;
+  transition-delay: 0s !important;
+  will-change: auto !important;
+}
+html.cs-lite .aurora-blob {
+  display: none !important;
+}
+/* 液态玻璃引擎（WebGL）磨砂体：[data-lg] 的 backdrop-filter 走变量驱动
+   blur(var(--lg-blur)) saturate(var(--lg-sat)) 且带 important——变量在元素
+   自身的声明优先于 :root 继承，直接截断为恒等变换（blur(0)+sat(1)=无磨砂），
+   引擎的 important 规则保留但值恒等；折射带叠层画布一并隐藏。 */
+html.cs-lite [data-lg] {
+  --lg-blur: 0px !important;
+  --lg-sat: 1 !important;
+}
+html.cs-lite [data-lg] > .lg-ov {
+  display: none !important;
+}
+/* 磨砂关停后的可读性兜底：玻璃面换近实底色（浅/深各一套） */
+html.cs-lite:not(.dark) .glass-card,
+html.cs-lite:not(.dark) .search-pill,
+html.cs-lite:not(.dark) .cl-panel,
+html.cs-lite:not(.dark) .cl-dockwidget {
+  background: rgba(255, 255, 255, 0.94) !important;
+}
+html.cs-lite.dark .glass-card,
+html.cs-lite.dark .search-pill,
+html.cs-lite.dark .cl-panel,
+html.cs-lite.dark .cl-dockwidget {
+  background: rgba(24, 24, 27, 0.94) !important;
+}
+html.cs-lite:not(.dark) .veil-in {
+  background: rgba(255, 255, 255, 0.55) !important;
+}
+html.cs-lite.dark .veil-in {
+  background: rgba(9, 9, 11, 0.5) !important;
+}

@@ -62,7 +62,7 @@ OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
 EXT_SRC = ROOT / "extension-src"    # v8.2.0 SW/内容脚本源
-VERSION = "8.4.11"
+VERSION = "8.5.0"
 DEST = ROOT / f"download/v{VERSION}/ChuShi-NewTab-v{VERSION}.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():
@@ -177,6 +177,20 @@ manifest = {
     # v8.4.4：新标签页改为壳页。v8.4.5：壳反转为本地直载（零网络路由），
     # 云端静默更新只影响后续标签页（见 ext-bg.js 更新器 / shell-bridge.js）。
     "chrome_url_overrides": {"newtab": "shell.html"},
+    # v8.5.0：工具栏图标弹窗快捷面板（青柠起始页同款交互）：流畅模式 /
+    # 新标签页不聚焦地址栏 / 完整设置直达。此前无 action 键（点击无动作）；
+    # 加 default_popup 后 action.onClicked 不再触发（ext-bg 本就无监听，零冲突）。
+    # 页面数据面：popup 与新标签页同 origin 共享 localStorage（start:settings），
+    # 开关即时生效（storage 事件热跟随）；本文件属扩展包体，需换 crx 才能获得。
+    "action": {
+        "default_popup": "popup.html",
+        "default_title": "初始 · 快捷面板",
+        "default_icon": {
+            "16": "icons/icon16.png",
+            "48": "icons/icon48.png",
+            "128": "icons/icon128.png",
+        },
+    },
     # v8.4.4：MAIN world 内容脚本（shim-page.js 伪造 chrome.storage）需 Chrome 111+。
     "minimum_chrome_version": "111",
     # v7.0.0：原生 DLL 枢纽——ChuShi SMTC Manager 的原生模块在本机回环
@@ -270,7 +284,8 @@ _card = (EXT_SRC / "ext-card.js").read_text(encoding="utf-8")
 shutil.copy2(EXT_SRC / "ext-bg.js", STAGE / "ext-bg.js")
 # v8.4.4：云端更新壳三件（壳页 + 壳桥 + 页面端 shim/顶层桥）
 # v8.4.5：+ cs-snap/sw.js（快照 SW：子路径作用域，真实目录过保留名规则）
-for _shell in ("shell.html", "shell-bridge.js", "shim-page.js", "cs-bridge.js"):
+# v8.5.0：+ 弹窗快捷面板（popup.html + popup.js）
+for _shell in ("shell.html", "shell-bridge.js", "shim-page.js", "cs-bridge.js", "popup.html", "popup.js"):
     shutil.copy2(EXT_SRC / _shell, STAGE / _shell)
 if (STAGE / "cs-snap").exists():
     shutil.rmtree(STAGE / "cs-snap")
@@ -295,7 +310,9 @@ if bad:
 for must in ("manifest.json", "_locales/zh_CN/messages.json", "icons/icon128.png",
              "index.html", "sandbox.html", "sandbox.js", "ext-bg.js", "ext-card.js",
              # v8.4.4 云端更新壳三件 + v8.4.5 快照 SW（子路径作用域）
-             "shell.html", "shell-bridge.js", "shim-page.js", "cs-bridge.js", "cs-snap/sw.js"):
+             "shell.html", "shell-bridge.js", "shim-page.js", "cs-bridge.js", "cs-snap/sw.js",
+             # v8.5.0 弹窗快捷面板
+             "popup.html", "popup.js"):
     if not (STAGE / must).exists():
         sys.exit(f"缺 {must}——产物不完整")
 # v8.2.1 门：SW/内容脚本语法自检（node --check；拼接后的 ext-card.js 才是真产物）
