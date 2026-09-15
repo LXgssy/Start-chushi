@@ -151,16 +151,20 @@ jobs:
           echo "线上清单与本地逐字节一致"
 
       - name: Verify live mirror (size + SHA256)
+        # Pages 的 CDN 传播是逐文件的：version.json 可能先到、部分资源后到，
+        # 于是「清单已收敛」但个别文件还是旧字节（v8.5.3 实测踩到一次）。
+        # 收敛后再静置 60s，然后以 30s 间隔最多重试 6 次（合计约 3 分钟）。
         run: |
           set -euo pipefail
           V="${{ steps.v.outputs.version }}"
           PAYLOAD="download/v${V}/ChuShi-CloudSnapshot-v${V}.zip"
-          for i in 1 2 3; do
-            if python3 scripts/verify-cloud-mirror.py "$PAYLOAD"; then echo "线上核验通过"; exit 0; fi
-            echo "::warning::第 $i 次核验未过，20s 后重试"
-            sleep 20
+          sleep 60
+          for i in 1 2 3 4 5 6; do
+            if python3 scripts/verify-cloud-mirror.py "$PAYLOAD"; then echo "线上核验通过（第 $i 次）"; exit 0; fi
+            echo "::warning::第 $i 次核验未过（多为 CDN 传播中），30s 后重试"
+            sleep 30
           done
-          echo "线上核验连续 3 次失败"; exit 1
+          echo "线上核验连续 6 次失败"; exit 1
 
       - uses: actions/upload-artifact@v4
         with:
