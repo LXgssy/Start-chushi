@@ -22,6 +22,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.6.13",
+    date: "2026-09-16",
+    title: "浅色掠影的壁纸模糊补上 Firefox",
+    channel: "page",
+    highlights: [
+      "修复浅色掠影在 Firefox 上壁纸模糊失效：模糊属性此前只带 WebKit 前缀，Firefox 不认",
+    ],
+  },
+  {
     version: "8.6.12",
     date: "2026-09-16",
     title: "掠影模式新增浅色外观",
