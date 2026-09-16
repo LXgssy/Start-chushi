@@ -1095,6 +1095,20 @@ html.cs-drawer-closing .cl-fade-leaf {
   animation-delay: 0.06s;
 }
 
+/* ---------- v8.6.8：常驻形态磁贴的入场优先级与搜索框对齐 ----------
+   实机反馈：新标签页黑幕（壳 #csShellBoot 的 #0b0d12 全屏遮罩，0.3s 淡出）
+   揭开时，磁贴 0.06s 的延迟比时钟（0.1s）和搜索框（0.24s）都早，看着像抢跑。
+   常驻形态改与搜索框同拍起步（0.24s），整条入场顺序变成
+   时钟 0.1s → 搜索框 0.24s ＋ 磁贴 0.24s；抽屉形态保留 0.06s
+   （中键唤出看墙要即时，且那条场景没有黑幕）。
+   作用域用 main 限定：抽屉 portal 到 document.body，不在 main 内，天然不受影响。 ---------- */
+main .cl-links .link-intro,
+main .cl-links .link-intro-tile,
+main .cl-links .link-intro-frost,
+main .cl-links .link-intro-body {
+  animation-delay: 0.24s;
+}
+
 /* ---------- dock 入场：自承载（原 page.tsx framer 包裹层 opacity 动画移除，同参 0.8s/延迟 0.55s）；
    居中是 Tailwind v4 独立 translate 属性，与 keyframes 的 transform 合成不覆盖 ---------- */
 .dock-intro {

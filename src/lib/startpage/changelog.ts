@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.6.8",
+    date: "2026-09-16",
+    title: "常驻磁贴入场与搜索框同拍",
+    channel: "page",
+    highlights: [
+      "修复常驻形态快捷磁贴的入场抢跑：黑幕揭开那一刻磁贴比时钟、搜索框都先冒出来",
+      "常驻磁贴的入场改为与搜索框同拍起步（0.24s），整体顺序变成 时钟 → 搜索框 ＋ 磁贴",
+      "抽屉形态的即时唤出手感保持不变（中键唤出即看墙，无黑幕场景）",
+    ],
+  },
+  {
     version: "8.6.7",
     date: "2026-09-16",
     title: "快捷服务入场凝霜 + 打断并行动画 + 启动崩溃修复",
