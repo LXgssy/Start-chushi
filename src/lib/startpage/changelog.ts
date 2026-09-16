@@ -22,6 +22,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.6.14",
+    date: "2026-09-16",
+    title: "禅模式墨色跟上浅色掠影",
+    channel: "page",
+    highlights: [
+      "修复浅色主题的掠影下进入禅模式时提示词墨色错判：判定公式原按压暗遮罩推导，白纱下会给出浅色字",
+    ],
+  },
+  {
     version: "8.6.13",
     date: "2026-09-16",
     title: "浅色掠影的壁纸模糊补上 Firefox",

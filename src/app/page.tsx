@@ -514,6 +514,14 @@ export default function Home() {
     let alive = true;
     (async () => {
       if (!document.documentElement.classList.contains("photo-mode")) return;
+      /* v8.6.14：浅色主题的掠影改白纱遮罩（globals.css「掠影·浅色模式」），
+         合成背景亮度 = L·(1−α)+α ≥ α ≈ 0.676（最坏纯黑壁纸），恒为浅底 →
+         墨色恒取深字。下面的采样公式是按压暗遮罩推的（L·0.722），对白纱不成立，
+         所以浅色主题直接短路，不再采样。 */
+      if (!document.documentElement.classList.contains("dark")) {
+        setZenHintTone("on-light");
+        return;
+      }
       const img = document.querySelector<HTMLImageElement>("img[data-wallpaper]");
       const el = zenHintRef.current;
       if (!img || !el) return;
