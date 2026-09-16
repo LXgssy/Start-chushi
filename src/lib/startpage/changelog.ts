@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.6.6",
+    date: "2026-09-16",
+    title: "图标入场恢复整块模糊",
+    channel: "page",
+    highlights: [
+      "修复常驻快捷图标入场没有模糊覆盖：图标本体恢复整段含 blur(12px) 的入场，玻璃本体 / 图标内容 / 名称同拍模糊上浮",
+      "撤掉玻璃本体的 translateZ(0) + backfaceVisibility 合成提示——它与入场 filter 动画同用时会让模糊覆盖不住",
+    ],
+  },
+  {
     version: "8.6.5",
     date: "2026-09-16",
     title: "抽屉弹回 · 磨砂跟随入场",

@@ -119,7 +119,7 @@ function TileIcon({
       className={
         "cl-fade-leaf relative flex items-center justify-center overflow-hidden shadow-sm " +
         (sm ? "h-14 w-14 rounded-[18px] " : "h-16 w-16 rounded-[20px] ") +
-        (intro ? "link-rise" : "")
+        (intro ? "link-intro" : "")
       }
       style={{
         background:
@@ -128,10 +128,9 @@ function TileIcon({
           " 42% 62% / .22), hsl(" +
           ((hue + 40) % 360) +
           " 46% 50% / .14))",
-        /* 磨砂玻璃：色相渐变保留，底下纱罩/极光透出；独立合成层防动画收尾
-           露出未模糊深色边（黑边修复），1px 边框并入 inset 环（分数像素黑缝） */
-        transform: "translateZ(0)",
-        backfaceVisibility: "hidden",
+        /* 磨砂玻璃：色相渐变保留，底下纱罩/极光透出；1px 边框并入 inset 环
+           （分数像素黑缝）。v8.6.6：撤掉 translateZ(0)/backfaceVisibility 合成提示
+           —— 它与本体入场 filter 动画同用时会把模糊盖不住（用户实测）。 */
         backdropFilter: "blur(14px) saturate(1.6)",
         WebkitBackdropFilter: "blur(14px) saturate(1.6)",
         boxShadow:
