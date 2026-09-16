@@ -482,6 +482,21 @@ html.cs-drawer-closing .cl-fade-leaf {
   opacity: 0;
 }
 
+/* ---------- v8.6.11 抽屉退场：磁贴投影自身淡出 ----------
+   v8.6.10 把 shadow-sm 搬到独立子层换取淡出通道，实机反馈常驻形态「悬停浮起
+   时投影与磁贴错位」——子层在合成树上和磁贴不是同一层，跟不上升起那一帧。
+   改回「投影长在包裹层本体」（单次绘制、与磁贴严格同体，浮起零错位），淡出
+   改走投影自身：包裹层是霜层（backdrop-filter）的祖先，不能动 opacity（祖先
+   opacity<1 会成 backdrop root 直接杀掉磨砂），但动 box-shadow 完全安全；包裹层
+   上也没有其它 box-shadow 动画/过渡（intro-tile-rise 只动 transform），
+   CSS Transitions §3 的「运行中动画阻断过渡」不适用。
+   none 按规范等价于全透明同形投影，插值即淡出，与叶子的 0.28s 同频。
+   过渡只声明在 closing 态：类移除时无过渡 → 重开瞬间投影即归位，不与入场打架。 */
+html.cs-drawer-closing .link-intro-tile {
+  transition: box-shadow 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  box-shadow: none;
+}
+
 /* ---------- 仅无悬停设备（触屏）显示 ---------- */
 .touch-only {
   display: none;

@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.6.11",
+    date: "2026-09-16",
+    title: "修复悬停浮起时投影错位",
+    channel: "page",
+    highlights: [
+      "修复常驻快捷服务悬停浮起时投影错位：投影改回与磁贴本体同层绘制，升起时严格跟手",
+      "关抽屉时投影依旧随磨砂、描边、图标内容一起淡出（改由投影自身过渡承载）",
+    ],
+  },
+  {
     version: "8.6.10",
     date: "2026-09-16",
     title: "关抽屉不再残留磁贴阴影",
