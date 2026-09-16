@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.6.15",
+    date: "2026-09-16",
+    title: "浅色掠影不再给壁纸压白纱",
+    channel: "page",
+    highlights: [
+      "浅色主题的掠影不再往壁纸上盖白纱，壁纸保持原样显示",
+      "对比度改由局部承担：搜索条 / dock / 磁贴自身加厚磨砂，时钟、磁贴名称、「新建」用深墨 + 极轻白晕",
+    ],
+  },
+  {
     version: "8.6.14",
     date: "2026-09-16",
     title: "禅模式墨色跟上浅色掠影",
