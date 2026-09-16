@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.6.4",
+    date: "2026-09-15",
+    title: "新建按钮同频 · 图标模糊入场 · 抽屉打断不再消失",
+    channel: "page",
+    highlights: [
+      "「新建快捷服务」按钮改用与磁贴图标同一套自入场（同延迟同缓动同模糊），整排同拍升起",
+      "修复常驻图标不跟着全局模糊入场：入场模糊下沉到玻璃内部内容（玻璃本体的 filter 会被自身 backdrop-filter 吃掉）",
+      "修复抽屉动画未播完时打断会直接消失：抽屉改为常挂并按开关重定向，打断即并行动画（纱罩淡入淡出与磁贴墙位移同频）",
+    ],
+  },
+  {
     version: "8.6.3",
     date: "2026-09-15",
     title: "快捷服务抽屉细节打磨 · 四项体验修复",

@@ -1045,6 +1045,19 @@ html.cs-drawer-closing .cl-fade-leaf {
   animation-delay: 0.06s;
 }
 
+/* ---------- v8.6.4 图标入场模糊下沉 ----------
+   玻璃本体上的 filter 会和自身 backdrop-filter 打架：Chromium 里动画的 blur
+   在带 backdrop-filter 的元素上不生效（用户实测「常驻图标不跟着全局模糊入场」）。
+   故把入场模糊下沉到玻璃【内部内容】（favicon / 字母）：本体只做位移+淡入，
+   内容跑整段 intro-rise（含 blur(12px)）。内容在玻璃内部，自身 filter 不产生
+   祖先 backdrop root，磨砂照常存活。 ---------- */
+.link-intro > * {
+  animation: intro-rise calc(0.95s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) 0.38s backwards;
+}
+.cl-links .link-intro > * {
+  animation-delay: 0.06s;
+}
+
 /* ---------- dock 入场：自承载（原 page.tsx framer 包裹层 opacity 动画移除，同参 0.8s/延迟 0.55s）；
    居中是 Tailwind v4 独立 translate 属性，与 keyframes 的 transform 合成不覆盖 ---------- */
 .dock-intro {
