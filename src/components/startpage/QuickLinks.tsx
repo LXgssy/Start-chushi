@@ -119,7 +119,7 @@ function TileIcon({
       className={
         "cl-fade-leaf relative flex items-center justify-center overflow-hidden shadow-sm " +
         (sm ? "h-14 w-14 rounded-[18px] " : "h-16 w-16 rounded-[20px] ") +
-        (intro ? "link-intro" : "")
+        (intro ? "link-rise" : "")
       }
       style={{
         background:
@@ -644,7 +644,7 @@ function QuickLinks({
       return;
     }
     if (!mount) return;
-    const t = setTimeout(() => setMount(false), 340);
+    const t = setTimeout(() => setMount(false), 520);
     return () => clearTimeout(t);
   }, [open, mount]);
 
@@ -750,9 +750,9 @@ function QuickLinks({
                   <motion.div
                     aria-hidden
                     className="cl-drawer-veil absolute inset-0"
-                    initial={false}
+                    initial={{ opacity: 0 }}
                     animate={{ opacity: open ? 1 : 0 }}
-                    transition={{ duration: 0.26, ease: EASE }}
+                    transition={{ duration: 0.28, ease: EASE }}
                     style={{ pointerEvents: open ? undefined : "none" }}
                     onPointerDown={(e) => {
                       if (e.button !== 0) return;
@@ -765,9 +765,9 @@ function QuickLinks({
                       backdrop root，入场/退场全程磨砂在线 */}
                   <motion.div
                     className="pointer-events-none flex h-full w-full flex-col items-center justify-center px-6 pb-24"
-                    initial={{ y: 18, scale: 0.985 }}
-                    animate={open ? { y: 0, scale: 1 } : { y: 12, scale: 0.99 }}
-                    transition={{ duration: open ? 0.34 : 0.26, ease: EASE }}
+                    initial={{ y: 42, scale: 0.97 }}
+                    animate={open ? { y: 0, scale: 1 } : { y: 42, scale: 0.97 }}
+                    transition={{ type: "spring", stiffness: 300, damping: 32, mass: 0.95 }}
                   >
                     <div ref={rootRef} className="cl-links pointer-events-auto flex flex-col items-center">
                       {renderGrid(false)}

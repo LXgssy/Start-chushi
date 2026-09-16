@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.6.5",
+    date: "2026-09-16",
+    title: "抽屉弹回 · 磨砂跟随入场",
+    channel: "page",
+    highlights: [
+      "抽屉打开改为小弹簧（不再是线性退让），升起更有回弹感，不再生硬",
+      "修复打开动画中途退出没动画：开关共用同一个退场态（原来关闭目标几乎贴着打开起点，无处可动），现在从当前帧直接弹回",
+      "修复图标底部磨砂玻璃不跟随入场：玻璃本体的入场动画去掉 filter（它会吃掉 backdrop-filter），磨砂全程在线；模糊交给图标内部内容",
+    ],
+  },
+  {
     version: "8.6.4",
     date: "2026-09-15",
     title: "新建按钮同频 · 图标模糊入场 · 抽屉打断不再消失",
