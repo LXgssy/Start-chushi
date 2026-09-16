@@ -375,68 +375,119 @@ html.dark .accent-bar {
     rgba(0, 0, 0, 0.18);
 }
 
-/* ---------- 掠影模式前景：白字 / 深磨砂药丸 ---------- */
-html.photo-mode .clock-text {
+/* ---------- 掠影模式前景（深色主题）：白字 / 深磨砂药丸 ----------
+   v8.6.12：整块收窄到 .dark。浅色主题的掠影不再是「白字压深玻璃」，
+   改走本来的浅色体系（Tailwind 浅色工具类 + 浅色玻璃），配下方白纱遮罩
+   保证可读；本块若不分主题就会把浅色主题的深字整体盖白。 */
+html.photo-mode.dark .clock-text {
   color: rgb(245 245 245);
 }
-html.photo-mode .clock-sub {
+html.photo-mode.dark .clock-sub {
   color: rgb(244 244 245 / 0.78);
 }
-html.photo-mode .clock-sub [aria-hidden] {
+html.photo-mode.dark .clock-sub [aria-hidden] {
   background: rgb(255 255 255 / 0.32);
 }
-html.photo-mode .glass-pill {
+html.photo-mode.dark .glass-pill {
   background: rgb(12 12 18 / 0.44);
   border-color: rgb(255 255 255 / 0.14);
   --pill-seg: rgba(255, 255, 255, 0.18);
   --pill-seg-ring: rgba(255, 255, 255, 0.34);
   --pill-line: rgba(255, 255, 255, 0.26);
 }
-html.photo-mode .search-input {
+html.photo-mode.dark .search-input {
   color: rgb(244 244 245);
 }
-html.photo-mode .search-input::placeholder {
+html.photo-mode.dark .search-input::placeholder {
   color: rgb(255 255 255 / 0.45);
 }
-html.photo-mode .search-trigger {
+html.photo-mode.dark .search-trigger {
   color: rgb(255 255 255 / 0.62);
 }
-html.photo-mode .search-trigger:hover {
+html.photo-mode.dark .search-trigger:hover {
   color: rgb(255 255 255 / 0.92);
 }
-html.photo-mode .search-submit {
+html.photo-mode.dark .search-submit {
   background: rgb(255 255 255 / 0.92);
   color: rgb(17 17 20);
 }
-html.photo-mode .search-hint {
+html.photo-mode.dark .search-hint {
   color: rgb(255 255 255 / 0.5);
 }
 /* 建议行：掠影玻璃恒深色（不分主题），浅色主题下建议行文字/高亮/分隔线
    需白系覆盖（同 .search-input 的处理），否则深灰字压深玻璃不可读 */
-html.photo-mode .search-sug-row {
+html.photo-mode.dark .search-sug-row {
   color: rgb(244 244 245 / 0.9);
 }
-html.photo-mode .search-sug-row[data-active="true"] {
+html.photo-mode.dark .search-sug-row[data-active="true"] {
   background: rgb(255 255 255 / 0.12);
   color: rgb(255 255 255);
 }
-html.photo-mode .search-sug-row:first-child {
+html.photo-mode.dark .search-sug-row:first-child {
   border-top-color: rgb(255 255 255 / 0.1);
 }
-html.photo-mode .tile-label {
+html.photo-mode.dark .tile-label {
   color: rgb(255 255 255 / 0.85);
 }
-html.photo-mode .tile-letter {
+html.photo-mode.dark .tile-letter {
   color: rgb(255 255 255 / 0.92);
 }
-html.photo-mode .dock-btn {
+html.photo-mode.dark .dock-btn {
   color: rgb(255 255 255 / 0.68);
 }
-html.photo-mode .dock-btn:hover {
+html.photo-mode.dark .dock-btn:hover {
   color: rgb(255 255 255);
 }
-html.photo-mode .dock-btn[data-active="true"] {
+html.photo-mode.dark .dock-btn[data-active="true"] {
   color: rgb(255 255 255);
+}
+
+/* ================================================================
+   掠影·浅色模式（v8.6.12：浅色主题 + 掠影）
+   ----------------------------------------------------------------
+   历史行为：掠影模式不分主题强制「白字 + 深玻璃」，靠压暗遮罩保可读——
+   浅色主题用户因此永远拿不到浅色界面。本版把强制块收窄到 .dark，浅色主题
+   走浅色体系，读得清楚这件事改由这层白纱承担（遮罩在壁纸与内容之间）。
+   可读性量化（最坏情况＝纯黑壁纸；浅色主题正文墨色 oklch(0.21)≈#2b2b2e，
+   相对亮度 0.026）：
+     · 中部两层合成 α = 1-(1-0.40)(1-0.46) = 0.676 → 等效 #acacac（亮度 0.404）
+       → 对比度 (0.404+0.05)/(0.026+0.05) ≈ 6.0:1 ≥ AA 正文 4.5:1
+     · 上下渐变加强到 0.58 / 0.62 且平底 0.46 → α≥0.78 → 对比度 ≥8:1，
+       正是时钟（上）与 dock（下）所在的高需求区
+   再加 backdrop-filter 高斯模糊抹掉高频纹理——复杂画面（碎石子、树叶、
+   城市夜景）才是真正伤可读性的因素，单靠压亮不够。
+   流畅模式（cs-lite 通配把 backdrop-filter 全关）无磨砂可依：白纱加厚到
+   0.72 摊平补偿，逻辑与 .veil-in 的 cs-lite 处理一致。
+   ================================================================ */
+html.photo-mode:not(.dark) .photo-scrim {
+  background:
+    linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.58),
+      rgba(255, 255, 255, 0.40) 30%,
+      rgba(255, 255, 255, 0.40) 60%,
+      rgba(255, 255, 255, 0.62)
+    ),
+    rgba(255, 255, 255, 0.46);
+  backdrop-filter: blur(18px) saturate(1.05);
+  -webkit-backdrop-filter: blur(18px) saturate(1.05);
+}
+html.cs-lite.photo-mode:not(.dark) .photo-scrim {
+  background:
+    linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.70),
+      rgba(255, 255, 255, 0.56) 30%,
+      rgba(255, 255, 255, 0.56) 60%,
+      rgba(255, 255, 255, 0.74)
+    ),
+    rgba(255, 255, 255, 0.58);
+}
+/* 浅色版本的玻璃药丸：白纱之上再提一档不透明度 + 描边加深一档，
+   让搜索悬浮条在「白底压白纱」里仍有轮廓（深字仍在其上，对比充足） */
+html.photo-mode:not(.dark) .glass-pill {
+  background: rgba(255, 255, 255, 0.64);
+  border-color: rgba(20, 20, 25, 0.10);
 }
 
 /* ---------- 编辑模式磁贴摇晃（v8.6.2 强化：±2°/0.28s，交替反向——青柠/iOS 同款，
