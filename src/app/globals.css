@@ -461,20 +461,25 @@ html.cs-lite .jiggle {
   animation-duration: 0.28s !important;
 }
 
-/* ---------- v8.6.3 抽屉退场同步：磁贴单元随纱罩一同淡出 ----------
+/* ---------- v8.6.3/v8.6.7 抽屉退场同步：磁贴单元随纱罩一同淡出 ----------
    用户实测：关抽屉时整页模糊淡出了，磁贴却满透明度站到退场窗口最后一帧
    被 portal 卸载——「图标没跟着模糊一起关」。修复 = 退场窗口
    （html.cs-drawer-closing，随 mount latch 挂卸，见 QuickLinks）给玻璃与
    名称【自身】加 opacity 0 过渡：opacity 落在带 backdrop-filter 的元素自身
-   不产生祖先 backdrop root（磨砂存活律无虞——祖先 opacity<1 才是毒），
-   淡出与纱罩 0.26s 同频同缓动。!important 压过仍在跑的 intro-rise
-   （级联序：important 声明 > animation），退场落在入场窗口内也能立即接管；
-   流畅模式下过渡被通配压近零 → 原地即刻消失，与 cs-lite 的瞬时语义一致。 */
+   不产生祖先 backdrop root（磨砂存活律无虞——祖先 opacity<1 才是毒）。
+   v8.6.7 两修：①去掉 !important——运行中的 CSS 动画会【阻断 opacity
+   transition 起步】（CSS Transitions §3），important 压动画只得到瞬跳得不到
+   过渡，打断关闭时磁贴叶从动画值直跳 0（「打断抽屉动画后关闭动画不执行、
+   直接消失」）。本规则降级为普通声明，只承担 intro 已播完的稳态退场；
+   入场中途退场由 QuickLinks 的 WAAPI 冻结-淡出接管（Web Animations 层级
+   高于普通声明，从当前值与纱罩 0.28s 并行淡出）。②过渡对齐纱罩 0.28s
+   （v8.6.4 起纱罩退场时长）。流畅模式过渡仍被通配压近零 → 原地即刻消失，
+   与 cs-lite 的瞬时语义一致。 */
 .cl-fade-leaf {
-  transition: opacity 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
 html.cs-drawer-closing .cl-fade-leaf {
-  opacity: 0 !important;
+  opacity: 0;
 }
 
 /* ---------- 仅无悬停设备（触屏）显示 ---------- */
@@ -1031,29 +1036,62 @@ html.cs-drawer-closing .cl-fade-leaf {
   animation: intro-rise 0.95s cubic-bezier(0.22, 1, 0.36, 1) 0.24s backwards;
 }
 
-/* ---------- 快捷磁贴入场：自承载（v8.5.6；与原 section 级同参 0.95s/延迟 0.38s） ----------
-   磨砂玻璃存活原则：动画只能落在玻璃元素自身，落在祖先会让后代 backdrop-filter
-   采样不到壁纸、磨砂整体失效。故时间线与其它区块一致，但动画挂在「图标玻璃本体」
-   与「名称」两个叶子上，而不是磁贴包裹层。 ---------- */
+/* ---------- 快捷磁贴入场（v8.6.7 三通道拆分）----------
+   两轮实机拉锯的合题：v8.6.4 只模糊内容 → 用户「没有模糊效果覆盖」；
+   v8.6.6 玻璃本体整块 filter → 本体 backdrop-filter 被 filter 全程压制
+   （Chromium 行为），抽屉有纱罩整页模糊兜底「观感一致」，常驻形态没有
+   纱罩——磨砂裸死 1s，用户「进入动画没有高斯模糊图标的效果」。
+   拆成三条互不相克的通道，模糊覆盖与霜感在线两头都要：
+   ① 包裹层 .link-intro-tile：只动 transform（translateZ(0) 写进关键帧保
+      黑边修复的合成层提示）——transform 不形成 backdrop root，磨砂存活律无虞；
+   ② 霜层 .link-intro-frost：backdrop-filter 载体，0.18s 快速凝聚（自承载
+      opacity，霜感几乎即刻在线，随凝聚渐显不突兀）；
+   ③ 内容层 .link-intro-body：色相渐变+图标 0.95s opacity+blur(10px) 模糊
+      聚拢——覆盖整个磁贴面（v8.6.6 的「整块模糊」观感）；内容层是霜层的
+      【兄弟】不是祖先，其 filter 压不到霜层的 backdrop-filter。
+   名称与添加位保持 intro-rise 整块模糊上浮（v8.6.6 同款，不动）。 ---------- */
+@keyframes intro-tile-rise {
+  from {
+    transform: translateZ(0) translateY(26px) scale(0.985);
+  }
+  to {
+    transform: translateZ(0) translateY(0) scale(1);
+  }
+}
+@keyframes intro-tile-frost {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes intro-tile-body {
+  from {
+    opacity: 0;
+    filter: blur(10px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
 .link-intro {
   animation: intro-rise calc(0.95s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) 0.38s backwards;
+}
+.link-intro-tile {
+  animation: intro-tile-rise calc(0.95s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) 0.38s backwards;
+}
+.link-intro-frost {
+  animation: intro-tile-frost 0.18s ease-out 0.38s backwards;
+}
+.link-intro-body {
+  animation: intro-tile-body calc(0.95s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) 0.38s backwards;
 }
 
 /* v8.6.1：全屏抽屉每次唤出磁贴都重新入场（portal 重挂载），但 0.38s 延迟
    对「中键→看墙」的即时预期偏慢，收紧到 0.06s；0.95s 本体时长保留（温润上浮） */
-.cl-links .link-intro {
-  animation-delay: 0.06s;
-}
-
-/* ---------- v8.6.6 图标入场：整块模糊（含玻璃本体） ----------
-   上一版把玻璃本体的 filter 拿掉、只让内部内容模糊，实机反馈「没有模糊效果覆盖」。
-   现改回：图标本体跑整段 intro-rise（含 blur(12px)），本体/内容/名称同拍模糊上浮。
-   注：动画期间本体自身的 backdrop-filter 会被 filter 暂时压掉（Chromium 行为），
-   但整页此刻也在模糊中，观感一致；动画收尾 filter 归零，磨砂随即恢复。 ---------- */
-.link-intro {
-  animation: intro-rise calc(0.95s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) 0.38s backwards;
-}
-.cl-links .link-intro {
+.cl-links .link-intro,
+.cl-links .link-intro-tile,
+.cl-links .link-intro-frost,
+.cl-links .link-intro-body {
   animation-delay: 0.06s;
 }
 
