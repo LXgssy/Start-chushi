@@ -85,19 +85,20 @@
   --sidebar-accent-foreground: oklch(0.26 0.022 300);
   --sidebar-border: oklch(0.905 0.007 300);
   --sidebar-ring: oklch(0.62 0.16 295);
-  /* —— 磁贴「瓷釉磨砂」token（v8.6.16 新增，浅/深同构镜像）——
-     霜层着色是磨砂可见性的核心：旧浅色磁贴只 blur 不着色，在浅底上
-     blur(14px) 之后与背景无明度差，「磨砂玻璃」存在却看不见。瓷釉版
-     给霜层铺白雾（深色版铺暗雾），磁贴与画布立即分层，磨砂可感。 */
-  --tile-frost-bg: rgba(255, 255, 255, 0.52);
+  /* —— 磁贴「瓷釉磨砂」token（v8.6.16 新增，v8.6.17 减雾提质）——
+     磨砂玻璃的灵魂是「透」：背景的模糊纹理要能透过磁贴面。0.52 白雾
+     把透度压到 48% 以下，磁贴成了实心纸片——质感反而输给深色（暗雾
+     0.20 透 80%）。减雾到 0.30 让极光透进来，玻璃感回来；分层交给
+     描边+投影承担，不再依赖厚雾。 */
+  --tile-frost-bg: rgba(252, 251, 255, 0.26);
   /* 描边环：浅色走深墨（hsl(hue 44% L)/a 由内联按 hue 注入） */
   --tile-ring-l: 32%;
   --tile-ring-a: 0.32;
-  /* 顶部内高光：浅色下白高光更亮（瓷面反光） */
-  --tile-hl-a: 0.85;
-  /* 内容层色相渐变：浅色加深一档（旧 .22/.14 在瓷白上几乎不可见） */
-  --tile-grad-a1: 0.38;
-  --tile-grad-a2: 0.26;
+  /* 顶部内高光：0.85 是死白塑料感，降到釉面反光档 */
+  --tile-hl-a: 0.45;
+  /* 内容层色相渐变：雾减薄后自身透出更多彩底，渐变同步收一档防叠脏 */
+  --tile-grad-a1: 0.28;
+  --tile-grad-a2: 0.18;
   --tile-grad-l1: 58%;
   --tile-grad-l2: 52%;
 }
@@ -375,10 +376,10 @@ html.dark .accent-bar {
   transform: translateZ(0);
 }
 .vignette {
-  /* 瓷釉版（v8.6.16）：顶部瓷光提亮、底部墨色轻压——与深色「顶白光/底黑压」
-     同构，幅度镜像（浅色靠提亮塑体积，深色靠压暗） */
+  /* v8.6.17：0.5 顶光是「整页白雾+时钟底部白高光带」的主源，砍到与深色
+     0.045 同档的极轻瓷光——体积感全权交给极光与投影，画布还给底色 */
   background:
-    radial-gradient(120% 90% at 50% 0%, rgba(255, 255, 255, 0.5), transparent 55%),
+    radial-gradient(120% 90% at 50% 0%, rgba(255, 255, 255, 0.12), transparent 55%),
     radial-gradient(140% 120% at 50% 115%, rgba(24, 22, 36, 0.09), transparent 60%);
   pointer-events: none;
 }
@@ -520,6 +521,20 @@ html.photo-mode:not(.dark) .cl-links .link-intro {
     0 0 12px rgb(255 255 255 / 0.6),
     0 1px 2px rgb(255 255 255 / 0.5);
 }
+/* 磁贴名称：v8.6.15「裸文字深墨+白晕」清单漏项——名称直接压壁纸，
+   深色壁纸（草地/夜景）上 zinc-600 灰字几乎隐形。
+   ⚠ 名称元素在 intro 态自带 .link-intro 类（QuickLinks 拼接），其白晕
+   规则特异性 (0,3,1) 压过 (0,2,1)——这里必须同构提级 .cl-links .tile-label
+   靠源顺序在后取胜；小字（12px）白晕在深岩壁上不够，前两圈收紧成
+   近描边（笔画四周白圈包裹），深壁纸可读、浅壁纸白圈不可见 */
+html.photo-mode:not(.dark) .cl-links .tile-label {
+  color: rgb(39 39 42 / 0.92);
+  text-shadow:
+    0 0 3px rgb(255 255 255 / 0.95),
+    0 1px 4px rgb(255 255 255 / 0.85),
+    0 0 10px rgb(255 255 255 / 0.6),
+    0 0 20px rgb(255 255 255 / 0.4);
+}
 /* 局部玻璃加厚：搜索悬浮条 / dock 药丸 —— 深字压浅玻璃，与壁纸无关 */
 html.photo-mode:not(.dark) .glass-pill {
   background: rgba(255, 255, 255, 0.72);
@@ -530,16 +545,18 @@ html.photo-mode:not(.dark) .glass-pill {
    v8.6.16：霜层着色已变量化（--tile-frost-bg），掠影只调变量值，
    与常驻态共用同一根通道（内联 background: var(--tile-frost-bg)）。 */
 html.photo-mode:not(.dark) .link-intro-frost {
-  --tile-frost-bg: rgba(255, 255, 255, 0.56);
+  /* v8.6.17：掠影壁纸深、磁贴要压住深字，雾比常驻厚但同步减薄透纹理 */
+  --tile-frost-bg: rgba(255, 255, 255, 0.44);
 }
 /* ---------- 磁贴投影 token（v8.6.16 瓷釉重写） ----------
    旧浅色用 Tailwind shadow-sm（与深色同值）——浅色层次靠投影塑体积，
    与深色（描边+高光塑体积）互为镜像；瓷釉版浅色投影加深加大一档，
    深色保持原生暗投影。替换原 shadow-sm 的位置见 QuickLinks TileIcon。 */
 .tile-shadow {
+  /* v8.6.17：霜雾减薄后磁贴体积改由投影多承担一分（贴地影+浮起影双层） */
   box-shadow:
-    0 1px 2px rgba(24, 22, 36, 0.05),
-    0 6px 18px -6px rgba(24, 22, 36, 0.18);
+    0 1px 2px rgba(24, 22, 36, 0.06),
+    0 8px 22px -6px rgba(24, 22, 36, 0.24);
 }
 html.dark .tile-shadow {
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.32);
