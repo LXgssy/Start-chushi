@@ -675,13 +675,9 @@ function QuickLinks({
         {/* 添加磁贴（v8.6.3：抖动上移整单元包裹层——+框与「添加」随磁贴同频
             摆动，修「新建按钮没跟着图标一起动」；data-cl-tile=add 让页面右键
             菜单让位，右键自身只吞默认菜单不弹任何菜单） */}
-        <motion.div
-          layout
-          initial={{ opacity: 0, y: 14 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0 }}
-          transition={LAYOUT_SPRING}
-        >
+        {/* v8.6.4：不再用无延迟的 framer 弹簧 —— 与磁贴图标同一套自承载入场
+            （.link-intro：同延迟、同缓动、同模糊），整排同拍升起 */}
+        <motion.div layout initial={false} exit={{ opacity: 0 }} transition={LAYOUT_SPRING}>
           <button
             type="button"
             data-cl-tile="add"
@@ -693,7 +689,7 @@ function QuickLinks({
             <span className={"flex w-full flex-col items-center gap-2.5" + (editing ? " jiggle" : "")}>
               <span
                 className={
-                  "cl-fade-leaf flex items-center justify-center border border-dashed transition-all duration-300 " +
+                  "link-intro cl-fade-leaf flex items-center justify-center border border-dashed transition-all duration-300 " +
                   (sm ? "h-14 w-14 rounded-[18px] text-xl " : "h-16 w-16 rounded-[20px] text-2xl ") +
                   (editing
                     ? "border-zinc-400/70 text-zinc-500 dark:border-zinc-500 dark:text-zinc-400"
@@ -704,7 +700,7 @@ function QuickLinks({
               </span>
               <span
                 className={
-                  "cl-fade-leaf text-center text-xs font-light tracking-wide transition-colors duration-300 " +
+                  "link-intro cl-fade-leaf text-center text-xs font-light tracking-wide transition-colors duration-300 " +
                   (editing
                     ? "text-zinc-500 dark:text-zinc-400"
                     : "text-transparent group-hover:text-zinc-500 dark:group-hover:text-zinc-400")
@@ -739,28 +735,25 @@ function QuickLinks({
       {/* ---------- 形态二：抽屉（默认）——portal 全屏磁贴墙 ---------- */}
       {form === "drawer" && mount && portalReady
         ? createPortal(
-            <AnimatePresence>
-              {open && (
-                <motion.div
-                  key="cl-drawer"
-                  className="fixed inset-0 z-[45]"
-                  initial={false}
-                  /* 退场窗口：根立即禁命中（Dock 抬升期 click 吞没根治，v8.6.1）；
-                     v8.6.2 根不再承担 opacity 动画（祖先 opacity<1 = backdrop root =
-                     磁贴磨砂失效）；v8.6.3 退场同步由 html.cs-drawer-closing 驱动
-                     磁贴叶（.cl-fade-leaf）自承载淡出，与纱罩 0.26s 同频 */
-                  exit={{ pointerEvents: "none" }}
-                >
+            /* v8.6.4：去 AnimatePresence，改「常挂 + 按 open 重定向」——
+                原实现在动画未播完时打断（快速中键两下、关一半又开）会把退场子树
+                卸载重建，动画直接消失；常挂后打断只是重定向：新的并行动画从当前帧
+                接着跑（纱罩淡入淡出与磁贴墙位移同频并行）。卸载仍由 mount latch 负责。 */
+            <motion.div
+              key="cl-drawer"
+              className="fixed inset-0 z-[45]"
+              style={{ pointerEvents: open ? undefined : "none" }}
+            >
                   {/* 纱罩：整页高斯模糊 + 轻染色（v8.6.2 用户指令——不再纯色遮罩）。
                       淡入淡出由纱罩【自身】opacity 承载（自承载不形成祖先 backdrop
                       root，磁贴磨砂不受影响）；模糊经 cs-lite 通配自动降级为纯色纱 */}
                   <motion.div
                     aria-hidden
                     className="cl-drawer-veil absolute inset-0"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0, transition: { duration: 0.26, ease: EASE } }}
+                    initial={false}
+                    animate={{ opacity: open ? 1 : 0 }}
                     transition={{ duration: 0.26, ease: EASE }}
+                    style={{ pointerEvents: open ? undefined : "none" }}
                     onPointerDown={(e) => {
                       if (e.button !== 0) return;
                       if (!editing) setOpen(false);
@@ -773,17 +766,14 @@ function QuickLinks({
                   <motion.div
                     className="pointer-events-none flex h-full w-full flex-col items-center justify-center px-6 pb-24"
                     initial={{ y: 18, scale: 0.985 }}
-                    animate={{ y: 0, scale: 1 }}
-                    exit={{ y: 12, scale: 0.99, transition: { duration: 0.26, ease: EASE } }}
-                    transition={{ duration: 0.34, ease: EASE }}
+                    animate={open ? { y: 0, scale: 1 } : { y: 12, scale: 0.99 }}
+                    transition={{ duration: open ? 0.34 : 0.26, ease: EASE }}
                   >
                     <div ref={rootRef} className="cl-links pointer-events-auto flex flex-col items-center">
                       {renderGrid(false)}
                     </div>
                   </motion.div>
-                </motion.div>
-              )}
-            </AnimatePresence>,
+            </motion.div>,
             document.body,
           )
         : null}
