@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.6.12",
+    date: "2026-09-16",
+    title: "掠影模式新增浅色外观",
+    channel: "page",
+    highlights: [
+      "掠影模式在浅色主题下改用浅色玻璃 + 深色文字，不再是统一的白字深玻璃",
+      "浅色掠影配一层白纱遮罩（含高斯模糊）压亮壁纸，深字在任何壁纸上都够清晰清楚",
+      "深色主题的掠影外观完全不变；流畅模式（低配优化）下白纱自动加厚补偿",
+    ],
+  },
+  {
     version: "8.6.11",
     date: "2026-09-16",
     title: "修复悬停浮起时投影错位",
