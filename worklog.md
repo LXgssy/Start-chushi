@@ -340,3 +340,21 @@ Stage Summary:
 - 设计要点：磨砂玻璃质感的关键不是雾多而是「透」——减雾+冷瓷调让背景纹理透过磁贴面，层次由描边+投影承担，与深色「暗雾透纹理」同构镜像
 - 分发：全改动在页面层，走云推 ≤6h 到存量装机
 - 新律：①「透」是磨砂质感的本体，雾只是载体——雾浓到盖死透度（>0.5）时磁贴变纸片，质感反而崩 ②CSS 级联：给「动态拼接多类」的元素写覆盖规则前必须先查元素全部类名（intro 态的 link-intro 特异性陷阱）③验证 CSS 变更生效链路（源文件→watcher→编译产物→computed）每一环都可能断，以 computed 为准
+
+---
+Task ID: 119
+Agent: main (Super Z)
+Task: 用户「字体底部不要加白光，同时也不要丧失可读性」——v8.6.18 掠影浅色字体白晕修正 + 云推
+
+Work Log:
+- 【定位】全文排查「字体底部白光」唯一实体 = 掠影浅色块（globals.css html.photo-mode:not(.dark)）text-shadow 里的 0 1px 向下偏移白层×3：clock-text(0 1px 2px/.45)、link-intro(0 1px 2px/.5)、tile-label(0 1px 4px/.85)——白字 copy 下移 1px 画出贴笔画底缘的白边；主浅色（瓷釉）字体本无白光、zen on-light 白晕本就等向，均排除
+- 【修复】三处删净底部偏移层，白晕改等向体系：贴身白圈 0 0 3px（clock/名称 .5~.55；tile-label 首圈 0 0 3px/.95 保持近描边）+ 外扩柔光 0 0 12~20px——可读性承接不变（等向白晕围笔画四周，非底部方向光）；globals.css 内立律注释「白晕一律 0 0，禁 0 1px 偏移层」，Python 断言全文零残留
+- 【意外收获·repo 连贯性修复】git add 后发现 staged 18 文件 +5735 行远超本轮：HEAD(v8.6.17) 的 PresetPanel/pack.ts 引用 @/lib/startpage/preset 但 preset.ts 从未入库 → main 是 fresh clone 必炸的坏树；工作树完整（liquid-glass 系列/MusicPanel/PresetDialog/use-pomodoro/chime/music/FxIcon 等全靠未跟踪文件撑着构建）——核实归属后一并入库对齐（02e135a），孤儿模块不参与编译无害
+- 【构建+探针】EXTENSION_MODE=1 构建 + build-extension.py 打包（需先补 /tmp/ext-ref=v1.1.2 壳基线解压）；probe-v8617 克隆为 probe-v8618（三处版本耦合点：ZIP 路径/mock 地板/日志首条）→ 45 PASS / 0 FAIL（TL9 computed 确认名称白晕首层=0 0 3px 等向圈、无偏移层）
+- 【云推】deploy-cloud-mirror.sh 8.6.18：gh-pages 5a78a02→56c74c1、清单门 73 文件、Pages 收敛 1 轮、线上 version.json v=8.6.18 + 73 文件 SHA256 逐字节 ALL-GREEN
+- 【坑录】①v8.6.17 交付会话只提交了 4 文件（globals.css/changelog/VERSION/probe），依赖模块全漂在未跟踪态——多轮会话叠加后 HEAD 与工作树漂移成坏树，提交前必须 git diff --cached --stat HEAD 对账而非只看 status ②build-extension.py 依赖 /tmp/ext-ref 壳基线，重开会话要先解压 v1.1.2 包 ③探针有版本号耦合（ZIP/mock/日志断言），bump 版本须同步克隆探针
+
+Stage Summary:
+- 用户「字体底部白光」根治且可读性不回退：等向白圈+外扩柔光替代底部偏移白层，掠影浅色裸文字无方向性白边
+- 顺修 main 坏树：缺失模块全部入库（02e135a），fresh clone 可构建
+- 云端 v8.6.18 上线（SHA256 ALL-GREEN），存量装机 ≤6h 自愈；分发全在页面层，无需换包
