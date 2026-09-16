@@ -302,3 +302,41 @@ Work Log:
 
 Stage Summary:
 - v8.6.7 全链路闭环（探针 35 PASS / 0 FAIL + 线上自洽）
+
+---
+Task ID: 117
+Agent: main (Super Z)
+Task: 用户「接手最新版本开发，拉取仓库，浅色模式删掉所有老代码重写重构（禁止复用），可参考深色模式风格；现在浅色跟深色简直就是两个风格，且浅色快捷服务图标没有磨砂玻璃效果」——v8.6.16 云推
+
+Work Log:
+- 【状态对齐】/tmp 真树 main=origin/main=fec9c4c（v8.6.15）；worklog 工作区被外部回退到 Task 109 版（git checkout -- worklog.md 恢复 114/116）；摘要清单中抽屉/动画全部任务已在 v8.6.1~8.6.11 完成，本任务=唯一遗留最高优先项
+- 【双主题截图取证】dev server + playwright 双主题截图：深色磁贴=深色玻璃体+描边高光+投影（立体），浅色磁贴=淡彩纸片（无着色/无边缘/无厚度）；根因三层：①:root 暖纸白（hue 85）与 .dark 墨夜（hue 297-300）色温两族 ②磁贴霜层只 blur 不着色，浅底上 backdrop-filter 后与背景无明度差——「磨砂玻璃存在却看不见」③浅色极光 35~40% 铺满全页无留白，层次无从立体
+- 【瓷釉重写】浅色重造为「瓷釉」=墨夜的明极镜像（同一设计语言明暗两极）：①:root 冷瓷 token 全新（hue 300 同族）②磁贴霜层变量着色 --tile-frost-bg（浅白雾 .52/深暗雾 .20），描边环/高光/釉色渐变全 token 化（--tile-ring-l/a、--tile-hl-a、--tile-grad-l/a），QuickLinks TileIcon 内联 style 引 CSS 变量（hsl 动态 hue + 变量动态明度透明度）③.tile-shadow 替换 shadow-sm（浅色双层投影/深色原暗投影；cs-drawer-closing 的 box-shadow:none 特异性 0,2,1>0,1,0 退场律保持）④玻璃三件套 pill .62/墨描边 .10 镜像深色暗玻璃 .055/白描边 .09，vignette/掠影浅色霜层改走同名变量通道 ⑤极光浅色收敛 24~30% 瓷白主导 ⑥画布底色 #f6f5f9 四处同步（html/Aurora/骨架屏/layout theme-color）
+- 【壁纸磨砂验证】photoId=custom+wallpaperUrl+background=photo 注入测试壁纸：浅色壁纸下磁贴白瓷磨砂/搜索条磨砂药丸/深墨字清晰可读；深色掠影压暗+白字+暗玻璃无回归
+- 【死代码陷阱】liquid-glass.ts + liquid-glass/ 目录（engine/shader/spring/dock-motion/index 五文件）零引用（v1.7.0 液态玻璃撤下残留）、git 未跟踪不进构建图——本任务顺手改 engine role 色属无效改动，已还原并从提交撤出（半个模块不入库）；globals.css 的 [data-lg] cs-lite 降级规则同为死规则（无害保留）；changelog 第 5 条「液态玻璃表面色对齐」不实已删
+- 【探针】probe-v8616 = v867 全量门 + TL 浅色九门（TL0 boot/TL1 类态/TL2 瓷釉画布 rgb(246,245,249)/TL3 霜层白雾 .52/TL4 磨砂 blur14 sat1.6/TL5 药丸 .62/TL6-8 深色回归暗雾 .20+画布 rgb(10,10,14)）44 PASS/0 FAIL；T5a 断言修正：every-首帧 WAAPI 取消断言在 headless 帧距抖动下必炸（+0/+40ms 仍在、+80ms 取消且不复发，行为正确）——改「cancel 最终生效且不复发」（首 0 后恒 0），与 T5b 600ms 恢复窗互补；v8.6.7 时代过绿属时序巧合
+- 【发布】main 2126e94 + tag v8.6.16 → CI 三流水线 success（build-extension Release crx + cloud-push gh-pages + Pages）→ 线上 version.json v=8.6.16 73 文件逐文件字节数核验 ONLINE-ALL-GREEN
+- 【坑录】①version.json 的 files[].s 是「字节数」不是 sha256（Task 108 mock 同构）——自洽核验用 sha 对 size 全线假阳 ②linksForm 默认 drawer，全新 localStorage 截图磁贴区恒空（旧 dev server 旧默认 docked 造成的假象），截图种子必须显式 linksForm:"docked" ③grep 输出会把 "[m" 吃掉造成「}, ounted」语法残缺假象（v8.6.7 同款坑），必须 Read 复核 ④3000 端口残留旧 dev server 服务旧代码，新 server EADDRINUSE 静默失败——先 pkill "next dev" 再起 ⑤pack 需要 /tmp/ext-ref（v1.1.2 参考包 _locales/icons 素材源）——工作区被清后从外层 /home/z/my-project/download/v1.1.2 zip 重建
+
+Stage Summary:
+- v8.6.16 全链路闭环：浅色「瓷釉」整体重写（冷瓷 token/瓷釉磨砂磁贴/亮玻璃件/收敛极光），与「墨夜」深色构成同一设计语言明暗两极；快捷服务图标磨砂玻璃浅色补齐（霜层着色=磨砂可见性的核心手）；壁纸场景磨砂效果一清二楚
+- 分发：全改动在页面层，走云推 ≤6h 到存量装机（无需换 crx）；Release 已由 CI 产出 v8.6.16 crx
+- 新律：①backdrop-filter 磨砂在浅底上必须「模糊+着色」复合才可感（单 blur 无明度差=隐形）②逐主题 token 化（--tile-*/--lg-*）是双主题同构的唯一可维护路径，内联硬编码色值是「两族风格」的温床 ③版本清单 s 字段=字节数；探针断言对 headless 帧距敏感处用「终态+不复发」语义替代「首帧即达」
+---
+Task ID: 118
+Agent: main (Super Z)
+Task: 用户「白雾太浓了，时钟底部的白色高光要去掉，浅色的快捷服务的磨砂玻璃图标质感明显不如深色」——v8.6.17 云推
+
+Work Log:
+- 【取证】dev server 双主题截图（种子显式 linksForm:"docked"）：白雾源=①.vignette 顶部白光 rgba(255,255,255,0.5)（at 50% 0%，浓 10 倍于深色 0.045）②磁贴霜层 0.52 白雾盖死透度③高光 0.85 死白；「时钟底部白高光带」即 vignette 顶部白光的淡出边缘（页高 ~45% 处恰在时钟下沿）
+- 【三点修复】①vignette 0.5→0.12（画布还给极光，白雾+时钟白光带同源消失）②霜层 0.52→0.26 且转冷瓷调 rgba(252,251,255,.26)（磨砂的灵魂在「透」：深色质感源于暗雾 0.20 透 80% 背景纹理，白雾 0.52 把磁贴变成实心纸片——减雾后玻璃感回来，分层交给描边 0.32+投影 0.06/0.24 承担）③高光 0.85→0.45（釉面反光档）+渐变 0.38/0.26→0.28/0.18 防叠脏+掠影霜层 0.56→0.44 同步
+- 【顺修：掠影磁贴名称可读性】截图验证发现深色壁纸上名称（GitHub/哔哩哔哩）几乎隐形——v8.6.15「裸文字深墨+白晕」清单漏了 .tile-label；补规则后又踩特异性坑：名称元素 intro 态自带 .link-intro 类（QuickLinks 260 行拼接），其规则 (0,3,1) 压过 (0,2,1)——dev server computed style 实锤后用同构选择器 html.photo-mode:not(.dark) .cl-links .tile-label 提级靠源顺序取胜，白晕升级四圈近描边（3px/0.95+4px/0.85+10px/0.6+20px/0.4）
+- 【坑录】①Turbopack dev 对 cp 的 inode 替换不敏感：watcher 不触发重编译、grep 编译产物假阳/竞态抖动（同一 URL 两次响应内容不同）——cp 后必须 touch 源文件强制触发，且验证要看 computed style 或重启 dev ②grep 输出吃字符假象再现：`const [mount, setMount]` 显示为 `const ount,`（Task 117 坑录③同族），git show 同样显示腐坏但 Read 复核文件完好——腐坏判定只信 Read/构建结果 ③CI 与本地 Turbopack 构建产物非确定性：buildId/chunk 名一致但 21 个文件字节数不同，线上正确性验证应直接 fetch 线上 CSS 核对压缩值（#fcfbff42/#ffffff1f/#fffffff2 逐项 ✓）而非与本地清单逐字节对齐
+- 【验证】probe-v8617 45 PASS / 0 FAIL（v867 全量 36 门+TL 九门更新断言值+TL9 新增掠影名称白晕门）；TL3 断言更新为 rgba(252,251,255,0.26)；线上 CSS 逐项核对通过（压缩形式 #fcfbff42=0.26 冷瓷霜层/#ffffff1f=0.12 瓷光/#fcfbff 掠影 0x70=0.44/#fffffff2 白晕描边/.dark #ffffff0b=0.045 无回归）
+- 【发布】main 876b077 + tag v8.6.17 → CI 三流水线 success（build-extension/cloud-push/pages deployment）→ 线上 version.json v=8.6.17 73 文件
+
+Stage Summary:
+- v8.6.17 全链路闭环：浅色三点反馈修复（白雾减淡/时钟白光消失/磁贴质感对齐深色）+ 掠影磁贴名称可读性顺修
+- 设计要点：磨砂玻璃质感的关键不是雾多而是「透」——减雾+冷瓷调让背景纹理透过磁贴面，层次由描边+投影承担，与深色「暗雾透纹理」同构镜像
+- 分发：全改动在页面层，走云推 ≤6h 到存量装机
+- 新律：①「透」是磨砂质感的本体，雾只是载体——雾浓到盖死透度（>0.5）时磁贴变纸片，质感反而崩 ②CSS 级联：给「动态拼接多类」的元素写覆盖规则前必须先查元素全部类名（intro 态的 link-intro 特异性陷阱）③验证 CSS 变更生效链路（源文件→watcher→编译产物→computed）每一环都可能断，以 computed 为准
