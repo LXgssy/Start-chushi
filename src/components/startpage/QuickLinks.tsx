@@ -135,7 +135,7 @@ function TileIcon({
         backfaceVisibility: "hidden",
       }}
     >
-      {/* 霜层：磨砂玻璃 + inset 环（1px 边框并入环防分数像素黑缝） */}
+      {/* 霜层：磨砂玻璃（v8.6.9 只留 backdrop-filter，描边拆到下面的独立通道） */}
       <span
         aria-hidden
         className={
@@ -145,6 +145,20 @@ function TileIcon({
         style={{
           backdropFilter: "blur(14px) saturate(1.6)",
           WebkitBackdropFilter: "blur(14px) saturate(1.6)",
+        }}
+      />
+      {/* 描边层（v8.6.9）：1px inset 环 + 顶部高光，走独立通道与内容层同拍
+          模糊聚拢（原先把环挂在 0.18s 的霜层上，环会先于磁贴面成型）。
+          它是霜层的兄弟而非祖先，自身 filter 压不到霜层的 backdrop-filter；
+          pointer-events-none 不参与拖拽命中。层级同旧版：仍在内容层之下，
+          观感不变，只是入场节奏同步了 */}
+      <span
+        aria-hidden
+        className={
+          "pointer-events-none absolute inset-0 rounded-[inherit] cl-fade-leaf " +
+          (intro ? "link-intro-ring" : "")
+        }
+        style={{
           boxShadow:
             "inset 0 0 0 1px hsl(" + hue + " 44% 60% / .28), inset 0 1px 0 rgba(255,255,255,.18)",
         }}
