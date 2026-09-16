@@ -126,7 +126,7 @@ function TileIcon({
     <span
       aria-hidden
       className={
-        "relative block shadow-sm " +
+        "relative block " +
         (sm ? "h-14 w-14 rounded-[18px] " : "h-16 w-16 rounded-[20px] ") +
         (intro ? "link-intro-tile" : "")
       }
@@ -135,6 +135,17 @@ function TileIcon({
         backfaceVisibility: "hidden",
       }}
     >
+      {/* 投影层（v8.6.10）：投影从包裹层搬到这里。包裹层是霜层（backdrop-filter）
+          的祖先，动 opacity 会成 backdrop root 直接杀掉磨砂，所以它本身无法参与
+          退场淡出——关抽屉时霜层/描边/内容/名称都淡没了，只剩一片「磁贴影子」
+          站到 portal 卸载那一帧（用户实测：关闭后阴影残留、过一会儿才消失）。
+          搬到独立子层后：稳态退场走 .cl-fade-leaf 的 0.28s 过渡，入场中途打断
+          退场走 QuickLinks 的 WAAPI 冻结-淡出，与其它叶同帧消失。投影几何、层级
+          （仍在最底层）与入场表现完全不变；pointer-events-none 不参与拖拽命中 */}
+      <span
+        aria-hidden
+        className="pointer-events-none absolute inset-0 rounded-[inherit] cl-fade-leaf shadow-sm"
+      />
       {/* 霜层：磨砂玻璃（v8.6.9 只留 backdrop-filter，描边拆到下面的独立通道） */}
       <span
         aria-hidden

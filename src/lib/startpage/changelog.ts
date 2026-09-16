@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.6.10",
+    date: "2026-09-16",
+    title: "关抽屉不再残留磁贴阴影",
+    channel: "page",
+    highlights: [
+      "修复关闭抽屉后快捷图标阴影残留：投影原先挂在磁贴包裹层上，那一层不能参与淡出",
+      "投影改为独立淡出层，退场时与磨砂、描边、图标内容同帧消失，不再拖到抽屉卸载",
+    ],
+  },
+  {
     version: "8.6.9",
     date: "2026-09-16",
     title: "磁贴描边与磁贴面同拍聚拢",
