@@ -124,12 +124,15 @@ function TileIcon({
    *   filter 动画相克；v8.6.7 本体不带 filter），黑边修复恢复。
    *   v8.6.11：投影仍长在包裹层本体（shadow-sm）——v8.6.10 曾搬到独立子层
    *   换取淡出通道，但子层会被单独合成，常驻形态悬停浮起时投影与磁贴错位；
-   *   现在淡出改走 box-shadow 自身过渡（globals.css cs-drawer-closing）。 */
+   *   现在淡出改走 box-shadow 自身过渡（globals.css cs-drawer-closing）。
+   *   v8.6.16：shadow-sm 改为 .tile-shadow（浅/深两态定制投影，浅色加强
+   *   塑体积；淡出律不受影响——cs-drawer-closing 的 box-shadow:none 特异性
+   *   仍压过类定义）。 */
   return (
     <span
       aria-hidden
       className={
-        "relative block shadow-sm " +
+        "relative block tile-shadow " +
         (sm ? "h-14 w-14 rounded-[18px] " : "h-16 w-16 rounded-[20px] ") +
         (intro ? "link-intro-tile" : "")
       }
@@ -138,7 +141,11 @@ function TileIcon({
         backfaceVisibility: "hidden",
       }}
     >
-      {/* 霜层：磨砂玻璃（v8.6.9 只留 backdrop-filter，描边拆到下面的独立通道） */}
+      {/* 霜层：磨砂玻璃（v8.6.9 只留 backdrop-filter，描边拆到下面的独立通道）。
+          v8.6.16 瓷釉重写：霜层铺变量着色（--tile-frost-bg，浅色白雾/深色暗雾）
+          ——旧浅色只 blur 不着色，在浅底上 blur 后与背景无明度差，「磨砂玻璃」
+          存在却看不见（用户定调浅色快捷图标没有磨砂玻璃效果）；着色后磁贴
+          与画布立即分层，浅掠影等场景经 globals 同名变量通道调值，不再是另一条硬编码。 */}
       <span
         aria-hidden
         className={
@@ -148,13 +155,16 @@ function TileIcon({
         style={{
           backdropFilter: "blur(14px) saturate(1.6)",
           WebkitBackdropFilter: "blur(14px) saturate(1.6)",
+          background: "var(--tile-frost-bg, transparent)",
         }}
       />
       {/* 描边层（v8.6.9）：1px inset 环 + 顶部高光，走独立通道与内容层同拍
           模糊聚拢（原先把环挂在 0.18s 的霜层上，环会先于磁贴面成型）。
           它是霜层的兄弟而非祖先，自身 filter 压不到霜层的 backdrop-filter；
           pointer-events-none 不参与拖拽命中。层级同旧版：仍在内容层之下，
-          观感不变，只是入场节奏同步了 */}
+          观感不变，只是入场节奏同步了。
+          v8.6.16：环亮度/透明度/高光强度变量化（--tile-ring-l/a、--tile-hl-a）
+          ——浅色走深墨环+亮白高光（瓷面反光），深色保持亮环+轻高光。 */}
       <span
         aria-hidden
         className={
@@ -163,10 +173,13 @@ function TileIcon({
         }
         style={{
           boxShadow:
-            "inset 0 0 0 1px hsl(" + hue + " 44% 60% / .28), inset 0 1px 0 rgba(255,255,255,.18)",
+            "inset 0 0 0 1px hsl(" + hue + " 44% var(--tile-ring-l, 60%) / var(--tile-ring-a, 0.28)), inset 0 1px 0 rgba(255,255,255,var(--tile-hl-a, 0.18))",
         }}
       />
-      {/* 内容层：色相渐变 + 图标（overflow 裁切、模糊聚拢覆盖面） */}
+      {/* 内容层：色相渐变 + 图标（overflow 裁切、模糊聚拢覆盖面）。
+          v8.6.16：渐变透明度/亮度变量化（--tile-grad-*）——浅色加深一档
+          （旧 .22/.14 在瓷白画布上几乎不可见，磁贴沦为「淡彩纸片」），
+          深色保持原宝石感。 */}
       <span
         className={
           "relative flex h-full w-full items-center justify-center overflow-hidden rounded-[inherit] cl-fade-leaf " +
@@ -176,9 +189,9 @@ function TileIcon({
           background:
             "linear-gradient(135deg, hsl(" +
             hue +
-            " 42% 62% / .22), hsl(" +
+            " 42% var(--tile-grad-l1, 62%) / var(--tile-grad-a1, 0.22)), hsl(" +
             ((hue + 40) % 360) +
-            " 46% 50% / .14))",
+            " 46% var(--tile-grad-l2, 50%) / var(--tile-grad-a2, 0.14)))",
         }}
       >
         {showFavicon ? (
