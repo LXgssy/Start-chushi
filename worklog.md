@@ -271,3 +271,21 @@ Stage Summary:
 - v8.6.2 全链路闭环：快捷服务「常驻（原样式）/抽屉」双形态设置回归、抽屉整页高斯模糊、磨砂恒定在线、抖动真修复（级联覆盖真相）、刷新丢更新根治（壳层）
 - 分发说明：页面层（双形态/模糊/抖动/磨砂）走云推 ≤6h 到存量装机；刷新修复在 shell-bridge.js 属壳层，需用户换装新 crx（Release 页）才生效——旧壳+新页面兼容无碍
 - 新律：①同一元素双动画类的级联后胜会静默杀死先定义的动画——状态类动画（jiggle）必须挂独立元素或更高特异性；②backdrop-filter 双写前缀会被压缩器吞标准属性；③动画类探针必须断言 computed animationName/duration，class 在场≠动画在跑
+
+---
+Task ID: 116
+Agent: main (Super Z)
+Task: 用户「①常驻快捷服务进入动画没有高斯模糊图标的效果 ②打断抽屉动画打开后不会执行关闭动画（动画直接消失），添加并行动画」——v8.6.7（远端并行会话已推 v8.6.4-6，本任务在其上合题）
+
+Work Log:
+- 【远端分叉发现】推 main 被拒后 fetch 逐提交审查：并行会话已推 v8.6.4（新建按钮同频+常挂重定向架构）/v8.6.5（抽屉弹回+小弹簧）/v8.6.6（图标入场恢复整块 filter 模糊），线上 version.json=8.6.6。本地基于 v8.6.3 的 v8.6.4（intro-rise-glass+WAAPI 冻结-淡出+460ms latch）弃推，备份分支 my-main-backup，reset 到 411e7b4 重做
+- 【两轮拉锯的合题（三层拆分）】v8.6.4-远端只模糊内容被用户打回「没有模糊效果覆盖」；v8.6.6 玻璃本体整块 filter → 本体 backdrop-filter 被 filter 全程压掉（Chromium 行为），抽屉有纱罩兜底「观感一致」，常驻形态无纱罩=磨砂裸死 1s=用户本次抱怨①。v8.6.7 三通道互不相克：①包裹层 intro-tile-rise 只动 transform（translateZ(0) 写进关键帧保合成层提示，transform 不形成 backdrop root）；②霜层 intro-tile-frost 承载 backdrop-filter、0.18s 快速凝聚（自承载 opacity）；③内容层 intro-tile-body 色相渐变+图标 0.95s opacity+blur(10px) 模糊聚拢（覆盖整个磁贴面=v8.6.6 整块观感）——霜层与内容层是兄弟，内容层 filter 压不到霜层 backdrop-filter。名称/添加位保持 intro-rise 不动；translateZ/backfaceVisibility 合成提示归位（v8.6.6 撤它只因与本体 filter 相克）
+- 【问题②根因承 Task 116 本地诊断】cs-drawer-closing 的 opacity:0!important 压过运行中 intro 的同时，运行中 CSS 动画阻断 opacity transition 起步（CSS Transitions §3）→ 打断关闭磁贴叶瞬跳 0（重要声明只得到瞬跳得不到过渡）；EASE 长尾段最后 ~150ms 计算值=1.000 而动画仍在跑，阈值分路必漏。修复=全叶 WAAPI 冻结-淡出（读当前值→el.animate 280ms 同纱罩缓动 fill:forwards，不设阈值、不动 intro 本体；快速重开 cancel 后 intro 从时间线当前位接续，与常挂架构「晚开重播」语义互补）；!important 规则降级普通声明只承担稳态退场，过渡对齐纱罩 0.28s
+- 【工作树腐坏再袭（新形态）】reset 到远端后开工，QuickLinks.tsx 的 cs-drawer effect 依赖数组呈现 `}, ount, drawer]);`——git show 逐提交核对 59af3f6..411e7b4 全部干净=腐坏只在工作树（环境快照翻转 gremlin，Task 107/115 同族新样本）；构建被 next.config ignoreBuildErrors:true 放行 → 若漏网=运行时 ReferenceError 全页崩。律：开工/构建/提交三节点都必须 grep 校验腐坏串；修复用幂等单行替换（跨状态窗口安全）
+- 【探针】probe-v867 35 PASS / 0 FAIL：T3a-h 三层冻结帧（包裹层 rise 在飞/霜层 0.18s 凝满+blur(14px) 在线/内容层 blur 聚拢在飞+12% 处霜层凝聚中）、T4a-d（WAAPI from 关键帧=冻结前值 metadata 断言——渲染值首样本在无头 jank 下不可测、280ms 并行淡出挂载、closing 类、完全关闭）、T5a-c（重开 cancel→恢复曲线 0.029→0.986→1.000、marker 证无重挂）、T6a-b（稳态叶纱同频走低 leafMin=0.000、latch 520ms 后完全关闭）、v8.6.3-6 全量回归（抖动整单元/pill 移除/右键编辑/常驻 56px+磨砂/中键守卫/路由落点/日志首条 8.6.7/pageerror=0）
+- 【发布】main + tag v8.6.7 → CI 三流水线 → 线上 version.json 验证
+
+Stage Summary:
+- v8.6.7 三修闭环：①入场三通道（霜感先行+整块模糊覆盖两头都要，常驻/抽屉两形态同惠）②打断关闭 WAAPI 并行淡出（不瞬跳、重开恢复）③v8.6.6 残留腐坏清除（启动崩溃预防）
+- 新律：①霜层与内容层必须兄弟不能父子——backdrop-filter 载体与 filter 动画载体同元素互斥、跨层嵌套全灭，拆兄弟层才两头都要；②「运行中 CSS 动画阻断 transition 起步」的打断类动画一律 WAAPI 从当前值接管且不设计算值阈值；③无头 jank 环境下动画断言只信 metadata（getKeyframes from 值/挂载存在性）不信渲染值首样本；④ignoreBuildErrors:true 的项目，工作树语法腐坏=线上崩溃，腐坏串检查必须进提交前清单
+- 分发：纯页面层，云推 ≤6h 到存量装机

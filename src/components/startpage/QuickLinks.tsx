@@ -78,10 +78,11 @@ function hueOf(s: string): number {
 /* ---------- 站点图标（免梯子多源回退，v8.4.0）----------
  * 站点自身 /favicon.ico → 国内可直连 API → DuckDuckGo；任一成功即记住该
  * host 的可用源，全失败才落字母。尺寸双态：抽屉 64px / 常驻 56px（原样式）。
- * v8.6.1 移植：①1px border 换 inset 环 + 独立合成层（translateZ）——
- * 悬浮放大时 1px 边框落在分数像素上渲染出黑边（线上 8.6.0 修复同源）；
- * ②intro 自承载入场——动画只落在玻璃本体，祖先 opacity<1 会成为
- * backdrop root 令磨砂失效（v8.5.6 律）。 */
+ * v8.6.1 移植：1px border 换 inset 环 + 独立合成层（translateZ）——
+ * 悬浮放大时 1px 边框落在分数像素上渲染出黑边（线上 8.6.0 修复同源）。
+ * v8.6.7 三层拆分：包裹层（transform）/霜层（backdrop-filter 恒定）/内容层
+ * （模糊聚拢）——入场三通道互不相克，模糊覆盖与霜感在线两头都要；
+ * intro 动画全部自承载或落在无玻璃后代的叶子上（v8.5.6 律）。 */
 function TileIcon({
   link,
   iconStyle,
@@ -90,7 +91,7 @@ function TileIcon({
 }: {
   link: StartLink;
   iconStyle: IconStyle;
-  /** 入场动画挂玻璃本体（自承载）：祖先 opacity<1 = backdrop root = 磨砂失效 */
+  /** 入场三通道（包裹层 transform / 霜层凝聚 / 内容层模糊聚拢，见 globals.css） */
   intro?: boolean;
   /** 常驻形态 56px（抽屉 64px） */
   sm?: boolean;
@@ -113,55 +114,82 @@ function TileIcon({
   const src = sources[idx];
   const showFavicon = iconStyle === "favicon" && !!host && !exhausted && !!src;
 
+  /* v8.6.7 三层拆分（入场三通道，见 globals.css intro-tile-*）：
+   *   包裹层（link-intro-tile）只动 transform；霜层（link-intro-frost）承载
+   *   backdrop-filter、0.18s 快速凝聚——本体永不被 filter/长透明期压掉，
+   *   常驻形态无纱罩兜底也全程「带着磨砂入场」；内容层（link-intro-body）
+   *   色相渐变+图标 0.95s 模糊聚拢——模糊覆盖整个磁贴面（v8.6.6 整块观感）。
+   *   霜层与内容层是兄弟：内容层的 filter 动画压不到霜层的 backdrop-filter。
+   *   translateZ(0)/backfaceVisibility 合成提示归位（v8.6.6 撤它只因与本体
+   *   filter 动画相克；v8.6.7 本体不带 filter），黑边修复恢复。 */
   return (
     <span
       aria-hidden
       className={
-        "cl-fade-leaf relative flex items-center justify-center overflow-hidden shadow-sm " +
+        "relative block shadow-sm " +
         (sm ? "h-14 w-14 rounded-[18px] " : "h-16 w-16 rounded-[20px] ") +
-        (intro ? "link-intro" : "")
+        (intro ? "link-intro-tile" : "")
       }
       style={{
-        background:
-          "linear-gradient(135deg, hsl(" +
-          hue +
-          " 42% 62% / .22), hsl(" +
-          ((hue + 40) % 360) +
-          " 46% 50% / .14))",
-        /* 磨砂玻璃：色相渐变保留，底下纱罩/极光透出；1px 边框并入 inset 环
-           （分数像素黑缝）。v8.6.6：撤掉 translateZ(0)/backfaceVisibility 合成提示
-           —— 它与本体入场 filter 动画同用时会把模糊盖不住（用户实测）。 */
-        backdropFilter: "blur(14px) saturate(1.6)",
-        WebkitBackdropFilter: "blur(14px) saturate(1.6)",
-        boxShadow:
-          "inset 0 0 0 1px hsl(" + hue + " 44% 60% / .28), inset 0 1px 0 rgba(255,255,255,.18), 0 1px 2px rgba(0,0,0,.05)",
+        transform: "translateZ(0)",
+        backfaceVisibility: "hidden",
       }}
     >
-      {showFavicon ? (
-        <img
-          key={src}
-          src={src}
-          alt=""
-          width={sm ? 28 : 32}
-          height={sm ? 28 : 32}
-          loading="lazy"
-          draggable={false}
-          referrerPolicy="no-referrer"
-          onLoad={() => {
-            if (host) saveIconSource(host, src);
-          }}
-          onError={() => {
-            if (host) clearIconSource(host);
-            if (idx + 1 < sources.length) setIdx(idx + 1);
-            else setExhausted(true);
-          }}
-          className={sm ? "h-7 w-7 rounded-md object-contain" : "h-8 w-8 rounded-md object-contain"}
-        />
-      ) : (
-        <span className="tile-letter text-xl font-light tracking-wide text-zinc-700 dark:text-zinc-100">
-          {ch}
-        </span>
-      )}
+      {/* 霜层：磨砂玻璃 + inset 环（1px 边框并入环防分数像素黑缝） */}
+      <span
+        aria-hidden
+        className={
+          "absolute inset-0 rounded-[inherit] cl-fade-leaf " +
+          (intro ? "link-intro-frost" : "")
+        }
+        style={{
+          backdropFilter: "blur(14px) saturate(1.6)",
+          WebkitBackdropFilter: "blur(14px) saturate(1.6)",
+          boxShadow:
+            "inset 0 0 0 1px hsl(" + hue + " 44% 60% / .28), inset 0 1px 0 rgba(255,255,255,.18)",
+        }}
+      />
+      {/* 内容层：色相渐变 + 图标（overflow 裁切、模糊聚拢覆盖面） */}
+      <span
+        className={
+          "relative flex h-full w-full items-center justify-center overflow-hidden rounded-[inherit] cl-fade-leaf " +
+          (intro ? "link-intro-body" : "")
+        }
+        style={{
+          background:
+            "linear-gradient(135deg, hsl(" +
+            hue +
+            " 42% 62% / .22), hsl(" +
+            ((hue + 40) % 360) +
+            " 46% 50% / .14))",
+        }}
+      >
+        {showFavicon ? (
+          <img
+            key={src}
+            src={src}
+            alt=""
+            width={sm ? 28 : 32}
+            height={sm ? 28 : 32}
+            loading="lazy"
+            draggable={false}
+            referrerPolicy="no-referrer"
+            onLoad={() => {
+              if (host) saveIconSource(host, src);
+            }}
+            onError={() => {
+              if (host) clearIconSource(host);
+              if (idx + 1 < sources.length) setIdx(idx + 1);
+              else setExhausted(true);
+            }}
+            className={sm ? "h-7 w-7 rounded-md object-contain" : "h-8 w-8 rounded-md object-contain"}
+          />
+        ) : (
+          <span className="tile-letter text-xl font-light tracking-wide text-zinc-700 dark:text-zinc-100">
+            {ch}
+          </span>
+        )}
+      </span>
     </span>
   );
 }
@@ -510,15 +538,49 @@ function QuickLinks({
     return () => el.classList.remove("cs-drawer");
   }, [mount, drawer]);
 
-  /* v8.6.3 退场同步类：open=false 且 latch 未卸（340ms 退场窗）→
-     html.cs-drawer-closing，磁贴叶（玻璃/名称/添加位）经 .cl-fade-leaf 与
-     纱罩同频淡出（globals.css）。类必须挂 <html> 而非抽屉根——AnimatePresence
-     退场子树冻结在最后一次 open=true 的 props 上，组件树内改 className 不可达；
-     html 选择器命中活 DOM，修「关抽屉时图标没跟着模糊一起淡出」。 */
+  /* 退场同步类（v8.6.3 起）：open=false 且 latch 未卸（520ms 退场窗）→
+     html.cs-drawer-closing，磁贴叶（霜层/内容层/名称/添加位）经 .cl-fade-leaf
+     与纱罩同频淡出（globals.css + 上方 WAAPI 并行动画）。类必须挂 <html>——
+     常挂架构下组件树内改 className 虽可达，html 选择器仍是最直活 DOM 通道，
+     且与流式模式通配降级同一挂载点。 */
+  /* v8.6.7 打断并行动画：入场中途关闭（快速中键两下/ESC/点纱罩）时，
+     运行中的 intro 动画会阻断 CSS transition 起步（CSS Transitions §3），
+     important 声明也只得到瞬跳——用户实测「打断抽屉动画后不会执行关闭
+     动画，动画直接消失」。改为全叶 WAAPI 冻结-淡出：读叶当前动画值 →
+     el.animate 从当前值 280ms 淡出到 0（与纱罩退场同频同缓动，fill:
+     forwards 保持），Web Animations 层级高于普通声明且与纱罩并行。
+     不设计算值阈值：EASE 长尾段 intro 最后 ~150ms 计算值就是 1.000 而动画
+     仍在跑，阈值分路会让叶子滞留满透明度站满退场窗。也不动 intro 本体
+     （无 inline animation:none）——快速重开 cancel 后 intro 从时间线当前
+     位接着走/已播完保持稳态，与常挂架构的「晚开重播（latch 卸载后新挂）」
+     语义互不打架。稳态退场（intro 已完）仍由 globals.css 的过渡规则兜底。 */
+  const fadeAnimsRef = useRef<Array<Animation>>([]);
   useEffect(() => {
     const el = document.documentElement;
-    if (mount && drawer && !open) el.classList.add("cs-drawer-closing");
-    else el.classList.remove("cs-drawer-closing");
+    if (mount && drawer && !open) {
+      el.classList.add("cs-drawer-closing");
+      const leaves = rootRef.current?.querySelectorAll<HTMLElement>(".cl-fade-leaf");
+      leaves?.forEach((leaf) => {
+        const o = parseFloat(getComputedStyle(leaf).opacity);
+        if (!Number.isFinite(o)) return;
+        const anim = leaf.animate([{ opacity: o }, { opacity: 0 }], {
+          duration: 280,
+          easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+          fill: "forwards",
+        });
+        fadeAnimsRef.current.push(anim);
+      });
+    } else {
+      el.classList.remove("cs-drawer-closing");
+      fadeAnimsRef.current.forEach((a) => {
+        try {
+          a.cancel();
+        } catch {
+          /* noop */
+        }
+      });
+      fadeAnimsRef.current = [];
+    }
     return () => el.classList.remove("cs-drawer-closing");
   }, [open, mount, drawer]);
 
