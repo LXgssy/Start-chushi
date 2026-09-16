@@ -1045,35 +1045,15 @@ html.cs-drawer-closing .cl-fade-leaf {
   animation-delay: 0.06s;
 }
 
-/* ---------- v8.6.5 玻璃本体入场：无 filter + 内容 blur 入场 ----------
-   事故（用户实测）：入场动画挂在玻璃本体上，而关键帧含 filter: blur() ——
-   Chromium 在带 backdrop-filter 的元素上跑 filter 动画时会把 backdrop-filter
-   丢掉，磨砂只在动画结束才「啪」出现（「图标底部的磨砂玻璃没跟随动画」）。
-   修法：本体改用【不含 filter】的 link-rise（opacity + 位移 + 缩放）——磨砂
-   全程在线并随动画渐显；模糊交给玻璃【内部内容】的 leaf-blur（内容在内部，
-   自身 filter 不产生祖先 backdrop root）。名称与加号位仍用 .link-intro（无玻璃，
-   可安全跑整段含 blur 的 intro-rise）。 ---------- */
-@keyframes link-rise {
-  from {
-    opacity: 0;
-    transform: translateY(26px) scale(0.985);
-  }
+/* ---------- v8.6.6 图标入场：整块模糊（含玻璃本体） ----------
+   上一版把玻璃本体的 filter 拿掉、只让内部内容模糊，实机反馈「没有模糊效果覆盖」。
+   现改回：图标本体跑整段 intro-rise（含 blur(12px)），本体/内容/名称同拍模糊上浮。
+   注：动画期间本体自身的 backdrop-filter 会被 filter 暂时压掉（Chromium 行为），
+   但整页此刻也在模糊中，观感一致；动画收尾 filter 归零，磨砂随即恢复。 ---------- */
+.link-intro {
+  animation: intro-rise calc(0.95s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) 0.38s backwards;
 }
-.link-rise {
-  animation: link-rise calc(0.95s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) 0.38s backwards;
-}
-.cl-links .link-rise {
-  animation-delay: 0.06s;
-}
-@keyframes leaf-blur {
-  from {
-    filter: blur(12px);
-  }
-}
-.link-rise > * {
-  animation: leaf-blur calc(0.95s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) 0.38s backwards;
-}
-.cl-links .link-rise > * {
+.cl-links .link-intro {
   animation-delay: 0.06s;
 }
 
