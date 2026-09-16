@@ -289,3 +289,16 @@ Stage Summary:
 - v8.6.7 三修闭环：①入场三通道（霜感先行+整块模糊覆盖两头都要，常驻/抽屉两形态同惠）②打断关闭 WAAPI 并行淡出（不瞬跳、重开恢复）③v8.6.6 残留腐坏清除（启动崩溃预防）
 - 新律：①霜层与内容层必须兄弟不能父子——backdrop-filter 载体与 filter 动画载体同元素互斥、跨层嵌套全灭，拆兄弟层才两头都要；②「运行中 CSS 动画阻断 transition 起步」的打断类动画一律 WAAPI 从当前值接管且不设计算值阈值；③无头 jank 环境下动画断言只信 metadata（getKeyframes from 值/挂载存在性）不信渲染值首样本；④ignoreBuildErrors:true 的项目，工作树语法腐坏=线上崩溃，腐坏串检查必须进提交前清单
 - 分发：纯页面层，云推 ≤6h 到存量装机
+
+---
+Task ID: 116-补记
+Agent: main (Super Z)
+Task: v8.6.7 发布结论
+
+Work Log:
+- main a429145 + tag v8.6.7 → CI 三流水线 success（build-extension Release / cloud-push gh-pages / pages deployment）
+- 线上核验：https://lxgssy.github.io/Start-chushi/version.json → v=8.6.7，73 文件
+- 分发：页面层改动（globals.css/QuickLinks/changelog），存量装机 ≤6h 自动静默更新；v8.6.6 启动崩溃预防对已中招用户随本次热更自愈
+
+Stage Summary:
+- v8.6.7 全链路闭环（探针 35 PASS / 0 FAIL + 线上自洽）
