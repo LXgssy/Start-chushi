@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.6.18",
+    date: "2026-09-17",
+    title: "掠影浅色字体白晕修正：底部白光退场，等向柔光接棒可读性",
+    channel: "page",
+    highlights: [
+      "掠影浅色下时钟、快捷服务名称等裸文字去掉贴着笔画底缘的白色偏移光，字体底部不再发白发亮",
+      "白晕改为均匀环绕笔画的一圈柔光加外扩微光，复杂壁纸上依旧清晰可读，且不再有方向性白边",
+    ],
+  },
+  {
     version: "8.6.17",
     date: "2026-09-16",
     title: "浅色减雾提质：白雾散去，瓷釉磁贴透出真磨砂",

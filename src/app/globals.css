@@ -497,12 +497,15 @@ html.photo-mode:not(.dark) .photo-scrim {
   background: none;
   backdrop-filter: none;
 }
-/* 裸文字：深墨 + 极轻白晕 */
+/* 裸文字：深墨 + 极轻白晕
+   v8.6.18 律：白晕一律等向（0 0 偏移）——禁止 0 1px 之类的向下偏移层，
+   那会画出「贴着笔画底缘的白边」（用户反馈：字体底部不要加白光）；
+   可读性由贴身白圈 + 外扩柔光承担，等向不产生方向性白光 */
 html.photo-mode:not(.dark) .clock-text {
   color: rgb(24 24 27 / 0.94);
   text-shadow:
-    0 0 18px rgb(255 255 255 / 0.55),
-    0 1px 2px rgb(255 255 255 / 0.45);
+    0 0 3px rgb(255 255 255 / 0.5),
+    0 0 18px rgb(255 255 255 / 0.55);
 }
 html.photo-mode:not(.dark) .clock-sub {
   color: rgb(39 39 42 / 0.85);
@@ -518,20 +521,21 @@ html.photo-mode:not(.dark) .search-hint {
 html.photo-mode:not(.dark) .cl-links .link-intro {
   color: rgb(39 39 42 / 0.92);
   text-shadow:
-    0 0 12px rgb(255 255 255 / 0.6),
-    0 1px 2px rgb(255 255 255 / 0.5);
+    0 0 3px rgb(255 255 255 / 0.55),
+    0 0 12px rgb(255 255 255 / 0.6);
 }
 /* 磁贴名称：v8.6.15「裸文字深墨+白晕」清单漏项——名称直接压壁纸，
    深色壁纸（草地/夜景）上 zinc-600 灰字几乎隐形。
    ⚠ 名称元素在 intro 态自带 .link-intro 类（QuickLinks 拼接），其白晕
    规则特异性 (0,3,1) 压过 (0,2,1)——这里必须同构提级 .cl-links .tile-label
-   靠源顺序在后取胜；小字（12px）白晕在深岩壁上不够，前两圈收紧成
-   近描边（笔画四周白圈包裹），深壁纸可读、浅壁纸白圈不可见 */
+   靠源顺序在后取胜；小字（12px）白晕在深岩壁上不够，首圈收紧成
+   近描边（笔画四周白圈包裹），深壁纸可读、浅壁纸白圈不可见。
+   v8.6.18：删掉原第二圈 0 1px 4px 底部偏移白光（用户反馈），贴身
+   等向白圈 + 两层外扩柔光足以承接可读性 */
 html.photo-mode:not(.dark) .cl-links .tile-label {
   color: rgb(39 39 42 / 0.92);
   text-shadow:
     0 0 3px rgb(255 255 255 / 0.95),
-    0 1px 4px rgb(255 255 255 / 0.85),
     0 0 10px rgb(255 255 255 / 0.6),
     0 0 20px rgb(255 255 255 / 0.4);
 }
