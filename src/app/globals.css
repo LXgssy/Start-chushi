@@ -469,8 +469,10 @@ html.photo-mode:not(.dark) .photo-scrim {
       rgba(255, 255, 255, 0.62)
     ),
     rgba(255, 255, 255, 0.46);
+  /* 只写标准属性：v8.6.12 曾并列 -webkit- 前缀，构建压缩会把标准属性丢掉
+     （Chrome/Edge 有前缀别名故无恙），但 Firefox 不支持该前缀 → 模糊失效。
+     交给压缩器按目标浏览器自行补前缀，源码里保持标准写法。 */
   backdrop-filter: blur(18px) saturate(1.05);
-  -webkit-backdrop-filter: blur(18px) saturate(1.05);
 }
 html.cs-lite.photo-mode:not(.dark) .photo-scrim {
   background:
