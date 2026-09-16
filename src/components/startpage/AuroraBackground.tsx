@@ -281,7 +281,7 @@ function AuroraBackground({
   return (
     <div aria-hidden className="fixed inset-0 -z-10 overflow-hidden">
       {/* 底色 */}
-      <div className="absolute inset-0 bg-[#f6f5f2] dark:bg-[#0a0a0e]" />
+      <div className="absolute inset-0 bg-[#f6f5f9] dark:bg-[#0a0a0e]" />
 
       {/* 极光光斑层：启停由「显示身份」驱动；黑幕掩护下瞬时就位（避免揭幕时露底色发白），
           黑幕外（辉光↔纯净直切）保留 2000ms 光斑柔化 */}
@@ -291,10 +291,13 @@ function AuroraBackground({
         }`}
         style={{ opacity: showBlobs ? blobStrength : 0 }}
       >
-        <div className="aurora-blob aurora-a bg-emerald-400/35 dark:bg-emerald-500/25" />
-        <div className="aurora-blob aurora-b bg-fuchsia-300/30 dark:bg-fuchsia-400/20" />
-        <div className="aurora-blob aurora-c bg-amber-200/40 dark:bg-amber-300/15" />
-        <div className="aurora-blob aurora-d bg-teal-200/30 dark:bg-teal-400/15" />
+        {/* v8.6.16 瓷釉极光：浅色收敛让瓷白主导画布（旧 35~40% 铺满全页，
+            磁贴白雾与投影在满铺彩底上无从立体——「磨砂看不见」的画布因素）；
+            深色墨夜极光保持不动。色相结构与深色同族（绿/紫/琥珀/青）。 */}
+        <div className="aurora-blob aurora-a bg-emerald-300/24 dark:bg-emerald-500/25" />
+        <div className="aurora-blob aurora-b bg-fuchsia-300/24 dark:bg-fuchsia-400/20" />
+        <div className="aurora-blob aurora-c bg-amber-200/30 dark:bg-amber-300/15" />
+        <div className="aurora-blob aurora-d bg-teal-200/22 dark:bg-teal-400/15" />
       </div>
 
       {/* 摄影壁纸层：挂载身份 = 显示身份，换图发生在黑幕全黑时刻。

@@ -43,42 +43,63 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
-/* ---------- 「初始」主题令牌：暖纸白 / 墨夜黑，点缀紫罗兰 ---------- */
+/* ---------- 「初始」主题令牌 v8.6.16 · 瓷釉浅色 / 墨夜深色 ----------
+   浅色整体重写（v8.6.16）：旧浅色是「暖纸白」（hue 85 微黄），与深色
+   「墨夜」（hue 297-300 冷紫黑）色温两族、视觉语言两族——用户定调
+   「简直就是两个风格」。本版把浅色重造为「瓷釉」：与深色同一色相家族
+   （hue 300 紫灰冷调）的明极，玻璃结构（雾面/描边/高光/投影）与深色
+   「暗玻璃」逐项同构镜像——同一套设计语言的明暗两极，不再是两种风格。 */
 :root {
   --radius: 0.75rem;
   /* 强调色（由设置面板动态覆盖） */
   --ui-accent: #8b5cf6;
-  --background: oklch(0.972 0.004 85);
-  --foreground: oklch(0.21 0.006 90);
-  --card: oklch(0.985 0.002 85);
-  --card-foreground: oklch(0.21 0.006 90);
-  --popover: oklch(0.988 0.002 85);
-  --popover-foreground: oklch(0.21 0.006 90);
-  --primary: oklch(0.23 0.008 80);
+  /* 瓷釉画布：冷调瓷白（oklch hue 300，与 .dark 墨夜同族） */
+  --background: oklch(0.978 0.004 300);
+  --foreground: oklch(0.225 0.01 300);
+  --card: oklch(0.988 0.003 300);
+  --card-foreground: oklch(0.225 0.01 300);
+  --popover: oklch(0.99 0.002 300);
+  --popover-foreground: oklch(0.225 0.01 300);
+  --primary: oklch(0.24 0.012 300);
   --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.952 0.004 85);
-  --secondary-foreground: oklch(0.24 0.006 88);
-  --muted: oklch(0.952 0.004 85);
-  --muted-foreground: oklch(0.50 0.01 86);
-  --accent: oklch(0.94 0.008 300);
-  --accent-foreground: oklch(0.25 0.02 300);
+  --secondary: oklch(0.958 0.005 300);
+  --secondary-foreground: oklch(0.25 0.008 300);
+  --muted: oklch(0.958 0.005 300);
+  --muted-foreground: oklch(0.505 0.012 300);
+  --accent: oklch(0.948 0.012 300);
+  --accent-foreground: oklch(0.26 0.022 300);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.89 0.006 85);
-  --input: oklch(0.89 0.006 85);
+  --border: oklch(0.905 0.007 300);
+  --input: oklch(0.905 0.007 300);
   --ring: oklch(0.62 0.16 295);
   --chart-1: oklch(0.65 0.18 165);
   --chart-2: oklch(0.62 0.19 300);
   --chart-3: oklch(0.75 0.14 82);
   --chart-4: oklch(0.68 0.15 30);
   --chart-5: oklch(0.55 0.12 220);
-  --sidebar: oklch(0.975 0.004 85);
-  --sidebar-foreground: oklch(0.21 0.006 90);
-  --sidebar-primary: oklch(0.23 0.008 80);
+  --sidebar: oklch(0.982 0.003 300);
+  --sidebar-foreground: oklch(0.225 0.01 300);
+  --sidebar-primary: oklch(0.24 0.012 300);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.94 0.008 300);
-  --sidebar-accent-foreground: oklch(0.25 0.02 300);
-  --sidebar-border: oklch(0.89 0.006 85);
+  --sidebar-accent: oklch(0.948 0.012 300);
+  --sidebar-accent-foreground: oklch(0.26 0.022 300);
+  --sidebar-border: oklch(0.905 0.007 300);
   --sidebar-ring: oklch(0.62 0.16 295);
+  /* —— 磁贴「瓷釉磨砂」token（v8.6.16 新增，浅/深同构镜像）——
+     霜层着色是磨砂可见性的核心：旧浅色磁贴只 blur 不着色，在浅底上
+     blur(14px) 之后与背景无明度差，「磨砂玻璃」存在却看不见。瓷釉版
+     给霜层铺白雾（深色版铺暗雾），磁贴与画布立即分层，磨砂可感。 */
+  --tile-frost-bg: rgba(255, 255, 255, 0.52);
+  /* 描边环：浅色走深墨（hsl(hue 44% L)/a 由内联按 hue 注入） */
+  --tile-ring-l: 32%;
+  --tile-ring-a: 0.32;
+  /* 顶部内高光：浅色下白高光更亮（瓷面反光） */
+  --tile-hl-a: 0.85;
+  /* 内容层色相渐变：浅色加深一档（旧 .22/.14 在瓷白上几乎不可见） */
+  --tile-grad-a1: 0.38;
+  --tile-grad-a2: 0.26;
+  --tile-grad-l1: 58%;
+  --tile-grad-l2: 52%;
 }
 
 .dark {
@@ -113,6 +134,15 @@
   --sidebar-accent-foreground: oklch(0.95 0.01 300);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.66 0.155 297);
+  /* 磁贴暗雾镜像（v8.6.16）：深色下霜层铺暗雾增强宝石感，结构与瓷釉浅色同构 */
+  --tile-frost-bg: rgba(12, 12, 18, 0.2);
+  --tile-ring-l: 60%;
+  --tile-ring-a: 0.28;
+  --tile-hl-a: 0.18;
+  --tile-grad-a1: 0.22;
+  --tile-grad-a2: 0.14;
+  --tile-grad-l1: 62%;
+  --tile-grad-l2: 50%;
 }
 
 @layer base {
@@ -137,9 +167,11 @@
        旧 CEF（无 scrollbar-width）自动回退经典滚动条，行为同 v8.0 时代。 */
     scrollbar-width: none;
     /* 底色基调（v8.1.1）：画布用主题底色，首帧/极露底时不闪白；与 Aurora
-       底层 #f6f5f2/#0a0a0e 严格一致。注意：html 有了底色后 body 背景停止
+       底层 #f6f5f9/#0a0a0e 严格一致。注意：html 有了底色后 body 背景停止
        向画布传播，body 必须保持透明（见下），否则会自绘盖住 -z-10 壁纸层 */
-    background-color: #f6f5f2;
+    /* 瓷釉画布底色（v8.6.16）：与 --background 同族的冷瓷白 #f6f5f9，
+       首帧/极露底不闪黄（旧暖纸 #f6f5f2 与冷瓷 token 不同族） */
+    background-color: #f6f5f9;
   }
   html.dark {
     background-color: #0a0a0e;
@@ -240,15 +272,18 @@ html.dark .accent-bar {
    「初始」视觉层
    ================================================================ */
 
-/* ---------- 玻璃拟态 ---------- */
-/* dock 内部片段（选框/分隔线）用变量三态适配：浅色主题黑系、深色白系；
+/* ---------- 玻璃拟态（v8.6.16 瓷釉重写） ----------
+   浅色「亮玻璃」与深色「暗玻璃」同构镜像：白雾面/墨色低透明描边
+   （深色为暗面/白色低透明描边）；三态片段变量（seg/ring/line）同步
+   翻转色相但不翻转结构——同一套玻璃语法，明暗两极各说各话。 */
+/* dock 内部片段（选框/分隔线）用变量三态适配：浅色主题墨系、深色白系；
    掠影模式玻璃强制深色（不分主题），故也用白系——否则浅色主题下选框/分隔线在深玻璃上不可见 */
 .glass-pill {
-  background: rgba(255, 255, 255, 0.52);
-  border: 1px solid rgba(20, 20, 25, 0.08);
-  --pill-seg: rgba(20, 20, 25, 0.1);
-  --pill-seg-ring: rgba(20, 20, 25, 0.22);
-  --pill-line: rgba(20, 20, 25, 0.2);
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(24, 22, 36, 0.1);
+  --pill-seg: rgba(24, 22, 36, 0.1);
+  --pill-seg-ring: rgba(24, 22, 36, 0.22);
+  --pill-line: rgba(24, 22, 36, 0.18);
 }
 .dark .glass-pill {
   background: rgba(255, 255, 255, 0.055);
@@ -259,8 +294,8 @@ html.dark .accent-bar {
 }
 
 .glass-card {
-  background: rgba(252, 251, 248, 0.92);
-  border: 1px solid rgba(20, 20, 25, 0.08);
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(24, 22, 36, 0.09);
 }
 .dark .glass-card {
   background: rgba(22, 22, 27, 0.94);
@@ -268,8 +303,8 @@ html.dark .accent-bar {
 }
 
 .glass-chip {
-  background: rgba(0, 0, 0, 0.04);
-  border: 1px solid rgba(20, 20, 25, 0.05);
+  background: rgba(24, 22, 36, 0.045);
+  border: 1px solid rgba(24, 22, 36, 0.06);
 }
 .dark .glass-chip {
   background: rgba(255, 255, 255, 0.05);
@@ -340,9 +375,11 @@ html.dark .accent-bar {
   transform: translateZ(0);
 }
 .vignette {
+  /* 瓷釉版（v8.6.16）：顶部瓷光提亮、底部墨色轻压——与深色「顶白光/底黑压」
+     同构，幅度镜像（浅色靠提亮塑体积，深色靠压暗） */
   background:
-    radial-gradient(120% 90% at 50% 0%, rgba(255, 255, 255, 0.14), transparent 55%),
-    radial-gradient(140% 120% at 50% 115%, rgba(8, 8, 12, 0.16), transparent 60%);
+    radial-gradient(120% 90% at 50% 0%, rgba(255, 255, 255, 0.5), transparent 55%),
+    radial-gradient(140% 120% at 50% 115%, rgba(24, 22, 36, 0.09), transparent 60%);
   pointer-events: none;
 }
 .dark .vignette {
@@ -488,11 +525,26 @@ html.photo-mode:not(.dark) .glass-pill {
   background: rgba(255, 255, 255, 0.72);
   border-color: rgba(20, 20, 25, 0.10);
 }
-/* 磁贴霜层：浅色掠影下给磁贴一层浅底（局部玻璃，不是整页遮罩）——
-   否则深色壁纸上磁贴本身发暗，里面的深字/字母压不住 */
+/* 磁贴霜层：浅色掠影下把白雾加厚一档（局部玻璃，不是整页遮罩）——
+   否则深色壁纸上磁贴本身发暗，里面的深字/字母压不住。
+   v8.6.16：霜层着色已变量化（--tile-frost-bg），掠影只调变量值，
+   与常驻态共用同一根通道（内联 background: var(--tile-frost-bg)）。 */
 html.photo-mode:not(.dark) .link-intro-frost {
-  background: rgba(255, 255, 255, 0.52);
+  --tile-frost-bg: rgba(255, 255, 255, 0.56);
 }
+/* ---------- 磁贴投影 token（v8.6.16 瓷釉重写） ----------
+   旧浅色用 Tailwind shadow-sm（与深色同值）——浅色层次靠投影塑体积，
+   与深色（描边+高光塑体积）互为镜像；瓷釉版浅色投影加深加大一档，
+   深色保持原生暗投影。替换原 shadow-sm 的位置见 QuickLinks TileIcon。 */
+.tile-shadow {
+  box-shadow:
+    0 1px 2px rgba(24, 22, 36, 0.05),
+    0 6px 18px -6px rgba(24, 22, 36, 0.18);
+}
+html.dark .tile-shadow {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.32);
+}
+
 /* ---------- 编辑模式磁贴摇晃（v8.6.2 强化：±2°/0.28s，交替反向——青柠/iOS 同款，
             批量管理状态一眼可辨；v8.6.1 的 ±1.4°/0.38s 幅度过小被用户当「没抖动」） ----------
    transform 序列内保留 translateZ(0)：动画声明会覆盖磁贴玻璃本体的内联

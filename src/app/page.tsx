@@ -1213,7 +1213,7 @@ export default function Home() {
   /* 未挂载前的优雅启动画面（配合 head 脚本预置主题，无闪烁） */
   if (!mounted) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-[#f6f5f2] dark:bg-[#0a0a0e]">
+      <div className="fixed inset-0 flex items-center justify-center bg-[#f6f5f9] dark:bg-[#0a0a0e]">
         <div className="pulse-dot h-1.5 w-1.5 rounded-full bg-zinc-400 dark:bg-zinc-600" />
       </div>
     );
