@@ -1086,12 +1086,21 @@ html.cs-drawer-closing .cl-fade-leaf {
   animation: intro-tile-body calc(0.95s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) 0.38s backwards;
 }
 
+/* 描边层（v8.6.9）：1px inset 环从霜层拆出，走独立通道与内容层同拍
+   （同曲线 / 同时长 / 同模糊聚拢）。原先环挂在霜层上，霜层是 0.18s
+   快速凝聚 —— 环 0.42s 就成型，磁贴面要 1.19s 才聚完，看着像描边抢跑
+   （用户实测「图标边框的描边优先级没有同步」）。 */
+.link-intro-ring {
+  animation: intro-tile-body calc(0.95s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) 0.38s backwards;
+}
+
 /* v8.6.1：全屏抽屉每次唤出磁贴都重新入场（portal 重挂载），但 0.38s 延迟
    对「中键→看墙」的即时预期偏慢，收紧到 0.06s；0.95s 本体时长保留（温润上浮） */
 .cl-links .link-intro,
 .cl-links .link-intro-tile,
 .cl-links .link-intro-frost,
-.cl-links .link-intro-body {
+.cl-links .link-intro-body,
+.cl-links .link-intro-ring {
   animation-delay: 0.06s;
 }
 
@@ -1105,7 +1114,8 @@ html.cs-drawer-closing .cl-fade-leaf {
 main .cl-links .link-intro,
 main .cl-links .link-intro-tile,
 main .cl-links .link-intro-frost,
-main .cl-links .link-intro-body {
+main .cl-links .link-intro-body,
+main .cl-links .link-intro-ring {
   animation-delay: 0.24s;
 }
 

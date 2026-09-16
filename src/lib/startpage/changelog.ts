@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.6.9",
+    date: "2026-09-16",
+    title: "磁贴描边与磁贴面同拍聚拢",
+    channel: "page",
+    highlights: [
+      "修复图标边框描边抢先出现：描边原先跟着快速凝聚的磨砂层走，磁贴面还没聚拢它就已经成型",
+      "描边拆成独立通道，与磁贴内容同一时长、同一曲线、同一模糊一起聚拢",
+    ],
+  },
+  {
     version: "8.6.8",
     date: "2026-09-16",
     title: "常驻磁贴入场与搜索框同拍",
