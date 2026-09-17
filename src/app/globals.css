@@ -90,17 +90,20 @@
      把透度压到 48% 以下，磁贴成了实心纸片——质感反而输给深色（暗雾
      0.20 透 80%）。减雾到 0.30 让极光透进来，玻璃感回来；分层交给
      描边+投影承担，不再依赖厚雾。 */
-  --tile-frost-bg: rgba(252, 251, 255, 0.26);
-  /* 描边环：浅色走深墨（hsl(hue 44% L)/a 由内联按 hue 注入） */
-  --tile-ring-l: 32%;
-  --tile-ring-a: 0.32;
+  /* v8.6.21 图标样式统一深色釉（用户定调：快捷服务图标不分主题一律
+     深色模式样式）——浅色值整体换成 .dark 同值：磁贴面恒暗雾+浅白字母，
+     主题差异只留在投影（浅色地面亮，深影塑体积）与名称配色上 */
+  --tile-frost-bg: rgba(12, 12, 18, 0.2);
+  /* 描边环：随图标统一深色（hsl(hue 44% L)/a 由内联按 hue 注入） */
+  --tile-ring-l: 60%;
+  --tile-ring-a: 0.28;
   /* 顶部内高光：0.85 是死白塑料感，降到釉面反光档 */
-  --tile-hl-a: 0.45;
+  --tile-hl-a: 0.18;
   /* 内容层色相渐变：雾减薄后自身透出更多彩底，渐变同步收一档防叠脏 */
-  --tile-grad-a1: 0.28;
-  --tile-grad-a2: 0.18;
-  --tile-grad-l1: 58%;
-  --tile-grad-l2: 52%;
+  --tile-grad-a1: 0.22;
+  --tile-grad-a2: 0.14;
+  --tile-grad-l1: 62%;
+  --tile-grad-l2: 50%;
 }
 
 .dark {
@@ -304,12 +307,19 @@ html.dark .accent-bar {
   --pill-line: rgba(255, 255, 255, 0.12);
 }
 
+/* v8.6.21 磨砂升级：dock 面板/命令面板/对话框/右键菜单等全部玻璃卡片
+   背板加 backdrop 磨砂（用户：dock 所有面板的半透明背板升级磨砂玻璃，
+   深浅色都覆盖）。底色同步减薄让磨砂可见：浅 0.86→0.62 白玻璃 / 深
+   0.94→0.60 暗玻璃。壳体 opacity 入退场动画期间磨砂暂退化为纯色底
+   （祖先 opacity<1 形成 backdrop root），被淡入淡出掩盖，稳态全程磨砂
+   ——抽屉纱罩同构先例（自身/祖先 opacity 动画磨砂退化窗口极短）。 */
 .glass-card {
-  background: rgba(255, 255, 255, 0.86);
+  background: rgba(255, 255, 255, 0.62);
   border: 1px solid rgba(24, 22, 36, 0.09);
+  backdrop-filter: blur(20px) saturate(1.5);
 }
 .dark .glass-card {
-  background: rgba(22, 22, 27, 0.94);
+  background: rgba(22, 22, 27, 0.6);
   border-color: rgba(255, 255, 255, 0.08);
 }
 
@@ -446,13 +456,16 @@ html.photo-mode .clock-sub [aria-hidden] {
 html.photo-mode .search-hint {
   color: rgb(255 255 255 / 0.5);
 }
-html.photo-mode .dock-btn {
+/* v8.6.21：dock 按钮收窄到深色掠影——dock 有自家玻璃背板（.glass-pill），
+   按分工律玻璃面跟随主题；浅色掠影回落基线墨系，与辉光/纯色模式一致
+   （用户：dock 浅色样式在掠影下和辉光/纯色完全不一样的修复） */
+html.photo-mode.dark .dock-btn {
   color: rgb(255 255 255 / 0.68);
 }
-html.photo-mode .dock-btn:hover {
+html.photo-mode.dark .dock-btn:hover {
   color: rgb(255 255 255);
 }
-html.photo-mode .dock-btn[data-active="true"] {
+html.photo-mode.dark .dock-btn[data-active="true"] {
   color: rgb(255 255 255);
 }
 /* 深色掠影：深磨砂药丸 + 白系内部（值承 v8.6.19，与 .dark 基线一致） */
@@ -507,11 +520,8 @@ html.photo-mode .cl-links-docked span.link-intro.border-dashed {
   border-color: rgb(255 255 255 / 0.4);
   color: rgb(255 255 255 / 0.6);
 }
-/* 浅色掠影磁贴霜层：比常驻瓷釉 (0.26) 加厚一档压住壁纸纹理（v8.6.17
-   同值 0.44），挂在 .cl-links 持久作用域（不随 intro 类起伏） */
-html.photo-mode:not(.dark) .cl-links {
-  --tile-frost-bg: rgba(255, 255, 255, 0.44);
-}
+/* v8.6.21：浅掠影磁贴白雾霜层（0.44）退役——图标统一深色釉后回落
+   暗雾基线（rgba(12,12,18,0.2)），浅/深掠影磁贴同款，轻模糊+scrim 承载可读性 */
 /* vignette 在掠影下退役：它的顶部瓷光径向一直压在壁纸之上，就是用户反复
    反馈的「时钟/文字底部白色高光」真凶（0.12 也可见，v8.6.17/18 两轮减淡
    都没杀干净）；掠影的可读性职责全部移交 photo-scrim + 壁纸高斯模糊 */
@@ -524,8 +534,9 @@ html.photo-mode .vignette {
    ⚠ 模糊值必须走 AuroraBackground 的【内联样式】通道——Lightning CSS 会把
    CSS 文件里的标准 backdrop-filter 改写成 -webkit- 别名并把 blur(0px) 压成
    非法 blur()（v8.6.19b 实测 TL9d/TL10 双 FAIL 根因）。v8.6.20 用户定调
-   「模糊力度太高了，有一层很轻的模糊就行」：24px → 8px，壁纸轮廓可辨、
-   只软化细节托白字；blur(0)↔blur(8px) 平滑插值由内联 transition 承担。 */
+   「模糊力度太高了，有一层很轻的模糊就行」：24px → 8px；v8.6.21 再减
+   8px → 4px（「再轻一点」：极轻薄纱，只软化像素细节）；blur(0)↔blur(4px)
+   平滑插值由内联 transition 承担。 */
 .photo-blur {
   pointer-events: none;
 }
@@ -1426,6 +1437,14 @@ html.cs-lite.dark .search-pill,
 html.cs-lite.dark .cl-panel,
 html.cs-lite.dark .cl-dockwidget {
   background: rgba(24, 24, 27, 0.94) !important;
+}
+/* v8.6.21：磨砂随流畅模式关停——玻璃卡片退 0.94 实底（上方兜底）后
+   不再保留 backdrop 合成开销 */
+html.cs-lite .glass-card,
+html.cs-lite .cl-panel,
+html.cs-lite .cl-dockwidget {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 html.cs-lite:not(.dark) .veil-in {
   background: rgba(255, 255, 255, 0.55) !important;

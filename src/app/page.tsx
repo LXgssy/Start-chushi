@@ -349,11 +349,17 @@ export default function Home() {
     for (const key of Object.keys(PRESET_TOKEN_KEYS)) {
       const v = presetExtras.tokens[key];
       if (v) root.setProperty(key, v);
+      else if (key === "--ui-accent") root.setProperty(key, settings.accent);
       else root.removeProperty(key);
     }
     root.setProperty("--mo-speed", String(motionSpeed));
-    /* 令牌净空兜底：presets 快速变化时旧值残留由本 effect 全量重算排除 */
-  }, [mounted, presetTokenSig, motionSpeed, presetExtras.tokens]);
+    /* 令牌净空兜底：presets 快速变化时旧值残留由本 effect 全量重算排除。
+       v8.6.21 修复强调色失效：--ui-accent 的「还原值」不在 CSS 里（JS 注入
+       的用户设置），无预设值时 removeProperty 会把强调色 effect 刚写好的
+       变量删掉——本 effect 声明在后、挂载时序必跑，新开标签页/更新后每次
+       挂载都删 → --ui-accent 落回 CSS fallback 默认紫。改为回落用户强调色
+       （装了带主题令牌的预设时仍预设胜，删除预设回落用户值，焕新语义不变）。 */
+  }, [mounted, presetTokenSig, motionSpeed, presetExtras.tokens, settings.accent]);
 
   /* ---------- 旧版本设置字段迁移（缺失字段补默认值） ---------- */
   useEffect(() => {

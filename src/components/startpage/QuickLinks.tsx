@@ -88,11 +88,14 @@ function TileIcon({
   iconStyle,
   intro = false,
   sm = false,
+  onIntroDone,
 }: {
   link: StartLink;
   iconStyle: IconStyle;
   /** 入场三通道（包裹层 transform / 霜层凝聚 / 内容层模糊聚拢，见 globals.css） */
   intro?: boolean;
+  /** 入场播完回调（最晚的 body/ring 通道 animationend 触发，重复触发幂等） */
+  onIntroDone?: () => void;
   /** 常驻形态 56px（抽屉 64px） */
   sm?: boolean;
 }) {
@@ -132,13 +135,20 @@ function TileIcon({
     <span
       aria-hidden
       className={
-        "relative block tile-shadow " +
+        "relative block tile-shadow tile-shell " +
         (sm ? "h-14 w-14 rounded-[18px] " : "h-16 w-16 rounded-[20px] ") +
         (intro ? "link-intro-tile" : "")
       }
       style={{
         transform: "translateZ(0)",
         backfaceVisibility: "hidden",
+      }}
+      onAnimationEnd={(e) => {
+        /* v8.6.21：入场播完（最晚结束的 body/ring 通道）即摘 intro 类。
+           React 重排数组时会移动让位磁贴的 DOM 节点（insertBefore），CSS
+           动画对「脱文档再插入」的节点必然重播——这就是「往左拖拽时让位
+           到右边的图标误播入场动画」的根因；类摘除后重播无动画可放。 */
+        if (e.animationName === "intro-tile-body" && onIntroDone) onIntroDone();
       }}
     >
       {/* 霜层：磨砂玻璃（v8.6.9 只留 backdrop-filter，描边拆到下面的独立通道）。
@@ -149,7 +159,7 @@ function TileIcon({
       <span
         aria-hidden
         className={
-          "absolute inset-0 rounded-[inherit] cl-fade-leaf " +
+          "tile-frost absolute inset-0 rounded-[inherit] cl-fade-leaf " +
           (intro ? "link-intro-frost" : "")
         }
         style={{
@@ -168,7 +178,7 @@ function TileIcon({
       <span
         aria-hidden
         className={
-          "pointer-events-none absolute inset-0 rounded-[inherit] cl-fade-leaf " +
+          "tile-ring pointer-events-none absolute inset-0 rounded-[inherit] cl-fade-leaf " +
           (intro ? "link-intro-ring" : "")
         }
         style={{
@@ -182,7 +192,7 @@ function TileIcon({
           深色保持原宝石感。 */}
       <span
         className={
-          "relative flex h-full w-full items-center justify-center overflow-hidden rounded-[inherit] cl-fade-leaf " +
+          "tile-body relative flex h-full w-full items-center justify-center overflow-hidden rounded-[inherit] cl-fade-leaf " +
           (intro ? "link-intro-body" : "")
         }
         style={{
@@ -215,7 +225,7 @@ function TileIcon({
             className={sm ? "h-7 w-7 rounded-md object-contain" : "h-8 w-8 rounded-md object-contain"}
           />
         ) : (
-          <span className="tile-letter text-xl font-light tracking-wide text-zinc-700 dark:text-zinc-100">
+          <span className="tile-letter text-xl font-light tracking-wide text-zinc-100">
             {ch}
           </span>
         )}
@@ -244,6 +254,10 @@ function TileVisual({
   intro?: boolean;
   sm?: boolean;
 }) {
+  /* v8.6.21：入场播完即摘 intro 类（showIntro），根治拖拽让位重播入场；
+     portal 重挂载（抽屉唤出）时新实例 introDone 复位，入场照常 */
+  const [introDone, setIntroDone] = useState(false);
+  const showIntro = intro && !introDone;
   return (
     <span
       className={"flex w-full flex-col items-center gap-2.5" + (jiggle ? " jiggle" : "")}
@@ -252,13 +266,20 @@ function TileVisual({
         whileHover={jiggle ? undefined : { y: -4, scale: 1.06 }}
         transition={{ duration: 0.35, ease: EASE }}
         className="block cursor-grab active:cursor-grabbing"
+        style={{ willChange: "transform" }}
       >
-        <TileIcon link={link} iconStyle={iconStyle} intro={intro} sm={sm} />
+        <TileIcon
+          link={link}
+          iconStyle={iconStyle}
+          intro={showIntro}
+          onIntroDone={() => setIntroDone(true)}
+          sm={sm}
+        />
       </motion.span>
       <span
         className={
           "tile-label cl-fade-leaf w-full truncate text-center text-xs font-light tracking-wide text-zinc-600 dark:text-zinc-300" +
-          (intro ? " link-intro" : "")
+          (showIntro ? " link-intro" : "")
         }
       >
         {link.name}
