@@ -420,3 +420,24 @@ Stage Summary:
 - v8.6.21 全链路闭环：七点反馈全数落地（模糊 4px 极轻纱/dock 浅色归一/玻璃卡片磨砂化/图标统一深色釉/拖拽让位不重播/hover 收尾稳态/强调色存活）
 - 分发：全改动在页面层，云推 ≤6h 到存量装机，无需换 crx
 - 新律：①预设令牌 effect 对「还原值不在 CSS 的 JS 注入变量」禁止无值 removeProperty——必须回落用户设置源 ②CSS 动画元素的类若被探针/其他机制采样，采样锚点用永驻语义类而非动画类（动画类会被摘）③React list diff 的 DOM 移动会重播 CSS 动画——「只在一侧出现」的动画 bug 先查哪一侧节点被移动 ④glass-card 家族磨砂后 cs-lite 必须同步 backdrop 禁用（否则流畅模式白留合成开销）
+
+---
+Task ID: 123
+Agent: main (Super Z)
+Task: 用户三点反馈「抽屉关闭阴影残留+常驻阴影抢跑/常驻壁纸模糊再轻一点点/入退场瞬间磨砂退化为纯色底必须解决」——v8.6.22 + 云推
+
+Work Log:
+- 【磨砂退化实验实证】根分区曾 100% 满（清 rec7safe/download/rec/旧宣传片约 2.2G 后恢复）；空间修复后做最小实验（scripts/blur-selftest.html+mjs，sharp 梯度能判据）：元素【自身】opacity<1 与祖先同样剧毒（动画中 2.997/静态 1.822 vs 稳态 1.395≈无磨砂 1.923）——「自承载 opacity 安全」旧律作废，磁贴霜层先例实为窗口极短+底色兜底的侥幸
+- 【磨砂存活 2.0】全部玻璃壳体入退场去 opacity：入场=底色 alpha 凝入（panel-fade/card-in/ctx-in-kf 的 from 写 background-color/border-color/box-shadow 透明，不写 to→自然值浅深各自归位；backdrop 恒 20px 全程在线）；退场=底色渐隐+backdrop blur(20→1px) 收尾（dialog-sink/palette-out-kf/ctx-out-kf/glass-card-out-kf+新增 .panel-sink .glass-card 级联），blur 收尾消卸载锐化跳变；内容显隐由既有内容语言承担（content-focus 聚拢/content-defocus 散场/ctx-item/docs-anim），内容层是玻璃后代不触采样链
+- 【压缩器双坑·产物实测】①saturate(1) 的参数 1 被 Lightning CSS 当默认值吃成非法 saturate()（非 0 blur 值无恙，v8.6.19 坑的新变体）；②keyframes 内 backdrop-filter 双写（无前缀+-webkit-）被去重成仅 -webkit- 版，而 Chromium 在 @keyframes 内不识别 webkit 别名（声明整个丢弃，CSSOM 序列化可证）——keyframes 内只写无前缀、saturate 必须写 1.5 与自然值同构（不同构会离散跳变）
+- 【getComputedStyle 陷阱】合成中的 backdrop-filter 动画，主线程 computed style 返回基准值不反映插值——帧采样必须用像素（sharp 梯度+均色：open-60ms rgb(18,19,22)→120ms rgb(20,20,25) 底色凝入实证，close-60ms 梯度 1.53=壁纸透出）
+- 【阴影残留根因】html.cs-drawer-closing .link-intro-tile 锚在 v8.6.21 摘类机制下已消失的类——稳态关闭不再命中→投影满值残留；换永驻语义类 .tile-shell
+- 【阴影抢跑修复】投影长在包裹层本体且无入场通道（第 0 帧满值 vs 图标本体 0.95s 聚拢）——新增 from-only 关键帧 intro-tile-shadow（to=自然值，浅/深各自归位）挂 .link-intro-tile 双通道动画列表，与 body 通道同拍；closing 态收窄 animation-name 只留 rise（防新通道动画值压过 box-shadow:none 造成中途关闭残留回归）
+- 【其余】AuroraBackground blur(4px)→blur(3px)（「再轻一点点」）；PresetDialog/PresetDocs 顶栏挂 content-focus（壳体去 opacity 后顶栏显隐入内容语言）；probe-v8622（sed 克隆+TL9d 3px+TL14a-d 四门：CSSOM 扫描退场关键帧零 opacity/入场底色凝入/级联与永驻选择器在位/中途关闭掐通道）；T4a 650→900ms 加固（qCl 首命中是常驻叶，打断落 frost 尾窗会采到动画值——负载相关 flaky 实证，v8.6.21 探针对照跑确认非回归）
+- 【发布】main 0eec87e（7 文件 +796/-33 对账清晰）→ 云推 gh-pages：version.json v=8.6.22、73 文件尺寸+SHA256 逐字节 ALL-GREEN、curl 线上验证通过
+- 【验证】probe-v8622 连续两轮 63 PASS / 0 FAIL；帧留档 download/v8622-frames/（open/close 各 3-4 帧）
+
+Stage Summary:
+- v8.6.22 全链路闭环：磨砂全程在线（面板/菜单/对话框开合不再闪纯色底）、磁贴阴影与图标同拍（入场不抢跑/关闭随退场/中途关闭不残留）、常驻壁纸轻纱 3px
+- 分发：全改动在页面层，云推 ≤6h 到存量装机，无需换 crx
+- 新律：①backdrop-filter 元素 opacity<1 一律杀磨砂（自身与祖先同罪），入退场只许动底色 alpha/blur 值/transform ②CSS 文件 keyframes 内 backdrop-filter 只写无前缀且禁 saturate(1)/blur(0)（压缩器两吃参数）③同构律：backdrop-filter 关键帧插值两端函数列表必须等构 ④验证 backdrop 插值只能看像素不能看 getComputedStyle ⑤探针打断类时序门要远离短动画结束点（首命中元素≠目标元素时尤其）
