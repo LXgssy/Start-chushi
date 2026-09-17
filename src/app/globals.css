@@ -413,144 +413,110 @@ html.dark .accent-bar {
     rgba(0, 0, 0, 0.18);
 }
 
-/* ---------- 掠影模式前景（深色主题）：白字 / 深磨砂药丸 ----------
-   v8.6.12：整块收窄到 .dark。浅色主题的掠影不再是「白字压深玻璃」，
-   改走本来的浅色体系（Tailwind 浅色工具类 + 浅色玻璃），配下方白纱遮罩
-   保证可读；本块若不分主题就会把浅色主题的深字整体盖白。 */
-html.photo-mode.dark .clock-text {
+/* ---------- 掠影模式前景：白字 / 深磨砂药丸（v8.6.19 起不分主题） ----------
+   v8.6.12 曾收窄到 .dark（浅色掠影改走深墨字+浅玻璃体系）；v8.6.19 用户定调
+   「掠影模式下的文字一律改成白色」——壁纸是掠影的绝对主体，主题退位，
+   浅色掠影的深墨字体系（v8.6.15，含全部白晕描边）整体退役删除。
+   白字可读性由三件套承担：压暗 scrim +（常驻形态）壁纸高斯模糊（.photo-blur）
+   + 深磨砂玻璃件；文字本身零描边零白晕（用户：字体底部不要加白光/高光）。 */
+html.photo-mode .clock-text {
   color: rgb(245 245 245);
 }
-html.photo-mode.dark .clock-sub {
+html.photo-mode .clock-sub {
   color: rgb(244 244 245 / 0.78);
 }
-html.photo-mode.dark .clock-sub [aria-hidden] {
+html.photo-mode .clock-sub [aria-hidden] {
   background: rgb(255 255 255 / 0.32);
 }
-html.photo-mode.dark .glass-pill {
+html.photo-mode .glass-pill {
   background: rgb(12 12 18 / 0.44);
   border-color: rgb(255 255 255 / 0.14);
   --pill-seg: rgba(255, 255, 255, 0.18);
   --pill-seg-ring: rgba(255, 255, 255, 0.34);
   --pill-line: rgba(255, 255, 255, 0.26);
 }
-html.photo-mode.dark .search-input {
+html.photo-mode .search-input {
   color: rgb(244 244 245);
 }
-html.photo-mode.dark .search-input::placeholder {
+html.photo-mode .search-input::placeholder {
   color: rgb(255 255 255 / 0.45);
 }
-html.photo-mode.dark .search-trigger {
+html.photo-mode .search-trigger {
   color: rgb(255 255 255 / 0.62);
 }
-html.photo-mode.dark .search-trigger:hover {
+html.photo-mode .search-trigger:hover {
   color: rgb(255 255 255 / 0.92);
 }
-html.photo-mode.dark .search-submit {
+html.photo-mode .search-submit {
   background: rgb(255 255 255 / 0.92);
   color: rgb(17 17 20);
 }
-html.photo-mode.dark .search-hint {
+html.photo-mode .search-hint {
   color: rgb(255 255 255 / 0.5);
 }
-/* 建议行：掠影玻璃恒深色（不分主题），浅色主题下建议行文字/高亮/分隔线
-   需白系覆盖（同 .search-input 的处理），否则深灰字压深玻璃不可读 */
-html.photo-mode.dark .search-sug-row {
+/* 建议行：掠影玻璃恒深色，白系文字/高亮/分隔线（原 .dark 注释沿用） */
+html.photo-mode .search-sug-row {
   color: rgb(244 244 245 / 0.9);
 }
-html.photo-mode.dark .search-sug-row[data-active="true"] {
+html.photo-mode .search-sug-row[data-active="true"] {
   background: rgb(255 255 255 / 0.12);
   color: rgb(255 255 255);
 }
-html.photo-mode.dark .search-sug-row:first-child {
+html.photo-mode .search-sug-row:first-child {
   border-top-color: rgb(255 255 255 / 0.1);
 }
-html.photo-mode.dark .tile-label {
+html.photo-mode .tile-label {
   color: rgb(255 255 255 / 0.85);
 }
-html.photo-mode.dark .tile-letter {
+html.photo-mode .tile-letter {
   color: rgb(255 255 255 / 0.92);
 }
-html.photo-mode.dark .dock-btn {
+html.photo-mode .dock-btn {
   color: rgb(255 255 255 / 0.68);
 }
-html.photo-mode.dark .dock-btn:hover {
+html.photo-mode .dock-btn:hover {
   color: rgb(255 255 255);
 }
-html.photo-mode.dark .dock-btn[data-active="true"] {
+html.photo-mode .dock-btn[data-active="true"] {
   color: rgb(255 255 255);
 }
 
-/* ================================================================
-   掠影·浅色模式（v8.6.15：浅色主题 + 掠影）—— 壁纸原样，不盖白纱
-   ----------------------------------------------------------------
-   v8.6.12 曾用整页白纱（.photo-scrim 白版）压亮壁纸换对比度，实机反馈
-   「壁纸别搞白色遮罩」——壁纸是这一模式的主体，压亮等于毁掉画面。
-   本版改成：壁纸一动不动，对比度全部由【局部】承担，每处只花自己的地盘：
-     · 玻璃件（搜索条 / dock / 面板 / 磁贴）：自身加厚 + 局部 backdrop-blur，
-       深字压在自己的浅玻璃上，与壁纸明暗无关；
-     · 裸文字（时钟 / 副行 / 磁贴名称 / 新建 / 搜索提示）：深墨 + 一圈极轻
-       白晕（text-shadow，只围在笔画周围，不是覆盖画面的遮罩；与本项目禅模式
-       .zen-hint[data-tone="on-light"] 同款手法）。
-   深色主题 + 掠影的压暗遮罩与白字体系完全不受影响。
-   ================================================================ */
-html.photo-mode:not(.dark) .photo-scrim {
+/* ---------- 掠影统一 token（v8.6.19）：磁贴暗雾家族跟随白字体系 ----------
+   白字压白霜不可读——掠影下磁贴一律沿用深色 .dark 的暗雾/亮环 token，
+   特异性 (0,1,1) 压过 :root 与 .dark（值与 .dark 完全一致，深色掠影零变化） */
+html.photo-mode {
+  --tile-frost-bg: rgba(12, 12, 18, 0.2);
+  --tile-ring-l: 60%;
+  --tile-ring-a: 0.28;
+  --tile-hl-a: 0.18;
+  --tile-grad-a1: 0.22;
+  --tile-grad-a2: 0.14;
+  --tile-grad-l1: 62%;
+  --tile-grad-l2: 50%;
+}
+/* vignette 在掠影下退役：它的顶部瓷光径向一直压在壁纸之上，就是用户反复
+   反馈的「时钟/文字底部白色高光」真凶（0.12 也可见，v8.6.17/18 两轮减淡
+   都没杀干净）；掠影的可读性职责全部移交 photo-scrim + 壁纸高斯模糊 */
+html.photo-mode .vignette {
   background: none;
-  backdrop-filter: none;
 }
-/* 裸文字：深墨 + 极轻白晕
-   v8.6.18 律：白晕一律等向（0 0 偏移）——禁止 0 1px 之类的向下偏移层，
-   那会画出「贴着笔画底缘的白边」（用户反馈：字体底部不要加白光）；
-   可读性由贴身白圈 + 外扩柔光承担，等向不产生方向性白光 */
-html.photo-mode:not(.dark) .clock-text {
-  color: rgb(24 24 27 / 0.94);
-  text-shadow:
-    0 0 3px rgb(255 255 255 / 0.5),
-    0 0 18px rgb(255 255 255 / 0.55);
+/* 掠影磁贴投影跟随暗雾家族（值同 html.dark .tile-shadow） */
+html.photo-mode .tile-shadow {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.32);
 }
-html.photo-mode:not(.dark) .clock-sub {
-  color: rgb(39 39 42 / 0.85);
-  text-shadow: 0 0 14px rgb(255 255 255 / 0.5);
+/* ---------- 壁纸高斯模糊层（v8.6.19：快捷服务常驻形态专属）----------
+   常驻模式裸文字直接压壁纸，白字可读性由「壁纸模糊 + scrim」承担，文字
+   本身零光效；抽屉形态磁贴收进抽屉（玻璃自承载），壁纸保持原样不模糊。
+   ⚠ 模糊值必须走 AuroraBackground 的【内联样式】通道——Lightning CSS 会把
+   CSS 文件里的标准 backdrop-filter 改写成 -webkit- 别名并把 blur(0px) 压成
+   非法 blur()（v8.6.19b 实测 TL9d/TL10 双 FAIL 根因）；内联与磁贴磨砂
+   blur(14px) 同源可靠。这里只留命中区/豁免，blur(0)↔blur(24px) 平滑插值
+   由内联 transition 承担，24px 与抽屉纱罩 28px 同族。 */
+.photo-blur {
+  pointer-events: none;
 }
-html.photo-mode:not(.dark) .clock-sub [aria-hidden] {
-  background: rgb(24 24 27 / 0.3);
-}
-html.photo-mode:not(.dark) .search-hint {
-  color: rgb(63 63 70 / 0.92);
-  text-shadow: 0 0 12px rgb(255 255 255 / 0.5);
-}
-html.photo-mode:not(.dark) .cl-links .link-intro {
-  color: rgb(39 39 42 / 0.92);
-  text-shadow:
-    0 0 3px rgb(255 255 255 / 0.55),
-    0 0 12px rgb(255 255 255 / 0.6);
-}
-/* 磁贴名称：v8.6.15「裸文字深墨+白晕」清单漏项——名称直接压壁纸，
-   深色壁纸（草地/夜景）上 zinc-600 灰字几乎隐形。
-   ⚠ 名称元素在 intro 态自带 .link-intro 类（QuickLinks 拼接），其白晕
-   规则特异性 (0,3,1) 压过 (0,2,1)——这里必须同构提级 .cl-links .tile-label
-   靠源顺序在后取胜；小字（12px）白晕在深岩壁上不够，首圈收紧成
-   近描边（笔画四周白圈包裹），深壁纸可读、浅壁纸白圈不可见。
-   v8.6.18：删掉原第二圈 0 1px 4px 底部偏移白光（用户反馈），贴身
-   等向白圈 + 两层外扩柔光足以承接可读性 */
-html.photo-mode:not(.dark) .cl-links .tile-label {
-  color: rgb(39 39 42 / 0.92);
-  text-shadow:
-    0 0 3px rgb(255 255 255 / 0.95),
-    0 0 10px rgb(255 255 255 / 0.6),
-    0 0 20px rgb(255 255 255 / 0.4);
-}
-/* 局部玻璃加厚：搜索悬浮条 / dock 药丸 —— 深字压浅玻璃，与壁纸无关 */
-html.photo-mode:not(.dark) .glass-pill {
-  background: rgba(255, 255, 255, 0.72);
-  border-color: rgba(20, 20, 25, 0.10);
-}
-/* 磁贴霜层：浅色掠影下把白雾加厚一档（局部玻璃，不是整页遮罩）——
-   否则深色壁纸上磁贴本身发暗，里面的深字/字母压不住。
-   v8.6.16：霜层着色已变量化（--tile-frost-bg），掠影只调变量值，
-   与常驻态共用同一根通道（内联 background: var(--tile-frost-bg)）。 */
-html.photo-mode:not(.dark) .link-intro-frost {
-  /* v8.6.17：掠影壁纸深、磁贴要压住深字，雾比常驻厚但同步减薄透纹理 */
-  --tile-frost-bg: rgba(255, 255, 255, 0.44);
+html.cs-lite .photo-blur {
+  display: none;
 }
 /* ---------- 磁贴投影 token（v8.6.16 瓷釉重写） ----------
    旧浅色用 Tailwind shadow-sm（与深色同值）——浅色层次靠投影塑体积，
