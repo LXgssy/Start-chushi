@@ -818,7 +818,7 @@ function QuickLinks({
     >
       {/* ---------- 形态一：常驻（v8.5.9 原样式）——内联网格，无纱罩无中键 ---------- */}
       {form === "docked" && (
-        <div ref={rootRef} className="cl-links flex w-full flex-col items-center">
+        <div ref={rootRef} className="cl-links cl-links-docked flex w-full flex-col items-center">
           {renderGrid(true)}
         </div>
       )}
@@ -860,7 +860,7 @@ function QuickLinks({
                     animate={open ? { y: 0, scale: 1 } : { y: 42, scale: 0.97 }}
                     transition={{ type: "spring", stiffness: 300, damping: 32, mass: 0.95 }}
                   >
-                    <div ref={rootRef} className="cl-links pointer-events-auto flex flex-col items-center">
+                    <div ref={rootRef} className="cl-links cl-links-drawer pointer-events-auto flex flex-col items-center">
                       {renderGrid(false)}
                     </div>
                   </motion.div>
