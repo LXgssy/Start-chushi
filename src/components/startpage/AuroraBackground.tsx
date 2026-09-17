@@ -75,6 +75,7 @@ function AuroraBackground({
   photoId,
   wallpaperUrl = "",
   wallpaperRev = 0,
+  photoBlur = false,
 }: {
   mode: BackgroundMode;
   photoId: string;
@@ -83,6 +84,9 @@ function AuroraBackground({
   /** 自定义壁纸导入版本号（v1.7.3）：每次导入自增——custom 模式下重复导入
    *  时 photoId/wallpaperUrl 均不变，无此依赖则 effect 不重跑、壁纸不刷新 */
   wallpaperRev?: number;
+  /** v8.6.19：快捷服务常驻形态 → 壁纸加一层高斯模糊（白字可读性承担者）；
+   *  抽屉形态 false，壁纸保持原样 */
+  photoBlur?: boolean;
 }) {
   const [phase, setPhase] = useState<Phase>("night");
   const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
@@ -335,6 +339,20 @@ function AuroraBackground({
               } ${photoReady ? "opacity-100" : "opacity-0"}`}
             />
           )}
+          {/* v8.6.19：常驻形态专属——壁纸高斯模糊层（抽屉形态 data-on=false 不模糊）。
+              白字可读性由「壁纸模糊 + scrim」承担，文字本身零光效；
+              blur(0)↔blur(24px) 平滑插值，流畅模式整体豁免（globals.css） */}
+          <div
+            aria-hidden
+            className="photo-blur absolute inset-0"
+            style={{
+              /* 内联通道：Lightning CSS 会压坏 CSS 文件里的 backdrop-filter（v8.6.19b） */
+              backdropFilter: photoBlur ? "blur(24px)" : "blur(0px)",
+              WebkitBackdropFilter: photoBlur ? "blur(24px)" : "blur(0px)",
+              transition:
+                "backdrop-filter 0.6s cubic-bezier(0.22, 1, 0.36, 1), -webkit-backdrop-filter 0.6s cubic-bezier(0.22, 1, 0.36, 1)",
+            }}
+          />
           {/* 双层压暗：整体平底 + 上下渐变，保证浅色主题下白字亦可读 */}
           <div
             className={`photo-scrim absolute inset-0 transition-opacity ${

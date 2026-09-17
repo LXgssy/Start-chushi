@@ -1234,7 +1234,7 @@ export default function Home() {
 
   return (
     <div className="relative min-h-dvh">
-      <AuroraBackground mode={settings.background} photoId={settings.photoId} wallpaperUrl={settings.wallpaperUrl} wallpaperRev={settings.wallpaperRev} />
+      <AuroraBackground mode={settings.background} photoId={settings.photoId} wallpaperUrl={settings.wallpaperUrl} wallpaperRev={settings.wallpaperRev} photoBlur={!layout.hideLinks && (settings.linksForm ?? "drawer") === "docked"} />
 
       {/* 禅模式：内容雾化散场由 html.zen + .zen-fade/.search-pill/.zen-dock 各自承载。
           此包裹层绝不动画 opacity/filter——祖先 opacity<1 / filter≠none 会成为 backdrop root，
@@ -1274,13 +1274,31 @@ export default function Home() {
           )}
 
           {/* 快捷服务·常驻形态（v8.6.2，settings.linksForm = docked）：磁贴墙一直铺在
-              搜索区下方（v8.5.9 原样式回归，56px 磁贴）。抽屉形态不在此渲染（portal 到
-              body，见 main 外），避免空壳 section 抬高居中布局。v8.5.4 磨砂存活律：
+              搜索区下方（v8.5.9 原样式回归，56px 磁贴）。v8.5.4 磨砂存活律：
               本区块只留 zen-fade（非禅态不产生 opacity/filter），入场交给磁贴自身 */}
           {!layout.hideLinks && (settings.linksForm ?? "drawer") === "docked" && (
             <section
               className="zen-fade mt-[clamp(2rem,8vh,4.5rem)] w-full"
               aria-label="快捷链接"
+            >
+              <QuickLinks
+                links={links}
+                setLinks={setLinks}
+                iconStyle={settings.iconStyle}
+                columns={layout.linksColumns}
+                form="docked"
+              />
+            </section>
+          )}
+
+          {/* v8.6.19 抽屉形态布局占位（隐形克隆）：抽屉形态磁贴 portal 到 body 不占
+              主列 → 居中列变矮，时钟/搜索整体下移。这里以 invisible 克隆常驻区块
+              补回同高，时钟/搜索与常驻形态严格同位（切换形态零位移）。
+              探针以 .cl-layout-ghost 祖先豁免克隆内的同名类/磁贴 */}
+          {!layout.hideLinks && (settings.linksForm ?? "drawer") === "drawer" && (
+            <section
+              aria-hidden
+              className="cl-layout-ghost invisible mt-[clamp(2rem,8vh,4.5rem)] w-full"
             >
               <QuickLinks
                 links={links}
