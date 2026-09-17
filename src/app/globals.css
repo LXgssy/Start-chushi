@@ -781,10 +781,8 @@ html.cs-drawer-closing .link-intro-tile {
    退场帧元素同时持有显影类与退场类（同特异性后者胜），退场类在后才能覆盖显影 */
 @keyframes veil-in {
   from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
+    background-color: transparent;
+    backdrop-filter: blur(1px) saturate(1.5);
   }
 }
 .veil-in {
@@ -874,14 +872,14 @@ html.cs-drawer-closing .link-intro-tile {
   animation: overlay-sink 0.22s cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 @keyframes veil-fade {
-  from {
-    opacity: 1;
-  }
   to {
-    opacity: 0;
+    background-color: transparent;
+    backdrop-filter: blur(1px) saturate(1.5);
   }
 }
-/* 遮罩层退场淡出：0.25s（dock 遮罩/指令面板磨砂遮罩）/ 0.28s（预设对话框背板）。
+/* 遮罩层退场（v8.6.23 底层律）：0.25s（dock 遮罩/指令面板磨砂遮罩）/ 0.28s（预设对话框背板）。
+   to 帧 blur(1px)：磨砂收拢=壁纸透出，与底色渐隐合成自然淡出；无磨砂遮罩
+   （右键菜单捕获层/沙箱页）按 none↔列表替换律插值，1px 过渡不可感。
    ⚠ 声明顺序律：.veil-out 必须在 .veil-in 之后（退场帧两者同在元素上，后者胜） */
 .veil-out {
   animation: veil-fade 0.25s cubic-bezier(0.4, 0, 1, 1) forwards;
@@ -1194,19 +1192,44 @@ html.cs-drawer-closing .link-intro-tile {
 }
 
 /* ================================================================
-   磨砂玻璃存活原则（v22 病根根治）：
-   祖先元素 opacity<1 或 filter≠none 会成为 backdrop root，
-   令后代 backdrop-filter 采样不到壁纸——磨砂整体失效，
-   动画结束后才瞬跳恢复（reload 后数秒玻璃变平、禅模式进出同理的根因）。
-   故入场/禅雾化动画只允许落在：
-   ① 无玻璃子元素的区块（intro-rise 的 section、.zen-fade）
-   ② 玻璃元素自身（.search-pill / .zen-dock —— 自身 opacity/filter 不构成
-      自身 backdrop root，霜感随动画同步渐凝/渐散，全程无死亡期）
+   磨砂玻璃存活原则（v22 实验定律 · v23 底层律收官）：
+   backdrop-filter 元素【自身或祖先】opacity<1 / filter≠none 一律杀磨砂
+   （v22 blur-selftest 实验实证：自身与祖先同罪，动画中梯度 2.997 vs 稳态
+   1.395；v23 前总律②「自承载安全」为假律，作废勿再引用）。
+   磨砂写入底层——玻璃件的入退场只许动四类安全通道：
+   transform / background-color alpha / backdrop-filter blur 值 / box-shadow；
+   opacity 与 filter 只许落在【无玻璃】的内容层。遮罩族（veil-in/veil-fade）
+   与抽屉纱罩同改：磨砂经 blur 值通道凝聚/收拢（1px↔Npx 全程在线），
+   染色经底色 alpha 或无磨砂 ::before 层渐显，任何帧都不退化为纯色底。
    ================================================================ */
 
-/* ---------- 搜索药丸入场：自承载（与原 section 级 intro-rise 同参 0.95s/延迟 0.24s） ---------- */
+/* ---------- 搜索药丸入场（v8.6.23 底层律）：壳体只动底色 alpha + transform
+   （opacity/filter 全程不碰——自身 opacity<1 与祖先同罪杀磨砂，v8.6.22 实验
+   实证，旧「自承载」写法为假律）；淡入+模糊聚拢移交内容子元素（无玻璃，安全）。
+   同参 0.95s/延迟 0.24s 与原 section 级 intro-rise 一致 ---------- */
 .search-pill {
-  animation: intro-rise 0.95s cubic-bezier(0.22, 1, 0.36, 1) 0.24s backwards;
+  animation: pill-shell-in 0.95s cubic-bezier(0.22, 1, 0.36, 1) 0.24s backwards;
+}
+@keyframes pill-shell-in {
+  from {
+    background-color: transparent;
+    border-color: transparent;
+    box-shadow: 0 0 0 0 transparent;
+    transform: translateY(26px) scale(0.985);
+  }
+}
+.search-pill > * {
+  animation: pill-content-in 0.95s cubic-bezier(0.22, 1, 0.36, 1) 0.24s backwards;
+}
+@keyframes pill-content-in {
+  from {
+    opacity: 0;
+    filter: blur(10px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
 }
 
 /* ---------- 快捷磁贴入场（v8.6.7 三通道拆分）----------
@@ -1217,8 +1240,8 @@ html.cs-drawer-closing .link-intro-tile {
    拆成三条互不相克的通道，模糊覆盖与霜感在线两头都要：
    ① 包裹层 .link-intro-tile：只动 transform（translateZ(0) 写进关键帧保
       黑边修复的合成层提示）——transform 不形成 backdrop root，磨砂存活律无虞；
-   ② 霜层 .link-intro-frost：backdrop-filter 载体，0.18s 快速凝聚（自承载
-      opacity，霜感几乎即刻在线，随凝聚渐显不突兀）；
+   ② 霜层 .link-intro-frost：backdrop-filter 载体，0.18s 快速凝聚（v8.6.23
+      起 blur 值通道 1px→14px 凝聚——自承载 opacity 同样杀磨砂，旧写法作废）；
    ③ 内容层 .link-intro-body：色相渐变+图标 0.95s opacity+blur(10px) 模糊
       聚拢——覆盖整个磁贴面（v8.6.6 的「整块模糊」观感）；内容层是霜层的
       【兄弟】不是祖先，其 filter 压不到霜层的 backdrop-filter。
@@ -1242,7 +1265,7 @@ html.cs-drawer-closing .link-intro-tile {
 }
 @keyframes intro-tile-frost {
   from {
-    opacity: 0;
+    backdrop-filter: blur(1px) saturate(1.6);
   }
 }
 @keyframes intro-tile-body {
@@ -1303,15 +1326,24 @@ main .cl-links .link-intro-ring {
   animation-delay: 0.24s;
 }
 
-/* ---------- dock 入场：自承载（原 page.tsx framer 包裹层 opacity 动画移除，同参 0.8s/延迟 0.55s）；
+/* ---------- dock 入场（v8.6.23 底层律）：壳体只动 transform（glass-pill 磨砂
+   全程在线），淡入下沉到按钮子元素（> button 均无玻璃，opacity 安全；
+   选框 span / 指示器不参与，避免与其 framer 弹簧打架）。
    居中是 Tailwind v4 独立 translate 属性，与 keyframes 的 transform 合成不覆盖 ---------- */
 .dock-intro {
   animation: dock-rise calc(0.8s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) calc(0.55s * var(--mo-speed, 1)) backwards;
 }
 @keyframes dock-rise {
   from {
-    opacity: 0;
     transform: translateY(18px);
+  }
+}
+.dock-intro > button {
+  animation: dock-btn-in calc(0.8s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) calc(0.55s * var(--mo-speed, 1)) backwards;
+}
+@keyframes dock-btn-in {
+  from {
+    opacity: 0;
   }
 }
 
@@ -1517,16 +1549,43 @@ html.cs-lite.dark .veil-in {
    capture pointerdown 先置 open=false，若类即刻移除 Dock 跌回 z-40，
    退场中的纱罩（opacity 动画期间仍可命中）会重新盖住 Dock——pointerup
    落纱罩、click 被吞，面板永远打不开。 */
+/* v8.6.23 磨砂底层律：纱罩拆两层——磨砂本体在底层走 blur 值通道
+   （transition 1px↔28px，data-veil 门控，全程无 opacity，任何帧不退化为
+   纯色纱）；染色渐变走 ::before（无磨砂载体，opacity 安全）。visibility
+   延迟门控：关态 blur(1px)+transparent 视觉不可见且退场收尾后才隐藏，
+   常挂架构下关态零合成开销。开态可见即时（0s）、隐藏延迟（0.28s 收拢后） */
 .cl-drawer-veil {
+  background-color: transparent;
+  backdrop-filter: blur(1px) saturate(1.5);
+  visibility: hidden;
+  transition:
+    backdrop-filter 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s linear 0.28s;
+}
+.cl-drawer-veil::before {
+  content: "";
+  position: absolute;
+  inset: 0;
   background: linear-gradient(
     180deg,
     rgba(255, 255, 255, 0.32),
     rgba(255, 255, 255, 0.2) 42%,
     rgba(255, 255, 255, 0.28)
   );
-  backdrop-filter: blur(28px) saturate(1.5);
+  opacity: 0;
+  transition: opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
-.dark .cl-drawer-veil {
+.cl-drawer-veil[data-veil="1"] {
+  backdrop-filter: blur(28px) saturate(1.5);
+  visibility: visible;
+  transition:
+    backdrop-filter 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s;
+}
+.cl-drawer-veil[data-veil="1"]::before {
+  opacity: 1;
+}
+.dark .cl-drawer-veil::before {
   /* 深色态：zinc-900 轻纱替代旧 zinc-950 厚涂（「纯黑遮罩」差评），模糊承担主分离 */
   background: linear-gradient(
     180deg,
@@ -1538,8 +1597,9 @@ html.cs-lite.dark .veil-in {
 html.cs-drawer .cl-dock {
   z-index: 48;
 }
-/* 流畅模式：cs-lite 通配已把 backdrop-filter 压为 none，纱罩纯色加深保证磁贴可读性 */
-html.cs-lite .cl-drawer-veil {
+/* 流畅模式：cs-lite 通配已把 backdrop-filter 压为 none，纱罩纯色加深保证磁贴可读性
+   （v8.6.23 随底层律移到 ::before 染色层；纯色模式无磨砂，opacity 渐显同构） */
+html.cs-lite .cl-drawer-veil::before {
   background: linear-gradient(
     180deg,
     rgba(255, 255, 255, 0.55),
@@ -1547,7 +1607,7 @@ html.cs-lite .cl-drawer-veil {
     rgba(255, 255, 255, 0.52)
   );
 }
-html.cs-lite.dark .cl-drawer-veil {
+html.cs-lite.dark .cl-drawer-veil::before {
   background: linear-gradient(
     180deg,
     rgba(9, 9, 11, 0.62),

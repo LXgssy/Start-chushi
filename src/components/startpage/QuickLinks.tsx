@@ -605,6 +605,18 @@ function QuickLinks({
      （无 inline animation:none）——快速重开 cancel 后 intro 从时间线当前
      位接着走/已播完保持稳态，与常挂架构的「晚开重播（latch 卸载后新挂）」
      语义互不打架。稳态退场（intro 已完）仍由 globals.css 的过渡规则兜底。 */
+  /* v8.6.23 纱罩开关门控：rAF 置位保首次唤出也有凝聚入场
+     （portal 首挂即 open，若直挂 data-veil=1 则首帧无过渡瞬跳；
+     rAF 后下一帧置 1，CSS transition 从闭态值起插值） */
+  const [veilOn, setVeilOn] = useState(false);
+  useEffect(() => {
+    if (!open) {
+      setVeilOn(false);
+      return;
+    }
+    const id = requestAnimationFrame(() => setVeilOn(true));
+    return () => cancelAnimationFrame(id);
+  }, [open]);
   const fadeAnimsRef = useRef<Array<Animation>>([]);
   useEffect(() => {
     const el = document.documentElement;
@@ -857,14 +869,16 @@ function QuickLinks({
               style={{ pointerEvents: open ? undefined : "none" }}
             >
                   {/* 纱罩：整页高斯模糊 + 轻染色（v8.6.2 用户指令——不再纯色遮罩）。
-                      淡入淡出由纱罩【自身】opacity 承载（自承载不形成祖先 backdrop
-                      root，磁贴磨砂不受影响）；模糊经 cs-lite 通配自动降级为纯色纱 */}
-                  <motion.div
+                      v8.6.23 磨砂底层律：自身 opacity<1 与祖先同罪杀磨砂（v8.6.22
+                      blur-selftest 实验实证，「自承载安全」旧律作废）——磨砂本体在
+                      底层走 blur 值通道（CSS transition，data-veil 门控，1px↔28px
+                      全程在线），染色渐变走 ::before opacity；模糊经 cs-lite 通配
+                      自动降级为纯色纱。veilOn 经 rAF 置位：首次唤出（portal 首挂
+                      即 open）也走闭态值→开态的凝聚入场，不瞬跳 */}
+                  <div
                     aria-hidden
                     className="cl-drawer-veil absolute inset-0"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: open ? 1 : 0 }}
-                    transition={{ duration: 0.28, ease: EASE }}
+                    data-veil={veilOn ? "1" : "0"}
                     style={{ pointerEvents: open ? undefined : "none" }}
                     onPointerDown={(e) => {
                       if (e.button !== 0) return;
