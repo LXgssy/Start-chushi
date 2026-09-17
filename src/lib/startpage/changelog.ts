@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.6.23",
+    date: "2026-09-17",
+    title: "磨砂写入底层：纱罩与遮罩开合全程磨砂在线，不再闪纯色底",
+    channel: "page",
+    highlights: [
+      "抽屉纱罩磨砂改走底层 blur 通道，开合动画全程在线，不再退化为纯色纱",
+      "对话框/指令面板/预设文档遮罩同步修复，磨砂随开合凝聚与收拢",
+      "搜索栏与 Dock 栏入场期间磨砂恒定在线，磁贴霜层入场改 blur 凝聚",
+    ],
+  },
+  {
     version: "8.6.22",
     date: "2026-09-17",
     title: "磨砂全程在线：面板开合不再闪纯色底，磁贴阴影与图标同拍",
