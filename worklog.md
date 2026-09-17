@@ -441,3 +441,22 @@ Stage Summary:
 - v8.6.22 全链路闭环：磨砂全程在线（面板/菜单/对话框开合不再闪纯色底）、磁贴阴影与图标同拍（入场不抢跑/关闭随退场/中途关闭不残留）、常驻壁纸轻纱 3px
 - 分发：全改动在页面层，云推 ≤6h 到存量装机，无需换 crx
 - 新律：①backdrop-filter 元素 opacity<1 一律杀磨砂（自身与祖先同罪），入退场只许动底色 alpha/blur 值/transform ②CSS 文件 keyframes 内 backdrop-filter 只写无前缀且禁 saturate(1)/blur(0)（压缩器两吃参数）③同构律：backdrop-filter 关键帧插值两端函数列表必须等构 ④验证 backdrop 插值只能看像素不能看 getComputedStyle ⑤探针打断类时序门要远离短动画结束点（首命中元素≠目标元素时尤其）
+
+---
+Task ID: 124
+Agent: main (Super Z)
+Task: 用户「把磨砂写入底层，不要让磨砂闪纯色底」——v8.6.23 磨砂底层律收官 + 云推
+
+Work Log:
+- 【病根全图】v8.6.22 只清了玻璃卡片壳体的 CSS 关键帧通道，opacity 通道仍残留在四处：①抽屉纱罩 .cl-drawer-veil 由 framer 自身 opacity 0↔1 淡入淡出（注释还引用着已被 v8.6.22 实验推翻的「自承载安全」旧律）②veil-in/veil-fade 关键帧纯 opacity（五处对话框/指令面板/预设文档遮罩）③搜索药丸入场踩在 globals 假律②「自身 opacity/filter 不构成自身 backdrop root」上（v8.6.22 实验已证伪）④dock 入场 dock-rise 自身 opacity 0→1（0.8s）。全部命中「opacity<1 杀磨砂」实验定律 = 开合/入场期间纯色底闪现
+- 【磨砂写入底层·总修法】玻璃件入退场只许动四类安全通道：transform / background-color alpha / backdrop-filter blur 值 / box-shadow；opacity 与 filter 只许落在无玻璃的内容层。纱罩拆两层：磨砂本体走底层 blur 值通道（CSS transition 1px↔28px，data-veil 门控，QuickLinks 端 veilOn 经 rAF 置位保首次唤出也有凝聚入场），染色线性渐变（不可插值）移 ::before 无磨砂层走 opacity；visibility 延迟门控（开态 0s 即时、关态 0.28s 收拢后）保常挂架构关态零合成开销；veil-in/veil-fade 关键帧改底色 alpha + blur(1px) 同构插值（to 留空=各元素自然值归位，非磨砂遮罩按 none↔列表替换律插值不可感）；搜索药丸改 pill-shell-in（壳体底色凝入+上浮）+ 内容层 pill-content-in 淡入聚拢；dock 改 dock-rise 纯 transform + .dock-intro > button 内容淡入（选框 span/指示器豁免防与 framer 弹簧打架）；霜层凝聚 intro-tile-frost 改 blur 值通道 1px→14px（与内联自然值 saturate(1.6) 同构）
+- 【假律清除】globals 磨砂存活总律重写：自身与祖先同罪（v8.6.22 blur-selftest 实证）+ v8.6.23 底层律四通道清单，防再引用
+- 【探针】probe-v8623（sed 克隆+veilRules 载荷扩展）：T3h/T6a 见证由 opacity 改 blur 值（opacity 恒 1 后旧见证失效）；T6a 升级帧级 rAF 曲线采样——run3 实证 10×40ms CDP 往返循环在高负载下可整体错过 280ms 过渡窗（leafMin=1.0/blur=28 假 FAIL），页内自驱 rAF 采样根治（run4 leafMin=0.017/veilBlurMin=1.5 实锤退场健康）；TL14 清单扩容（veil-in/veil-fade/intro-tile-frost/dock-rise/pill-shell-in 零 opacity 扫描）+ TL14e 遮罩族磨砂化 + TL14f 纱罩底层结构三门
+- 【像素验证】verify-v8623（load-extension 全链 + 16px 棋盘壁纸 + 相邻像素差分能量判据）：清晰参照 6.32 → 开抽屉中途帧 1.02 ≈ 稳态 1.02 ≈ 关抽屉中途 1.02——开合每一帧磨砂在线，无任何纯色窗口；结构抽检 data-veil=1 + blur(28px) + visible；帧留档 /tmp/v8623-frames
+- 【发布】main 4e0fc34（7 文件 +1516/-35 对账清晰）→ 云推 gh-pages 411a71a..d3b33cc：Pages 收敛 2 轮、线上 version.json v=8.6.23、73 文件尺寸+SHA256 逐字节 ALL-GREEN
+- 【坑录】①磁盘 100% 复发（Task 123 清的是 /tmp 树，/home/z 树 download/rec 与 upload 603M 仍在）——两侧树都要清；git gc 在 93% 磁盘上 3 分钟超时，715M 余量直接构建可行 ②CDP 往返采样循环对 280ms 级过渡整体错窗是系统性 flaky（非负载偶发），时序门一律改页内 rAF 帧级曲线 ③染色渐变不能 transition 插值——「磨砂走 blur 通道 + 染色走 ::before opacity」是渐变底玻璃件开合的唯一无闪解 ④探针 cssScan 返回体按需扩容（veilRules 子集），引用前先核返回体字段
+
+Stage Summary:
+- v8.6.23 全链路闭环：「磨砂写入底层」落地——纱罩/五处遮罩/搜索药丸/dock/磁贴霜层的入退场与入场全程磨砂在线，任何帧不退化为纯色底（像素级 6 倍能量塌缩实证）
+- 分发：全改动在页面层，云推 ≤6h 到存量装机，无需换 crx
+- 新律：①玻璃件动画四通道白名单（transform/底色 alpha/blur 值/box-shadow），opacity+filter 归内容层 ②渐变底玻璃件=磨砂本体（blur 通道）+染色 ::before（opacity）双层结构 ③时序门采样一律页内 rAF 帧级曲线，CDP 往返循环系统性错窗 ④假律「自承载 opacity 安全」已在总律注释中正式作废立碑
