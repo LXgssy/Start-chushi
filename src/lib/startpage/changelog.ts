@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.6.22",
+    date: "2026-09-17",
+    title: "磨砂全程在线：面板开合不再闪纯色底，磁贴阴影与图标同拍",
+    channel: "page",
+    highlights: [
+      "修复面板/菜单/对话框开合瞬间磨砂退化为纯色底的问题，玻璃质感全程在线",
+      "快捷磁贴阴影不再抢跑：投影随图标一同浮现、随抽屉关闭一同退场",
+      "常驻模式壁纸模糊再轻一档（3px），只软化细节不改变轮廓",
+    ],
+  },
+  {
     version: "8.6.21",
     date: "2026-09-17",
     title: "轻纱再减、玻璃归一：dock 面板磨砂化，磁贴图标统一深色釉",

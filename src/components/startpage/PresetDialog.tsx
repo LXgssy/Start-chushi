@@ -209,8 +209,9 @@ function DialogInner({
           }
         }}
       >
-        {/* 顶栏：标题 + 双 tab 切换 */}
-        <div className="flex items-center gap-1 border-b border-zinc-900/5 px-4 py-2.5 dark:border-white/5">
+        {/* 顶栏：标题 + 双 tab 切换。v8.6.22 挂 content-focus：壳体去 opacity 后
+            顶栏由内容模糊语言承担显隐（聚拢入场 / dialog-sink 级联散场） */}
+        <div className="content-focus flex items-center gap-1 border-b border-zinc-900/5 px-4 py-2.5 dark:border-white/5">
           {(
             [
               ["import", "导入预设"],

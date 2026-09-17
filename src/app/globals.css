@@ -310,9 +310,18 @@ html.dark .accent-bar {
 /* v8.6.21 磨砂升级：dock 面板/命令面板/对话框/右键菜单等全部玻璃卡片
    背板加 backdrop 磨砂（用户：dock 所有面板的半透明背板升级磨砂玻璃，
    深浅色都覆盖）。底色同步减薄让磨砂可见：浅 0.86→0.62 白玻璃 / 深
-   0.94→0.60 暗玻璃。壳体 opacity 入退场动画期间磨砂暂退化为纯色底
-   （祖先 opacity<1 形成 backdrop root），被淡入淡出掩盖，稳态全程磨砂
-   ——抽屉纱罩同构先例（自身/祖先 opacity 动画磨砂退化窗口极短）。 */
+   0.94→0.60 暗玻璃。
+   v8.6.22 磨砂存活 2.0：实验实证（scripts/blur-selftest.mjs，壁纸梯度能
+   判据）——元素自身 opacity<1 与祖先同样剧毒（动画中 2.997 / 静态 1.822
+   vs 稳态 1.395 ≈ 无磨砂参照 1.923），v8.6.21 的「壳体 opacity 淡入淡出
+   掩盖」不可行（用户实测入退场瞬间磨砂短暂退化为纯色底）。全部玻璃壳体
+   入退场去 opacity：入场=底色 alpha 凝入（panel-fade/card-in/ctx-in from
+   transparent→自然值，backdrop 恒 20px 全程在线）；退场=底色 alpha 渐隐 +
+   backdrop blur(20→1px) 收尾（dialog-sink/palette-out/ctx-out/glass-card-out）。
+   内容淡入淡出由既有内容模糊语言承担（content-focus 聚拢 / content-defocus
+   与 .view-exit 散场 / ctx-item 逐项 / docs-anim 分区），内容层是玻璃的
+   后代，其 opacity 不触采样链。磁贴霜层「自承载 0.18s 快速凝聚」实为窗口
+   极短+底色兜底的侥幸，非自身安全——旧律作废，勿再引用。 */
 .glass-card {
   background: rgba(255, 255, 255, 0.62);
   border: 1px solid rgba(24, 22, 36, 0.09);
@@ -610,9 +619,16 @@ html.cs-drawer-closing .cl-fade-leaf {
    CSS Transitions §3 的「运行中动画阻断过渡」不适用。
    none 按规范等价于全透明同形投影，插值即淡出，与叶子的 0.28s 同频。
    过渡只声明在 closing 态：类移除时无过渡 → 重开瞬间投影即归位，不与入场打架。 */
-html.cs-drawer-closing .link-intro-tile {
+html.cs-drawer-closing .tile-shell {
   transition: box-shadow 0.28s cubic-bezier(0.22, 1, 0.36, 1);
   box-shadow: none;
+}
+/* v8.6.22：中途关闭（intro 类还在）时收窄动画通道——intro-tile-shadow 一旦在跑，
+   动画值会压过上面的 box-shadow:none（动画 > 普通声明），叶子 0.28s 淡完了阴影
+   还站到动画末尾（新通道引入的回归，当场掐掉）；只留 rise（transform）继续播，
+   投影交还 none 过渡，与 v8.6.7 原行为一致。 */
+html.cs-drawer-closing .link-intro-tile {
+  animation-name: intro-tile-rise;
 }
 
 /* ---------- 仅无悬停设备（触屏）显示 ---------- */
@@ -746,10 +762,9 @@ html.cs-drawer-closing .link-intro-tile {
    「进入动画卡一下然后复位」）。CSS 动画结束即自然回落级联值 1，零空窗 */
 @keyframes panel-fade {
   from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
+    background-color: transparent;
+    border-color: transparent;
+    box-shadow: 0 0 0 0 transparent;
   }
 }
 .panel-rise {
@@ -777,10 +792,9 @@ html.cs-drawer-closing .link-intro-tile {
 }
 @keyframes card-in {
   from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
+    background-color: transparent;
+    border-color: transparent;
+    box-shadow: 0 0 0 0 transparent;
   }
 }
 .card-in {
@@ -801,24 +815,45 @@ html.cs-drawer-closing .link-intro-tile {
    （到点卸载），时长与 CSS 严格一致 */
 @keyframes panel-sink {
   from {
-    opacity: 1;
     transform: translateY(0) scale(1);
   }
   to {
-    opacity: 0;
     transform: translateY(10px) scale(0.97);
   }
 }
 .panel-sink {
   animation: panel-sink 0.22s cubic-bezier(0.4, 0, 1, 1) forwards;
 }
+/* v8.6.22 磨砂存活 2.0：壳体（cl-stage 透明壳）去 opacity 后，内建视图的玻璃卡
+   背板渐隐由级联承担（部件视图走 content-focus-solid 散场）。to 帧 backdrop
+   blur(1px)——blur 渐弱=磨砂渐弱=壁纸透出，与底色渐隐合成自然淡出，卸载帧
+   无「纯色板突跳消失」的锐化跳变。blur 取 1px 非 0：Lightning CSS 会把 0px
+   压成非法 blur()（v8.6.19 坑）；saturate 必须写 1.5 与自然值同构且
+   不可省——压缩器把 saturate(1) 的参数 1 当默认值吃掉成非法 saturate()
+   （产物实测），且函数列表不同构时插值退化为离散跳变；
+   keyframes 内只写无前缀 backdrop-filter——双写会被压缩器去重成仅
+   -webkit- 版，而 Chromium 在 @keyframes 内不识别 webkit 别名（声明
+   被整个丢弃，CSSOM 序列化可证）。 */
+@keyframes glass-card-out-kf {
+  to {
+    background-color: transparent;
+    border-color: transparent;
+    box-shadow: 0 0 0 0 transparent;
+    backdrop-filter: blur(1px) saturate(1.5);
+  }
+}
+.panel-sink .glass-card {
+  animation: glass-card-out-kf 0.22s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
 @keyframes dialog-sink {
   from {
-    opacity: 1;
     transform: translateY(0) scale(1);
   }
   to {
-    opacity: 0;
+    background-color: transparent;
+    border-color: transparent;
+    box-shadow: 0 0 0 0 transparent;
+    backdrop-filter: blur(1px) saturate(1.5);
     transform: translateY(-12px) scale(0.97);
   }
 }
@@ -1007,15 +1042,16 @@ html.cs-drawer-closing .link-intro-tile {
    ================================================================ */
 @keyframes palette-out-kf {
   0% {
-    opacity: 1;
     transform: translateY(0) scale(1);
   }
   30% {
-    opacity: 1;
     transform: translateY(-5px) scale(1.016);
   }
   100% {
-    opacity: 0;
+    background-color: transparent;
+    border-color: transparent;
+    box-shadow: 0 0 0 0 transparent;
+    backdrop-filter: blur(1px) saturate(1.5);
     transform: translateY(-14px) scale(0.93);
   }
 }
@@ -1037,15 +1073,17 @@ html.cs-drawer-closing .link-intro-tile {
    关 = 向原点缩回淡出。
    ⚠ 声明顺序律：.ctx-out 必须在 .ctx-in 之后——退场帧两动画类同在
      元素上（ctx-in glass-card … ctx-out），同特异性后者胜。
-   ⚠ 菜单自身是玻璃元素：opacity/transform 自承载不违反磨砂玻璃
-     存活原则（只禁玻璃元素的祖先携带）。 */
+   ⚠ v8.6.22 磨砂存活 2.0：菜单是玻璃元素，自身 opacity 动画同样杀磨砂
+     （blur-selftest 实证），开=底色凝入+scale、关=底色渐隐+scale，
+     opacity 通道全程为零。 */
 @keyframes ctx-in-kf {
   from {
-    opacity: 0;
+    background-color: transparent;
+    border-color: transparent;
+    box-shadow: 0 0 0 0 transparent;
     transform: scale(0.4);
   }
   to {
-    opacity: 1;
     transform: scale(1);
   }
 }
@@ -1054,11 +1092,13 @@ html.cs-drawer-closing .link-intro-tile {
 }
 @keyframes ctx-out-kf {
   from {
-    opacity: 1;
     transform: scale(1);
   }
   to {
-    opacity: 0;
+    background-color: transparent;
+    border-color: transparent;
+    box-shadow: 0 0 0 0 transparent;
+    backdrop-filter: blur(1px) saturate(1.5);
     transform: scale(0.5);
   }
 }
@@ -1191,6 +1231,15 @@ html.cs-drawer-closing .link-intro-tile {
     transform: translateZ(0) translateY(0) scale(1);
   }
 }
+/* v8.6.22 阴影入场通道：投影挂在包裹层本体（.tile-shadow 静态值），
+   旧版无入场通道——第 0 帧就满值，而图标本体要 0.95s 聚拢（用户实测
+   「阴影的动画优先级比图标本身还高，每次都是阴影先出现」）。from-only
+   关键帧（不写 to → 自然值，浅/深两态各自归位）与 body 通道同拍渐显。 */
+@keyframes intro-tile-shadow {
+  from {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
 @keyframes intro-tile-frost {
   from {
     opacity: 0;
@@ -1210,7 +1259,9 @@ html.cs-drawer-closing .link-intro-tile {
   animation: intro-rise calc(0.95s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) 0.38s backwards;
 }
 .link-intro-tile {
-  animation: intro-tile-rise calc(0.95s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) 0.38s backwards;
+  animation:
+    intro-tile-rise calc(0.95s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) 0.38s backwards,
+    intro-tile-shadow calc(0.95s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) 0.38s backwards;
 }
 .link-intro-frost {
   animation: intro-tile-frost 0.18s ease-out 0.38s backwards;
