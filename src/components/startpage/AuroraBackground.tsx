@@ -349,8 +349,8 @@ function AuroraBackground({
             className="photo-blur absolute inset-0"
             style={{
               /* 内联通道：Lightning CSS 会压坏 CSS 文件里的 backdrop-filter（v8.6.19b） */
-              backdropFilter: photoBlur ? "blur(4px)" : "blur(0px)",
-              WebkitBackdropFilter: photoBlur ? "blur(4px)" : "blur(0px)",
+              backdropFilter: photoBlur ? "blur(3px)" : "blur(0px)",
+              WebkitBackdropFilter: photoBlur ? "blur(3px)" : "blur(0px)",
               transition:
                 "backdrop-filter 0.6s cubic-bezier(0.22, 1, 0.36, 1), -webkit-backdrop-filter 0.6s cubic-bezier(0.22, 1, 0.36, 1)",
             }}

@@ -198,8 +198,9 @@ export default function PresetDocs({
             duration={0.2}
             className="card-in glass-card slim-scroll flex max-h-[86dvh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl shadow-2xl"
           >
-            {/* 顶栏：返回上一级（回导入预设 / 主页面）+ 关闭 */}
-            <div className="flex items-center gap-2 border-b border-zinc-900/5 px-5 py-3 dark:border-white/5">
+            {/* 顶栏：返回上一级（回导入预设 / 主页面）+ 关闭。v8.6.22 挂
+                content-focus：壳体去 opacity 后顶栏显隐由内容语言承担 */}
+            <div className="content-focus flex items-center gap-2 border-b border-zinc-900/5 px-5 py-3 dark:border-white/5">
               <button
                 type="button"
                 onClick={onClose}
