@@ -221,6 +221,16 @@
  * 双点（按 Geist 数字墨迹中心烤定，见 Clock.tsx DIGIT_INK_CENTER_EM）
  * 失去对齐基准而偏移。此处以未分层 + 更高特异性（0,0,2 > 0,0,1）锚回
  * 官方栈；网页版本就正常，本规则与其层叠结果一致，无副作用。 */
+/* ---------- 主页面禁滚（v8.6.20 用户律）----------
+   不管浏览器大小如何，「初始」主页面禁止上下左右滚动。新标签页是单屏
+   画布不是文档：缩小窗口时主列内容高度会超过视口，此前靠 body 默认
+   overflow 把溢出泄漏成整页滚动。两轴封死；面板/抽屉/建议列表等功能性
+   内部滚动区域是 fixed/absolute 容器自带的 overflow，不受影响。 */
+html,
+body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
 html body {
   font-family:
     var(--font-geist-sans),
@@ -413,12 +423,17 @@ html.dark .accent-bar {
     rgba(0, 0, 0, 0.18);
 }
 
-/* ---------- 掠影模式前景：白字 / 深磨砂药丸（v8.6.19 起不分主题） ----------
-   v8.6.12 曾收窄到 .dark（浅色掠影改走深墨字+浅玻璃体系）；v8.6.19 用户定调
-   「掠影模式下的文字一律改成白色」——壁纸是掠影的绝对主体，主题退位，
-   浅色掠影的深墨字体系（v8.6.15，含全部白晕描边）整体退役删除。
-   白字可读性由三件套承担：压暗 scrim +（常驻形态）壁纸高斯模糊（.photo-blur）
-   + 深磨砂玻璃件；文字本身零描边零白晕（用户：字体底部不要加白光/高光）。 */
+/* ---------- 掠影模式前景 v8.6.20：壁纸裸文字恒白，玻璃面回归主题 ----------
+   分工律（v8.6.20 定稿，回应用户「浅色模式在掠影模式不生效」）：
+   · 壁纸裸文字（时钟/副行/搜索提示/dock/常驻磁贴名称/新建加号）——
+     一律白色（v8.6.19 用户定调「掠影模式下的文字一律改成白色」），不分
+     主题；可读性由压暗 scrim +（常驻形态）壁纸轻高斯模糊承担，文字本身
+     零描边零光效。
+   · 玻璃面内部（搜索药丸/建议行/磁贴字母/抽屉磁贴名称）——跟随主题：
+     浅色=瓷釉浅玻璃+深墨字，深色=深磨砂+白字。玻璃底是什么颜色，
+     上面的字就跟着主题走——浅色模式开关在掠影下重新可见。
+   · 磁贴 token：v8.6.19 的「一律暗雾」块删除（值与 .dark 完全同值，深色
+     掠影由 .dark 原生承接、零变化；浅色掠影回归 :root 瓷釉 token）。 */
 html.photo-mode .clock-text {
   color: rgb(245 245 245);
 }
@@ -428,48 +443,8 @@ html.photo-mode .clock-sub {
 html.photo-mode .clock-sub [aria-hidden] {
   background: rgb(255 255 255 / 0.32);
 }
-html.photo-mode .glass-pill {
-  background: rgb(12 12 18 / 0.44);
-  border-color: rgb(255 255 255 / 0.14);
-  --pill-seg: rgba(255, 255, 255, 0.18);
-  --pill-seg-ring: rgba(255, 255, 255, 0.34);
-  --pill-line: rgba(255, 255, 255, 0.26);
-}
-html.photo-mode .search-input {
-  color: rgb(244 244 245);
-}
-html.photo-mode .search-input::placeholder {
-  color: rgb(255 255 255 / 0.45);
-}
-html.photo-mode .search-trigger {
-  color: rgb(255 255 255 / 0.62);
-}
-html.photo-mode .search-trigger:hover {
-  color: rgb(255 255 255 / 0.92);
-}
-html.photo-mode .search-submit {
-  background: rgb(255 255 255 / 0.92);
-  color: rgb(17 17 20);
-}
 html.photo-mode .search-hint {
   color: rgb(255 255 255 / 0.5);
-}
-/* 建议行：掠影玻璃恒深色，白系文字/高亮/分隔线（原 .dark 注释沿用） */
-html.photo-mode .search-sug-row {
-  color: rgb(244 244 245 / 0.9);
-}
-html.photo-mode .search-sug-row[data-active="true"] {
-  background: rgb(255 255 255 / 0.12);
-  color: rgb(255 255 255);
-}
-html.photo-mode .search-sug-row:first-child {
-  border-top-color: rgb(255 255 255 / 0.1);
-}
-html.photo-mode .tile-label {
-  color: rgb(255 255 255 / 0.85);
-}
-html.photo-mode .tile-letter {
-  color: rgb(255 255 255 / 0.92);
 }
 html.photo-mode .dock-btn {
   color: rgb(255 255 255 / 0.68);
@@ -480,19 +455,62 @@ html.photo-mode .dock-btn:hover {
 html.photo-mode .dock-btn[data-active="true"] {
   color: rgb(255 255 255);
 }
-
-/* ---------- 掠影统一 token（v8.6.19）：磁贴暗雾家族跟随白字体系 ----------
-   白字压白霜不可读——掠影下磁贴一律沿用深色 .dark 的暗雾/亮环 token，
-   特异性 (0,1,1) 压过 :root 与 .dark（值与 .dark 完全一致，深色掠影零变化） */
-html.photo-mode {
-  --tile-frost-bg: rgba(12, 12, 18, 0.2);
-  --tile-ring-l: 60%;
-  --tile-ring-a: 0.28;
-  --tile-hl-a: 0.18;
-  --tile-grad-a1: 0.22;
-  --tile-grad-a2: 0.14;
-  --tile-grad-l1: 62%;
-  --tile-grad-l2: 50%;
+/* 深色掠影：深磨砂药丸 + 白系内部（值承 v8.6.19，与 .dark 基线一致） */
+html.photo-mode.dark .glass-pill {
+  background: rgb(12 12 18 / 0.44);
+  border-color: rgb(255 255 255 / 0.14);
+  --pill-seg: rgba(255, 255, 255, 0.18);
+  --pill-seg-ring: rgba(255, 255, 255, 0.34);
+  --pill-line: rgba(255, 255, 255, 0.26);
+}
+html.photo-mode.dark .search-input {
+  color: rgb(244 244 245);
+}
+html.photo-mode.dark .search-input::placeholder {
+  color: rgb(255 255 255 / 0.45);
+}
+html.photo-mode.dark .search-trigger {
+  color: rgb(255 255 255 / 0.62);
+}
+html.photo-mode.dark .search-trigger:hover {
+  color: rgb(255 255 255 / 0.92);
+}
+html.photo-mode.dark .search-submit {
+  background: rgb(255 255 255 / 0.92);
+  color: rgb(17 17 20);
+}
+/* 建议行：深色掠影玻璃恒深色，白系文字/高亮/分隔线 */
+html.photo-mode.dark .search-sug-row {
+  color: rgb(244 244 245 / 0.9);
+}
+html.photo-mode.dark .search-sug-row[data-active="true"] {
+  background: rgb(255 255 255 / 0.12);
+  color: rgb(255 255 255);
+}
+html.photo-mode.dark .search-sug-row:first-child {
+  border-top-color: rgb(255 255 255 / 0.1);
+}
+/* 浅色掠影：瓷釉浅玻璃药丸（v8.6.18 同值复刻）——输入字/触发器/建议行/
+   提交按钮全部回落基线 Tailwind zinc 系（深墨压浅玻璃），无需另写 */
+html.photo-mode:not(.dark) .glass-pill {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(20, 20, 25, 0.1);
+}
+/* 常驻磁贴名称：裸压壁纸 → 恒白（两主题一致，轻模糊+scrim 承接可读性）；
+   抽屉磁贴名称压在纱罩上（浅=白纱/深=暗纱）→ 不写掠影规则，基线 zinc
+   系自动跟随主题（浅色白纱上=深墨，深色暗纱上=浅灰白） */
+html.photo-mode .cl-links-docked .tile-label {
+  color: rgb(255 255 255 / 0.85);
+}
+/* 常驻「新建」加号：同样裸压壁纸，浅色 zinc 虚线框会隐形，改白系 */
+html.photo-mode .cl-links-docked span.link-intro.border-dashed {
+  border-color: rgb(255 255 255 / 0.4);
+  color: rgb(255 255 255 / 0.6);
+}
+/* 浅色掠影磁贴霜层：比常驻瓷釉 (0.26) 加厚一档压住壁纸纹理（v8.6.17
+   同值 0.44），挂在 .cl-links 持久作用域（不随 intro 类起伏） */
+html.photo-mode:not(.dark) .cl-links {
+  --tile-frost-bg: rgba(255, 255, 255, 0.44);
 }
 /* vignette 在掠影下退役：它的顶部瓷光径向一直压在壁纸之上，就是用户反复
    反馈的「时钟/文字底部白色高光」真凶（0.12 也可见，v8.6.17/18 两轮减淡
@@ -500,18 +518,14 @@ html.photo-mode {
 html.photo-mode .vignette {
   background: none;
 }
-/* 掠影磁贴投影跟随暗雾家族（值同 html.dark .tile-shadow） */
-html.photo-mode .tile-shadow {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.32);
-}
-/* ---------- 壁纸高斯模糊层（v8.6.19：快捷服务常驻形态专属）----------
-   常驻模式裸文字直接压壁纸，白字可读性由「壁纸模糊 + scrim」承担，文字
-   本身零光效；抽屉形态磁贴收进抽屉（玻璃自承载），壁纸保持原样不模糊。
+/* ---------- 壁纸高斯模糊层（v8.6.20 减力：很轻一层）----------
+   常驻模式裸文字直接压壁纸，白字可读性由「轻模糊 + scrim」承担；抽屉
+   形态磁贴收进抽屉（玻璃自承载），壁纸保持原样不模糊。
    ⚠ 模糊值必须走 AuroraBackground 的【内联样式】通道——Lightning CSS 会把
    CSS 文件里的标准 backdrop-filter 改写成 -webkit- 别名并把 blur(0px) 压成
-   非法 blur()（v8.6.19b 实测 TL9d/TL10 双 FAIL 根因）；内联与磁贴磨砂
-   blur(14px) 同源可靠。这里只留命中区/豁免，blur(0)↔blur(24px) 平滑插值
-   由内联 transition 承担，24px 与抽屉纱罩 28px 同族。 */
+   非法 blur()（v8.6.19b 实测 TL9d/TL10 双 FAIL 根因）。v8.6.20 用户定调
+   「模糊力度太高了，有一层很轻的模糊就行」：24px → 8px，壁纸轮廓可辨、
+   只软化细节托白字；blur(0)↔blur(8px) 平滑插值由内联 transition 承担。 */
 .photo-blur {
   pointer-events: none;
 }

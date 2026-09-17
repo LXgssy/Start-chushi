@@ -1227,8 +1227,8 @@ export default function Home() {
      任何模式都占一个槽位；漏算导致 6 磁贴时误判单排（实际 7 槽两排），
      pb 误上移后下一删网格塌回单排又回落——一上一下瞬跳即「删除抖动」。
      pb 换挡配合同帧 padding 过渡（transition-[padding]），换排整列滑移不瞬跳 */
-  const PB_NORMAL = "pb-44";
-  const PB_LIFTED = "pb-44 min-[720px]:pb-[15rem]";
+  const PB_NORMAL = "pb-[clamp(8rem,22vh,11rem)]";
+  const PB_LIFTED = "pb-[clamp(8rem,22vh,11rem)] min-[720px]:pb-[clamp(8rem,30vh,15rem)]";
   const linkRows = Math.ceil((links.length + 1) / (layout.linksColumns ?? 6));
   const mainPb = linkRows === 1 ? PB_LIFTED : PB_NORMAL;
 
