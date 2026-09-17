@@ -358,3 +358,22 @@ Stage Summary:
 - 用户「字体底部白光」根治且可读性不回退：等向白圈+外扩柔光替代底部偏移白层，掠影浅色裸文字无方向性白边
 - 顺修 main 坏树：缺失模块全部入库（02e135a），fresh clone 可构建
 - 云端 v8.6.18 上线（SHA256 ALL-GREEN），存量装机 ≤6h 自愈；分发全在页面层，无需换包
+
+---
+Task ID: 120
+Agent: main (Super Z)
+Task: 用户四点反馈「文字底部高光还是没删/常驻掠影背景加高斯模糊抽屉不加/掠影文字一律白色/抽屉模式时钟搜索不下移」——v8.6.19 掠影重定调 + 云推
+
+Work Log:
+- 【外部还原危害再发】本轮开工时工作树 3 文件被外部还原成 9 月初旧快照（globals.css 退回 v8.6.15 瓷釉前、mtime=9/1~9/3、瓷釉 token 退回暖纸白），git checkout -- . 恢复 HEAD（v8.6.18 完好已推送）——多轮会话开工必须先 diff --stat HEAD 对账
+- 【底部高光真凶】「还是没有删除」根因=vignette 渲染在壁纸之上（AuroraBackground:364），浅色顶部瓷光径向 rgba(255,255,255,.12) 一直压在时钟后面，减淡杀不干净 → 掠影下 vignette 整体退役 background:none；掠影浅色深墨字体系（v8.6.15 含白晕）整体删除，掠影域 text-shadow 全域归零
+- 【白字统一】v8.6.12 的 .dark 收窄反转：html.photo-mode.dark → html.photo-mode（壁纸是绝对主体主题退位）；磁贴暗雾 token（--tile-frost-bg 等 8 枚）从 .dark 提到 html.photo-mode 根（白字压白霜不可读），深色掠影零变化
+- 【壁纸高斯模糊】AuroraBackground 加 .photo-blur 层（媒体与 scrim 之间），常驻形态 blur(24px)（与抽屉纱罩 28px 同族），抽屉形态 blur(0)；【坑】Lightning CSS 把 CSS 文件里的标准 backdrop-filter 改写成 -webkit- 别名且 blur(0px)→非法 blur()（TL9d/TL10 双 FAIL 根因）→ 改内联样式通道（与磁贴磨砂 blur(14px) 同源），blur(0)↔blur(24px) 内联 transition 平滑插值
+- 【抽屉布局原位】根因=抽屉磁贴 portal 到 body 不占主列 → 居中列变矮时钟下移；修复=invisible 克隆常驻区块（.cl-layout-ghost）补回同高，两形态严格同位（TL11 clockΔ=0.00/searchΔ=0.00）；克隆安全性：中键监听有 !drawer 守卫、drag portal 靠 pointer 事件不会触发、visibility:hidden 无事件
+- 【探针】probe-v8619：addInitScript 注入 qCl/qCla（ghost 祖先豁免，9 类选择器站点 20 处改写）；TL9 重写为白字统一/零光效/vignette 退役/常驻模糊四门 + TL10 抽屉不模糊/占位在位 + TL11 同位；50 PASS / 0 FAIL
+- 【云推】gh-pages 推送 → version.json v=8.6.19、73 文件 SHA256 逐字节 ALL-GREEN
+- 【坑录】①Lightning CSS 对 CSS 文件 backdrop-filter 的改写是无声的——backdrop-filter 一律走内联或 engine.ts 注入通道，CSS 文件里只写非压缩器敏感属性 ②外部还原会精确恢复旧 mtime，status M + diff 内容对不上 HEAD 时以 git show HEAD 为准 ③invisible 克隆与真身共享全部类名，DOM 采样必须带 ghost 豁免
+
+Stage Summary:
+- 掠影重定调上线：白字统一（不分主题）、文字零光效（底部高光真凶 vignette 退役）、常驻壁纸高斯模糊 blur(24px)、抽屉布局原位（Δ=0）
+- 云端 v8.6.19（73 文件 SHA256 ALL-GREEN），存量装机 ≤6h 自愈；main cca75e4
