@@ -185,7 +185,7 @@ function DialogInner({
     <PresenceClass
       exitClass="veil-out-slow"
       duration={0.28}
-      className="veil-in fixed inset-0 z-50 flex items-start justify-center bg-white/20 px-4 pt-[16vh] backdrop-blur-2xl backdrop-saturate-150 dark:bg-black/20"
+      className="veil-hold-2xl veil-in fixed inset-0 z-50 flex items-start justify-center bg-white/20 px-4 pt-[16vh] backdrop-blur-2xl backdrop-saturate-150 dark:bg-black/20"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}

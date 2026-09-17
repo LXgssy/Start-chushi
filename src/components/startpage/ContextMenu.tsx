@@ -112,7 +112,7 @@ export default function ContextMenu({
           key="ctx-overlay"
           exitClass="veil-out"
           duration={0.14}
-          className="fixed inset-0 z-[70]"
+          className="veil-hold-none fixed inset-0 z-[70]"
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) onClose();
           }}
