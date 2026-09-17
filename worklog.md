@@ -377,3 +377,24 @@ Work Log:
 Stage Summary:
 - 掠影重定调上线：白字统一（不分主题）、文字零光效（底部高光真凶 vignette 退役）、常驻壁纸高斯模糊 blur(24px)、抽屉布局原位（Δ=0）
 - 云端 v8.6.19（73 文件 SHA256 ALL-GREEN），存量装机 ≤6h 自愈；main cca75e4
+
+---
+Task ID: 121
+Agent: main (Super Z)
+Task: 用户三点反馈「模糊力度太高了要很轻一层/浅色模式在掠影不生效/主页面任何尺寸禁止上下左右滚动」——v8.6.20 + 云推
+
+Work Log:
+- 【取证·滚动】playwright 多视口×双形态实测：overY=35@800×600、132@560×440（两形态同值），源头=主列 min-h-dvh 内容+固定 pb-44(176px) 死垫超视口→body 默认 overflow 泄漏成滚动；横向 overX=0（aurora blob 溢出被 fixed overflow-hidden 裁住，不进滚动区）
+- 【禁滚】html,body{overflow:hidden;overscroll-behavior:none}（globals.css，注释立律「新标签页是单屏画布不是文档」）；主列底部死垫 clamp 化：pb-44→pb-[clamp(8rem,22vh,11rem)]（lifted min-720px 档 clamp(8rem,30vh,15rem)）——800h 起点两档值与旧值完全一致（176/240px），小视口自动收缩死垫而非泄漏滚动；验证改用 page.mouse.wheel 真实输入（scrollTo 是编程滚动，overflow:hidden 下仍可动，不能当门）
+- 【模糊减力】AuroraBackground 内联 blur(24px)→blur(8px)×2+注释（用户定调「有一层很轻的模糊就行」；24px≈抽屉纱罩 28px 同族的重磨砂，8px=壁纸轮廓可辨只软化细节）；globals.css .photo-blur 注释同步
+- 【浅色归位·分工律】v8.6.19「主题退位」块重写：壁纸裸文字（时钟/副行/搜索提示/dock/常驻磁贴名称/新建加号）恒白不分主题；玻璃面内部（药丸/建议行/输入字/提交钮/磁贴字母/抽屉名称）跟随主题——search 系+blanket tile-label/tile-letter 白字规则收窄到 html.photo-mode.dark，浅色回落基线瓷釉（浅药丸 0.72 白玻璃+深墨字）；新增 html.photo-mode:not(.dark) .glass-pill{0.72 白}、.cl-links{--tile-frost-bg:0.44}（挂持久作用域不随 intro 类起伏）、html.photo-mode .cl-links-docked .tile-label{白}（常驻名称裸压壁纸恒白，抽屉名称压纱罩跟随主题）
+- 【配套改动】QuickLinks 两形态根类名拆分 cl-links-docked/cl-links-drawer（名称配色分工的钩子）；v8.6.19 磁贴 token「一律暗雾」块与 photo-mode tile-shadow 规则删除（值与 .dark 全同→深色零变化，浅色回归 :root 瓷釉）
+- 【探针】sed 克隆 probe-v8620 + 断言更新：TL9d 24px→8px；新增 TL9e（浅掠影瓷釉浅药丸+深墨输入字）、TL9f（浅掠影抽屉名称 zinc-600 深墨）、TL12×2（真实滚轮两轴归零+overflow hidden+无滚动条）→54 PASS/0 FAIL
+- 【坑录】①addInitScript 每次导航都重跑：无条件写 localStorage 会把 patchSettings 的值冲掉（themeMode patch「生效」而 linksForm patch「失效」的假象根源）——init 播种必须 if(!key) 缺失才写 ②BackgroundMode 枚举是 glow|pure|photo，没有 aurora，喂错值被归一化吞掉（验证脚本假 FAIL）③overflow:hidden 下 scrollTo 仍可编程滚动（MDN：禁用户滚动不禁编程滚动）——禁滚验证必须用真实 wheel 输入 ④探针 TL9f 首跑 FAIL=label=null：drProbe 在抽屉关态采样而 portal 由 mount latch 控制（首次中键才挂载），label 必须【打开后实时采样】，不能复用关态快照 ⑤Tailwind v4 计算色是 oklch 字符串（zinc-600=oklch(0.442 0.017 285.786)），断言别写 rgb
+- 【验证】dev server 四象限 28 门全绿（浅/深 × 常驻/抽屉 computed style + wheel 禁滚 + glow 非掠影零回归）+ 截图四张目检（浅常驻=白字+浅瓷釉药丸+轻模糊月亮轮廓可辨；浅抽屉=白纱深墨名称；深色两形态与 v8.6.19 零回归）+ 探针 54/0
+- 【发布】main 6245115（staged 7 文件与 diff 逐行对账，无坏树）→ 云推 gh-pages 8166e3e：version.json v=8.6.20、73 文件尺寸+SHA256 逐字节 ALL-GREEN、Pages 收敛 2 轮
+
+Stage Summary:
+- v8.6.20 全链路闭环：模糊 24px→8px（轻纱）、浅色模式在掠影重新生效（分工律：壁纸裸文字恒白/玻璃面跟主题）、主页面任何尺寸两轴禁滚（真实滚轮验证）
+- 分发：全改动在页面层，云推 ≤6h 到存量装机，无需换 crx
+- 新律：①单屏画布页禁滚=html/body overflow:hidden+底部死垫 clamp 化双管齐下，验证只用真实输入事件 ②掠影前景分层归属：贴壁纸的恒白、贴玻璃的跟主题——命名钩子 cl-links-docked/drawer 承载 ③验证脚本的 addInitScript 播种必须幂等（缺失才写），否则每次 reload 都会反转自己的 patch
