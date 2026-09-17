@@ -460,3 +460,24 @@ Stage Summary:
 - v8.6.23 全链路闭环：「磨砂写入底层」落地——纱罩/五处遮罩/搜索药丸/dock/磁贴霜层的入退场与入场全程磨砂在线，任何帧不退化为纯色底（像素级 6 倍能量塌缩实证）
 - 分发：全改动在页面层，云推 ≤6h 到存量装机，无需换 crx
 - 新律：①玻璃件动画四通道白名单（transform/底色 alpha/blur 值/box-shadow），opacity+filter 归内容层 ②渐变底玻璃件=磨砂本体（blur 通道）+染色 ::before（opacity）双层结构 ③时序门采样一律页内 rAF 帧级曲线，CDP 往返循环系统性错窗 ④假律「自承载 opacity 安全」已在总律注释中正式作废立碑
+---
+Task ID: 125
+Agent: main (Super Z)
+Task: 用户三点反馈「更新日志关闭=模糊先消失面板后消失/视频开合动画模糊有问题/dock入场磨砂底栏先于模糊出现」——v8.6.24 感知同步律 + 云推
+
+Work Log:
+- 【视频帧取证】用户录屏 11s@30fps 抽帧 165 帧+缩略图速览+中央区域放大：确认指令面板开启 2.67s 白底先现（壁纸透出清晰）、关闭 5.33s 内容先散后磨砂幽灵板残留约 0.4s；真机 dev server CDP 帧捕获+棋盘壁纸能量判据复现三处时序
+- 【dock 入场根因】页内 rAF 逐帧 DOM 采样：dock t=708ms 即带 blur(40px) 全程在线（玻璃无恙），但壁纸 opacity 0→1 竟走 1.8s——首载壁纸误入 1800ms 柔化路径（该路径本为黑幕外换壁纸设计），玻璃件全程坐在近黑底上，磨砂质感自然「晚于底栏」出现。修复=AuroraBackground bootUrlRef 身份：首张壁纸 450ms 快显（img/video/scrim 三处），运行时换壁纸保留 1800ms 柔化
+- 【开合失序根因=感知速率不同构】底色 alpha 与 blur 值两通道感知曲线不同：同曲线同时长插值必然「开=白底先于模糊（卡片底色 0.05s 即可见、纱幕 blur 0.28s 才凝满）、关=模糊先于白底（blur 线性放完、底色 ease-in 残留）」。更新日志卡片更无自身退场通道——纱幕 blur 释放完卡片还满值驻留，卸载帧突跳
+- 【感知同步律·总修法】入=blur 领先：veil-in 加 45% 站点凝满自然值（底色全程跟随）；纱罩开态 transition 0.12s 凝满。退=blur 驻留：veil-fade/glass-card-out-kf/dialog-sink/palette-out-kf/ctx-out-kf 全部加 0-55% 满值站点（底色全程渐隐、尾段与 blur 残量同收）；纱罩关态 transition 0.14s 驻留+0.14s 收拢（run→start 间隔=delay，transitionend dur=140ms 实证）。任何帧不出现「看得见的白底配清晰壁纸」
+- 【hold 逐元素适配】关键帧站点写 var(--veil-hold-bf, blur(12px) saturate(1.5))——PresetDialog 背板 blur-2xl(40px) 挂 .veil-hold-2xl、右键菜单捕获层（无磨砂）挂 .veil-hold-none（none↔blur(1px) 列表替换律 1px 不可感，旧律沿用）；必须与自然值同构同值否则 0 帧跳变
+- 【面板随纱同散级联】.veil-out .glass-card:not(.palette-out):not(.dialog-sink):not(.ctx-out) 级联 glass-card-out-kf（时长经 --veil-out-dur 0.25/0.28s）+ .content-focus 级联 content-defocus——更新日志/添加链接卡片与纱幕同窗溶解；:not 排除自带退场通道卡片防 (0,2,0) 特异性覆盖专属关键帧（同 animation 属性互斥）
+- 【帧级验证】修复后取证：更新日志关闭 002 帧卡片在 blur 满值中溶解、003 帧卡片已无 blur 才释放（能量曲线 center 679→6@0.29s、wall 1→3→72@0.41s）；指令面板开=雾先起板随行、关=同窗溶解；dock 入场黑底窗口 1.2s→0.2s（壁纸 018 帧就位）
+- 【探针】probe-v8624（sed 全量克隆+TL14g/h 扩容：纱幕领先/驻留站点+卡片驻留+级联+hold 适配类+纱罩变速 transition）：68 PASS / 0 FAIL。T6a 根治：rAF 值采样在探针高负载下帧距>100ms 系统性错过 0.14s 释放窗（v8.6.23 run3 同源 flaky）——改 transition 事件见证（run/end/elapsedTime≈140ms 确定性）；插桩 MutationObserver 实证 data-veil 翻转与 latch 卸载时序健康
+- 【坑录】①Bash 工具输出会吞 [m 字节序列（[mounted 显示成 ounted、[450ms] 显示成 s]）——md5/od 定案，勿凭显示判损坏 ②sharp extract 参数是 left/top 非 x/y ③addInitScript 每次导航重跑可装采样器（evaluate 状态 reload 即失） ④门户层 backdrop root：纱幕内卡片的自身 backdrop-filter 视觉死亡（采的是纱幕内容非壁纸），「透过卡片看到的模糊」全靠纱幕自身 blur——这也是开合失序感知的主因 ⑤300 端口被上一会话僵死 next dev 占用（EADDRINUSE），pkill 后复用
+- 【发布】main 729bdfb（7 文件 +893/-8 对账无夹带）→ 云推 gh-pages 7bfe955：version.json v=8.6.24、73 文件尺寸+SHA256 逐字节 ALL-GREEN、curl 线上验证通过
+
+Stage Summary:
+- v8.6.24 全链路闭环：感知同步律落地——开=模糊先行凝聚、白底随后；关=模糊驻留、底色先散、尾段同收；壁纸先于玻璃件就位；更新日志/指令面板/抽屉纱罩/dock 入场四路动画时序全部同步
+- 分发：全改动在页面层，云推 ≤6h 到存量装机，无需换 crx
+- 新律：①玻璃件入退场双通道感知同步（blur 领先/驻留站点），同曲线同时长=必失序 ②hold 值必须与元素自然值同构同值，经 --veil-hold-bf 逐元素适配 ③无自身退场通道的纱内卡片由 .veil-out 级联托管，:not 排除专属通道 ④首载壁纸必须先于玻璃件就位（bootUrlRef 450ms） ⑤探针行为见证优先 transition 事件（确定性）而非 rAF 值采样（负载漏窗）
