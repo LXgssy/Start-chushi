@@ -341,15 +341,16 @@ function AuroraBackground({
           )}
           {/* v8.6.19：常驻形态专属——壁纸高斯模糊层（抽屉形态 data-on=false 不模糊）。
               白字可读性由「壁纸模糊 + scrim」承担，文字本身零光效；
-              v8.6.20 减力：24px→8px 很轻一层（壁纸轮廓可辨）；
-              blur(0)↔blur(8px) 平滑插值，流畅模式整体豁免（globals.css） */}
+              v8.6.20 减力 24px→8px；v8.6.21 再减 8px→4px（用户定调
+              「再轻一点」：只剩一层极轻薄纱，只软化像素细节，轮廓细节几乎原样）；
+              blur(0)↔blur(4px) 平滑插值，流畅模式整体豁免（globals.css） */}
           <div
             aria-hidden
             className="photo-blur absolute inset-0"
             style={{
               /* 内联通道：Lightning CSS 会压坏 CSS 文件里的 backdrop-filter（v8.6.19b） */
-              backdropFilter: photoBlur ? "blur(8px)" : "blur(0px)",
-              WebkitBackdropFilter: photoBlur ? "blur(8px)" : "blur(0px)",
+              backdropFilter: photoBlur ? "blur(4px)" : "blur(0px)",
+              WebkitBackdropFilter: photoBlur ? "blur(4px)" : "blur(0px)",
               transition:
                 "backdrop-filter 0.6s cubic-bezier(0.22, 1, 0.36, 1), -webkit-backdrop-filter 0.6s cubic-bezier(0.22, 1, 0.36, 1)",
             }}
