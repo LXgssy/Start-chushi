@@ -281,6 +281,12 @@ function AuroraBackground({
       ? customKindRef.current
       : wallpaperKindOf(shownUrl)
     : "image";
+  /* v8.6.24 首载壁纸快显：揭幕即完整画面——旧版首载也走 1800ms 柔化，
+     玻璃件（搜索 0.24s / 磁贴 0.24s / dock 0.55s）坐在近黑底上逾一秒，
+     磨砂质感晚于底栏出现（用户实测「磨砂底栏比模糊先出现」）。
+     首张壁纸身份 450ms 快显（黑幕 0.3s 揭开时已基本就位）；
+     后续壁纸变化保留 1800ms 自身柔化（黑幕外直切的防白闪语义不变） */
+  const bootUrlRef = useRef<string | null>(shownUrl);
 
   return (
     <div aria-hidden className="fixed inset-0 -z-10 overflow-hidden">
@@ -322,7 +328,11 @@ function AuroraBackground({
               onCanPlay={() => setLoadedUrl(shownUrl)}
               onError={() => setLoadedUrl(null)}
               className={`absolute inset-0 h-full w-full object-cover transition-opacity ${
-                veiled ? "duration-0" : "duration-[1800ms]"
+                veiled
+                  ? "duration-0"
+                  : shownUrl === bootUrlRef.current
+                    ? "duration-[450ms]"
+                    : "duration-[1800ms]"
               } ${photoReady ? "opacity-100" : "opacity-0"}`}
             />
           ) : (
@@ -335,7 +345,11 @@ function AuroraBackground({
               onLoad={() => setLoadedUrl(shownUrl)}
               onError={() => setLoadedUrl(null)}
               className={`${shownKind === "gif" ? "" : "kenburns "}absolute inset-0 h-full w-full object-cover transition-opacity ${
-                veiled ? "duration-0" : "duration-[1800ms]"
+                veiled
+                  ? "duration-0"
+                  : shownUrl === bootUrlRef.current
+                    ? "duration-[450ms]"
+                    : "duration-[1800ms]"
               } ${photoReady ? "opacity-100" : "opacity-0"}`}
             />
           )}
@@ -358,7 +372,11 @@ function AuroraBackground({
           {/* 双层压暗：整体平底 + 上下渐变，保证浅色主题下白字亦可读 */}
           <div
             className={`photo-scrim absolute inset-0 transition-opacity ${
-              veiled ? "duration-0" : "duration-[1800ms]"
+              veiled
+                ? "duration-0"
+                : shownUrl === bootUrlRef.current
+                  ? "duration-[450ms]"
+                  : "duration-[1800ms]"
             } ${photoReady ? "opacity-100" : "opacity-0"}`}
           />
         </div>

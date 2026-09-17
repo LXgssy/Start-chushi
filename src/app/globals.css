@@ -784,6 +784,13 @@ html.cs-drawer-closing .link-intro-tile {
     background-color: transparent;
     backdrop-filter: blur(1px) saturate(1.5);
   }
+  /* v8.6.24 感知同步律（开=blur 领先）：blur 45% 即凝满自然值，底色 alpha
+     全程跟随渐显——早期帧不再出现「看得见的白底配清晰壁纸」。
+     hold 值经 --veil-hold-bf 逐元素适配（PresetDialog 40px / 无磨砂遮罩 none），
+     45% 后无后续站点 → 插值到自然值 = 满值驻留 */
+  45% {
+    backdrop-filter: var(--veil-hold-bf, blur(12px) saturate(1.5));
+  }
 }
 .veil-in {
   animation: veil-in calc(0.28s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) backwards;
@@ -833,6 +840,12 @@ html.cs-drawer-closing .link-intro-tile {
    -webkit- 版，而 Chromium 在 @keyframes 内不识别 webkit 别名（声明
    被整个丢弃，CSSOM 序列化可证）。 */
 @keyframes glass-card-out-kf {
+  /* v8.6.24 感知同步律：0-55% blur 满值驻留（glass-card 家族自然值 20px），
+     底色全程渐隐、尾段与 blur 残量同收 */
+  0%,
+  55% {
+    backdrop-filter: blur(20px) saturate(1.5);
+  }
   to {
     background-color: transparent;
     border-color: transparent;
@@ -846,6 +859,10 @@ html.cs-drawer-closing .link-intro-tile {
 @keyframes dialog-sink {
   from {
     transform: translateY(0) scale(1);
+    backdrop-filter: blur(20px) saturate(1.5);
+  }
+  55% {
+    backdrop-filter: blur(20px) saturate(1.5);
   }
   to {
     background-color: transparent;
@@ -872,10 +889,27 @@ html.cs-drawer-closing .link-intro-tile {
   animation: overlay-sink 0.22s cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 @keyframes veil-fade {
+  /* v8.6.24 感知同步律（关=blur 驻留）：0-55% 满值驻留（底色先行渐隐），
+     55% 后收拢，尾段与底色残量同收——不再出现「模糊先消失、白板幽灵残留」。
+     hold 值经 --veil-hold-bf 逐元素适配，须与该元素自然值同构同值 */
+  0%,
+  55% {
+    backdrop-filter: var(--veil-hold-bf, blur(12px) saturate(1.5));
+  }
   to {
     background-color: transparent;
     backdrop-filter: blur(1px) saturate(1.5);
   }
+}
+/* v8.6.24 hold 逐元素适配：veil-in/veil-fade 的 blur 驻留值须与遮罩自然值同构。
+   veil-hold-none = 无磨砂遮罩（右键菜单捕获层：backdrop 自然值 none，
+   none↔blur(1px) 按列表替换律离散替换，1px 不可感——与旧律一致）；
+   veil-hold-2xl = PresetDialog 背板（backdrop-blur-2xl = 40px） */
+.veil-hold-none {
+  --veil-hold-bf: none;
+}
+.veil-hold-2xl {
+  --veil-hold-bf: blur(40px) saturate(1.5);
 }
 /* 遮罩层退场（v8.6.23 底层律）：0.25s（dock 遮罩/指令面板磨砂遮罩）/ 0.28s（预设对话框背板）。
    to 帧 blur(1px)：磨砂收拢=壁纸透出，与底色渐隐合成自然淡出；无磨砂遮罩
@@ -883,9 +917,24 @@ html.cs-drawer-closing .link-intro-tile {
    ⚠ 声明顺序律：.veil-out 必须在 .veil-in 之后（退场帧两者同在元素上，后者胜） */
 .veil-out {
   animation: veil-fade 0.25s cubic-bezier(0.4, 0, 1, 1) forwards;
+  --veil-out-dur: 0.25s;
 }
 .veil-out-slow {
   animation: veil-fade 0.28s cubic-bezier(0.4, 0, 1, 1) forwards;
+  --veil-out-dur: 0.28s;
+}
+/* v8.6.24 面板随纱同散：更新日志/添加链接等卡片自身无退场通道——纱幕 blur
+   驻留释放期间卡片满值驻留，用户感知「模糊先消失、面板后消失」（真机复现）。
+   级联 glass-card-out：卡片底色与纱幕同窗淡出，内容走 content-defocus 散场。
+   :not 排除自带退场通道的卡片（palette-out Q 弹 / dialog-sink / ctx-out）——
+   同 animation 属性互斥，防本级联以 (0,2,0)+ 特异性覆盖专属关键帧 */
+.veil-out .glass-card:not(.palette-out):not(.dialog-sink):not(.ctx-out),
+.veil-out-slow .glass-card:not(.palette-out):not(.dialog-sink):not(.ctx-out) {
+  animation: glass-card-out-kf var(--veil-out-dur, 0.25s) cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+.veil-out .glass-card:not(.palette-out):not(.dialog-sink):not(.ctx-out) .content-focus,
+.veil-out-slow .glass-card:not(.palette-out):not(.dialog-sink):not(.ctx-out) .content-focus {
+  animation: content-defocus 0.16s cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 @media (prefers-reduced-motion: reduce) {
   .panel-sink,
@@ -1041,9 +1090,11 @@ html.cs-drawer-closing .link-intro-tile {
 @keyframes palette-out-kf {
   0% {
     transform: translateY(0) scale(1);
+    backdrop-filter: blur(20px) saturate(1.5);
   }
   30% {
     transform: translateY(-5px) scale(1.016);
+    backdrop-filter: blur(20px) saturate(1.5);
   }
   100% {
     background-color: transparent;
@@ -1091,6 +1142,10 @@ html.cs-drawer-closing .link-intro-tile {
 @keyframes ctx-out-kf {
   from {
     transform: scale(1);
+    backdrop-filter: blur(20px) saturate(1.5);
+  }
+  55% {
+    backdrop-filter: blur(20px) saturate(1.5);
   }
   to {
     background-color: transparent;
@@ -1201,6 +1256,16 @@ html.cs-drawer-closing .link-intro-tile {
    opacity 与 filter 只许落在【无玻璃】的内容层。遮罩族（veil-in/veil-fade）
    与抽屉纱罩同改：磨砂经 blur 值通道凝聚/收拢（1px↔Npx 全程在线），
    染色经底色 alpha 或无磨砂 ::before 层渐显，任何帧都不退化为纯色底。
+   ------------------------------------------------
+   v8.6.24 感知同步律（blur 领先/驻留）：底色 alpha 与 blur 值两条通道的
+   感知速率不同——同曲线同时长插值必然「开=白底先于模糊、关=模糊先于白底
+   （幽灵板）」。故：入场 blur 先行（veil-in 45% 凝满 / 纱罩 0.12s 凝满，
+   染色与底色全程跟随）；退场 blur 驻留（veil-fade 与全部卡片退场关键帧
+   0-55% 满值，底色全程渐隐，尾段同收）。任何帧不得出现
+   「看得见的白底配清晰壁纸」。hold 值经 --veil-hold-bf 逐元素适配且必须
+   与该元素自然值同构同值；无磨砂遮罩显式 veil-hold-none。
+   另：壁纸必须先于玻璃件就位（首载 450ms 快显，见 AuroraBackground），
+   否则磨砂坐在黑底上，质感无从谈起。
    ================================================================ */
 
 /* ---------- 搜索药丸入场（v8.6.23 底层律）：壳体只动底色 alpha + transform
@@ -1558,8 +1623,10 @@ html.cs-lite.dark .veil-in {
   background-color: transparent;
   backdrop-filter: blur(1px) saturate(1.5);
   visibility: hidden;
+  /* v8.6.24 感知同步律（关=blur 驻留）：0.14s 满值驻留（染色 ::before 先行渐隐）
+     + 0.14s 收拢，与染色 0.28s 同窗收尾——幽灵白板不再残留 */
   transition:
-    backdrop-filter 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    backdrop-filter 0.14s cubic-bezier(0.4, 0, 1, 1) 0.14s,
     visibility 0s linear 0.28s;
 }
 .cl-drawer-veil::before {
@@ -1578,8 +1645,10 @@ html.cs-lite.dark .veil-in {
 .cl-drawer-veil[data-veil="1"] {
   backdrop-filter: blur(28px) saturate(1.5);
   visibility: visible;
+  /* v8.6.24 感知同步律（开=blur 领先）：0.12s 先凝满 28px，染色 ::before
+     0.28s 跟随渐显——磨砂底与模糊质感同步出现 */
   transition:
-    backdrop-filter 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+    backdrop-filter 0.12s cubic-bezier(0.22, 1, 0.36, 1),
     visibility 0s;
 }
 .cl-drawer-veil[data-veil="1"]::before {
