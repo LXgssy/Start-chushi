@@ -398,3 +398,25 @@ Stage Summary:
 - v8.6.20 全链路闭环：模糊 24px→8px（轻纱）、浅色模式在掠影重新生效（分工律：壁纸裸文字恒白/玻璃面跟主题）、主页面任何尺寸两轴禁滚（真实滚轮验证）
 - 分发：全改动在页面层，云推 ≤6h 到存量装机，无需换 crx
 - 新律：①单屏画布页禁滚=html/body overflow:hidden+底部死垫 clamp 化双管齐下，验证只用真实输入事件 ②掠影前景分层归属：贴壁纸的恒白、贴玻璃的跟主题——命名钩子 cl-links-docked/drawer 承载 ③验证脚本的 addInitScript 播种必须幂等（缺失才写），否则每次 reload 都会反转自己的 patch
+
+---
+Task ID: 122
+Agent: main (Super Z)
+Task: 用户七点反馈「模糊再轻/dock浅色掠影不一致/dock面板磨砂/图标统一深色/拖拽让位误播入场/hover阴影错位/强调色失效」——v8.6.21 + 云推
+
+Work Log:
+- 【强调色失效根因】page.tsx 预设令牌 effect 对 PRESET_TOKEN_KEYS 白名单（含 --ui-accent，preset.ts:164）执行「无值即 removeProperty」——--ui-accent 的还原值不在 CSS 里（JS 注入的用户设置），本 effect 声明在强调色 effect 之后、每次挂载必跑 → 新开标签页/更新后每次挂载都把用户强调色删掉回落默认紫；当场改色生效是因为 settings.accent 变化只重跑强调色 effect 不重跑令牌 effect（依赖数组无它）。修复=无预设值时 setProperty 回落 settings.accent（依赖数组补 settings.accent），有预设仍预设胜、删除预设回落用户值（焕新语义不变）；TL13d 门（accentVar==#8b5cf6）锁回归
+- 【拖拽让位误播入场根因】QuickLinks DragOver 数组 splice 重排 → React key 稳定但 diff 会移动 DOM 节点（insertBefore）；CSS 动画对「脱文档再插入」的节点必然重播——往左拖时被移动的恰是「让位者」（React list diff 只移动 index < lastPlacedIndex 的节点），往右拖时被移动的是拖拽者（隐身中）→ 不对称观感。根治=入场播完摘 intro 类（TileIcon 根 span onAnimationEnd 捕获最晚的 intro-tile-body 通道 → TileVisual 本地 introDone → 三层 intro 类摘除），类摘后重播无动画可放；portal 重挂载（抽屉）新实例 introDone 复位、入场照常
+- 【探针耦合】摘类机制让 .link-intro-* 类在稳态消失——探针 9 门（T8b-e/TL3/TL4/TL7）采样锚点全失效（frost=null）；四层加永驻语义类 tile-shell/tile-frost/tile-ring/tile-body，探针稳态采样换语义类锚点、freezeIntro 改按语义类抓元素+自行重挂动画类（重触发与摘类机制解耦）
+- 【hover 阴影错位】headless 2x 连拍 8 帧（30-380ms）未复现真机观感——按 v8.6.11 合成层经验定修法：motion.span 常驻 willChange:transform（framer 动画结束会撤 will-change → 合成层撤销/重建瞬间 backdrop 子层重采样跳变，观感即「下沉收尾错位然后复位」）；确定性缓解，一行低风险
+- 【图标统一深色釉】:root 浅色 8 枚磁贴 token 整体换成 .dark 同值（暗雾 0.2/环 60%/高光 0.18/渐变四值）+ tile-letter 恒 zinc-100 + 浅掠影白雾霜层（0.44）退役；主题差异只留投影（浅色深影塑体积）与名称配色
+- 【dock 浅色归一】html.photo-mode .dock-btn 三条收窄到 .dark——dock 有自家玻璃背板（.glass-pill）按分工律跟主题，浅掠影回落基线墨系 zinc-500（TL13b 实测 oklch(0.552...)，zinc-600 假设被 computed 纠正）
+- 【glass-card 磨砂】全部玻璃卡片（dock 面板/命令面板/对话框/右键菜单）背板 backdrop-filter:blur(20px) saturate(1.5)，底色浅 0.86→0.62/深 0.94→0.60；v1.0.8「磨砂+opacity 动画闪烁」规避：壳体 opacity 入退场期间磨砂暂退化纯色底（祖先 opacity<1 成 backdrop root），淡入淡出掩盖、稳态全程磨砂（纱罩同构先例）；cs-lite 补 backdrop-filter:none !important（流畅模式零合成开销）
+- 【模糊再减】AuroraBackground 内联 blur(8px)→blur(4px)（用户「再轻一点」）；探针 TL9d 断言同步
+- 【探针】probe-v8621（sed 克隆+断言更新）59 PASS / 0 FAIL：TL3/TL9d/TL13a-d 更新+新增（磨砂浅/深双门+强调色存活门+dock 墨系门）；verify-v8621 交互验证 6 PASS：摘类生效（replay 物理不可能）+ 拖拽向左换位功能正常（GitHub↔哔哩哔哩）+ willChange 常驻 + pageerror=0；hover-probe 2x 帧序列留档
+- 【发布】main d79747d（10 文件 +926/-35 对账清晰）→ 云推 gh-pages d3c7699：Pages 收敛 4 轮（3 分钟超时后第 4 分钟到）、线上 v=8.6.21、73+1 文件 SHA256 逐字节 ALL-GREEN
+
+Stage Summary:
+- v8.6.21 全链路闭环：七点反馈全数落地（模糊 4px 极轻纱/dock 浅色归一/玻璃卡片磨砂化/图标统一深色釉/拖拽让位不重播/hover 收尾稳态/强调色存活）
+- 分发：全改动在页面层，云推 ≤6h 到存量装机，无需换 crx
+- 新律：①预设令牌 effect 对「还原值不在 CSS 的 JS 注入变量」禁止无值 removeProperty——必须回落用户设置源 ②CSS 动画元素的类若被探针/其他机制采样，采样锚点用永驻语义类而非动画类（动画类会被摘）③React list diff 的 DOM 移动会重播 CSS 动画——「只在一侧出现」的动画 bug 先查哪一侧节点被移动 ④glass-card 家族磨砂后 cs-lite 必须同步 backdrop 禁用（否则流畅模式白留合成开销）
