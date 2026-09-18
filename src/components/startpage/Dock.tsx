@@ -225,19 +225,27 @@ const PanelStage = memo(function PanelStage({
   }, [phase, resetContentH]);
 
   /* 部件切走（→ 内建或另一部件）：旧部件视图播 view-exit 模糊散场（元素常驻不卸载）；
-     同样用渲染期调整模式记录键变化，退场清理交定时器 effect */
-  const [leavingWidget, setLeavingWidget] = useState<string | null>(null);
+     同样用渲染期调整模式记录键变化，退场清理交定时器 effect。
+     v8.6.26 单值→Set：快速三连切（A→B→C）时单值 leavingWidget 被 B 覆盖，
+     A 的 view-exit 类即刻摘除=散场动画被吞（用户实测「有概率面板切换动画
+     会消失」的竞态根因）；Set 让多个退场视图互不覆盖、各自计时摘类
+     （动画已 forwards 停在终态，摘类只是 hidden 切换，视觉无跳变） */
+  const [leavingWidgets, setLeavingWidgets] = useState<Set<string>>(() => new Set());
   const [prevWidgetKey, setPrevWidgetKey] = useState(dockWidgetOpen);
   if (prevWidgetKey !== dockWidgetOpen) {
     setPrevWidgetKey(dockWidgetOpen);
     const prev = prevWidgetKey;
-    if (prev) setLeavingWidget(prev);
+    if (prev) setLeavingWidgets((s) => { const n = new Set(s); n.add(prev); return n; });
   }
   useEffect(() => {
-    if (!leavingWidget) return;
-    const t = window.setTimeout(() => setLeavingWidget((k) => (k === leavingWidget ? null : k)), 240);
-    return () => window.clearTimeout(t);
-  }, [leavingWidget]);
+    if (leavingWidgets.size === 0) return;
+    const timers = [...leavingWidgets].map((k) =>
+      window.setTimeout(() => {
+        setLeavingWidgets((s) => { const n = new Set(s); n.delete(k); return n; });
+      }, 240),
+    );
+    return () => timers.forEach((tt) => window.clearTimeout(tt));
+  }, [leavingWidgets]);
 
   /* 部件激活时重播 content-focus-solid（无 opacity 的模糊聚拢，v2.0.1 杀闪白）：
      常驻元素不能靠重挂重播，用「摘类 → reflow → 挂类」重启同一 CSS 动画；
@@ -417,7 +425,7 @@ const PanelStage = memo(function PanelStage({
          * .view-exit（模糊散场）、关闭由壳体 .panel-sink 级联——与内建同语言。 */}
         {dockWidgets.map((w) => {
           const isActive = phase !== "closed" && dockWidgetOpen === w.key;
-          const isLeaving = leavingWidget === w.key;
+          const isLeaving = leavingWidgets.has(w.key);
           const h = Math.max(WIDGET_H_MIN, Math.round(widgetHeights[w.key] ?? w.height));
           return (
             <div
@@ -930,7 +938,9 @@ export default function Dock({
 }
 
 function Divider() {
-  return <span aria-hidden className="mx-1 h-5 w-px bg-[var(--pill-line)]" />;
+  /* v8.6.26：dock-divider 纳入 dock-btn-in 同拍凝入通道（globals.css）——
+     裸 span 第 0 帧满值，分割线先于按钮/玻璃抢跑入场 */
+  return <span aria-hidden className="dock-divider mx-1 h-5 w-px bg-[var(--pill-line)]" />;
 }
 
 /** 预设覆写图标渲染（v1.7.0 图标作用面）：
