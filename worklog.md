@@ -602,3 +602,23 @@ Stage Summary:
 - v8.6.30 全链路闭环：面板切换两向底锚对称——b(高)→a(矮) 玻璃底边稳贴 dock 从顶部平滑收缩（不再先缩底边再整体悬空落位），a(矮)→b(高) 保持向上拉伸；v8.6.29 零残留/单玻璃/同卡换装/一张玻璃换内容律全部原样保留
 - 分发：页面层改动，云推 ≤6h 到存量装机，无需换 crx
 - 新律：①「文件坏行」判定必须 ord 码免疫输出——显示层字节吞噬假象可让排查空转一整轮 ②改码后 .next 全清重建——增量缓存静默陈旧是比代码 bug 更隐蔽的失败 ③minified 产物验证用 minify 保留属性名，不用源码标识符 ④framer onAnimationComplete 有边缘触发场景，摘锁类回调须加时间闸/状态闸防御
+---
+Task ID: 132
+Agent: main (Super Z)
+Task: 用户第 27 点反馈「切换面板时子元素的模糊过渡效果没了，修复一下」——v8.6.31 互切模糊聚拢回归 + 底锚检测提交期化修复 + 云推
+
+Work Log:
+- 【根因一（㉗ 本体）】v8.6.29 互切重写时内容过场收窄为纯 opacity（重写注释明示「无模糊」），丢掉全 app 唯一内容过场词汇「模糊聚拢」→ panel-content-in 关键帧恢复 filter blur(10px→0)，与 content-focus/intro-rise/禅模式雾化同源同参（0.3s cubic-bezier(0.22,1,0.36,1) backwards）；关闭方向 panel-content-out 语言原样（0.18s 纯 fade 不动，首开/关闭语言保持原则）；产物 CSS 全量 diff 恰 +45 字节零意外
+- 【根因二（重构出的潜伏回归，诊断大战）】加 blur 后探针 TL16f（底锚律门）连续 FAIL（sawMinH:false）：①对照实验（旧探针+旧包 82 PASS/0 FAIL）排除环境因素 ②产物 JS 全量 hash diff 证明功能等价（仅 changelog 数据差 165B）③CSS diff 唯一 +45B——嫌疑唯一锁定 blur 关键帧但机制不明；自写 diag 在新旧包上竟均复现失败（diag 缺真实探针前置状态链，弃用）；MORPHLOG 插桩（3 版迭代）逐渲染日志实锤：lockSet 256 → 进 DOM（snap 见证 min-height:256px）→ 1ms 后无任何 setter 调用回退 null → 底锚锁形同虚设，收缩方向复现 62px 卡底悬空洞（用户第 26 点原始病灶形态）
+- 【根因二定论】React 18 render-phase update（渲染期 setPrevPanel+setMorphMinH）与「换装帧 ref 回调同步测高 setContentH」同帧竞逐，锁状态被静默丢弃；blur 关键帧改变提交时序，使 v8.6.30 时代侥幸存续的潜伏竞态 100% 触发
+- 【结构修复】底锚检测挪进 useLayoutEffect（普通更新队列不可能被静默丢弃，setState 同步冲刷 pre-paint 无闪烁窗）；prevPanel 降级为 ref（prevMorphPanelRef，避让父组件已有同名 ref）；contentH 渲染体镜像 ref（layout effect 运行于重测高渲染之前，读到的仍是换装前高度=正确锁值）；onAnimationComplete 150ms 时间闸保留
+- 【亚像素副案】TL16f 偶发 gap 0.5-0.6 FAIL：逐帧 dump 定位为 framer 弹簧收敛过冲（sH=256.56 vs cH=256，阻尼振荡亚像素不可见，落定精确贴合 gap=0，round1 漏采 PASS/round2 捕到 FAIL 纯采样时机）——阈值 0.5→1px + 注释物理依据（真失效 signature 是 62px 级悬空）；顺手分数精度测高（getBoundingClientRect().height 取代整数 offsetHeight）+ 锁样式去 Math.round（落定卡=壳精确贴合原则化，CommandPalette 共用 hook 一并受益）
+- 【坑录】①诊断 diag 必须复刻真实探针全部前置状态链，否则新旧包都可能假复现/假掩盖——本轮 diag 在旧包上也 FAIL 险些误导方向 ②插桩 useEffect 引用后声明的 state（prevPanel）→ TDZ 崩溃「Cannot access 'G' before initialization」50 门雪崩——插桩自身也要守 hooks 规则 ③「文件坏行」显示假象二次踩（const [morphMinH 显示成 const orphMinH），ord 码免疫输出判定 ④探针 gap 阈值调整必须给物理依据（真失效 signature 量级），不许为绿灯放水
+- 【探针】TL13c1 出生窗改模糊追采门（innerBlurSeen：首见卡片后持续追采至 900ms，任一帧捕到非零 blur( 即见证模糊聚拢在飞，免疫 headless rAF 节流采样时机）；TL17a 标签同步；TL16f 容差更新。4 轮探针：81 PASS / 1 FAIL——唯一 FAIL=T6a 纱罩 blur 帧级见证存量沙箱 flake 第 9 次实证（bfMin=27.7-28.0 渐降窗漏采、run 间翻转，v8.6.25-30 同源，本轮未触纱罩链路非回归）；TL16f 三连 PASS（gap=0，sawMinH=true）
+- 【发布】main 0f015fe（6 文件对账无夹带：globals.css/Dock.tsx/use-morph-height.ts/changelog.ts/build-extension.py/probe-v8631 新增）→ 云推 gh-pages：version.json v=8.6.31、73 文件尺寸+SHA256 ALL-GREEN、curl 线上验证通过
+
+Stage Summary:
+- v8.6.31 全链路闭环：面板切换内容层模糊聚拢回归（第 27 点——用户实测「模糊过渡没了」）+ 底锚检测提交期化（结构性修复，v8.6.30 底锚律在 blur 时序下确定性生效）+ 测高分数精度；v8.6.29/30 的零残留/单玻璃/同卡换装/底锚锚定律全部保留且探针级加固
+- 分发：页面层改动（globals.css/Dock.tsx/use-morph-height.ts），云推 ≤6h 到存量装机，无需换 crx
+- 新律：①render-phase update 与 commit 期 ref 测高 setState 同帧竞逐会静默丢状态——凡「渲染期 setState 设定且 DOM 立即可见」的关键动画状态一律 useLayoutEffect 常规 setState ②诊断插桩自身必须守 hooks 规则（TDZ 崩溃一次教训）③探针阈值调整必须给物理依据（真失效 signature 量级 vs 亚像素瞬态）④CSS 动画关键帧的增删会改变提交时序，可让潜伏的 React 竞态 100% 显形——「只加了 blur 为什么锁没了」类悬案优先查时序而非逻辑
+
