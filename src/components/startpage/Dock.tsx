@@ -331,21 +331,35 @@ const PanelStage = memo(function PanelStage({
                 : { duration: 0.22, ease: EXIT_EASE }
           }
         >
-          {/* 内建视图互切：新视图 .content-focus 模糊聚拢、旧视图 .view-exit 钉位模糊散场。
+          {/* 内建视图互切：新视图内容 .content-focus 模糊聚拢、旧视图 .view-exit 钉位模糊散场。
               不加 initial={false}——首次挂载（面板打开）也要让内容模糊聚拢进来，
-              与「开=容器拉伸 + 内容模糊聚拢」的语言一致（CSS 动画，无挂载帧 setState） */}
+              与「开=容器拉伸 + 内容模糊聚拢」的语言一致（CSS 动画，无挂载帧 setState）。
+              v8.6.25：content-focus 从本包裹层（玻璃卡【祖先】）下沉到玻璃卡内层——
+              祖先的 opacity/filter 会成 backdrop root，把玻璃卡自身的磨砂在入场
+              （content-focus 0.32s）与关闭（content-defocus 级联）整窗杀成纯色底
+              （用户实测「打开面板时模糊消失」；录屏能量曲线实锤：面板出生 0.3s 内
+              透过面板的壁纸边缘能量≈锐利基线，settled 后才落到磨砂值） */}
           <AnimatePresence>
             {panel != null && phase !== "closed" && (
               <PresenceClass
                 key={panel}
                 ref={measureRef}
                 /* 退场视觉走 CSS .view-exit（absolute 钉位 + 模糊散场）；卸载由 PresenceClass 定时器接管。
-                   关闭路径不走本类：壳体 .panel-sink 级联令 .content-focus 模糊散场（globals.css） */
+                   关闭路径不走本类：壳体 .panel-sink 级联令玻璃内层 .content-focus 模糊散场（globals.css） */
                 exitClass="view-exit"
                 duration={0.2}
-                className="flow-root content-focus"
+                className="flow-root"
               >
-                <div className="glass-card cl-panel relative rounded-2xl p-4 shadow-2xl" data-panel={panel}>
+                <div className="glass-card cl-panel panel-rise relative rounded-2xl shadow-2xl" data-panel={panel}>
+                  {/* v8.6.25：内容层移入玻璃内部（后代 filter/opacity 不触玻璃采样链，
+                      磨砂开合全程在线——glass-card 家族同款语言，见 ChangelogDialog/LinkDialog）。
+                      panel-rise 上卡本体：底色 alpha 凝入 0.3s，与内容 content-focus 0.32s
+                      感知同步（雾先起、板随行）；关闭经 .panel-sink .glass-card 级联
+                      （底色渐隐 + blur 20→1px 收尾，感知同步律关=blur 驻留）。
+                      p-4 从卡移到内容层：绝对定位子元素（关闭按钮）的包含块从
+                      「卡 padding 盒」平移为「内容层 padding 盒」，两者矩形逐像素等位
+                      （= 卡 border 盒 - 1px border），按钮几何不变。 */}
+                  <div className="content-focus relative p-4">
                   {/* 关闭按钮固定右上，不随内容重绘 */}
                   <button
                     type="button"
@@ -388,6 +402,7 @@ const PanelStage = memo(function PanelStage({
                       onPresetSettingChange={onPresetSettingChange}
                     />
                   )}
+                </div>
                 </div>
               </PresenceClass>
             )}

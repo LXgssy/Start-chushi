@@ -22,6 +22,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.6.25",
+    date: "2026-09-18",
+    title: "磨砂与内容全同拍：底板不再抢跑、面板开合模糊全程在线",
+    channel: "page",
+    highlights: [
+      "快捷服务图标：磨砂底板、描边与图标同拍聚拢，底板不再先入场",
+      "图标底部投影整体退役，磁贴更干净",
+      "dock 入场：玻璃底栏与按钮一同渐显，不再提前坐进页面",
+      "打开 dock 功能面板：磨砂从第一帧在线，中途不再消失",
+    ],
+  },
+  {
     version: "8.6.24",
     date: "2026-09-17",
     title: "模糊与面板同步开合：纱幕、卡片、壁纸感知同步律",

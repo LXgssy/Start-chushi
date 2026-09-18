@@ -552,19 +552,10 @@ html.photo-mode .vignette {
 html.cs-lite .photo-blur {
   display: none;
 }
-/* ---------- 磁贴投影 token（v8.6.16 瓷釉重写） ----------
-   旧浅色用 Tailwind shadow-sm（与深色同值）——浅色层次靠投影塑体积，
-   与深色（描边+高光塑体积）互为镜像；瓷釉版浅色投影加深加大一档，
-   深色保持原生暗投影。替换原 shadow-sm 的位置见 QuickLinks TileIcon。 */
-.tile-shadow {
-  /* v8.6.17：霜雾减薄后磁贴体积改由投影多承担一分（贴地影+浮起影双层） */
-  box-shadow:
-    0 1px 2px rgba(24, 22, 36, 0.06),
-    0 8px 22px -6px rgba(24, 22, 36, 0.24);
-}
-html.dark .tile-shadow {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.32);
-}
+/* ---------- v8.6.25：磁贴投影整体退役（用户指令「删除快捷服务的图标底下
+   的阴影」）——.tile-shadow（浅/深两态）、入场通道 intro-tile-shadow、退场
+   淡出（cs-drawer-closing 投影淡出）一并拆除；磁贴体积全权交还描边+高光+
+   霜层着色（v8.6.16 的浅/深镜像律不再需要投影半边）。 ---------- */
 
 /* ---------- 编辑模式磁贴摇晃（v8.6.2 强化：±2°/0.28s，交替反向——青柠/iOS 同款，
             批量管理状态一眼可辨；v8.6.1 的 ±1.4°/0.38s 幅度过小被用户当「没抖动」） ----------
@@ -609,27 +600,9 @@ html.cs-drawer-closing .cl-fade-leaf {
   opacity: 0;
 }
 
-/* ---------- v8.6.11 抽屉退场：磁贴投影自身淡出 ----------
-   v8.6.10 把 shadow-sm 搬到独立子层换取淡出通道，实机反馈常驻形态「悬停浮起
-   时投影与磁贴错位」——子层在合成树上和磁贴不是同一层，跟不上升起那一帧。
-   改回「投影长在包裹层本体」（单次绘制、与磁贴严格同体，浮起零错位），淡出
-   改走投影自身：包裹层是霜层（backdrop-filter）的祖先，不能动 opacity（祖先
-   opacity<1 会成 backdrop root 直接杀掉磨砂），但动 box-shadow 完全安全；包裹层
-   上也没有其它 box-shadow 动画/过渡（intro-tile-rise 只动 transform），
-   CSS Transitions §3 的「运行中动画阻断过渡」不适用。
-   none 按规范等价于全透明同形投影，插值即淡出，与叶子的 0.28s 同频。
-   过渡只声明在 closing 态：类移除时无过渡 → 重开瞬间投影即归位，不与入场打架。 */
-html.cs-drawer-closing .tile-shell {
-  transition: box-shadow 0.28s cubic-bezier(0.22, 1, 0.36, 1);
-  box-shadow: none;
-}
-/* v8.6.22：中途关闭（intro 类还在）时收窄动画通道——intro-tile-shadow 一旦在跑，
-   动画值会压过上面的 box-shadow:none（动画 > 普通声明），叶子 0.28s 淡完了阴影
-   还站到动画末尾（新通道引入的回归，当场掐掉）；只留 rise（transform）继续播，
-   投影交还 none 过渡，与 v8.6.7 原行为一致。 */
-html.cs-drawer-closing .link-intro-tile {
-  animation-name: intro-tile-rise;
-}
+/* ---------- v8.6.25：磁贴投影退役后，本区原 .tile-shell 投影淡出与
+   .link-intro-tile 通道收窄两条规则一并拆除——无投影可淡；中途关闭只剩
+   rise（transform）通道，与叶子 opacity 过渡自然并行（v8.6.7 原行为）。 ---------- */
 
 /* ---------- 仅无悬停设备（触屏）显示 ---------- */
 .touch-only {
@@ -1319,13 +1292,16 @@ html.cs-drawer-closing .link-intro-tile {
     transform: translateZ(0) translateY(0) scale(1);
   }
 }
-/* v8.6.22 阴影入场通道：投影挂在包裹层本体（.tile-shadow 静态值），
-   旧版无入场通道——第 0 帧就满值，而图标本体要 0.95s 聚拢（用户实测
-   「阴影的动画优先级比图标本身还高，每次都是阴影先出现」）。from-only
-   关键帧（不写 to → 自然值，浅/深两态各自归位）与 body 通道同拍渐显。 */
-@keyframes intro-tile-shadow {
+/* v8.6.25 底板着色同拍通道（用户实测「磨砂玻璃底板的黑色先入场」）：霜层
+   底色 --tile-frost-bg（暗雾）第 0 帧满值、而图标本体要 0.95s 聚拢——灰黑
+   底板抢跑于图标。intro-tile-tint from-only 通道（from transparent → 自然值
+   归位，透明插值走 premultiplied 无黑移）与 body 完全同拍（同 0.95s/曲线/
+   延迟，延迟经 .cl-links / main .cl-links 的 animation-delay 覆盖统一平移）；
+   磨砂本体仍 0.18s 快速凝聚（底色透明期=纯玻璃片，带磨砂不带黑底）。
+   v8.6.22 的 intro-tile-shadow 通道随投影退役一并拆除。 */
+@keyframes intro-tile-tint {
   from {
-    box-shadow: 0 0 0 0 transparent;
+    background-color: transparent;
   }
 }
 @keyframes intro-tile-frost {
@@ -1347,12 +1323,12 @@ html.cs-drawer-closing .link-intro-tile {
   animation: intro-rise calc(0.95s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) 0.38s backwards;
 }
 .link-intro-tile {
-  animation:
-    intro-tile-rise calc(0.95s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) 0.38s backwards,
-    intro-tile-shadow calc(0.95s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) 0.38s backwards;
+  animation: intro-tile-rise calc(0.95s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) 0.38s backwards;
 }
 .link-intro-frost {
-  animation: intro-tile-frost 0.18s ease-out 0.38s backwards;
+  animation:
+    intro-tile-frost 0.18s ease-out 0.38s backwards,
+    intro-tile-tint calc(0.95s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) 0.38s backwards;
 }
 .link-intro-body {
   animation: intro-tile-body calc(0.95s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) 0.38s backwards;
@@ -1391,16 +1367,34 @@ main .cl-links .link-intro-ring {
   animation-delay: 0.24s;
 }
 
-/* ---------- dock 入场（v8.6.23 底层律）：壳体只动 transform（glass-pill 磨砂
-   全程在线），淡入下沉到按钮子元素（> button 均无玻璃，opacity 安全；
-   选框 span / 指示器不参与，避免与其 framer 弹簧打架）。
+/* ---------- dock 入场（v8.6.23 底层律 + v8.6.25 玻璃同拍通道）：壳体动
+   transform + 玻璃四通道凝入，淡入下沉到按钮子元素（> button 均无玻璃，
+   opacity 安全；选框 span / 指示器不参与，避免与其 framer 弹簧打架）。
    居中是 Tailwind v4 独立 translate 属性，与 keyframes 的 transform 合成不覆盖 ---------- */
 .dock-intro {
-  animation: dock-rise calc(0.8s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) calc(0.55s * var(--mo-speed, 1)) backwards;
+  animation:
+    dock-rise calc(0.8s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) calc(0.55s * var(--mo-speed, 1)) backwards,
+    dock-glass-in calc(0.8s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) calc(0.55s * var(--mo-speed, 1)) backwards;
 }
 @keyframes dock-rise {
   from {
     transform: translateY(18px);
+  }
+}
+/* v8.6.25 玻璃入场通道（用户实测「dock 的磨砂玻璃比入场渐显动画还早出现」）：
+   dock-rise 只动 transform，玻璃底色/边框/投影/磨砂第 0 帧满值——backwards
+   填充的 0.55s 延迟窗里白条已坐在页面上（壁纸还在 450ms 快显途中，更显眼）。
+   dock-glass-in 与 dock-btn-in（按钮渐显）同拍：底色 alpha 凝入 + 磨砂
+   blur(1px) 凝聚。同构律：blur+saturate 两函数与自然值 blur(40px) saturate(1.5)
+   等构；saturate 禁 1 / blur 禁 0（压缩器两吃参数）；keyframes 内
+   backdrop-filter 只写无前缀。from-only：浅 0.62 白玻璃 / 深 0.055 白纱各自
+   归位——玻璃与按钮一同显影，磨砂全程在线（无 opacity 通道）。 */
+@keyframes dock-glass-in {
+  from {
+    background-color: transparent;
+    border-color: transparent;
+    box-shadow: 0 0 0 0 transparent;
+    backdrop-filter: blur(1px) saturate(1.5);
   }
 }
 .dock-intro > button {
