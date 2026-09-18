@@ -2,7 +2,6 @@
 
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { PresenceClass } from "./PresenceClass";
 import { useMorphHeight } from "./use-morph-height";
 /* v8.4.9 Dock 图标换自绘套件（设计不变，逐笔消除交叉，审计表见 cs-icons.tsx） */
 import {
@@ -98,25 +97,27 @@ const SINK_MS = 240;
 const WIDGET_H_MIN = 40;
 
 /** 面板打开 / 切换 / 关闭 = 同一套高度形变语言（用户认可的「拉伸」）：
- *  打开：高度盒从 0 弹簧展开到内容高度（initial height 0）+ 卡片 .panel-rise 淡入；
- *  切换：高度盒弹簧到新内容高度 + 新旧内容交叉溶解；
- *  关闭：高度盒折回 0（exit height→0，JS 逐帧写样式非 WAAPI，无取消回跳风险）
- *        + 卡片 .panel-sink 淡出，与打开严格对称。
- *  退出面板绝对定位钉回内容盒原位（inset 0），在高度形变期间与新面板重叠溶解。
- *  ⚠ 入场/退场淡入淡出均不在 framer 内（移交 .panel-rise / .panel-sink 等 CSS 关键帧，见 globals.css）：
- *    framer v12 对 opacity 走 WAAPI 加速，入场空窗期真机整板闪黑，退场中途被取消
- *    回跳 1 等于没有关闭动画。卡片本体不再持有 framer 入场动画（y/scale 并入高度展开语言）
- *  ⚠ 卡片不再带 backdrop-filter：磨砂玻璃 + opacity 动画是 Chromium 闪烁的经典组合，
- *    且逐帧重采样 backdrop 是掉帧主力；glass-card 底色 92% 不透明，磨砂本就不可见（v1.0.8 实证修复）
+ *  打开：高度盒从 0 弹簧展开到内容高度（initial height 0）+ 卡片 .panel-rise 玻璃凝入；
+ *  切换：高度盒弹簧到新内容高度 + 同一张玻璃卡直接换内容（新内容 .cl-panel-content 简单淡入）；
+ *  关闭：高度盒折回 0（framer 高度弹簧 0.22s）+ 壳体 .panel-sink + 玻璃/内容级联散场，与打开严格对称。
  *
- *  ---------- v2.0.0 统一面板舞台（用户指令「预设包接入切换动画」）----------
- *  dock 表面预设面板（音乐面板）并入本舞台：不再有 PresetWidgets 里的第二套
- *  弹出相位机（旧形态 = 内建淡出 → 空档 → 部件独立弹出，动画互不衔接）。
- *  舞台常驻（相位机 closed/open/closing），内建视图照旧 AnimatePresence 挂卸；
- *  部件视图 = 常驻 overlay（absolute top-0，iframe 永不卸载 = 预热零白屏），
- *  开/关/互切与内建完全同一套语言：panel-rise/sink + content-focus/view-exit
- *  模糊聚拢散场 + 高度/宽度 px 弹簧。部件玻璃视觉自带（内建视图才套 glass-card），
- *  舞台壳体透明，两种视图交叉溶解时背景自然过渡。 */
+ *  ---------- v8.6.29 互切拉伸律（用户指令「切换动画全面重写，恢复最初的拉伸动效」）----------
+ *  v8.6.25-28 的互切补丁链（view-top 双层钉位 / cl-switching 双停 / 零残留硬藏 /
+ *  content-focus 模糊聚拢 / view-exit 模糊散场）全部退役——补丁是在「两张玻璃卡
+ *  交叉溶解」的错误结构上止损，残留/叠影/闪动此起彼伏。本版回归 v1.0.8 结构性
+ *  定律「互切 = 一张玻璃卡换内容」：
+ *  ① 内建玻璃卡 open 相位恒挂载（不再随面板 key 重挂）——互切前后是同一个 DOM
+ *     节点，玻璃底/描边/投影零动画，双玻璃交叉溶解从结构上不可能发生；
+ *  ② 内容层 keyed 重挂（key=session+panel）：旧内容同帧卸载（零残留结构性保证，
+ *     不再依赖硬藏规则），新内容播 .cl-panel-content 简单淡入（0.3s，无模糊）；
+ *  ③ 动效主角回归高度/宽度 px 弹簧（拉伸），内容过场回归最朴素的单 fade；
+ *  ④ 关闭相位（closing）卡片保持挂载渲染 lastPanel 旧内容播散场，SINK_MS 后卸载；
+ *  ⑤ 部件视图切走同帧 visibility:hidden（leavingWidgets/view-exit/view-defocus 退役），
+ *     关闭相位经 lastOpenWidgetRef 保持可见播 .panel-sink 级联散场。
+ *  ⚠ 内容淡入不在 framer 内（framer v12 对 opacity 走 WAAPI 加速，入场空窗期真机
+ *    整板闪黑）：淡入走 CSS .cl-panel-content 关键帧，玻璃凝入走 .panel-rise。
+ *  ⚠ 部件视图 = 常驻 overlay（absolute top-0，iframe 永不卸载 = 预热零白屏），
+ *    激活经 content-focus-solid 重播 + boot-fade 白帧罩（iframe 重激活白帧律，原样保留）。 */
 
 const PANEL_TITLES: Record<Exclude<PanelId, null>, string> = {
   weather: "天气",
@@ -126,16 +127,13 @@ const PANEL_TITLES: Record<Exclude<PanelId, null>, string> = {
   settings: "设置",
 };
 
-/* ---------- 面板舞台：卡片 + 高度形变 + 新旧内容溶解 + 部件视图（v2.0.0 统一舞台），整体 memo。
+/* ---------- 面板舞台：一张玻璃卡 + 高度/宽度形变 + 内容换装 + 部件视图（v8.6.29 互切拉伸律），整体 memo。
    收益：Dock 因番茄钟每秒滴答（useSyncExternalStore）重渲时，面板卡片区域
-   （含 exit 溶解中的旧面板与五个重面板子树）不再连带重渲染；反之面板内容
-   测高（ResizeObserver→contentH）也不再重渲 dock 栏与活动指示 pill。
+   （含五个重面板子树）不再连带重渲染；反之面板内容测高（ResizeObserver→contentH）
+   也不再重渲 dock 栏与活动指示 pill。
    ⚠ onClose 必须传稳定引用，否则 memo 在每次滴答中失效。
-   v2.0.0：dock 表面预设面板（音乐面板）并入本舞台——旧形态（PresetWidgets 里
-   第二套相位机）= 内建淡出→空档→部件独立弹出，动画互不衔接；现在开/关/互切
-   与内建完全同一套语言（panel-rise/sink + content-focus/view-exit + px 弹簧）。
-   舞台壳体常驻且透明：内建视图才套 glass-card，部件视觉自带（交叉溶解时
-   背景自然过渡）；部件 iframe 永不卸载 = 预热零白屏。 */
+   舞台壳体常驻且透明：内建视图才套 glass-card（open 相位恒挂载，互切不重挂），
+   部件视觉自带（absolute overlay）；部件 iframe 永不卸载 = 预热零白屏。 */
 const PanelStage = memo(function PanelStage({
   panel,
   onClose,
@@ -201,38 +199,19 @@ const PanelStage = memo(function PanelStage({
   const activeWidget =
     widgetActive ? (dockWidgets.find((w) => w.key === dockWidgetOpen) ?? null) : null;
   const [phase, setPhase] = useState<"closed" | "open" | "closing">("closed");
-  /* 开打瞬间是否部件视图（v2.0.1）：壳体入场类只在 closed→open 迁移时定格——
-     若按 activeWidget 实时取值，音乐→内建互切会让壳类从 "" 变 "panel-rise"，
-     CSS 动画因类变化重播 → 整壳 opacity 0 淡入，切换瞬间又闪一次（与本次杀的
-     开面板闪白同源）。定格后开/关/互切全程类稳定，只有真开/真关才换类 */
-  const [openAsWidget, setOpenAsWidget] = useState(false);
+  /* 打开期次（v8.6.29）：false→true 迁移（真开/关闭中途重开）时 +1——内容层
+     key 携带期次，同面板关后重开也重播 .cl-panel-content 淡入（否则内容层
+     key 不变不重挂，重开无入场过场） */
+  const [session, setSession] = useState(0);
   /* 相位迁移用 React 官方「渲染期间调整 state」模式（同步 setState 在 effect
-     里会级联渲染，lint 禁令；对比键入 prev state，仅在真变化时派生新相位） */
+     里会级联渲染，lint 禁令；对比键入 prev state，仅在真变化时派生新相位）。
+     v8.6.29：互切（anyActive 保持 true 的视图键迁移）不再需要任何开关——
+     卡片恒挂载 + 内容层 keyed 换装是结构行为，无类切换、无动画双停 */
   const [prevAnyActive, setPrevAnyActive] = useState(anyActive);
-  /* v8.6.27 互切单玻璃律开关（壳挂 .cl-switching，globals.css）：anyActive 保持
-     true 的迁移帧 = 面板互切（内建↔内建 / 内建↔部件）——互切窗内新旧两卡整卡
-     动画双停（入场 panel-fade 停=玻璃即时就位、退场 glass-card-out-kf 停=玻璃
-     不散），只有内容层交叉溶解，根除「两块玻璃互相溶解=叠加两个面板」。
-     真开（closed→open）与真关（→closing）同帧归 false：首开 panel-rise 与
-     关闭 panel-sink 溶解语言原样保留。定格律同 openAsWidget：类只在迁移帧
-     翻转，互切中途不变化、不重播动画 */
-  const [switching, setSwitching] = useState(false);
   if (prevAnyActive !== anyActive) {
     setPrevAnyActive(anyActive);
-    setOpenAsWidget(widgetActive);
-    setSwitching(prevAnyActive && anyActive);
+    if (anyActive) setSession((s) => s + 1);
     setPhase(anyActive ? "open" : (p) => (p === "closed" ? "closed" : "closing"));
-  }
-  /* 互切检测（v8.6.27 补，探针 TL16d 实证）：anyActive 保持 true 的「活动视图
-     键」迁移（内建↔内建 / 内建↔部件 / 部件↔部件）不触发上面的相位迁移块——
-     anyActive 不翻转，须单独跟踪复合键。开（null→key）与关（key→null）由相位
-     块归 false（本块同帧亦判 false，双写同值互不冲突）；只有保持打开的键变化
-     才进互切窗。定格律同 openAsWidget：键稳定期间类不变化、不重播动画 */
-  const activeViewKey = panel ?? dockWidgetOpen ?? null;
-  const [prevViewKey, setPrevViewKey] = useState(activeViewKey);
-  if (prevViewKey !== activeViewKey) {
-    setPrevViewKey(activeViewKey);
-    setSwitching(activeViewKey != null && prevViewKey != null);
   }
   /* closing → closed：sink 播完清类（下次打开重播 rise）并复位内建测高 */
   useEffect(() => {
@@ -244,28 +223,9 @@ const PanelStage = memo(function PanelStage({
     if (phase === "closed") resetContentH();
   }, [phase, resetContentH]);
 
-  /* 部件切走（→ 内建或另一部件）：旧部件视图播 view-exit 模糊散场（元素常驻不卸载）；
-     同样用渲染期调整模式记录键变化，退场清理交定时器 effect。
-     v8.6.26 单值→Set：快速三连切（A→B→C）时单值 leavingWidget 被 B 覆盖，
-     A 的 view-exit 类即刻摘除=散场动画被吞（用户实测「有概率面板切换动画
-     会消失」的竞态根因）；Set 让多个退场视图互不覆盖、各自计时摘类
-     （动画已 forwards 停在终态，摘类只是 hidden 切换，视觉无跳变） */
-  const [leavingWidgets, setLeavingWidgets] = useState<Set<string>>(() => new Set());
-  const [prevWidgetKey, setPrevWidgetKey] = useState(dockWidgetOpen);
-  if (prevWidgetKey !== dockWidgetOpen) {
-    setPrevWidgetKey(dockWidgetOpen);
-    const prev = prevWidgetKey;
-    if (prev) setLeavingWidgets((s) => { const n = new Set(s); n.add(prev); return n; });
-  }
-  useEffect(() => {
-    if (leavingWidgets.size === 0) return;
-    const timers = [...leavingWidgets].map((k) =>
-      window.setTimeout(() => {
-        setLeavingWidgets((s) => { const n = new Set(s); n.delete(k); return n; });
-      }, 240),
-    );
-    return () => timers.forEach((tt) => window.clearTimeout(tt));
-  }, [leavingWidgets]);
+  /* v8.6.29：leavingWidgets/prevWidgetKey 退役——部件切走同帧 visibility:hidden
+     （零残留结构性保证，互切拉伸律见文件头），部件退场模糊散场（view-exit +
+     view-defocus）随旧结构整体删除；关闭收尾可见性由 lastOpenWidgetRef 承担 */
 
   /* 部件激活时重播 content-focus-solid（无 opacity 的模糊聚拢，v2.0.1 杀闪白）：
      常驻元素不能靠重挂重播，用「摘类 → reflow → 挂类」重启同一 CSS 动画；
@@ -303,19 +263,18 @@ const PanelStage = memo(function PanelStage({
     : 0;
   const openH = activeWidget ? widgetH : contentH == null ? ("auto" as const) : contentH;
   const shellWidth = activeWidget ? activeWidget.width : 360;
-  /* 壳体入场：内建照旧 panel-rise（淡入）；部件视图不淡入（v2.0.1 杀闪白：
-   * 暗色音乐卡 opacity 0→1 会在明亮壁纸上透出灰白一闪，真机录屏 30fps 实锤）——
-   * 高度盒弹簧本身就是「拉伸」语言，内容进场的模糊聚拢交给 content-focus-solid。
-   * ⚠ 用 openAsWidget（开打瞬间定格）而非 activeWidget：互切中途类不得变化（见上） */
-  const shellAnim = reduceMotion
-    ? ""
-    : phase === "open"
-      ? openAsWidget
-        ? ""
-        : "panel-rise"
-      : phase === "closing"
-        ? "panel-sink"
-        : "";
+  /* 壳体类（v8.6.29）：透明壳上入场类无视觉（panel-fade 只动 bg/border/shadow），
+     open 相位恒无类；closing 恒 .panel-sink（散场级联宿主：玻璃 out-kf /
+     内容 out / 部件 content-focus-solid 散场）。reduceMotion 下同样挂
+     panel-sink——瞬时性由 globals.css prefers-reduced-motion 块兜底（级联
+     animation:none + opacity:0 即帧隐没），不再需要 JS 分支 */
+  const shellAnim = phase === "closing" ? "panel-sink" : "";
+  /* 渲染面板（v8.6.29）：open 相位=panel；closing 相位=lastPanelRef（旧内容继续
+     渲染播散场，SINK_MS 后随 closed 卸载）；closed=null 不渲染。
+     lastPanelRef 渲染期同步（同 lastOpenWidgetRef 律） */
+  const lastPanelRef = useRef<PanelId>(null);
+  if (panel != null) lastPanelRef.current = panel;
+  const displayPanel = panel ?? (phase === "closing" ? lastPanelRef.current : null);
 
   return (
     /* 面板浮层：外层静态 wrapper 负责定位（fixed + CSS -translate-x-1/2 居中），
@@ -335,7 +294,7 @@ const PanelStage = memo(function PanelStage({
         initial={false}
         animate={{ width: shellWidth }}
         transition={reduceMotion ? { duration: 0 } : motionSpring}
-        className={`cl-stage pointer-events-auto relative overflow-hidden rounded-[18px] ${shellAnim}${switching ? " cl-switching" : ""}`}
+        className={`cl-stage pointer-events-auto relative overflow-hidden rounded-[18px] ${shellAnim}`}
         style={{
           transformOrigin: "bottom center",
           willChange: "transform",
@@ -359,38 +318,21 @@ const PanelStage = memo(function PanelStage({
                 : { duration: 0.22, ease: EXIT_EASE }
           }
         >
-          {/* 内建视图互切：新视图内容 .content-focus 模糊聚拢、旧视图 .view-exit 钉位模糊散场。
-              不加 initial={false}——首次挂载（面板打开）也要让内容模糊聚拢进来，
-              与「开=容器拉伸 + 内容模糊聚拢」的语言一致（CSS 动画，无挂载帧 setState）。
-              v8.6.25：content-focus 从本包裹层（玻璃卡【祖先】）下沉到玻璃卡内层——
-              祖先的 opacity/filter 会成 backdrop root，把玻璃卡自身的磨砂在入场
-              （content-focus 0.32s）与关闭（content-defocus 级联）整窗杀成纯色底
-              （用户实测「打开面板时模糊消失」；录屏能量曲线实锤：面板出生 0.3s 内
-              透过面板的壁纸边缘能量≈锐利基线，settled 后才落到磨砂值） */}
-          <AnimatePresence>
-            {panel != null && phase !== "closed" && (
-              <PresenceClass
-                key={panel}
-                ref={measureRef}
-                /* 退场视觉走 CSS .view-exit（absolute 钉位 !important + z0 压底 + 模糊散场）；
-                   卸载由 PresenceClass 定时器接管。关闭路径不走本类：壳体 .panel-sink
-                   级联令玻璃内层 .content-focus 模糊散场（globals.css）。
-                   v8.6.27：view-top（relative+z1）常驻——入场卡恒绘制在退场卡之上，
-                   互切层序与 AnimatePresence 退场子元素的 DOM 位次无关 */
-                exitClass="view-exit"
-                duration={0.2}
-                className="flow-root view-top"
-              >
-                <div className="glass-card cl-panel panel-rise relative rounded-2xl shadow-2xl" data-panel={panel}>
-                  {/* v8.6.25：内容层移入玻璃内部（后代 filter/opacity 不触玻璃采样链，
-                      磨砂开合全程在线——glass-card 家族同款语言，见 ChangelogDialog/LinkDialog）。
-                      panel-rise 上卡本体：底色 alpha 凝入 0.3s，与内容 content-focus 0.32s
-                      感知同步（雾先起、板随行）；关闭经 .panel-sink .glass-card 级联
-                      （底色渐隐 + blur 20→1px 收尾，感知同步律关=blur 驻留）。
-                      p-4 从卡移到内容层：绝对定位子元素（关闭按钮）的包含块从
-                      「卡 padding 盒」平移为「内容层 padding 盒」，两者矩形逐像素等位
-                      （= 卡 border 盒 - 1px border），按钮几何不变。 */}
-                  <div className="content-focus relative p-4">
+          {/* v8.6.29 互切拉伸律：内建玻璃卡 open 相位恒挂载（互切不重挂=同一张玻璃，
+              「一张玻璃卡换内容」结构保证）；内容层 key=session+panel 换装重挂——
+              旧内容同帧卸载（零残留结构性保证，不再依赖硬藏规则），新内容播
+              .cl-panel-content 简单淡入（0.3s，无模糊——动效主角是高度/宽度弹簧拉伸）。
+              测高 ref 挂恒定包裹层：RO 跟踪内容换装的高度变化驱动高度盒弹簧。
+              displayPanel：closing 相位渲染 lastPanel 旧内容播散场，其余相位=panel。
+              v8.6.25 律保留：内容层在玻璃卡内部（后代 opacity 不触磨砂采样链），
+              p-4 在内容层（关闭按钮包含块矩形逐像素等位）。 */}
+          {displayPanel != null && phase !== "closed" && (
+            <div ref={measureRef} className="flow-root">
+              <div className="glass-card cl-panel panel-rise relative rounded-2xl shadow-2xl" data-panel={displayPanel}>
+                {/* panel-rise 上卡本体（仅挂载帧播：首开/部件→内建互切；互切不重挂
+                    不重播=玻璃恒定）；关闭经 .panel-sink .glass-card 级联
+                    （底色渐隐 + blur 20→1px 收尾，感知同步律关=blur 驻留）。 */}
+                <div key={`${session}-${displayPanel}`} className="cl-panel-content relative p-4">
                   {/* 关闭按钮固定右上，不随内容重绘 */}
                   <button
                     type="button"
@@ -410,19 +352,19 @@ const PanelStage = memo(function PanelStage({
 
                   <header className="mb-3 flex items-center justify-between px-1 pr-7">
                     <h2 className="text-xs font-normal tracking-[0.22em] text-zinc-500 dark:text-zinc-400">
-                      {PANEL_TITLES[panel]}
+                      {PANEL_TITLES[displayPanel]}
                     </h2>
                   </header>
 
-                  {panel === "weather" && (
+                  {displayPanel === "weather" && (
                     <WeatherPanel weather={weather} place={place} onPlaceChange={onPlaceChange} />
                   )}
-                  {panel === "todo" && <TodoPanel todos={todos} setTodos={setTodos} />}
-                  {panel === "note" && <NotePanel note={note} onCommit={commitNote} />}
-                  {panel === "pomodoro" && (
+                  {displayPanel === "todo" && <TodoPanel todos={todos} setTodos={setTodos} />}
+                  {displayPanel === "note" && <NotePanel note={note} onCommit={commitNote} />}
+                  {displayPanel === "pomodoro" && (
                     <PomodoroPanel settings={settings} onPatch={patchSettings} />
                   )}
-                  {panel === "settings" && (
+                  {displayPanel === "settings" && (
                     <SettingsPanel
                       settings={settings}
                       onPatch={patchSettings}
@@ -434,21 +376,20 @@ const PanelStage = memo(function PanelStage({
                     />
                   )}
                 </div>
-                </div>
-              </PresenceClass>
-            )}
-          </AnimatePresence>
+              </div>
+            </div>
+          )}
         </motion.div>
 
         {/* ---------- dock 部件视图（v2.0.0 常驻预热 overlay）----------
          * 与高度盒同壳（壳体 overflow-hidden 裁剪），absolute top-0 高度自报，
          * 高度盒目标高度 = 部件自报高度，同高同弹簧；iframe 节点随页面常驻
          * （沙箱 srcdoc 只注入一次），SMTC 订阅/封面/歌词后台持续更新——
-         * 打开零白屏、零重载。激活重播 .content-focus（模糊聚拢）、切走挂
-         * .view-exit（模糊散场）、关闭由壳体 .panel-sink 级联——与内建同语言。 */}
+         * 打开零白屏、零重载。激活重播 .content-focus-solid（模糊聚拢）+ boot-fade
+         * 白帧罩；切走同帧 hidden（v8.6.29 零残留律）、关闭由壳体 .panel-sink
+         * 级联散场——与内建同语言。 */}
         {dockWidgets.map((w) => {
           const isActive = phase !== "closed" && dockWidgetOpen === w.key;
-          const isLeaving = leavingWidgets.has(w.key);
           const h = Math.max(WIDGET_H_MIN, Math.round(widgetHeights[w.key] ?? w.height));
           return (
             <div
@@ -461,20 +402,18 @@ const PanelStage = memo(function PanelStage({
                 if (el) widgetViewRefs.current.set(w.key, el);
                 else widgetViewRefs.current.delete(w.key);
               }}
-              className={`cl-dockwidget content-focus-solid ${isLeaving ? "view-exit" : ""}`}
+              className="cl-dockwidget content-focus-solid"
               style={{
                 position: "absolute",
                 left: 0,
                 right: 0,
                 top: 0,
                 height: h,
-                /* v2.0.1：visibility 语义回旧（active/退场/刚关的视图可见，其余硬藏）；
-                   重激活白帧由 boot-fade 同色罩盖住（见 globals.css），
-                   aria-hidden + pointer-events 承担可及性与交互语义 */
+                /* v8.6.29：visibility = active / closing 收尾可见，其余硬藏——切走
+                   同帧隐没（零残留结构性保证）；重激活白帧由 boot-fade 同色罩
+                   盖住（见 globals.css），aria-hidden + pointer-events 承担可及性 */
                 visibility:
-                  isActive ||
-                  isLeaving ||
-                  (phase === "closing" && lastOpenWidgetRef.current === w.key)
+                  isActive || (phase === "closing" && lastOpenWidgetRef.current === w.key)
                     ? "visible"
                     : "hidden",
                 pointerEvents: isActive ? "auto" : "none",

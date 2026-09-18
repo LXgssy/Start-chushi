@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.6.29",
+    date: "2026-09-18",
+    title: "面板切换动画全面重写：回归最初的拉伸动效",
+    channel: "page",
+    highlights: [
+      "切换面板回到最纯粹的拉伸语言：面板盒子平滑伸缩到新尺寸，动效干净利落",
+      "切换瞬间旧面板同帧让位，过场里不再有模糊、叠影与残迹",
+      "整段切换动画代码删旧重写：磨砂玻璃全程只有一张、恒定不闪",
+    ],
+  },
+  {
     version: "8.6.28",
     date: "2026-09-18",
     title: "互切内容零残留：切换不再看见上一个面板",

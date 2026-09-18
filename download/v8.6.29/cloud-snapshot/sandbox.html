@@ -1,0 +1,15 @@
+<!doctype html>
+<!-- 「初始」沙箱 JS 运行时宿主页（唯一源隔离文档）。
+     网页版：经 sandbox="allow-scripts" iframe 加载 → 不透明源，读不到主文档/localStorage/Cookie；
+     扩展版：manifest "sandbox.pages" 声明 → 无任何扩展 API（chrome.* 不可用），CSP 允许 eval。
+     两端共用同一份运行时，行为一致。逻辑见同目录 sandbox.js（外链形式，扩展版 CSP 无需 unsafe-inline）。 -->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="robots" content="noindex" />
+    <title>初始 · 沙箱</title>
+  </head>
+  <body>
+    <script src="sandbox.js"></script>
+  </body>
+</html>

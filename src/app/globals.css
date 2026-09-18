@@ -743,6 +743,30 @@ html.cs-drawer-closing .cl-fade-leaf {
   }
 }
 
+/* ---------- v8.6.29 互切拉伸律：内容层过场（dock 面板专用）----------
+   互切 = 一张玻璃卡换内容（结构保证，见 Dock.tsx PanelStage）：旧内容同帧
+   卸载（零残留结构性保证，无残留窗），新内容播简单淡入——无模糊、无变换，
+   动效主角回归高度/宽度 px 弹簧「拉伸」。关闭经 .panel-sink 级联反向淡出
+   （与玻璃 out-kf 同窗）。⚠ 内容层是玻璃卡【后代】（非玻璃自身、非祖先），
+   opacity 动画不触磨砂采样链（v8.6.25 下沉律）；倒计时预算 0.3s 与玻璃凝入
+   panel-fade 同参，感知同步。 */
+@keyframes panel-content-in {
+  from {
+    opacity: 0;
+  }
+}
+.cl-panel-content {
+  animation: panel-content-in calc(0.3s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+@keyframes panel-content-out {
+  to {
+    opacity: 0;
+  }
+}
+.panel-sink .cl-panel-content {
+  animation: panel-content-out 0.18s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
 /* ---------- 玻璃层进显影（v1.0.8）：遮罩/对话框卡片的 opacity 入场由 CSS 承载
    （framer v12 WAAPI 入场空窗律，同 panel-fade）。⚠ 必须声明在本文件退场区之前：
    退场帧元素同时持有显影类与退场类（同特异性后者胜），退场类在后才能覆盖显影 */
@@ -924,7 +948,8 @@ html.cs-drawer-closing .cl-fade-leaf {
      短暂失霜，可接受（intro-rise 同律）。
    ================================================================ */
 
-/* 内容进：模糊聚拢（开面板 / 面板互切的新视图） */
+/* 内容进：模糊聚拢（指令面板/预设弹窗视图；dock 面板 v8.6.29 起走
+   .cl-panel-content 简单淡入，见互切拉伸律区） */
 @keyframes content-focus {
   from {
     opacity: 0;
@@ -1008,29 +1033,12 @@ html.cs-drawer-closing .cl-fade-leaf {
    ⚠ 声明顺序律：必须在 .content-focus 之后——互切退场帧旧视图同时持有两个
    动画类（flow-root content-focus view-exit），同特异性后者胜，退场才不会被
    入场动画覆盖 */
-@keyframes view-defocus {
-  from {
-    opacity: 1;
-    filter: blur(0);
-  }
-  to {
-    opacity: 0;
-    filter: blur(9px);
-  }
-}
-/* v8.6.26 互切散场通道下沉（用户实测「切换面板时磨砂闪动」根因）：
-   view-defocus（opacity+filter）原挂在 view-exit 上=玻璃卡【祖先】——
-   祖先 opacity<1 / filter≠none 成 backdrop root，旧卡磨砂整窗死亡退化为
-   纯色底（v8.6.25 面板出生窗同源毒链）。散场视觉全部下沉：
-   包裹层只钉位；玻璃卡走底色/磨砂 alpha 同收（glass-card-out-kf 0.2s 版，
-   blur 20→1px 感知同步律关=驻留）；内容层走 content-defocus。
-   部件视图的 view-exit 落在卡自身（.cl-dockwidget，实色 iframe 底无磨砂
-   可杀），保留原模糊散场语言。⚠ 级联须在 .panel-rise 之后声明
+/* 视图交叉溶解退场（v8.6.29 起 dock 面板不走此通道——互切拉伸律「一张玻璃卡
+   换内容」，旧内容同帧卸载，见 Dock.tsx PanelStage；指令面板/预设弹窗视图沿用）：
+   v8.6.26 律保留：包裹层只钉位（opacity/filter 会成 backdrop root 杀磨砂），
+   散场视觉下沉到玻璃卡/内容层级联。⚠ 级联须在 .panel-rise 之后声明
    （同 animation 属性互斥，特异性 (0,2,0) 胜 (0,1,0)）。 */
 .view-exit {
-  /* v8.6.27：!important 双保险——内建视图 wrapper 恒带 .view-top（relative+z1），
-     钉位必须压过它；z-index:0 把退场卡压到入场卡（.view-top z1）之下，
-     与 DOM 位次无关（AnimatePresence 退场子元素渲染顺序不保证在前） */
   position: absolute !important;
   z-index: 0 !important;
   left: 0;
@@ -1038,55 +1046,19 @@ html.cs-drawer-closing .cl-fade-leaf {
   top: 0;
   pointer-events: none;
 }
-.cl-dockwidget.view-exit {
-  animation: view-defocus 0.2s cubic-bezier(0.4, 0, 1, 1) forwards;
-}
 .view-exit .glass-card {
   animation: glass-card-out-kf 0.2s cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 .view-exit .content-focus {
   animation: content-defocus 0.16s cubic-bezier(0.4, 0, 1, 1) forwards;
 }
-/* v8.6.27 互切单玻璃律（用户实测「切换动画会叠加两个面板」根因）：
-   互切窗内退场卡（view-exit，定位元素恒绘制在文档流新卡之上）玻璃在上渐隐 +
-   入场卡（panel-rise）玻璃在下渐显，双玻璃卡同窗半透叠置 = 双面板叠影。
-   修法 = 互切窗（壳挂 .cl-switching）内整卡动画双停：
-   入场卡 panel-fade 停 → 玻璃底/描边/投影帧 0 满值即时就位（不渐显）；
-   退场卡 glass-card-out-kf 停 → 玻璃底全程不散（被入场卡不透明底盖住，
-   不透明度守恒；暴露带随高度弹簧收拢被壳体 overflow-hidden 裁剪，卸载帧
-   无跳变）；内容层照常交叉溶解（content-defocus 散场 / content-focus 聚拢
-   不受影响）——「一块玻璃换内容」取代「两块玻璃互相溶解」。
-   关闭路径不受影响：close 同帧摘 cl-switching（switching 定律 false），
-   旧卡 out-kf 照播（panel-sink 溶解语言保持 v8.6.24 感知同步律）。
-   ⚠ 特异性 (0,3,0) 压过 .view-exit .glass-card (0,2,0) 与 .panel-rise (0,1,0)。 */
-.view-top {
-  position: relative;
-  z-index: 1;
-}
-.cl-switching .glass-card.panel-rise {
-  animation: none;
-}
-/* v8.6.28 互切内容零残留律（真机录屏 2.33-2.40s 实锤：互切窗内旧内容走
-   content-defocus 0.16s 模糊散场 = 透过入场卡半透磨砂玻璃仍见鬼影残迹
-   0.16-0.2s，用户反馈「还是有上一个面板残留」）。玻璃单律只停了整卡动画，
-   内容层交叉溶解保留 = 残影仍在。本律把互切窗内退场视图整个同帧隐没：
-   部件散场动画（.cl-dockwidget.view-exit 的 view-defocus，同特异性靠源
-   顺序在后取胜）与内容散场级联（.view-exit .content-focus 的
-   content-defocus，特异性 (0,3,0) 压 (0,2,0)）双停 + opacity 0 +
-   visibility hidden——退场卡在 DOM 中驻留至 PresenceClass 定时器卸载
-   （0.35s）但恒不可见，「一块玻璃换内容」读作瞬换 + 新内容模糊聚拢，
-   交叉溶解残余归零。关闭路径不经 cl-switching（switching 同帧归 false）
-   panel-sink 溶解语言原样；首开路径同不受影响。⚠ visibility 须
-   !important——部件视图退场期内联 visibility:visible（isLeaving），
-   非 !important 压不过内联样式。 */
-.cl-switching .view-exit {
-  animation: none;
-  opacity: 0;
-  visibility: hidden !important;
-}
-.cl-switching .view-exit .content-focus {
-  animation: none;
-}
+/* v8.6.29 退役注记：.view-top 双层钉位 / .cl-switching 整卡动画双停与退场
+   硬藏 / .cl-dockwidget.view-exit（view-defocus 模糊散场）随互切拉伸律整体
+   删除——v8.6.25-28 的补丁链建立在「互切=整卡重挂、两卡交叉溶解」的错误
+   结构上，只能一层层打补丁（下沉→双停→硬藏）且各有残余。新结构（Dock.tsx
+   PanelStage）= 玻璃卡 open 相位恒挂载 + 内容层 keyed 同帧换装：单玻璃、
+   零残留由结构保证，钉位/双停/硬藏不再需要。指令面板/预设弹窗的 view-exit
+   交叉溶解通道保留（见上，弹窗互切未见用户反馈问题，不动）。 */
 @media (prefers-reduced-motion: reduce) {
   .content-focus {
     animation: none;
@@ -1100,6 +1072,19 @@ html.cs-drawer-closing .cl-fade-leaf {
   }
   .panel-sink .content-focus,
   .dialog-sink .content-focus {
+    animation: none;
+    opacity: 0;
+  }
+  /* v8.6.29：互切拉伸律reduce 兜底——壳体 closing 恒挂 panel-sink（JS 不再
+     分支），散场级联在此即帧隐没（玻璃/内容直接 opacity 0，不播关键帧） */
+  .cl-panel-content {
+    animation: none;
+  }
+  .panel-sink .glass-card {
+    animation: none;
+    opacity: 0;
+  }
+  .panel-sink .cl-panel-content {
     animation: none;
     opacity: 0;
   }
