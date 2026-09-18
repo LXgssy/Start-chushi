@@ -36,7 +36,9 @@ export function useMorphHeight(armDelay = 500) {
       const attach = () => {
         const update = () => {
           if (!el.isConnected) return;
-          const h = el.offsetHeight;
+          /* v8.6.31：分数精度测高（rect.height）取代整数 offsetHeight——落定
+             目标高与卡真实高亚像素精确贴合，消除 0.4-0.6px 落定底缝 */
+          const h = el.getBoundingClientRect().height;
           if (h <= 0) return; /* 卸载帧 RO 回调 0 尺寸：不得毒化 contentH */
           setContentH(h);
         };

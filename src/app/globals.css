@@ -743,16 +743,26 @@ html.cs-drawer-closing .cl-fade-leaf {
   }
 }
 
-/* ---------- v8.6.29 互切拉伸律：内容层过场（dock 面板专用）----------
+/* ---------- v8.6.31 内容层过场（dock 面板专用）：模糊聚拢回归 ----------
    互切 = 一张玻璃卡换内容（结构保证，见 Dock.tsx PanelStage）：旧内容同帧
-   卸载（零残留结构性保证，无残留窗），新内容播简单淡入——无模糊、无变换，
-   动效主角回归高度/宽度 px 弹簧「拉伸」。关闭经 .panel-sink 级联反向淡出
-   （与玻璃 out-kf 同窗）。⚠ 内容层是玻璃卡【后代】（非玻璃自身、非祖先），
-   opacity 动画不触磨砂采样链（v8.6.25 下沉律）；倒计时预算 0.3s 与玻璃凝入
-   panel-fade 同参，感知同步。 */
+   卸载（零残留结构性保证，无残留窗），新内容播模糊聚拢淡入（blur 10px→0）。
+   v8.6.29 重写时曾收窄为纯 opacity 淡入，用户实测「切换面板时子元素的模糊
+   过渡没了」——v8.6.31 回归全 app 唯一内容过场词汇「模糊聚拢」（与
+   content-focus / intro-rise / 禅模式雾化同源 blur(10px)），动效主角仍是
+   高度/宽度 px 弹簧「拉伸」。关闭经 .panel-sink 级联反向淡出（与玻璃 out-kf
+   同窗，关闭语言原样）。
+   ⚠ 内容层是玻璃卡【后代】（非玻璃自身、非祖先），opacity/filter 动画不触
+   磨砂采样链（v8.6.25 下沉律；后代 filter 不改变玻璃 backdrop 采样面）；
+   0.3s 过场内内容盒内部玻璃片段短暂失霜可接受（intro-rise 同律）；倒计时
+   预算 0.3s 与玻璃凝入 panel-fade 同参，感知同步。 */
 @keyframes panel-content-in {
   from {
     opacity: 0;
+    filter: blur(10px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
   }
 }
 .cl-panel-content {
@@ -948,8 +958,8 @@ html.cs-drawer-closing .cl-fade-leaf {
      短暂失霜，可接受（intro-rise 同律）。
    ================================================================ */
 
-/* 内容进：模糊聚拢（指令面板/预设弹窗视图；dock 面板 v8.6.29 起走
-   .cl-panel-content 简单淡入，见互切拉伸律区） */
+/* 内容进：模糊聚拢（指令面板/预设弹窗视图；dock 面板 .cl-panel-content
+   同词汇模糊聚拢——v8.6.31 回归，见内容层过场区） */
 @keyframes content-focus {
   from {
     opacity: 0;

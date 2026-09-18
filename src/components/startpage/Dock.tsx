@@ -101,7 +101,7 @@ const PANEL_CARD_BORDER = 2;
 
 /** 面板打开 / 切换 / 关闭 = 同一套高度形变语言（用户认可的「拉伸」）：
  *  打开：高度盒从 0 弹簧展开到内容高度（initial height 0）+ 卡片 .panel-rise 玻璃凝入；
- *  切换：高度盒弹簧到新内容高度 + 同一张玻璃卡直接换内容（新内容 .cl-panel-content 简单淡入）；
+ *  切换：高度盒弹簧到新内容高度 + 同一张玻璃卡直接换内容（新内容 .cl-panel-content 模糊聚拢淡入）；
  *  关闭：高度盒折回 0（framer 高度弹簧 0.22s）+ 壳体 .panel-sink + 玻璃/内容级联散场，与打开严格对称。
  *
  *  ---------- v8.6.29 互切拉伸律（用户指令「切换动画全面重写，恢复最初的拉伸动效」）----------
@@ -112,8 +112,8 @@ const PANEL_CARD_BORDER = 2;
  *  ① 内建玻璃卡 open 相位恒挂载（不再随面板 key 重挂）——互切前后是同一个 DOM
  *     节点，玻璃底/描边/投影零动画，双玻璃交叉溶解从结构上不可能发生；
  *  ② 内容层 keyed 重挂（key=session+panel）：旧内容同帧卸载（零残留结构性保证，
- *     不再依赖硬藏规则），新内容播 .cl-panel-content 简单淡入（0.3s，无模糊）；
- *  ③ 动效主角回归高度/宽度 px 弹簧（拉伸），内容过场回归最朴素的单 fade；
+ *     不再依赖硬藏规则），新内容播 .cl-panel-content 模糊聚拢淡入（0.3s，blur 10px→0）；
+ *  ③ 动效主角回归高度/宽度 px 弹簧（拉伸），内容过场用全 app 统一的模糊聚拢词汇；
  *  ④ 关闭相位（closing）卡片保持挂载渲染 lastPanel 旧内容播散场，SINK_MS 后卸载；
  *  ⑤ 部件视图切走同帧 visibility:hidden（leavingWidgets/view-exit/view-defocus 退役），
  *     关闭相位经 lastOpenWidgetRef 保持可见播 .panel-sink 级联散场。
@@ -294,16 +294,34 @@ const PanelStage = memo(function PanelStage({
    * 真实内容高，minHeight 锁在玻璃卡上不会毒化测高（否则窗口目标=锁值死锁）。 */
   const [morphMinH, setMorphMinH] = useState<number | null>(null);
   const lastMorphAtRef = useRef(0);
-  const [prevPanel, setPrevPanel] = useState<PanelId>(null);
-  if (displayPanel !== prevPanel) {
-    setPrevPanel(displayPanel);
+  /* ---------- v8.6.31 底锚检测改版：渲染期 setState → 提交期 useLayoutEffect ----------
+   * 原实现（v8.6.30）在渲染期同步 setPrevPanel + setMorphMinH（render-phase update）。
+   * 探针 MORPHLOG 实锤的竞态：换装帧「渲染期 setState」与「ref 回调同步测高
+   * setContentH」同帧竞逐，React 18 会静默丢失 render-phase update——锁值 256 已
+   * 写进 DOM（min-height: 256px 见证）却在 1ms 后被无 setter 调用的重渲回退 null，
+   * 底锚锁形同虚设，收缩方向复现「底部收缩到卡长再复位」（用户第 26 点原始病灶）。
+   * v8.6.31 内容层模糊聚拢（blur 关键帧）改变提交时序，使该潜伏竞态 100% 触发。
+   * 修复：检测挪进 useLayoutEffect（普通更新队列不可能被静默丢弃，且 setState
+   * 同步冲刷 pre-paint 无闪烁窗）；prevPanel 降级为 ref（不再触发额外渲染）；
+   * contentH 以渲染体镜像 ref 供 effect 读取——layout effect 运行于「重测高渲染」
+   * 之前，读到的仍是换装前高度（正确锁值）。 */
+  const prevMorphPanelRef = useRef<PanelId>(null);
+  const contentHMirrorRef = useRef<number | null>(null);
+  contentHMirrorRef.current = contentH;
+  useLayoutEffect(() => {
+    if (displayPanel === prevMorphPanelRef.current) return;
+    const from = prevMorphPanelRef.current;
+    prevMorphPanelRef.current = displayPanel;
     if (displayPanel == null) {
       setMorphMinH(null);
-    } else if (prevPanel != null && phase === "open" && contentH != null) {
-      lastMorphAtRef.current = performance.now();
-      setMorphMinH(contentH + PANEL_CARD_BORDER);
+    } else if (from != null && phase === "open") {
+      const base = contentHMirrorRef.current;
+      if (base != null) {
+        lastMorphAtRef.current = performance.now();
+        setMorphMinH(base + PANEL_CARD_BORDER);
+      }
     }
-  }
+  }, [displayPanel, phase]);
 
   return (
     /* 面板浮层：外层静态 wrapper 负责定位（fixed + CSS -translate-x-1/2 居中），
@@ -355,7 +373,7 @@ const PanelStage = memo(function PanelStage({
           {/* v8.6.29 互切拉伸律：内建玻璃卡 open 相位恒挂载（互切不重挂=同一张玻璃，
               「一张玻璃卡换内容」结构保证）；内容层 key=session+panel 换装重挂——
               旧内容同帧卸载（零残留结构性保证，不再依赖硬藏规则），新内容播
-              .cl-panel-content 简单淡入（0.3s，无模糊——动效主角是高度/宽度弹簧拉伸）。
+              .cl-panel-content 模糊聚拢淡入（0.3s，blur 10px→0——动效主角是高度/宽度弹簧拉伸）。
               测高 ref v8.6.30 挪挂 keyed 内容层（cl-panel-content）：RO 只测真实
               内容高、不被底锚 minHeight 毒化；重挂帧 ref 回调同步测高，弹簧零迟滞。
               displayPanel：closing 相位渲染 lastPanel 旧内容播散场，其余相位=panel。
@@ -366,7 +384,7 @@ const PanelStage = memo(function PanelStage({
               <div
                 className="glass-card cl-panel panel-rise relative rounded-2xl shadow-2xl"
                 data-panel={displayPanel}
-                style={{ minHeight: morphMinH != null ? Math.round(morphMinH) : undefined }}
+                style={{ minHeight: morphMinH != null ? morphMinH : undefined }}
               >
                 {/* panel-rise 上卡本体（仅挂载帧播：首开/部件→内建互切；互切不重挂
                     不重播=玻璃恒定）；关闭经 .panel-sink .glass-card 级联
