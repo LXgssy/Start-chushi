@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.6.31",
+    date: "2026-09-18",
+    title: "面板切换模糊聚拢回归：内容过渡重新带上模糊",
+    channel: "page",
+    highlights: [
+      "切换面板时，新内容恢复「模糊聚拢」的浮现方式：由模糊逐渐聚成清晰，过渡更柔和自然",
+      "面板内容过场与指令面板、弹窗统一为同一种模糊语言",
+    ],
+  },
+  {
     version: "8.6.30",
     date: "2026-09-18",
     title: "面板切换底锚律：收缩方向回归真正的拉伸",
