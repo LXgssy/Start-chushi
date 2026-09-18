@@ -125,17 +125,15 @@ function TileIcon({
    *   霜层与内容层是兄弟：内容层的 filter 动画压不到霜层的 backdrop-filter。
    *   translateZ(0)/backfaceVisibility 合成提示归位（v8.6.6 撤它只因与本体
    *   filter 动画相克；v8.6.7 本体不带 filter），黑边修复恢复。
-   *   v8.6.11：投影仍长在包裹层本体（shadow-sm）——v8.6.10 曾搬到独立子层
-   *   换取淡出通道，但子层会被单独合成，常驻形态悬停浮起时投影与磁贴错位；
-   *   现在淡出改走 box-shadow 自身过渡（globals.css cs-drawer-closing）。
-   *   v8.6.16：shadow-sm 改为 .tile-shadow（浅/深两态定制投影，浅色加强
-   *   塑体积；淡出律不受影响——cs-drawer-closing 的 box-shadow:none 特异性
-   *   仍压过类定义）。 */
+   *   v8.6.25：投影整体退役（用户指令「删除快捷服务的图标底下的阴影」）——
+   *   .tile-shadow 类、intro-tile-shadow 入场通道、cs-drawer-closing 投影淡出
+   *   全部拆除，磁贴体积全权交还描边+高光+霜层着色（拖拽浮层的 thick shadow
+   *   属于拖拽手感反馈，不在本律范围，保留）。 */
   return (
     <span
       aria-hidden
       className={
-        "relative block tile-shadow tile-shell " +
+        "relative block tile-shell " +
         (sm ? "h-14 w-14 rounded-[18px] " : "h-16 w-16 rounded-[20px] ") +
         (intro ? "link-intro-tile" : "")
       }
