@@ -583,3 +583,22 @@ Stage Summary:
 - v8.6.29 全链路闭环：面板切换动画全面重写落地——互切=一张玻璃卡同帧换内容+高度/宽度弹簧拉伸（最初的拉伸动效），残留/叠影/闪动从结构上不可能；老补丁链（view-top/cl-switching/view-defocus/leavingWidgets/content-focus dock 路径）整体退役；弹窗互切语言原样；首开/关闭语言原样（玻璃 out-kf 感知同步律保留）
 - 分发：全改动在页面层，云推 ≤6h 到存量装机，无需换 crx
 - 新律：①互切零残留靠结构（同卡换内容同帧卸载）不靠 CSS 硬藏——凡是「用补丁止损错误结构」的链路，重写优于第七次补丁 ②重写类改动的残留检查=定义点+引用点双查 ③测高 ref 挂恒定包裹层，keyed 内容重挂不重连 RO
+---
+Task ID: 131
+Agent: main (Super Z)
+Task: 用户第 26 点反馈「b(高)→a(矮) 切换时底部收缩到卡片长度再复位，明显逻辑不对，应该底边不动上面收缩」——v8.6.30 互切底锚律 + 云推
+
+Work Log:
+- 【根因】玻璃卡在高度盒内【顶部对齐】，v8.6.29 换装帧卡高随新内容瞬变：shrink 方向玻璃底边瞬收（用户实测「底部收缩到卡片长度」）→ 窗口弹簧收缩、卡贴窗口顶整体悬空下降复位（「保持高度然后复位」）；grow 方向卡底溢出被壳体底缘（wrapper fixed bottom 恒定锚定 dock 上方）裁掉，恰好呈现完美拉伸——方向不对称。git 考古 v1.0.8（bb1e0d6）确认同 wrapper 锚定结构，根因锁定在 v8.6.29 换装链本身
+- 【互切底锚律】Dock.tsx PanelStage：换装帧渲染期检测（prevAnyActive 同律，prevPanel useState 比对 displayPanel）锁玻璃卡 minHeight=换装前窗口高（contentH + PANEL_CARD_BORDER=卡 border 2px）——弹簧期卡高被撑住、贴窗口顶平滑下降，底部溢出段被壳底缘裁掉：玻璃底边恒定不动、面板从顶部平滑收缩；高度盒 onAnimationComplete 摘锁，卡高回落=内容高圆角复位；closed 相位（displayPanel=null）摘锁防旧高泄入下次首开；contentH 未武装（首开 500ms 内）不锁退化 auto 直就位
+- 【双坑排查实录】①产物验证假象——Bash 工具 stdout 回传层吃 "[m" 字节序列（const [morphMinH 显示成 const orphMinH），Edit/python -c 修「坏行」全部撞假象空转，最终 ord 码逐字符输出（免疫字节吞噬）实锤源码完好；真凶=Next 增量缓存陈旧（Dock chunk 静默沿用 v8.6.29），rm -rf .next 全清重建后底锚代码进产物（onAnimationComplete 特征验证）②framer v12 对「animate 目标无变化的重渲」边缘触发 onAnimationComplete——换装帧刚设的底锚锁被同帧摘掉（diag 实测 minH 全程空+卡高瞬变悬空 62px），时间闸（换装帧后 150ms 内禁摘）修复，真弹簧完成 464ms 正常摘锁圆角复位
+- 【帧级实证（diag 62 帧×2 程）】shrink：换装帧 minH=256px inline 在位、卡高 256 恒定、壳底 640 恒定、卡底 640→702 递增（溢出被壳底裁）、壳高 256→194 平滑收缩=底边不动上面收缩；落定摘锁后卡=壳 256 精确贴合；grow：落定 256 贴合，弹簧语言原样
+- 【测高链适配】measureRef 挪挂 keyed 内容层（cl-panel-content，offsetHeight=真实内容高）——RO 只测内容高不被 minHeight 毒化死锁；换装重挂帧 ref 回调同步测高弹簧零迟滞；窗口目标高补卡 border 2px 落定卡=壳精确贴合（border 底线不被壳体裁）
+- 【探针】probe-v8630（sed 克隆 8.6.29→8.6.30 + TL16f 插入）：底锚律行为门=壳体底缘恒定 ≤2px + 玻璃卡底永不悬空（gap≤0.5px，getBoundingClientRect 不受 overflow 裁剪）+ minHeight 底锚锁 inline 在位 + frames≥8（抗 headless rAF 节流 flake）；81 PASS / 1 FAIL——T6a 纱罩 blur 帧级见证（bfMin=27.7）存量 flake 第七次实证（v8.6.25/26/27/28/29 同源，本轮未触纱罩链路非回归）
+- 【坑录】①Bash stdout 回传吃字节序列——「看到的坏行」可能不存在，文件状态判定必须 ord 码免疫输出；用源码标识符搜 minified 产物永远 MISS，要用 minify 保留的 JSX 属性名（onAnimationComplete）做特征验证 ②管道 exit code 假阳性：rg|head && echo 的 FOUND 判定不可信，rg 要独立断言 ③改码后 .next 必须全清——Next 增量缓存对源码变化的漏检是静默的，比代码 bug 更难查（本轮空转一轮的真正元凶）
+- 【发布】main 4494be5（4 文件对账无夹带：Dock.tsx 底锚律/VERSION/changelog 插条/probe-v8630 新增）→ 云推 gh-pages：version.json v=8.6.30、73 文件尺寸+SHA256 ALL-GREEN、curl 线上验证通过
+
+Stage Summary:
+- v8.6.30 全链路闭环：面板切换两向底锚对称——b(高)→a(矮) 玻璃底边稳贴 dock 从顶部平滑收缩（不再先缩底边再整体悬空落位），a(矮)→b(高) 保持向上拉伸；v8.6.29 零残留/单玻璃/同卡换装/一张玻璃换内容律全部原样保留
+- 分发：页面层改动，云推 ≤6h 到存量装机，无需换 crx
+- 新律：①「文件坏行」判定必须 ord 码免疫输出——显示层字节吞噬假象可让排查空转一整轮 ②改码后 .next 全清重建——增量缓存静默陈旧是比代码 bug 更隐蔽的失败 ③minified 产物验证用 minify 保留属性名，不用源码标识符 ④framer onAnimationComplete 有边缘触发场景，摘锁类回调须加时间闸/状态闸防御
