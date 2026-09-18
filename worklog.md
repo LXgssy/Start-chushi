@@ -481,3 +481,24 @@ Stage Summary:
 - v8.6.24 全链路闭环：感知同步律落地——开=模糊先行凝聚、白底随后；关=模糊驻留、底色先散、尾段同收；壁纸先于玻璃件就位；更新日志/指令面板/抽屉纱罩/dock 入场四路动画时序全部同步
 - 分发：全改动在页面层，云推 ≤6h 到存量装机，无需换 crx
 - 新律：①玻璃件入退场双通道感知同步（blur 领先/驻留站点），同曲线同时长=必失序 ②hold 值必须与元素自然值同构同值，经 --veil-hold-bf 逐元素适配 ③无自身退场通道的纱内卡片由 .veil-out 级联托管，:not 排除专属通道 ④首载壁纸必须先于玻璃件就位（bootUrlRef 450ms） ⑤探针行为见证优先 transition 事件（确定性）而非 rAF 值采样（负载漏窗）
+---
+Task ID: 126
+Agent: main (Super Z)
+Task: 用户视频四点反馈「快捷图标磨砂底板黑色先入场/dock磨砂玻璃优先级高于入场渐显/dock功能面板打开时模糊消失/删除图标底下阴影」——v8.6.25 磨砂与内容全同拍 + 云推
+
+Work Log:
+- 【视频帧取证】用户 33s 录屏（2560×1600@60）抽帧 60+ 张：①e_19.0/e_20.75 证实入场中间态=灰黑磁贴底板+dock 白条先坐在洗白页面上（图标未显）；②mic_23.6-23.8 证实图标底下有明显投影；③面板出生窗能量曲线（panel-blur-energy.py，面板区相邻像素差分）：出生 0.3s 内边缘能量 3.4-3.9≈锐利壁纸基线（23.75 无面板=3.37），settled 后落到 1.8≈磨砂值——「打开面板时模糊消失」0.3s 死窗量化实锤
+- 【面板模糊消失根因】Dock PanelStage 的 PresenceClass 包裹层挂着 .content-focus（opacity 0→1 + filter blur(10px)→0，0.32s）——它是玻璃卡【祖先】：祖先 opacity<1 与 filter 均成 backdrop root，玻璃卡自身 backdrop-filter(20px) 在整个入场窗视觉死亡；关闭路径 content-defocus 级联同窗同罪，glass-card-out blur 驻留站点在 dock 面板上从未真正可见。v8.6.22/23 的「content 归内容层」改造漏掉了这一处（panel-rise 当时只修了 bg-alpha 通道）
+- 【总修法】①content-focus 下沉：PresenceClass 只留 flow-root，卡内新增 <div class="content-focus relative p-4"> 包全部内容（p-4 从卡迁入——绝对定位关闭按钮的包含块从「卡 padding 盒」平移为「内容层 padding 盒」，两矩形=卡 border 盒-1px border 逐像素等位，按钮几何不变）②panel-rise 上卡本体（glass-card 家族同款：底色 alpha 凝入 0.3s 与 content-focus 0.32s 感知同步，雾先起板随行）③关闭经 .panel-sink .glass-card 级联（底色渐隐+blur 20→1px 收尾）在 dock 面板首次真正生效
+- 【磁贴底板抢跑根因】intro-tile-frost 只凝聚磨砂（blur 1→14px/0.18s），霜层底色 --tile-frost-bg（暗雾）第 0 帧满值而图标本体 0.95s 聚拢——灰黑底板抢跑。修复=新增 intro-tile-tint from-only 通道（from background-color transparent → 自然值归位，premultiplied 插值无黑移）与 body 同拍（0.95s/同曲线/同延迟，.cl-links delay 覆盖对双通道统一平移）；磨砂本体仍 0.18s 快凝（底色透明期=纯玻璃片不带黑底）
+- 【dock 玻璃抢跑根因】dock-rise 只动 transform，玻璃底色/边框/投影/磨砂第 0 帧满值——backwards 填充的 0.55s 延迟窗里白条已坐在页面上（壁纸 450ms 快显途中更显眼）。修复=dock-glass-in 同拍通道（底色/边框/投影 alpha 凝入+磨砂 blur(1px) 凝聚，与 dock-btn-in 同 0.8s/0.55s/同曲线；同构律 blur+saturate 与自然值 blur(40px) saturate(1.5) 等构）
+- 【投影退役】用户指令「删除快捷服务的图标底下的阴影」：.tile-shadow（浅 0.06/0.24 双层、深 0.32 单层）、intro-tile-shadow 入场通道、cs-drawer-closing .tile-shell 投影淡出与 .link-intro-tile 通道收窄两条规则全拆；磁贴体积交还描边+高光+霜层着色；拖拽浮层 thick shadow 属拖拽手感反馈保留
+- 【假敌排查】液态玻璃引擎（liquid-glass/）全库零导入=休眠代码，data-lg/!important 运行时不存在，keyframe 可自由覆盖玻璃底色；工作树中途一度疑似被外部还原（rg -r 参数误用致显示假象「glass-card→ln-card」），git diff HEAD 对账确认树净
+- 【探针】probe-v8625（sed 克隆+五处适配）：T3b 包裹层 rise 单通道；kfIn 换 intro-tile-tint+dock-glass-in；TL13c1 新增面板出生窗结构见证（包裹层 wrapAnim=none/wrapFilter=none/wrapOp=1 + 内层 content-focus 在飞 filter=blur(10px) + 卡 panel-fade+BF blur(20px) 恒在线）；TL14c/d 重写（closing 投影规则退役断言 + tile-shadow 规则清零）；坑=findRule(".dock-intro") 被 reduced-motion 块（.aurora-blob,…,.dock-intro{animation:none!important}）先命中假 FAIL——改 rules.find(含 dock-glass-in 且含 dock-rise)。69 PASS / 0 FAIL
+- 【发布】main e5df690（6 文件 +899/-61 对账清晰）→ 云推 gh-pages 85164db：version.json v=8.6.25、73 文件尺寸+SHA256 逐字节 ALL-GREEN、curl 线上验证通过
+- 【坑录】①rg 的 -r 是「替换显示」不是 -l/-n 组合——rg -rln "glass" 会把 glass 显示成 ln，制造文件被改假象，判文件改动只认 git diff ②findRule(前缀选择器) 会被无关组合规则先命中（reduced-motion 通配块），CSSOM 找规则要按「特征声明对」过滤 ③录屏能量判据域选择要避开面板内容行（文本行引入高频边缘干扰基线）
+
+Stage Summary:
+- v8.6.25 全链路闭环：磨砂与内容全同拍——磁贴底板/描边/图标同拍聚拢、投影退役、dock 玻璃与按钮同拍渐显、dock 面板出生窗磨砂恒在线（祖先 backdrop root 毒链根除）
+- 分发：全改动在页面层，云推 ≤6h 到存量装机，无需换 crx
+- 新律：①「内容模糊语言」挂载点必须在玻璃卡【内部】——任何祖先级 opacity/filter 在入场+关闭双窗杀磨砂，panel-rise 上卡本体+内容层下潜是 dock 面板唯一正解 ②玻璃壳体抢跑=transform-only 入场通道漏配玻璃四通道，新入场玻璃件一律 dock-glass-in 同款 from-only 凝入 ③CSSOM 断言按特征声明对过滤，不用选择器前缀 findRule
