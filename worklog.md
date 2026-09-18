@@ -502,3 +502,26 @@ Stage Summary:
 - v8.6.25 全链路闭环：磨砂与内容全同拍——磁贴底板/描边/图标同拍聚拢、投影退役、dock 玻璃与按钮同拍渐显、dock 面板出生窗磨砂恒在线（祖先 backdrop root 毒链根除）
 - 分发：全改动在页面层，云推 ≤6h 到存量装机，无需换 crx
 - 新律：①「内容模糊语言」挂载点必须在玻璃卡【内部】——任何祖先级 opacity/filter 在入场+关闭双窗杀磨砂，panel-rise 上卡本体+内容层下潜是 dock 面板唯一正解 ②玻璃壳体抢跑=transform-only 入场通道漏配玻璃四通道，新入场玻璃件一律 dock-glass-in 同款 from-only 凝入 ③CSSOM 断言按特征声明对过滤，不用选择器前缀 findRule
+
+---
+Task ID: 127
+Agent: main (Super Z)
+Task: 用户五点反馈「壁纸滤镜删掉/dock竖分割线先入场/面板切换磨砂闪动+概率动画消失/要求两套渲染系统/抽屉打开后dock浮在模糊上面」——v8.6.26 滤镜退役+双渲染系统 + 云推
+
+Work Log:
+- 【壁纸滤镜退役】photo-blur 层（v8.6.19 引入 24px→v8.6.20 8px→v8.6.21 4px→3px 一路减力的终点）随 photoBlur prop（AuroraBackground 两处）/page.tsx 传值/globals 两条规则全拆——用户指令「不要给壁纸套一层滤镜，把滤镜删掉」；白字可读性由 photo-scrim 压暗层独自承担（scrim 是暗化不是滤镜，保留）
+- 【分割线抢跑根因】Divider 是裸 span（mx-1 h-5 w-px bg-[--pill-line]）不在 .dock-intro > button 的 dock-btn-in 通道内，第 0 帧满值——v8.6.25 dock-glass-in/dock-btn-in 同拍改造漏掉了 span。修复=dock-divider 类+同款通道规则
+- 【互切磨砂闪动根因】view-defocus（opacity 1→0+filter blur 0→9px）挂在 view-exit 上=玻璃卡【祖先】——祖先 opacity<1/filter≠none 成 backdrop root，旧卡磨砂整窗死亡退化纯色底（v8.6.25 面板出生窗同源毒链的互切变体）。总修法=散场通道下沉：view-exit 主规则只留 absolute 钉位+pointer-events:none；玻璃卡走 .view-exit .glass-card 级联 glass-card-out-kf（0.2s 版，blur 20→1px 感知同步律关=驻留）+内容层 .view-exit .content-focus 走 content-defocus；部件视图 view-exit 落在 .cl-dockwidget 自身（实色 iframe 底无磨砂可杀）保留 view-defocus
+- 【概率动画消失根因】leavingWidget 单值 state：快速三连切 A→B→C 时被 B 覆盖，A 的 view-exit 类即刻摘除=散场动画被吞。修复=Set 化（leavingWidgets），多退场视图互不覆盖各自 240ms 计时摘类（动画 forwards 停终态后摘类只是 hidden 切换无视觉跳变）
+- 【dock z-48 退役】html.cs-drawer .cl-dock{z-index:48} 规则删除——抽屉打开后 dock 与搜索栏同层坐在纱罩（z-45）之下（用户指令「随着搜索栏这些组件在模糊下面」）；历史抬升的唯一理由（退场窗点击被纱罩吞）已被纱罩包裹层 pointerEvents:none（open=false 即禁命中）覆盖，QuickLinks 与 globals 两处注释同步改写
+- 【双渲染系统做实】cs-lite 注释头升格「双渲染系统·其二：流畅系统」宣言（磨砂系统=backdrop-filter 玻璃语言全套；流畅系统=零 backdrop-filter/玻璃件实底/动画近零/装饰滤镜隐藏，无半帧共享视觉路径）；glass-pill 实底兜底补全（dock/搜索药丸此前不在清单——backdrop 通配关停后 0.62/0.055 半透底可读性崩，换 0.94 实底浅/深两条）；入口不变（扩展弹窗 popup.js+设置面板「性能」，settings.perfLite，storage 跨文档跟随）
+- 【T6a 环境适配】transition 事件见证在本机扩展 iframe 环境稳定失效（evts=4 无 end，v8.6.25 探针同环境同 FAIL=非本轮回归）；http 快照模式独立取证：run(t+0)→start(t+214)→end(t+327,dur=140ms)+blur 驻留 28px 全程健康=产品序列无恙、persistent context 扩展环境 backdrop-filter transitionend 派发不可靠。T6a 改帧级 blur 值采样见证（驻留满值 27px+→真实渐降>5px），事件计数降级为诊断信息
+- 【颜色断言双格式】TL13a/b、TL9e/f 四处 oklch 期望在当前 Chromium 被 getComputedStyle 序列化为 lab（值等价：lab(96.1634 0.0993 -0.364)=oklch(0.967 0.001 286.375)）——断言改双格式容忍
+- 【探针】probe-v8626（sed 克隆+三段补丁）：TL9d/TL10 改「.photo-blur 元素不存在」断言；cssScan 扩容五字段（dividerRule/viewExit*/z48Rules/litePill*）；TL15a-d 四组新门（分割线通道/散场下沉/抬升退役/实底兜底）——⚠ TL15 首插在 T10 前落到 cssScan 块作用域外（cssScan is not defined FATAL），重插 TL14h 后块内。73 PASS / 0 FAIL
+- 【发布】main 5b3346a（6 文件 +对账清晰）→ 云推 gh-pages：version.json v=8.6.26、73 文件尺寸+SHA256 逐字节 ALL-GREEN、curl 线上验证通过
+- 【坑录】①probe 版本号 sed 全局替换会波及 gate 注释里的历史版本引用（TL9d「v8.6.25 再减」），补丁匹配前先核对 sed 后实际文本 ②扩展 iframe 环境 transitionend 事件对 backdrop-filter 派发不可靠=系统性环境差异，时序见证优先帧级值采样（rAF/computed style 逐帧），事件只当诊断 ③Chromium 新版 getComputedStyle 把 oklch 序列化为 lab——颜色断言一律双格式或色彩空间无关比较 ④dbg 脚本 EXT_ID 哈希输入必须与 probe ROOT 一致（/tmp/ext-v867）否则 ERR_BLOCKED_BY_CLIENT
+
+Stage Summary:
+- v8.6.26 全链路闭环：壁纸零滤镜原样直出、dock 分割线与按钮同拍、面板互切散场下沉磨砂全程在线、快速切换动画不再被吞、抽屉期 dock 回归纱罩之下与搜索栏同层、流畅系统升格为独立渲染系统（实底兜底补全）
+- 分发：全改动在页面层，云推 ≤6h 到存量装机，无需换 crx
+- 新律：①互切散场=通道下沉三件套（包裹层钉位/玻璃卡 out-kf 级联/内容层 defocus），祖先 opacity+filter 毒链定律扩展到互切窗 ②多视图退场一律 Set 化管理，单值 state 在快速序列操作下必吞动画 ③探针时序见证=帧级值采样优先，transition 事件在扩展 iframe 环境不可作门 ④颜色断言色彩空间无关
