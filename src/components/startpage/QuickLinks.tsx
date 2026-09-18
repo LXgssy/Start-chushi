@@ -574,12 +574,11 @@ function QuickLinks({
     return () => document.removeEventListener("mousedown", onMiddle);
   }, [disabled, drawer]);
 
-  /* html.cs-drawer 同步（仅抽屉）：Dock 抬升到纱罩之上（globals.css）。
-     挂在 mount latch 而非 open：点击 Dock 关抽屉时 capture pointerdown 先
-     setOpen(false)，若类即刻移除，Dock 从 z-48 跌回 z-40，而退场中的纱罩
-     （z-45、透明度动画中仍可命中）会重新盖住 Dock —— pointerup 落纱罩，
-     click 被吞，面板永远打不开。类随 latch（+340ms）卸载才移除，整个退场
-     窗口内 Dock 保持可点。 */
+  /* html.cs-drawer 同步（仅抽屉）：标记抽屉挂载态供 globals 使用。
+     v8.6.26 起 Dock 不再抬升到纱罩之上（z-48 规则退役，用户指令：抽屉
+     打开后 Dock 与搜索栏同层坐在磨砂之下）；退场窗内点击不被吞由纱罩
+     包裹层 pointerEvents:none（open=false 即禁命中）承担，历史 z-48 抬升
+     的唯一理由已不成立。 */
   useEffect(() => {
     const el = document.documentElement;
     if (mount && drawer) el.classList.add("cs-drawer");

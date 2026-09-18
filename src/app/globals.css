@@ -546,12 +546,6 @@ html.photo-mode .vignette {
    「模糊力度太高了，有一层很轻的模糊就行」：24px → 8px；v8.6.21 再减
    8px → 4px（「再轻一点」：极轻薄纱，只软化像素细节）；blur(0)↔blur(4px)
    平滑插值由内联 transition 承担。 */
-.photo-blur {
-  pointer-events: none;
-}
-html.cs-lite .photo-blur {
-  display: none;
-}
 /* ---------- v8.6.25：磁贴投影整体退役（用户指令「删除快捷服务的图标底下
    的阴影」）——.tile-shadow（浅/深两态）、入场通道 intro-tile-shadow、退场
    淡出（cs-drawer-closing 投影淡出）一并拆除；磁贴体积全权交还描边+高光+
@@ -1024,13 +1018,30 @@ html.cs-drawer-closing .cl-fade-leaf {
     filter: blur(9px);
   }
 }
+/* v8.6.26 互切散场通道下沉（用户实测「切换面板时磨砂闪动」根因）：
+   view-defocus（opacity+filter）原挂在 view-exit 上=玻璃卡【祖先】——
+   祖先 opacity<1 / filter≠none 成 backdrop root，旧卡磨砂整窗死亡退化为
+   纯色底（v8.6.25 面板出生窗同源毒链）。散场视觉全部下沉：
+   包裹层只钉位；玻璃卡走底色/磨砂 alpha 同收（glass-card-out-kf 0.2s 版，
+   blur 20→1px 感知同步律关=驻留）；内容层走 content-defocus。
+   部件视图的 view-exit 落在卡自身（.cl-dockwidget，实色 iframe 底无磨砂
+   可杀），保留原模糊散场语言。⚠ 级联须在 .panel-rise 之后声明
+   （同 animation 属性互斥，特异性 (0,2,0) 胜 (0,1,0)）。 */
 .view-exit {
   position: absolute;
   left: 0;
   right: 0;
   top: 0;
   pointer-events: none;
+}
+.cl-dockwidget.view-exit {
   animation: view-defocus 0.2s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+.view-exit .glass-card {
+  animation: glass-card-out-kf 0.2s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+.view-exit .content-focus {
+  animation: content-defocus 0.16s cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 @media (prefers-reduced-motion: reduce) {
   .content-focus {
@@ -1400,6 +1411,12 @@ main .cl-links .link-intro-ring {
 .dock-intro > button {
   animation: dock-btn-in calc(0.8s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) calc(0.55s * var(--mo-speed, 1)) backwards;
 }
+/* v8.6.26 分割线与按钮同拍（用户实测「dock 模块之间的竖状分割线先入场」）：
+   Divider 是 span 不在 > button 通道内，第 0 帧满值抢跑——纳入同款
+   dock-btn-in 凝入通道 */
+.dock-intro > .dock-divider {
+  animation: dock-btn-in calc(0.8s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) calc(0.55s * var(--mo-speed, 1)) backwards;
+}
 @keyframes dock-btn-in {
   from {
     opacity: 0;
@@ -1533,10 +1550,13 @@ html .zen-pomo[data-tone="on-light"] {
   display: inline;
 }
 
-/* ---------- v8.5.0 流畅模式（html.cs-lite）----------
-   低配电脑优化：牺牲质感换帧率。入口两处（扩展弹窗快捷面板 popup.js 与
-   设置面板「性能」，同一 settings.perfLite 字段）；page.tsx 切类 +
-   storage 事件跨文档实时跟随。三层降级：
+/* ---------- 双渲染系统·其二：流畅系统（html.cs-lite）----------
+   v8.6.26 正名「双渲染系统」（用户指令：一套磨砂样式 + 一套流畅模式）：
+   磨砂系统（默认）= backdrop-filter 玻璃语言全套；流畅系统（html.cs-lite）=
+   完全独立的一套渲染——零 backdrop-filter、玻璃件换实底、动画近零时长、
+   装饰滤镜隐藏，与磨砂系统无半帧共享视觉路径。入口两处（扩展弹窗快捷
+   面板 popup.js 与设置面板「性能」，同一 settings.perfLite 字段）；
+   page.tsx 切类 + storage 事件跨文档实时跟随。三层降级：
    ① 模糊成本：全部 backdrop-filter 关停（磨砂是低配 GPU 最大头），
       主要玻璃类补不透明兜底底色保可读性；
    ② 动画成本：全局 CSS animation/transition 时长近零、长驻合成层
@@ -1594,6 +1614,15 @@ html.cs-lite:not(.dark) .veil-in {
 html.cs-lite.dark .veil-in {
   background: rgba(9, 9, 11, 0.5) !important;
 }
+/* v8.6.26 双渲染系统补全：dock/搜索药丸本体 .glass-pill 此前不在兜底
+   清单——流畅系统下 backdrop 通配关停后 0.62/0.055 半透底可读性崩，
+   换同款实底（玻璃族清单见上）。 */
+html.cs-lite:not(.dark) .glass-pill {
+  background: rgba(255, 255, 255, 0.94) !important;
+}
+html.cs-lite.dark .glass-pill {
+  background: rgba(24, 24, 27, 0.94) !important;
+}
 
 /* ---------- v8.6.2 快捷服务抽屉（中键唤出全屏磁贴墙）----------
    纱罩 = 【整页高斯模糊】+ 轻染色（用户指令：不要纯黑遮罩，模糊整个页面）：
@@ -1602,8 +1631,10 @@ html.cs-lite.dark .veil-in {
    「开关抽屉时搜索栏磨砂消失」的元凶（opacity<1/filter≠none 的祖先 = backdrop
    root，后代 backdrop-filter 采样不到壁纸）。现在搜索栏磨砂恒定在线，让位感
    由整页模糊承担。磁贴浮在磨砂化的整页之上，双层磨砂（纱罩 28px + 磁贴 14px）。
-   抽屉打开期间（html.cs-drawer）：Dock 抬升到纱罩（z-45）之上保持可点，
-   点击 Dock 先收抽屉再开面板。
+   抽屉打开期间（html.cs-drawer）：Dock 与搜索栏同层坐在纱罩之下
+   （v8.6.26 用户指令——整页磨砂同样覆盖 Dock，不再浮在模糊上面）；
+   退场窗内点击不被吞由纱罩包裹层 pointerEvents:none 承担（open=false
+   即禁命中，click 穿透直达下层）。
    类同步挂组件卸载 latch（+340ms）而非 open 开关：点击 Dock 关抽屉时
    capture pointerdown 先置 open=false，若类即刻移除 Dock 跌回 z-40，
    退场中的纱罩（opacity 动画期间仍可命中）会重新盖住 Dock——pointerup
@@ -1656,9 +1687,6 @@ html.cs-lite.dark .veil-in {
     rgba(24, 24, 27, 0.28) 42%,
     rgba(24, 24, 27, 0.38)
   );
-}
-html.cs-drawer .cl-dock {
-  z-index: 48;
 }
 /* 流畅模式：cs-lite 通配已把 backdrop-filter 压为 none，纱罩纯色加深保证磁贴可读性
    （v8.6.23 随底层律移到 ::before 染色层；纯色模式无磨砂，opacity 渐显同构） */
