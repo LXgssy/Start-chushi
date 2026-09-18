@@ -95,6 +95,9 @@ const EXIT_EASE = [0.4, 0, 1, 1] as const;
 /** 收起退场时长（与 .panel-sink 同参，+余量后转入 closed） */
 const SINK_MS = 240;
 const WIDGET_H_MIN = 40;
+/* v8.6.30 互切底锚律：玻璃卡上下各 1px border（globals.css .glass-card），
+   窗口目标高须补齐这 2px，落定态卡=壳精确贴合（border 底线不被壳体裁掉） */
+const PANEL_CARD_BORDER = 2;
 
 /** 面板打开 / 切换 / 关闭 = 同一套高度形变语言（用户认可的「拉伸」）：
  *  打开：高度盒从 0 弹簧展开到内容高度（initial height 0）+ 卡片 .panel-rise 玻璃凝入；
@@ -261,7 +264,7 @@ const PanelStage = memo(function PanelStage({
   const widgetH = activeWidget
     ? Math.max(WIDGET_H_MIN, Math.round(widgetHeights[activeWidget.key] ?? activeWidget.height))
     : 0;
-  const openH = activeWidget ? widgetH : contentH == null ? ("auto" as const) : contentH;
+  const openH = activeWidget ? widgetH : contentH == null ? ("auto" as const) : contentH + PANEL_CARD_BORDER;
   const shellWidth = activeWidget ? activeWidget.width : 360;
   /* 壳体类（v8.6.29）：透明壳上入场类无视觉（panel-fade 只动 bg/border/shadow），
      open 相位恒无类；closing 恒 .panel-sink（散场级联宿主：玻璃 out-kf /
@@ -275,6 +278,32 @@ const PanelStage = memo(function PanelStage({
   const lastPanelRef = useRef<PanelId>(null);
   if (panel != null) lastPanelRef.current = panel;
   const displayPanel = panel ?? (phase === "closing" ? lastPanelRef.current : null);
+
+  /* ---------- v8.6.30 互切底锚律 ----------
+   * 收缩方向（高→矮）错位根因：玻璃卡在高度盒内【顶部对齐】，换装帧卡高随
+   * 新内容瞬变——玻璃底边先瞬收到新卡长（用户实测「底部收缩到卡片长度」），
+   * 随后窗口弹簧收缩、卡贴窗口顶整体悬空下降复位（「保持高度然后复位」）；
+   * 而伸展方向（矮→高）卡底溢出被壳体底缘裁掉，恰好呈现完美拉伸——不对称。
+   * 修复：换装帧把玻璃卡 minHeight 锁定为【换装前窗口高】（contentH + 卡
+   * border）——弹簧期卡高被撑住、贴窗口顶平滑下降，底部溢出段被壳体底缘
+   * （wrapper fixed bottom，恒定锚定 dock 上方）裁掉：玻璃底边恒定不动、
+   * 面板从顶部平滑收缩；弹簧 onAnimationComplete 摘锁，卡高回落=内容高，
+   * 圆角复位。渲染期同步检测（prevAnyActive 同律）；contentH 未武装（首开
+   * 500ms 内）不锁（退化 auto 直就位）；closed 相位 displayPanel=null 摘锁
+   * （防旧高泄入下次首开）。测量链：measureRef 挪挂 keyed 内容层——RO 只测
+   * 真实内容高，minHeight 锁在玻璃卡上不会毒化测高（否则窗口目标=锁值死锁）。 */
+  const [morphMinH, setMorphMinH] = useState<number | null>(null);
+  const lastMorphAtRef = useRef(0);
+  const [prevPanel, setPrevPanel] = useState<PanelId>(null);
+  if (displayPanel !== prevPanel) {
+    setPrevPanel(displayPanel);
+    if (displayPanel == null) {
+      setMorphMinH(null);
+    } else if (prevPanel != null && phase === "open" && contentH != null) {
+      lastMorphAtRef.current = performance.now();
+      setMorphMinH(contentH + PANEL_CARD_BORDER);
+    }
+  }
 
   return (
     /* 面板浮层：外层静态 wrapper 负责定位（fixed + CSS -translate-x-1/2 居中），
@@ -317,22 +346,32 @@ const PanelStage = memo(function PanelStage({
                 ? motionSpring
                 : { duration: 0.22, ease: EXIT_EASE }
           }
+          onAnimationComplete={() => {
+            /* v8.6.30 时间闸：换装帧后 150ms 内的 complete 是 framer 对「animate 目标
+               无变化重渲」的边缘触发，不得摘掉刚设的底锚锁；真弹簧完成 >300ms */
+            if (performance.now() - lastMorphAtRef.current > 150) setMorphMinH(null);
+          }}
         >
           {/* v8.6.29 互切拉伸律：内建玻璃卡 open 相位恒挂载（互切不重挂=同一张玻璃，
               「一张玻璃卡换内容」结构保证）；内容层 key=session+panel 换装重挂——
               旧内容同帧卸载（零残留结构性保证，不再依赖硬藏规则），新内容播
               .cl-panel-content 简单淡入（0.3s，无模糊——动效主角是高度/宽度弹簧拉伸）。
-              测高 ref 挂恒定包裹层：RO 跟踪内容换装的高度变化驱动高度盒弹簧。
+              测高 ref v8.6.30 挪挂 keyed 内容层（cl-panel-content）：RO 只测真实
+              内容高、不被底锚 minHeight 毒化；重挂帧 ref 回调同步测高，弹簧零迟滞。
               displayPanel：closing 相位渲染 lastPanel 旧内容播散场，其余相位=panel。
               v8.6.25 律保留：内容层在玻璃卡内部（后代 opacity 不触磨砂采样链），
               p-4 在内容层（关闭按钮包含块矩形逐像素等位）。 */}
           {displayPanel != null && phase !== "closed" && (
-            <div ref={measureRef} className="flow-root">
-              <div className="glass-card cl-panel panel-rise relative rounded-2xl shadow-2xl" data-panel={displayPanel}>
+            <div className="flow-root">
+              <div
+                className="glass-card cl-panel panel-rise relative rounded-2xl shadow-2xl"
+                data-panel={displayPanel}
+                style={{ minHeight: morphMinH != null ? Math.round(morphMinH) : undefined }}
+              >
                 {/* panel-rise 上卡本体（仅挂载帧播：首开/部件→内建互切；互切不重挂
                     不重播=玻璃恒定）；关闭经 .panel-sink .glass-card 级联
                     （底色渐隐 + blur 20→1px 收尾，感知同步律关=blur 驻留）。 */}
-                <div key={`${session}-${displayPanel}`} className="cl-panel-content relative p-4">
+                <div key={`${session}-${displayPanel}`} ref={measureRef} className="cl-panel-content relative p-4">
                   {/* 关闭按钮固定右上，不随内容重绘 */}
                   <button
                     type="button"

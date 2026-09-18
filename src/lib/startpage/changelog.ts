@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.6.30",
+    date: "2026-09-18",
+    title: "面板切换底锚律：收缩方向回归真正的拉伸",
+    channel: "page",
+    highlights: [
+      "切换到更矮的面板时，面板底边稳稳贴住底栏不动、从顶部平滑收下来，不再先缩底边再整体落回",
+      "切换到更高的面板保持原有的向上拉伸，两个方向底边锚定完全对称",
+    ],
+  },
+  {
     version: "8.6.29",
     date: "2026-09-18",
     title: "面板切换动画全面重写：回归最初的拉伸动效",
