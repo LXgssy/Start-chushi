@@ -1028,7 +1028,11 @@ html.cs-drawer-closing .cl-fade-leaf {
    可杀），保留原模糊散场语言。⚠ 级联须在 .panel-rise 之后声明
    （同 animation 属性互斥，特异性 (0,2,0) 胜 (0,1,0)）。 */
 .view-exit {
-  position: absolute;
+  /* v8.6.27：!important 双保险——内建视图 wrapper 恒带 .view-top（relative+z1），
+     钉位必须压过它；z-index:0 把退场卡压到入场卡（.view-top z1）之下，
+     与 DOM 位次无关（AnimatePresence 退场子元素渲染顺序不保证在前） */
+  position: absolute !important;
+  z-index: 0 !important;
   left: 0;
   right: 0;
   top: 0;
@@ -1042,6 +1046,25 @@ html.cs-drawer-closing .cl-fade-leaf {
 }
 .view-exit .content-focus {
   animation: content-defocus 0.16s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+/* v8.6.27 互切单玻璃律（用户实测「切换动画会叠加两个面板」根因）：
+   互切窗内退场卡（view-exit，定位元素恒绘制在文档流新卡之上）玻璃在上渐隐 +
+   入场卡（panel-rise）玻璃在下渐显，双玻璃卡同窗半透叠置 = 双面板叠影。
+   修法 = 互切窗（壳挂 .cl-switching）内整卡动画双停：
+   入场卡 panel-fade 停 → 玻璃底/描边/投影帧 0 满值即时就位（不渐显）；
+   退场卡 glass-card-out-kf 停 → 玻璃底全程不散（被入场卡不透明底盖住，
+   不透明度守恒；暴露带随高度弹簧收拢被壳体 overflow-hidden 裁剪，卸载帧
+   无跳变）；内容层照常交叉溶解（content-defocus 散场 / content-focus 聚拢
+   不受影响）——「一块玻璃换内容」取代「两块玻璃互相溶解」。
+   关闭路径不受影响：close 同帧摘 cl-switching（switching 定律 false），
+   旧卡 out-kf 照播（panel-sink 溶解语言保持 v8.6.24 感知同步律）。
+   ⚠ 特异性 (0,3,0) 压过 .view-exit .glass-card (0,2,0) 与 .panel-rise (0,1,0)。 */
+.view-top {
+  position: relative;
+  z-index: 1;
+}
+.cl-switching .glass-card.panel-rise {
+  animation: none;
 }
 @media (prefers-reduced-motion: reduce) {
   .content-focus {

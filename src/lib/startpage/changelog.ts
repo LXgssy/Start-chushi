@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.6.27",
+    date: "2026-09-18",
+    title: "面板互切单玻璃律：切换不再叠加两个面板",
+    channel: "page",
+    highlights: [
+      "面板切换重做为一整块玻璃换内容：玻璃底、描边、投影全程恒在，不再两块面板互相溶解",
+      "切换瞬间新面板玻璃即时就位、内容模糊聚拢入场；旧面板压底钉位模糊散场，不再与新面板叠影",
+      "首次打开与关闭面板的动画语言保持原样，不受互切改造影响",
+    ],
+  },
+  {
     version: "8.6.26",
     date: "2026-09-18",
     title: "壁纸滤镜退役与双渲染系统：画面原样直出、面板互切不闪",

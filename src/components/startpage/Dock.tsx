@@ -209,10 +209,30 @@ const PanelStage = memo(function PanelStage({
   /* 相位迁移用 React 官方「渲染期间调整 state」模式（同步 setState 在 effect
      里会级联渲染，lint 禁令；对比键入 prev state，仅在真变化时派生新相位） */
   const [prevAnyActive, setPrevAnyActive] = useState(anyActive);
+  /* v8.6.27 互切单玻璃律开关（壳挂 .cl-switching，globals.css）：anyActive 保持
+     true 的迁移帧 = 面板互切（内建↔内建 / 内建↔部件）——互切窗内新旧两卡整卡
+     动画双停（入场 panel-fade 停=玻璃即时就位、退场 glass-card-out-kf 停=玻璃
+     不散），只有内容层交叉溶解，根除「两块玻璃互相溶解=叠加两个面板」。
+     真开（closed→open）与真关（→closing）同帧归 false：首开 panel-rise 与
+     关闭 panel-sink 溶解语言原样保留。定格律同 openAsWidget：类只在迁移帧
+     翻转，互切中途不变化、不重播动画 */
+  const [switching, setSwitching] = useState(false);
   if (prevAnyActive !== anyActive) {
     setPrevAnyActive(anyActive);
     setOpenAsWidget(widgetActive);
+    setSwitching(prevAnyActive && anyActive);
     setPhase(anyActive ? "open" : (p) => (p === "closed" ? "closed" : "closing"));
+  }
+  /* 互切检测（v8.6.27 补，探针 TL16d 实证）：anyActive 保持 true 的「活动视图
+     键」迁移（内建↔内建 / 内建↔部件 / 部件↔部件）不触发上面的相位迁移块——
+     anyActive 不翻转，须单独跟踪复合键。开（null→key）与关（key→null）由相位
+     块归 false（本块同帧亦判 false，双写同值互不冲突）；只有保持打开的键变化
+     才进互切窗。定格律同 openAsWidget：键稳定期间类不变化、不重播动画 */
+  const activeViewKey = panel ?? dockWidgetOpen ?? null;
+  const [prevViewKey, setPrevViewKey] = useState(activeViewKey);
+  if (prevViewKey !== activeViewKey) {
+    setPrevViewKey(activeViewKey);
+    setSwitching(activeViewKey != null && prevViewKey != null);
   }
   /* closing → closed：sink 播完清类（下次打开重播 rise）并复位内建测高 */
   useEffect(() => {
@@ -315,7 +335,7 @@ const PanelStage = memo(function PanelStage({
         initial={false}
         animate={{ width: shellWidth }}
         transition={reduceMotion ? { duration: 0 } : motionSpring}
-        className={`cl-stage pointer-events-auto relative overflow-hidden rounded-[18px] ${shellAnim}`}
+        className={`cl-stage pointer-events-auto relative overflow-hidden rounded-[18px] ${shellAnim}${switching ? " cl-switching" : ""}`}
         style={{
           transformOrigin: "bottom center",
           willChange: "transform",
@@ -352,11 +372,14 @@ const PanelStage = memo(function PanelStage({
               <PresenceClass
                 key={panel}
                 ref={measureRef}
-                /* 退场视觉走 CSS .view-exit（absolute 钉位 + 模糊散场）；卸载由 PresenceClass 定时器接管。
-                   关闭路径不走本类：壳体 .panel-sink 级联令玻璃内层 .content-focus 模糊散场（globals.css） */
+                /* 退场视觉走 CSS .view-exit（absolute 钉位 !important + z0 压底 + 模糊散场）；
+                   卸载由 PresenceClass 定时器接管。关闭路径不走本类：壳体 .panel-sink
+                   级联令玻璃内层 .content-focus 模糊散场（globals.css）。
+                   v8.6.27：view-top（relative+z1）常驻——入场卡恒绘制在退场卡之上，
+                   互切层序与 AnimatePresence 退场子元素的 DOM 位次无关 */
                 exitClass="view-exit"
                 duration={0.2}
-                className="flow-root"
+                className="flow-root view-top"
               >
                 <div className="glass-card cl-panel panel-rise relative rounded-2xl shadow-2xl" data-panel={panel}>
                   {/* v8.6.25：内容层移入玻璃内部（后代 filter/opacity 不触玻璃采样链，
