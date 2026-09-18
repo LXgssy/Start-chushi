@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.6.28",
+    date: "2026-09-18",
+    title: "互切内容零残留：切换不再看见上一个面板",
+    channel: "page",
+    highlights: [
+      "面板切换瞬间旧面板内容同帧隐没，不再透过磨砂玻璃留下残影",
+      "新面板内容模糊聚拢入场不变，玻璃底、描边、投影全程恒在",
+      "首次打开与关闭面板的动画语言保持原样",
+    ],
+  },
+  {
     version: "8.6.27",
     date: "2026-09-18",
     title: "面板互切单玻璃律：切换不再叠加两个面板",

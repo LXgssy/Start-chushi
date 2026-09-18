@@ -525,3 +525,40 @@ Stage Summary:
 - v8.6.26 全链路闭环：壁纸零滤镜原样直出、dock 分割线与按钮同拍、面板互切散场下沉磨砂全程在线、快速切换动画不再被吞、抽屉期 dock 回归纱罩之下与搜索栏同层、流畅系统升格为独立渲染系统（实底兜底补全）
 - 分发：全改动在页面层，云推 ≤6h 到存量装机，无需换 crx
 - 新律：①互切散场=通道下沉三件套（包裹层钉位/玻璃卡 out-kf 级联/内容层 defocus），祖先 opacity+filter 毒链定律扩展到互切窗 ②多视图退场一律 Set 化管理，单值 state 在快速序列操作下必吞动画 ③探针时序见证=帧级值采样优先，transition 事件在扩展 iframe 环境不可作门 ④颜色断言色彩空间无关
+---
+Task ID: 128
+Agent: main (Super Z)
+Task: 用户反馈「dock栏面板切换时切换动画会叠加两个面板」——v8.6.27 互切单玻璃律 + 云推
+
+Work Log:
+- 【根因三层】①绘制序：退场卡被 .view-exit 钉为 position:absolute（定位元素恒绘制在非定位的文档流入场卡之上），旧卡永远盖住新卡；②双玻璃通道：旧卡 glass-card-out-kf（底色→透明 0.2s）+ 新卡 panel-fade（底色凝入 0.3s）同窗对开，双玻璃卡半透叠置=「叠加两个面板」；③内容层双读：旧 content-defocus 与新 content-focus 同窗交叉，双份内容叠影
+- 【互切单玻璃律三件套】①.view-exit 钉位升级 absolute !important + z-index:0 !important（退场卡压底，与 DOM 位次无关——AnimatePresence 退场子元素渲染位次不保证在前）②.view-top（内建 wrapper 常驻 relative+z1）入场卡恒浮于退场卡之上 ③壳挂 .cl-switching（互切窗）：.cl-switching .glass-card.panel-rise { animation:none }——特异性 (0,3,0) 双停新旧两卡整卡动画：入场 panel-fade 停=玻璃帧 0 满值即时就位、退场 out-kf 停=玻璃底全程不散（被入场卡不透明底盖住，不透明度守恒；暴露带随高度弹簧收拢被壳体裁剪，卸载帧无跳变），内容层照常交叉溶解——「一块玻璃换内容」取代「两块玻璃互相溶解」
+- 【互切检测补丁（探针首跑 TL16d FAIL 实证）】prevAnyActive 相位块只在开/关迁移（anyActive 翻转）执行，A→B 互切 anyActive 恒 true 不翻转 → switching 永不为 true。补「活动视图复合键」渲染期跟踪：activeViewKey = panel ?? dockWidgetOpen，保持打开的键变化=互切置 true；开（null→key）/关（key→null）由相位块归 false（本块同帧亦判 false，双写同值互不冲突）。定格律同 openAsWidget
+- 【关闭路径零波及】close 同帧摘 cl-switching（switching 定律 false），旧卡 out-kf 照播——panel-sink 溶解语言保持 v8.6.24 感知同步律；首开 panel-rise 照播（TL13c1 复证 cardAnim=panel-fade）
+- 【探针】probe-v8627（sed 全量克隆 + TL16 五门）：TL16a 钉位升级 / TL16b 恒浮通道 / TL16c 双停规则在位 / TL16d 互切窗双卡同框但单玻璃（旧卡 absolute z0 anim=none、新卡 relative z1 anim=none、壳 cl-switching）/ TL16e 落定旧卡卸载玻璃恒在。78 PASS / 0 FAIL
+- 【坑录】①CSSOM 把 animation:none 简写序列化为长手形式（auto ease 0s 1 normal none running none）——cssText 断言不能匹配 "animation: none" 字面，规则在位用选择器匹配、none 行为用真实元素 getComputedStyle().animationName 见证 ②渲染期调整 state 模式只覆盖「值翻转」迁移，「值恒定但身份变化」（anyActive 恒 true 的互切）须单独跟踪复合键 ③T6a 存量 flake 实锤：v8.6.26 未改包同现 bfMin=28（帧采样漏 0.14s blur 渐降窗），与 v8.6.23/25 同源非本轮回归
+- 【发布】main f535bb1（5 文件 +963/-6 对账无夹带）→ 云推 gh-pages：version.json v=8.6.27、73 文件尺寸+SHA256 逐字节 ALL-GREEN、curl 线上验证通过
+
+Stage Summary:
+- v8.6.27 全链路闭环：面板互切单玻璃律——玻璃底/描边/投影全程同一块，只换内容；退场卡压底钉位、入场卡恒浮，双面板叠影根除；首开/关闭动画语言原样
+- 分发：全改动在页面层，云推 ≤6h 到存量装机，无需换 crx
+- 新律：①互切=「一块玻璃换内容」，任何玻璃卡入退场双动画通道在互切窗必须双停（双玻璃对开=双面板叠影）②定位退场卡 vs 文档流入场卡的绘制序由 z0/z1 显式裁决，不依赖 DOM 位次 ③互切检测用活动视图复合键（panel ?? dockWidgetOpen），anyActive 恒定迁移不触发相位块 ④CSSOM 简写序列化为长手形式，样式断言规则在位+行为见证双轨
+---
+Task ID: 129
+Agent: main (Super Z)
+Task: 用户反馈（附录屏）「面板切换动画还是有上一个面板残留，彻底修复」——v8.6.28 互切内容零残留律 + 云推
+
+Work Log:
+- 【录屏帧级取证】用户视频 2560x1600@60fps（ffmpeg 多线程/分段 seek 均被沙箱击杀 → OpenCV 逐帧受控采样 2fps 全片 52 帧 + 切换窗口 10fps 94 帧 + 原生分辨率裁切 17 帧）：2.267-2.317s 快捷服务面板完整显示 → 2.333-2.383s 番茄钟面板入场中**旧面板彩色圆点内容仍叠加可见**（新内容同时带 blur-in）→ 2.400s 后旧内容才消失——残留窗口 0.1-0.15s，与 content-defocus 0.16s 散场窗吻合
+- 【根因】v8.6.27 互切单玻璃律只双停了整卡动画（玻璃层），特意保留「内容层交叉溶解」（.view-exit .content-focus 走 content-defocus 0.16s opacity 1→0 + 部件 .cl-dockwidget.view-exit 走 view-defocus 0.2s）——退场内容在半透磨砂玻璃下透出鬼影，玻璃单律救不了内容层
+- 【互切内容零残留律】globals.css 在 .cl-switching .glass-card.panel-rise 之后插入：.cl-switching .view-exit{animation:none;opacity:0;visibility:hidden !important} + .cl-switching .view-exit .content-focus{animation:none}——互切窗内退场视图同帧隐没（动画双停 + 透明 + 硬藏），DOM 驻留至 PresenceClass 350ms 定时器卸载但恒不可见；部件分支同特异性 (0,2,0) 靠源顺序在后取胜、内容级联 (0,3,0) 压 (0,2,0)；visibility 须 !important 压部件视图内联 visibility:visible（isLeaving）；关闭/首开路径不经 cl-switching，panel-sink 溶解语言原样。纯 CSS 零 JS 改动
+- 【探针】probe-v8628（sed 克隆 8.6.27→8.6.28 + v867→v868 + 四段补丁）：TL17a/b 规则在位静态门 + TL17c 行为门（复用 TL16d 双卡同框轮询扩容 op/vis 字段：退场卡 absolute z0 + opacity=0 + visibility=hidden）+ cssScan 扩容 switchExitRule/switchExitContent。80 PASS / 1 FAIL
+- 【T6a 存量 flake 再实证】唯一 FAIL = T6a 帧级 blur 见证（bfMin=27.7 渐降窗漏采）——未改包 v8.6.27 对照复跑同 FAIL（bfMin=28.0），与 v8.6.23/25/26 同源，沙箱慢主线程固有采样 flake，非本轮回归（本轮只动互切窗 CSS，不触纱罩退场链）
+- 【视觉验证 v2】visual-verify-v8628b.mjs（页内 rAF 30 帧追踪 + 150ms 全局 animation-play-state 冻结截图）：冻结帧退场卡 {op:0,vis:hidden,pos:absolute,z:0} + 双卡同框画面零鬼影（对比用户视频同位帧残影实锤）、落定态 n=1 无残留无卡顿；首版截图连拍方案（586ms/张）错过 350ms 窗作废，早冻结方案定案
+- 【坑录】①大视频取证：沙箱 ffmpeg 对 2560x1600@60fps 长解码必被 OOM/超时击杀（>3s 均死、分段 seek 落稀疏关键帧间隙更慢）——OpenCV cv2.VideoCapture 逐帧受控采样（resize 即弃）是唯一稳路，fps 采样步进+窗口高密度二段式 ②headless 截图 300-600ms/张永远追不上 350ms 动画窗——帧级证据用页内 rAF 追踪 + setTimeout 定点冻结后截图，截图只拍冻结态 ③CSSOM animation:none 序列化为长手形式二次踩坑（TL17a/b 首跑 FAIL）——动画字面断言一律「属性在场 + 真实元素 getComputedStyle 行为见证」双轨
+- 【发布】main（6 文件对账无夹带，含 Task 128 存量 worklog 补登）→ 云推 gh-pages：version.json v=8.6.28、curl 线上验证通过
+
+Stage Summary:
+- v8.6.28 全链路闭环：互切内容零残留律——面板切换瞬间旧面板内容同帧隐没，玻璃换内容读作「瞬换 + 新内容模糊聚拢」，上一面板残影彻底根除；内建面板/dock 部件全部互切路径统一；首开/关闭动画语言原样
+- 分发：全改动在页面层（globals.css 单文件），云推 ≤6h 到存量装机，无需换 crx
+- 新律：①互切零残留=内容层禁交叉溶解，退场视图同帧隐没（玻璃单律管玻璃、零残留律管内容，两律合璧才算「一块玻璃换内容」）②动画窗内取证=页内 rAF 追踪+定点冻结，浏览器外截图追不上动画 ③CSSOM 简写序列化坑永记，断言双轨

@@ -1066,6 +1066,27 @@ html.cs-drawer-closing .cl-fade-leaf {
 .cl-switching .glass-card.panel-rise {
   animation: none;
 }
+/* v8.6.28 互切内容零残留律（真机录屏 2.33-2.40s 实锤：互切窗内旧内容走
+   content-defocus 0.16s 模糊散场 = 透过入场卡半透磨砂玻璃仍见鬼影残迹
+   0.16-0.2s，用户反馈「还是有上一个面板残留」）。玻璃单律只停了整卡动画，
+   内容层交叉溶解保留 = 残影仍在。本律把互切窗内退场视图整个同帧隐没：
+   部件散场动画（.cl-dockwidget.view-exit 的 view-defocus，同特异性靠源
+   顺序在后取胜）与内容散场级联（.view-exit .content-focus 的
+   content-defocus，特异性 (0,3,0) 压 (0,2,0)）双停 + opacity 0 +
+   visibility hidden——退场卡在 DOM 中驻留至 PresenceClass 定时器卸载
+   （0.35s）但恒不可见，「一块玻璃换内容」读作瞬换 + 新内容模糊聚拢，
+   交叉溶解残余归零。关闭路径不经 cl-switching（switching 同帧归 false）
+   panel-sink 溶解语言原样；首开路径同不受影响。⚠ visibility 须
+   !important——部件视图退场期内联 visibility:visible（isLeaving），
+   非 !important 压不过内联样式。 */
+.cl-switching .view-exit {
+  animation: none;
+  opacity: 0;
+  visibility: hidden !important;
+}
+.cl-switching .view-exit .content-focus {
+  animation: none;
+}
 @media (prefers-reduced-motion: reduce) {
   .content-focus {
     animation: none;
