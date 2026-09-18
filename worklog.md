@@ -562,3 +562,24 @@ Stage Summary:
 - v8.6.28 全链路闭环：互切内容零残留律——面板切换瞬间旧面板内容同帧隐没，玻璃换内容读作「瞬换 + 新内容模糊聚拢」，上一面板残影彻底根除；内建面板/dock 部件全部互切路径统一；首开/关闭动画语言原样
 - 分发：全改动在页面层（globals.css 单文件），云推 ≤6h 到存量装机，无需换 crx
 - 新律：①互切零残留=内容层禁交叉溶解，退场视图同帧隐没（玻璃单律管玻璃、零残留律管内容，两律合璧才算「一块玻璃换内容」）②动画窗内取证=页内 rAF 追踪+定点冻结，浏览器外截图追不上动画 ③CSSOM 简写序列化坑永记，断言双轨
+
+---
+Task ID: 130
+Agent: main (Super Z)
+Task: 用户指令「面板的切换动画全面重写，删掉老代码重写效果，让切换面板的动画效果恢复到最初的拉伸动效」——v8.6.29 互切拉伸律（结构性重写）+ 云推
+
+Work Log:
+- 【考古定标】git 考古回 v1.0.8（bb1e0d6）原始实现：用户认可的「拉伸」= 高度盒 px 弹簧 + 同一张玻璃卡（key="dock-panel" 恒定）内内容交叉溶解；v2.0.0 统一舞台把内建卡搬进 AnimatePresence key={panel}——互切=整卡重挂，两块玻璃交叉溶解，是四轮反馈（闪动/叠加/残留）的结构性总根因；v8.6.26-28 三层补丁（view-exit 散场下沉→cl-switching 双停→零残留硬藏）全是错误结构上的止损
+- 【互切拉伸律·结构重写】Dock.tsx PanelStage：①内建玻璃卡退役 AnimatePresence/PresenceClass（key={panel} 挂卸）改 open 相位恒挂载普通条件渲染——互切前后同一 DOM 节点，「一张玻璃卡换内容」结构保证，双玻璃交叉溶解不可能发生；②内容层 key=session+panel 同帧换装：旧内容同帧卸载（零残留结构性保证，不再依赖硬藏规则），新内容播 .cl-panel-content 简单淡入（0.3s 纯 opacity，无模糊）；③displayPanel=panel ?? (closing? lastPanelRef:null)——关闭相位渲染旧内容播 panel-sink 散场，SINK_MS 后卸载；④session 期次计数（false→true 迁移 +1）保证关后重开内容重挂播淡入
+- 【删老代码清单】Dock.tsx：switching/cl-switching 状态机、activeViewKey/prevViewKey 复合键互切检测、openAsWidget 定格、leavingWidgets Set+定时器 effect、widget isLeaving/view-exit、PresenceClass import——部件切走改同帧 visibility:hidden（lastOpenWidgetRef 只管 closing 收尾）；shellAnim 简化为 phase==="closing"?"panel-sink":""（透明壳入场类本无视觉，reduceMotion 兜底移交 CSS reduce 块）
+- 【globals.css 删补丁链】@keyframes view-defocus、.cl-dockwidget.view-exit、.view-top、.cl-switching .glass-card.panel-rise、.cl-switching .view-exit、.cl-switching .view-exit .content-focus 全删（退役注记留档）；新增 panel-content-in/out 关键帧 + .cl-panel-content 基线 + .panel-sink .cl-panel-content 级联（关闭内容同步淡出）+ reduce 块兜底三条；弹窗共用通道原样保留（.view-exit 基础钉位 + .view-exit .glass-card/.content-focus 级联、content-focus 家族、dialog-sink/palette-out 级联）——指令面板/预设弹窗互切语言不受波及
+- 【测高链适配】measureRef 从 keyed PresenceClass 移到恒定 flow-root 包裹层——RO 跟踪内容换装高度变化驱动高度盒弹簧，互切期不再断开重连观察器
+- 【探针】probe-v8629（sed 克隆 + 8 段补丁）：TL13c1 出生窗断言改 panel-content-in/innerFilter=none；TL16d 行为门重写为单卡律（900ms rAF 轮询 maxCards≤1 + cl-switching 从未出现）；TL17c=零残留+同卡律（data-probe-mark 节点标记跨切换存活 + data-panel 旧值同帧消失）；TL16e=落定磨砂在线；TL15b 改散场边界（部件分支退役+弹窗级联保留）；TL16b/16c 改退役门（view-top/cl-switching 家族清零）；TL17a/b 新门（内容层过场在位 + view-defocus 清零）；cssScan 扩容 panelContentIn/Out/viewDefocusAny——80 PASS / 1 FAIL
+- 【T6a 存量 flake 第四次实证】唯一 FAIL=T6a 纱罩 blur 帧级见证（bfMin=28.0 渐降窗漏采）——与 v8.6.25/26/27/28 同源（沙箱慢主线程固有采样 flake，本轮未触纱罩/抽屉链路），非回归
+- 【坑录】①shell className 拼接 `${switching?" cl-switching":""}` 漏改被自写残留门拦截（sub_once 全中但状态机删净后 className 拼接仍引用已删变量）——重写类改动残留检查必须覆盖「引用点」而非只覆盖「定义点」；②探针克隆后补丁锚点含版本号文本时，sed 已先行替换，锚点须按 sed 后文本书写（Task 127 坑②二次踩，本次补丁脚本加「已应用跳过」守卫）；③scripts/changelog.ts 杂散文件（历史遗留未跟踪）不入库，对账无夹带
+- 【发布】main 提交（7 文件对账无夹带）→ 云推 gh-pages：version.json v=8.6.29、curl 线上验证通过
+
+Stage Summary:
+- v8.6.29 全链路闭环：面板切换动画全面重写落地——互切=一张玻璃卡同帧换内容+高度/宽度弹簧拉伸（最初的拉伸动效），残留/叠影/闪动从结构上不可能；老补丁链（view-top/cl-switching/view-defocus/leavingWidgets/content-focus dock 路径）整体退役；弹窗互切语言原样；首开/关闭语言原样（玻璃 out-kf 感知同步律保留）
+- 分发：全改动在页面层，云推 ≤6h 到存量装机，无需换 crx
+- 新律：①互切零残留靠结构（同卡换内容同帧卸载）不靠 CSS 硬藏——凡是「用补丁止损错误结构」的链路，重写优于第七次补丁 ②重写类改动的残留检查=定义点+引用点双查 ③测高 ref 挂恒定包裹层，keyed 内容重挂不重连 RO
