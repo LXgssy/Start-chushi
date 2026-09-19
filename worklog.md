@@ -680,3 +680,23 @@ Stage Summary:
 - v8.6.34 全链路闭环：禅过渡动画语言统一（时钟/搜索药丸/磁贴墙/dock 四区同一套 opacity+blur(12px) 雾化散场/显影聚拢，缩放退场退役）+ 退禅磨砂复原双保险（defrostGlass 强制重挂，第 ㉝ 点清零）——磨砂丢失家族在「观感要雾化」与「磨砂要存活」的历史矛盾上结构性双满足
 - 分发：全改动在页面层，云推 ≤6h 到存量装机，无需换 crx
 - 新律：①玻璃载体雾化观感与磨砂存活可兼得——毒物层缓存历史用 display 往返重挂销毁，雾化照挂、磨砂照活，visibility:hidden 态执行零成本 ②display 重挂会重置子树 CSS 动画——getAnimations({subtree}) cancel 是重挂方案的必备配套，否则入场动画重播穿帮 ③探针行为门测 React 链路必须派发真实事件（dblclick），手搓 classList 绕过了关键副作用路径
+---
+Task ID: 136
+Agent: main (Super Z)
+Task: 用户第十四轮反馈「禅模式的时钟会出现闪动的情况，并且在退出禅模式后单击页面时禅模式的时钟会出现」——v8.6.35 禅时钟稳定化（动效 CSS 化）+ 退禅幽灵复现结构根治 + 云推
+
+Work Log:
+- 【侦查对齐】worklog 摘要与真实树脱节再确认（摘要停 v8.6.18/Task 120，真实树 v8.6.34/Task 135）——git log + worklog tail 双重对齐后定位本轮两条新反馈为禅模式覆盖层链路（page.tsx L1395-1418 AnimatePresence 条件渲染 + Clock Colon framer 呼吸）
+- 【㉞ 根因一（缩放残留）】html.zen .zen-fade 残留 transform:scale(0.985)——v8.6.34 三载体缩放清理的漏网之鱼（用户第十三轮「模糊过渡而不是缩放动画」对时钟段未收口）；删除后时钟段纯 opacity+blur(12px) 雾化与 zen-gone/zen-dock/search-pill 完全同语言
+- 【㉞ 根因二（WAAPI 闪动）】Colon 呼吸是 framer motion opacity [0.9,0.35,0.9] WAAPI 动画——globals.css L726 panel-fade 教训在案「framer v12 对 opacity 走 WAAPI 加速，内联值停在初始 0 动画结束才补写，中间空窗真机闪一拍」；时钟 useNow 每秒 re-render 叠加重启风险。修复：CSS keyframes colon-breathe（4s ease-in-out infinite 参数不变）+ .colon-breathe 类 + reduced-motion 豁免清单；全实例（主时钟/迷你时钟）受益
+- 【㉟ 根因（exit 卸载链路）】禅覆盖层 {zen && <motion.div exit>}: ①exit 动画被 rAF 节流/中断时覆盖层滞留 DOM，后续 re-render 可令 motion 跳回可见态 ②卸载元素的合成层缓存可被单击触发的重绘闪现（v8.6.22 层缓存家族）。修复（结构根治）：覆盖层常驻 DOM + .zen-overlay CSS 过渡（visibility 离散插值：进禅即时可见/退禅末帧隐没 0.7s，与 zen-gone/zen-dock 同零毒通道，覆盖层内无玻璃子树）；迷你时钟常驻=时间热状态进禅零延迟；ZenPomodoro 保持 zen 条件挂载（到点结算/chime/toast 仅禅内生效——advanceRuntime 写者与 PomodoroPanel 互斥语义不变，防双重结算）
+- 【framer 全退役】page.tsx 删 framer-motion import + AnimatePresence + EASE（唯一使用点即覆盖层）；Clock.tsx Colon 去 motion（Digit 翻转保留——主时钟同机制未被报，模糊聚拢词汇不动）
+- 【探针】probe-v8635（sed 全量克隆 50 处版本号 + 3 门）：TL21 覆盖层常驻化源码门（framer/AnimatePresence/EASE 退役 + zen-overlay 常驻结构 + CSS visibility 双规则）+ TL22 时钟闪动门（colon-breathe 关键帧 + zen-fade 基线/禅态零 transform）+ TL23 行为门（dblclick 真实链路：DOM 恒在 + 进禅 opa=1/visible + 退禅 opa=0/hidden 末帧隐没）。93 PASS / 0 FAIL（v8.6.34 基线 89/1，T6a 存量 flake 本轮亦过）
+- 【坑录】①bootNewTab 只等 body.children>0（水合早期）——TL23 首跑 present:false 假阴，补 3s rAF 轮询等常驻覆盖层渲染（TL19-pre dockedBooted 同惯例）后 PASS ②fix 脚本断言子串计数（".zen-overlay {" 是 "html.zen .zen-overlay {" 子串，count 应为 2）+ 注释字样撞「引用残留」断言——断言须锚定代码级特征（import 行/JSX 标签）③sub_once 幂等分支对空 new 失效（falsy 短路）——old not in s 判定才是正确幂等条件 ④visual 脚本 sed 克隆时 SHOTS 常量目录名（v8633-visual）与版本号字样（8.6.34）不同源，两处都要替换
+- 【像素级验证】visual-v8635/mad-v8635（v8.6.34 方案克隆）：docked 磁贴墙 clip 三连截图 MAD(A,C)=0.000（退禅后磁贴区与禅前像素级全等——覆盖层常驻零副作用）、MAD(A,B)=6.495（禅中雾化真实渲染，与 v8.6.33/34 数值一致）——FROST-ALIVE PASS
+- 【发布】main 0753644（8 文件对账无夹带：globals.css/page.tsx/Clock.tsx/changelog.ts/build-extension.py/probe-v8635 新增/visual-v8635+mad-v8635 新增）
+
+Stage Summary:
+- v8.6.35 全链路闭环：禅时钟闪动修复（缩放残留清零 + 冒号呼吸/覆盖层动效 CSS 化——framer WAAPI 空窗家族在禅链路清零）+ 退禅幽灵复现结构根治（exit 卸载链路退役，常驻 + visibility 离散插值）——第十四轮两点全清
+- 分发：全改动在页面层（globals.css/page.tsx/Clock.tsx），云推 ≤6h 到存量装机，无需换 crx
+- 新律：①「CSS 常驻 + visibility 离散插值」是条件渲染浮层的结构免疫形态——AnimatePresence exit 的节流滞留与卸载层缓存 ghost 两类病灶从结构上不存在，代价仅常驻渲染（轻量组件可忽略）②组件内「到点结算/副作用」型子组件必须条件挂载（常驻会改变写者拓扑，ZenPomodoro 若常驻则禅外番茄钟到点双重结算）③探针行为门的 evaluate 前必须 rAF 轮询等待目标节点（bootNewTab 的 body.children>0 是水合早期信号非渲染完成信号）
