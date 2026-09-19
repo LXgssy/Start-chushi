@@ -643,3 +643,22 @@ Stage Summary:
 - v8.6.32 全链路闭环：禅模式雾化禁 filter（玻璃载体材质全程存活，退出后磨砂不再消失）+ 磁贴磨砂材质写入 CSS 底层（tile-frost 基线，双渲染系统共享）+ 面板玻璃壳满窗律（底边描边圆角恒贴窗底、预设→其他面板顶部收缩拉伸、底部高光根除）——第 28/29/30 点全清
 - 分发：全改动在页面层，云推 ≤6h 到存量装机，无需换 crx
 - 新律：①玻璃载体的雾化/入场/退场通道禁 filter（opacity+transform 承载），祖先 filter=backdrop root 毒链定律扩展到禅模式 ②材质声明入 CSS 基线且只写标准属性（构建器补前缀），内联样式材质退役 ③「JS 锁追赶动画」类方案（minHeight 锁）终会被时序竞态反噬——让结构保证（h-full 恒等式）取代状态追赶 ④裸切边（无描边圆角的 overflow 裁切边）即视觉「高光」病灶——玻璃完成边必须恒在可视边界内
+---
+Task ID: 134
+Agent: main (Super Z)
+Task: 用户第十二轮反馈「不要删除雾化 filter，你的磁贴磨砂玻璃效果消失还是没有解决」——v8.6.33 禅雾化 filter 回归 + 玻璃载体零毒退场 + 云推
+
+Work Log:
+- 【根因】v8.6.32 删了 html.zen .zen-fade 的 filter: blur(12px)（雾化观感丢失——用户「不要删除雾化 filter」）但保留 opacity: 0 雾化——opacity<1 与 filter≠none 同为 backdrop root 毒物（v8.6.22「自身同样剧毒」已实证），磁贴墙（.tile-frost）仍挂 zen-fade 段内 → 禅过渡期磨砂采样面归零，用户 Chrome 过渡结束后磨砂层不复原 → 「还是没有解决」；v8.6.32 探针 TL18a 当时断言的恰是「无 filter」，对「祖先 opacity 雾化」这条毒链方向性盲区
+- 【雾化 filter 回归】html.zen .zen-fade 恢复 filter: blur(12px)——zen-fade 语义收窄为时钟段专用（page.tsx 磁贴墙段改挂新 .zen-gone），时钟段无玻璃子树，blur 雾化全量回归零毒；html.zen .cl-widgets blur 雾化原样保留
+- 【玻璃载体零毒退场】磁贴墙（.zen-gone 新基线）/dock（.zen-dock）/搜索药丸（.search-pill）禅退场一律 visibility:hidden + transform:scale(0)——visibility 与 transform 均不构成 backdrop root，磨砂采样全程存活；进禅 transform 收缩散场 + visibility 过渡末帧隐没（transition: visibility 0s 0.65s 延迟），退禅 visibility 即时可见（基线 0s 无延迟）+ 自零聚拢复现，双向无硬切；dock origin bottom（向底缘收没）、search-pill origin top、磁贴墙默认中心；产物 CSS 逐条验证（lightningcss 仅把 visibility 0s 极简为 visibility，延迟语义无损）
+- 【探针】probe-v8633（sed 全量克隆 + TL18a 反转替换 + TL19 插入）：TL18a 反转为「zen-fade 恢复 blur(12px) + cl-widgets 保留」；TL18b' 玻璃载体零毒静态门（zen-gone/zen-dock/search-pill 三条 html.zen 规则 visibility+scale(0) 且零 opacity/零 filter + .zen-gone 基线在位）；TL19 禅窗行为门（docked 磁贴墙 zen 态 visibility=hidden 且 opacity=1/filter=none + 时钟段雾化 blur(12px) 在线 + 退禅 .tile-frost blur(14px) saturate(1.6) 恒在线）。89 PASS / 0 FAIL（含 T6a 存量 flake 本轮亦过）
+- 【二轮补丁（首跑 2 类假阳教训）】①TL19a clockFil=blur(0.0037px) FAIL：时钟段 intro-rise 入场动画（0.1s+0.95s）在禅类添加时仍在运行，动画级联持有 filter（动画>过渡），快照撞上动画尾帧——非真实缺陷；补 rAF 排空 getAnimations 后再进禅 + 禅相位等待改 rAF 轮询（强制产帧，免 headless 遮挡冻结过渡时间线）②TL7/TL13a frost=null FAIL：TL19c 误删 linksForm 还原 drawer，破坏 T8a「docked 持久化」契约——改回 docked 复位（下游门依赖 docked 磁贴墙）
+- 【像素级视觉验证】visual-v8633（docked 磁贴墙区域 clip 截图三连：禅前 A/禅中 B/退禅后 C）+ mad-v8633（MAD 判定）：MAD(A,C)=0.000（退禅后磁贴区与禅前像素级全等——磨砂+内容完整复原）、MAD(A,B)=MAD(B,C)=6.495（禅中磁贴隐没/磨砂模糊层真实渲染区别于裸壁纸）——FROST-ALIVE PASS
+- 【发布】main 3efa7ed（7 文件对账无夹带：globals.css/page.tsx/changelog.ts/build-extension.py/probe-v8633 新增/visual-v8633 新增/mad-v8633 新增）→ 云推 gh-pages：version.json v=8.6.33、curl 线上验证通过
+- 【坑录】①backdrop root 毒物清单应视为完备集：filter≠none、opacity<1、mask、mix-blend-mode≠normal、will-change(前述)——玻璃祖先链上任何一个瞬时出现都杀磨砂，「删一个留一个」的修复必复发（v8.6.31→32→33 三轮同链实证）②CSS 动画持有属性期间（animation>transition 级联）过渡类断言必须先 getAnimations() 排空，否则撞尾帧假阳③headless 遮挡页 setTimeout 等待不产帧、过渡时间线冻结——时序类行为门一律 rAF 轮询强制产帧④探针既有门的设置契约（如 T8a docked 持久化）是隐式依赖，插入新门改设置后必须按原契约复位
+
+Stage Summary:
+- v8.6.33 全链路闭环：雾化 filter 回归（时钟段+角落部件）+ 玻璃载体零毒退场（磁贴墙/搜索药丸/底栏 visibility+transform）——用户「不要删除雾化 filter」与「磁贴磨砂玻璃消失」双诉求结构性同时满足，磨砂丢失家族（⑰㉑㉗㉘）在禅模式入口终解
+- 分发：全改动在页面层，云推 ≤6h 到存量装机，无需换 crx
+- 新律：①玻璃祖先链零毒律完备化——opacity 与 filter 同罪，雾化语言只落无玻璃子树 ②visibility+transform 是玻璃隐没/复现的唯一安全通道（离散插值自动实现「末帧隐没/即时复现」）③动画持有期断言先排空 getAnimations ④rAF 是 headless 行为门的唯一可靠时钟
