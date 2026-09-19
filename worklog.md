@@ -622,3 +622,24 @@ Stage Summary:
 - 分发：页面层改动（globals.css/Dock.tsx/use-morph-height.ts），云推 ≤6h 到存量装机，无需换 crx
 - 新律：①render-phase update 与 commit 期 ref 测高 setState 同帧竞逐会静默丢状态——凡「渲染期 setState 设定且 DOM 立即可见」的关键动画状态一律 useLayoutEffect 常规 setState ②诊断插桩自身必须守 hooks 规则（TDZ 崩溃一次教训）③探针阈值调整必须给物理依据（真失效 signature 量级 vs 亚像素瞬态）④CSS 动画关键帧的增删会改变提交时序，可让潜伏的 React 竞态 100% 显形——「只加了 blur 为什么锁没了」类悬案优先查时序而非逻辑
 
+---
+Task ID: 133
+Agent: main (Super Z)
+Task: 用户三点反馈「禅模式退出后常驻快捷服务图标磨砂消失+要求两套渲染把磨砂写入底层（第 28 点）／预设面板→dock 其他面板仍是底部收缩动画（第 29 点）／面板切换动画底部深色浅色高光（第 30 点）」——v8.6.32 磨砂材质底层化 + 玻璃壳满窗律 + 云推
+
+Work Log:
+- 【㉘ 根因】docked 磁贴墙挂在 section.zen-fade 内，html.zen .zen-fade { filter: blur(12px) } 使整段成为 backdrop root（祖先 filter 毒链定律）——磨砂采样面归零，禅进出双窗杀磨砂且退出后可常数帧不复原（用户实测「退出禅模式磨砂消失」）；html.zen .zen-dock（dock 本体即 glass-pill 玻璃）与 html.zen .search-pill（本体即玻璃）同罪
+- 【㉘ 修复】三条 html.zen 雾化规则删 filter 声明（opacity+transform 雾化语义不变，玻璃材质全程存活）；html.zen .cl-widgets 保留 blur 雾化（iframe 容器无磨砂可杀，v8.6.26 律）——「雾化语言让位于磨砂材质存活」
+- 【磨砂底层化·图标材质】磁贴霜层材质从 JSX 内联样式收编 globals.css .tile-frost 基线（backdrop-filter blur(14px) saturate(1.6) + --tile-frost-bg 着色），内联退役——用户指令「把磨砂写入底层，从底层代码改变图标材质」；双渲染系统其一（磨砂）共享此基线、其二（cs-lite）经通配 backdrop-filter:none !important 统一关停（v8.6.26 已做实，本轮指令为其再确认）
+- 【lightningcss 别名折叠坑】.tile-frost 若同时声明标准+前缀，构建时被折叠为最后声明（前缀版）且 Chromium 对构建产物的前缀别名不生效（探针首跑 computed=none 实锤，T3e/T8c/TL4/TL18b 四门连崩）——只声明标准属性，lightningcss 自动补 -webkit-（.glass-card 双份输出实证）；zen-dock/search-pill 声明全同被合并为分组选择器，探针门须按逗号分段精确匹配
+- 【㉙㉚ 终极根因】玻璃卡是高度盒内一段独立高度的独立盒——换装帧（含部件→内建重挂）卡高与窗口弹簧各行其是；v8.6.30/31 的 minHeight 锁是「用 JS 追赶逐帧弹簧」，还引入渲染期 setState 丢锁竞态（v8.6.31 已修一次），且卡底溢出壳体被裁=裸切边（无描边无圆角）即用户所见底部高光
+- 【玻璃壳满窗律（结构重解）】玻璃卡 h-full（flow-root 链同高）——卡高每帧恒等于高度盒（=壳体窗口）动画值：玻璃底边（含 1px 描边与圆角）恒贴壳体底缘不动、顶边随弹簧收放，双向对称；收缩=顶边收下（第 26 点定案语义）、内容溢出段由壳体裁掉永不露出；部件→内建重挂卡生而满窗（第 29 点归零）；玻璃自身完成边恒在窗底=裸切边不复存在（第 30 点归零）；minHeight 锁/时间闸/底锚检测 useLayoutEffect 整链退役（无锁=无竞态），morphMinH/lastMorphAtRef/prevMorphPanelRef/contentHMirrorRef 四态清零
+- 【帧级实证】探针环境注入探针预设（start:presets 种 dock 表面部件 380px）：部件→待办切换窗 380→194 平滑收缩、壳底恒定 640（16 采样点位置数=1）、MAX gap=0、卡高每帧==壳高；首开轨迹 0→195 同律 gap=0；中帧截图 3 张（grow/shrink/部件→内建）底部均无高光带、玻璃圆角描边恒贴窗底
+- 【探针】probe-v8632（sed 克隆 + 6 段补丁）：TL16f 重写为玻璃壳满窗门（sawMinH→sawTrack：卡高==壳高每帧贴随，minHeight 断言退役）；TL18a 禅雾化材质存活（三条 html.zen 规则无 filter 声明，[^-]filter: 正则排除 backdrop-filter 误配 + 分段匹配防分组选择器误判）+ TL18b 磨砂底层化（.tile-frost 基线在位 + 计算样式磨砂在线 + 内联退役 style.backdropFilter 空）；T3e/T8c/TL4/T3h/T8d/T5b 六门随材质修复自动复活。84 PASS / 0 FAIL（v8.6.31 基线 81/1，T6a 存量 flake 本轮亦过）
+- 【发布】main 7bc7737（8 文件对账无夹带：globals.css/Dock.tsx/QuickLinks.tsx/changelog.ts/build-extension.py/probe-v8632 新增/visual-v8632+visual-v8632b 新增）→ 云推 gh-pages 932d20c：version.json v=8.6.32、73 文件尺寸+SHA256 逐字节 ALL-GREEN、curl 线上验证通过
+- 【坑录】①lightningcss 别名折叠：标准+前缀双声明被折叠为最后声明（前缀版）且 Chromium 不生效——CSS 基线一律只写标准属性，前缀交给构建器 ②探针 CSSOM 门用选择器精确匹配时须按逗号分段（lightningcss 会合并声明全同的规则为分组选择器）③worklog 摘要与真实 git 状态可能严重脱节（本会话摘要停在 v8.6.18/Task 120，真实树已到 v8.6.31/Task 132）——动手前 git log --oneline + worklog tail 双重对齐 ④rg 输出 `[m` 序列被 stdout ANSI 吞（interface PresetWidget 显示成 interface n）——接口名/类名核对一律 python 读源
+
+Stage Summary:
+- v8.6.32 全链路闭环：禅模式雾化禁 filter（玻璃载体材质全程存活，退出后磨砂不再消失）+ 磁贴磨砂材质写入 CSS 底层（tile-frost 基线，双渲染系统共享）+ 面板玻璃壳满窗律（底边描边圆角恒贴窗底、预设→其他面板顶部收缩拉伸、底部高光根除）——第 28/29/30 点全清
+- 分发：全改动在页面层，云推 ≤6h 到存量装机，无需换 crx
+- 新律：①玻璃载体的雾化/入场/退场通道禁 filter（opacity+transform 承载），祖先 filter=backdrop root 毒链定律扩展到禅模式 ②材质声明入 CSS 基线且只写标准属性（构建器补前缀），内联样式材质退役 ③「JS 锁追赶动画」类方案（minHeight 锁）终会被时序竞态反噬——让结构保证（h-full 恒等式）取代状态追赶 ④裸切边（无描边圆角的 overflow 裁切边）即视觉「高光」病灶——玻璃完成边必须恒在可视边界内
