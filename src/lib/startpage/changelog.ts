@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.6.35",
+    date: "2026-09-19",
+    title: "禅模式时钟稳定化：呼吸与覆盖层动效 CSS 化，退禅后不再幽灵复现",
+    channel: "page",
+    highlights: [
+      "禅模式时钟闪动修复：冒号呼吸改由 CSS 驱动，进禅散场不再残留缩放，观感更稳",
+      "退出禅模式后单击页面不再浮现禅模式时钟：覆盖层改常驻渲染，从结构上消除幽灵复现",
+      "禅模式进出动画全程 CSS 过渡承载：无中间空窗，更稳更顺",
+    ],
+  },
+  {
     version: "8.6.34",
     date: "2026-09-19",
     title: "禅过渡模糊雾化统一：搜索栏、磁贴、底栏与时钟同款散场",
