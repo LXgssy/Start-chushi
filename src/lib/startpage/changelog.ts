@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.6.33",
+    date: "2026-09-19",
+    title: "禅模式雾化滤镜回归：雾化与磨砂解耦，玻璃全程在线",
+    channel: "page",
+    highlights: [
+      "恢复禅模式进出的雾化滤镜：时钟与角落部件重新带上模糊雾化的散场/聚拢",
+      "磁贴墙、搜索栏、底栏在禅模式改用零毒收缩退场：透明度与滤镜不再途径玻璃材质",
+      "修复禅模式退出后磁贴磨砂玻璃消失的问题：磨砂玻璃在禅模式进出全程保持在线",
+    ],
+  },
+  {
     version: "8.6.32",
     date: "2026-09-19",
     title: "磨砂材质底层化：禅模式进出不再杀磨砂，面板玻璃恒满窗",
