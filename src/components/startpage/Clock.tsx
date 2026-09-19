@@ -72,11 +72,7 @@ export function Colon({
       className={`colon-slot inline-block align-baseline ${className}`}
       style={{ width: "0.32em", height: "1em" }}
     >
-      <motion.span
-        animate={breathe ? { opacity: [0.9, 0.35, 0.9] } : undefined}
-        transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-        className="absolute inset-0"
-      >
+      <span className={`absolute inset-0 ${breathe ? "colon-breathe" : ""}`}>
         {[-1, 1].map((sign) => (
           <span
             key={sign}
@@ -90,7 +86,7 @@ export function Colon({
             }}
           />
         ))}
-      </motion.span>
+      </span>
     </span>
   );
 }

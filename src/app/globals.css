@@ -659,6 +659,23 @@ html.cs-drawer-closing .cl-fade-leaf {
   vertical-align: baseline;
 }
 
+/* ---------- v8.6.35 冒号呼吸 CSS 化：framer opacity WAAPI 退役（时钟每秒 re-render
+   下 WAAPI 动画存在空窗/重启闪动风险——panel-fade 同族教训「勿还给 framer」；CSS
+   关键帧合成器驱动，级联回落零空窗）。参数与原 framer 完全一致：4s ease-in-out
+   无限循环 opacity 0.9→0.35→0.9。 ---------- */
+@keyframes colon-breathe {
+  0%,
+  100% {
+    opacity: 0.9;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.colon-breathe {
+  animation: colon-breathe 4s ease-in-out infinite;
+}
+
 /* ---------- 待办划线动画 ---------- */
 .strike {
   transform-origin: left center;
@@ -689,6 +706,7 @@ html.cs-drawer-closing .cl-fade-leaf {
   .pulse-dot,
   .pomo-dot,
   .jiggle,
+  .colon-breathe,
   .search-pill,
   .dock-intro {
     animation: none !important;
@@ -1482,14 +1500,15 @@ main .cl-links .link-intro-ring {
 .zen-fade {
   transition:
     opacity 0.65s cubic-bezier(0.22, 1, 0.36, 1),
-    filter 0.65s cubic-bezier(0.22, 1, 0.36, 1),
-    transform 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+    filter 0.65s cubic-bezier(0.22, 1, 0.36, 1);
 }
 html.zen .zen-fade {
   opacity: 0;
   filter: blur(12px);
-  transform: scale(0.985);
 }
+/* v8.6.35 时钟段缩放退役：scale(0.985) 是 v8.6.34 三载体缩放清理的漏网之鱼——
+   用户指令「模糊过渡而不是缩放动画」对时钟段同样适用；纯 opacity+blur 雾化
+   与 zen-gone/zen-dock/search-pill 完全同语言。 */
 /* v8.6.33 雾化 filter 回归（用户指令「不要删除雾化 filter」）：v8.6.32 曾以
    opacity+transform 取代 blur 雾化，但 opacity<1 同为 backdrop root 毒物
    （v8.6.22 自身剧毒实证），磁贴磨砂照样消失且雾化观感丢失——双输。
@@ -1579,6 +1598,28 @@ html.zen .search-pill {
     opacity 0.5s cubic-bezier(0.22, 1, 0.36, 1),
     filter 0.5s cubic-bezier(0.22, 1, 0.36, 1),
     visibility 0s 0.5s;
+}
+
+/* ---------- v8.6.35 禅模式覆盖层（迷你时钟/迷你番茄钟/提示词宿主）：常驻 DOM +
+   visibility 离散插值。AnimatePresence/exit 卸载链路退役（exit 被节流/中断时覆盖层
+   滞留 DOM + 卸载元素合成层缓存 ghost = 「退禅后单击页面禅时钟复现」两大通道）；
+   framer opacity WAAPI 空窗（panel-fade 同族教训）一并消除。visibility 离散插值：
+   进禅即时可见、退禅末帧隐没（淡出完成后才 hidden），opacity 0.7s 与原 framer 参数
+   一致。覆盖层内无玻璃子树（迷你时钟/提示词/番茄钟均非磨砂载体），opacity/
+   visibility 零毒。 ---------- */
+.zen-overlay {
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s 0.7s;
+}
+html.zen .zen-overlay {
+  opacity: 1;
+  visibility: visible;
+  transition:
+    opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s;
 }
 
 /* ---------- 禅模式提示词/迷你番茄钟：掠影下随壁纸明暗自适应墨色 ----------

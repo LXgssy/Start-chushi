@@ -2,7 +2,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
 import AuroraBackground from "@/components/startpage/AuroraBackground";
 import Clock from "@/components/startpage/Clock";
 import SearchBar from "@/components/startpage/SearchBar";
@@ -88,8 +87,6 @@ const DEFAULT_LINKS: StartLink[] = [
   { id: "weibo", name: "微博", url: "https://weibo.com" },
   { id: "163music", name: "网易云音乐", url: "https://music.163.com" },
 ];
-
-const EASE = [0.22, 1, 0.36, 1] as const;
 
 function isTypingTarget(el: Element | null): boolean {
   if (!el) return false;
@@ -1392,30 +1389,30 @@ export default function Home() {
       />
       </div>
 
-      {/* 禅模式迷你时钟 */}
-      <AnimatePresence>
-        {zen && (
-          <motion.div
-            key="zen-clock"
-            className="fixed inset-0 z-20 flex flex-col items-center justify-center"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.7, ease: EASE }}
-          >
-            <Clock settings={settings} preset={presetExtras.clock} mini />
-            {/* 迷你番茄钟：仅在计时运行时浮现（暂停/静止不显示），墨色随采样 tone 同步 */}
-            <ZenPomodoro settings={settings} tone={zenHintTone} />
-            <p
-              ref={zenHintRef}
-              data-tone={zenHintTone}
-              className="zen-hint mt-10 text-[11px] font-extralight tracking-[0.42em]"
-            >
-              双击任意处或按 ESC 退出
-            </p>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* 禅模式迷你时钟覆盖层（v8.6.35 常驻 DOM 化）：AnimatePresence/exit 卸载链路
+          整体退役——exit 动画被 rAF 节流/中断时覆盖层滞留 DOM，后续任何 re-render 都
+          可能令 motion 跳回可见态（用户实测「退禅后单击页面禅时钟复现」），卸载元素的
+          合成层缓存亦可能被单击触发的重绘闪现（v8.6.22 层缓存家族）；framer opacity
+          WAAPI 空窗（panel-fade 同族教训）一并消除——进禅淡入/退禅淡出改由 .zen-overlay
+          CSS 过渡承载（visibility 离散插值末帧隐没/即时复现，与 zen-gone/zen-dock 同
+          通道，覆盖层内无玻璃子树零毒）。迷你时钟常驻：时间热状态，进禅零延迟显示。
+          ZenPomodoro 保持 zen 条件挂载：到点结算/chime/toast 仅禅内生效（与
+          PomodoroPanel 互斥写者语义不变）。 */}
+      <div
+        className="zen-overlay fixed inset-0 z-20 flex flex-col items-center justify-center"
+        aria-hidden={!zen}
+      >
+        <Clock settings={settings} preset={presetExtras.clock} mini />
+        {/* 迷你番茄钟：仅在计时运行时浮现（暂停/静止不显示），墨色随采样 tone 同步 */}
+        {zen && <ZenPomodoro settings={settings} tone={zenHintTone} />}
+        <p
+          ref={zenHintRef}
+          data-tone={zenHintTone}
+          className="zen-hint mt-10 text-[11px] font-extralight tracking-[0.42em]"
+        >
+          双击任意处或按 ESC 退出
+        </p>
+      </div>
 
       {/* 命令面板（内嵌预设系统视图，见 PresetPanel） */}
       <CommandPalette
