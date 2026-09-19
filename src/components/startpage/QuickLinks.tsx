@@ -153,18 +153,16 @@ function TileIcon({
           v8.6.16 瓷釉重写：霜层铺变量着色（--tile-frost-bg，浅色白雾/深色暗雾）
           ——旧浅色只 blur 不着色，在浅底上 blur 后与背景无明度差，「磨砂玻璃」
           存在却看不见（用户定调浅色快捷图标没有磨砂玻璃效果）；着色后磁贴
-          与画布立即分层，浅掠影等场景经 globals 同名变量通道调值，不再是另一条硬编码。 */}
+          与画布立即分层，浅掠影等场景经 globals 同名变量通道调值，不再是另一条硬编码。
+          v8.6.32 磨砂底层化：材质声明收编 globals.css .tile-frost 基线（用户指令
+          「把磨砂写入底层，从底层代码改变图标材质」），内联样式退役——样式表常驻
+          声明不随渲染路径波动；cs-lite 流畅系统经通配关停，双渲染系统共享基线。 */}
       <span
         aria-hidden
         className={
           "tile-frost absolute inset-0 rounded-[inherit] cl-fade-leaf " +
           (intro ? "link-intro-frost" : "")
         }
-        style={{
-          backdropFilter: "blur(14px) saturate(1.6)",
-          WebkitBackdropFilter: "blur(14px) saturate(1.6)",
-          background: "var(--tile-frost-bg, transparent)",
-        }}
       />
       {/* 描边层（v8.6.9）：1px inset 环 + 顶部高光，走独立通道与内容层同拍
           模糊聚拢（原先把环挂在 0.18s 的霜层上，环会先于磁贴面成型）。
