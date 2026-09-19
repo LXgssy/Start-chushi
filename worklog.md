@@ -662,3 +662,21 @@ Stage Summary:
 - v8.6.33 全链路闭环：雾化 filter 回归（时钟段+角落部件）+ 玻璃载体零毒退场（磁贴墙/搜索药丸/底栏 visibility+transform）——用户「不要删除雾化 filter」与「磁贴磨砂玻璃消失」双诉求结构性同时满足，磨砂丢失家族（⑰㉑㉗㉘）在禅模式入口终解
 - 分发：全改动在页面层，云推 ≤6h 到存量装机，无需换 crx
 - 新律：①玻璃祖先链零毒律完备化——opacity 与 filter 同罪，雾化语言只落无玻璃子树 ②visibility+transform 是玻璃隐没/复现的唯一安全通道（离散插值自动实现「末帧隐没/即时复现」）③动画持有期断言先排空 getAnimations ④rAF 是 headless 行为门的唯一可靠时钟
+
+---
+Task ID: 135
+Agent: main (Super Z)
+Task: 用户第十三轮反馈「要改回之前的那种模糊过度而不是缩放动画！搜索框，快捷服务图标，dock栏过渡到禅模式的动画应该是时钟的这个模糊动画！」——v8.6.34 禅过渡模糊雾化统一 + 退禅磨砂复原双保险 + 云推
+
+Work Log:
+- 【根因】v8.6.33 为保磨砂把三玻璃载体（磁贴墙 zen-gone/dock zen-dock/搜索药丸 search-pill）禅退场全部走 visibility+scale(0) 零毒通道——磨砂保住了但观感是缩放；用户要的是时钟段 zen-fade 同款 blur(12px)+opacity 雾化散场。矛盾：玻璃载体上 filter/opacity 是 backdrop root 毒物（v8.6.22/32/33 三案定罪），直接挂雾化会复发「退禅后磨砂消失」
+- 【方案：观感与磨砂解耦双保险】①CSS 三段反转：html.zen 下 zen-gone/zen-dock/search-pill 全部改 opacity:0+filter:blur(12px)+visibility 末帧隐没（0s 0.65s 延迟，lightningcss 极简为 visibility 0.65s——visibility 离散插值一端 visible 时中间全程 visible，语义等价无损），scale 全删；退禅显影由基线 transition（.zen-gone/.zen-dock 自带 opacity+filter 0.65s / search-pill 走 Tailwind duration-500 默认含 opacity+filter）承载=自雾化聚拢复现 ②page.tsx defrostGlass：退禅瞬间（html.zen 移除前）对三载体 display:none 往返+双 reflow 强制销毁毒物层缓存历史——磨砂参与者随新层重建百分百复原；getAnimations({subtree:true}) cancel 抑制 display 重置引发的入场动画重播（pill-shell-in/磁贴三通道/dock-intro 不重播，显影由 opacity/filter 过渡独占）；全程 visibility:hidden 禅态下执行用户无感 ③双退禅路径收口：dblclick toggle（zenRef 镜像判向，effect 依赖不含 zen 规避闭包陈旧）+ Esc 快捷键均先 defrostGlass() 再 setZen
+- 【探针】probe-v8634（sed 全量克隆+3 补丁）：TL18b' 反转为「三载体 html.zen 规则 opacity:0+blur(12px)+零 scale+visibility 末帧隐没+基线 opacity/filter 过渡在位」；TL19 重写为 dblclick 真实 React 路径（不再手搓 classList——defrostGlass 必须经真实链路）：TL19a 进禅磁贴墙 opacity=0+blur(12px)+时钟雾化在线、TL19b 退禅 opacity=1+filter=none+.tile-frost blur(14px) saturate(1.6) 恒在线；TL19-pre 加 3s rAF 轮询根治 reload boot 时序 flake；TL20 新增源码门（defrostGlass 定义+subtree cancel+双路径调用）；89 PASS / 1 FAIL——唯一 FAIL=T6a 存量 flake（纱罩退场采样窗，v8.6.23 起注释在案），做基线对照实验：git stash 本轮 4 文件回 v8.6.33 跑 probe-v8633 同样 FAIL（leafMin=1.000 evts=0）→ 实锤与本轮无关系当前负载下探针时序脆弱
+- 【像素级验证】visual-v8634/mad-v8634（v8.6.33 方案克隆）：docked 磁贴墙 clip 三连截图 MAD(A,C)=0.000（退禅后磁贴区与禅前像素级全等——磨砂+内容完整复原）、MAD(A,B)=6.495（禅中雾化真实渲染）——FROST-ALIVE PASS
+- 【发布】main ad7e61b（7 文件对账无夹带：globals.css/page.tsx/changelog.ts/build-extension.py/probe-v8634 新增/visual-v8634+mad-v8634 新增）→ 云推 gh-pages：version.json v=8.6.34、73 文件尺寸+SHA256 逐字节 ALL-GREEN、curl 线上复核通过
+- 【坑录】①Write/Bash 管道对源码文本中 "[m" 序列有写侧+读侧双重吞字（`[mounted` 可见为 `ounted`）——rg 回显假象与真实损坏的鉴别法：python 读源 count 断言，勿信任何管道回显 ②探针 sed 克隆后打补丁：OLD 块内不得含被 sed 改写的版本号字面量（v8.6.33→34 全局替换后 TL19 注释里的「8.6.33 首跑」已变「8.6.34 首跑」，OLD 不命中）③fix 脚本幂等化（内容标记 SKIP）+ 分段替换失败可续跑，避免全量重写撞唯一性断言 ④T6a 类存量 flake 判定流程：回滚本轮改动跑上版探针做基线对照，FAIL 复现即与本轮无关，勿空跑碰运气 ⑤CSS transition 简写 `visibility 0s 0.65s` 被 lightningcss 极简为 `visibility 0.65s`：visibility 离散插值规则（一端 visible 时 t∈(0,1) 全程 visible、末帧 hidden）使两者语义等价，无需防极简
+
+Stage Summary:
+- v8.6.34 全链路闭环：禅过渡动画语言统一（时钟/搜索药丸/磁贴墙/dock 四区同一套 opacity+blur(12px) 雾化散场/显影聚拢，缩放退场退役）+ 退禅磨砂复原双保险（defrostGlass 强制重挂，第 ㉝ 点清零）——磨砂丢失家族在「观感要雾化」与「磨砂要存活」的历史矛盾上结构性双满足
+- 分发：全改动在页面层，云推 ≤6h 到存量装机，无需换 crx
+- 新律：①玻璃载体雾化观感与磨砂存活可兼得——毒物层缓存历史用 display 往返重挂销毁，雾化照挂、磨砂照活，visibility:hidden 态执行零成本 ②display 重挂会重置子树 CSS 动画——getAnimations({subtree}) cancel 是重挂方案的必备配套，否则入场动画重播穿帮 ③探针行为门测 React 链路必须派发真实事件（dblclick），手搓 classList 绕过了关键副作用路径
