@@ -1280,11 +1280,12 @@ export default function Home() {
           )}
 
           {/* 快捷服务·常驻形态（v8.6.2，settings.linksForm = docked）：磁贴墙一直铺在
-              搜索区下方（v8.5.9 原样式回归，56px 磁贴）。v8.5.4 磨砂存活律：
-              本区块只留 zen-fade（非禅态不产生 opacity/filter），入场交给磁贴自身 */}
+              搜索区下方（v8.5.9 原样式回归，56px 磁贴）。v8.6.33 禅退场改挂 .zen-gone
+              （visibility+transform 零毒通道）——磁贴墙是玻璃载体（.tile-frost），任何
+              opacity/filter 祖先（含雾化）都是 backdrop root 毒物；入场交给磁贴自身 */}
           {!layout.hideLinks && (settings.linksForm ?? "drawer") === "docked" && (
             <section
-              className="zen-fade mt-[clamp(2rem,8vh,4.5rem)] w-full"
+              className="zen-gone mt-[clamp(2rem,8vh,4.5rem)] w-full"
               aria-label="快捷链接"
             >
               <QuickLinks

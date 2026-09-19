@@ -1473,8 +1473,12 @@ main .cl-links .link-intro-ring {
   }
 }
 
-/* ---------- 禅模式进出：内容雾化散场/聚拢（v8.6.32 起 opacity+transform 承载，
-   玻璃载体禁 filter——模糊雾化语言让位于磨砂材质存活，见 html.zen .zen-fade 注） ---------- */
+/* ---------- 禅模式进出：雾化散场/聚拢（v8.6.33 定律）——雾化 filter 只作用于
+   无玻璃子树（zen-fade=时钟段 / cl-widgets=iframe 容器）；玻璃载体（zen-gone 磁贴墙 /
+   zen-dock / search-pill）退场一律 visibility+transform：opacity<1 与 filter≠none
+   在玻璃祖先/本体上同为 backdrop root 毒物（v8.6.22 自身剧毒 + v8.6.32 祖先 filter +
+   v8.6.32 用户实测「filter 删了、opacity 雾化仍在，磁贴磨砂照样消失」三案定罪）——
+   禅窗全程零毒，雾化与磨砂结构解耦互不杀伤 ---------- */
 .zen-fade {
   transition:
     opacity 0.65s cubic-bezier(0.22, 1, 0.36, 1),
@@ -1483,12 +1487,33 @@ main .cl-links .link-intro-ring {
 }
 html.zen .zen-fade {
   opacity: 0;
+  filter: blur(12px);
   transform: scale(0.985);
 }
-/* v8.6.32 磨砂底层化·禅雾化禁 filter：zen-fade 段是玻璃载体（常驻快捷服务磁贴墙
-   挂在其中），祖先 filter=blur(12px) 把整段变成 backdrop root，磨砂采样面归零——
-   禅进出双窗杀磨砂，退出后可常数帧不复原（用户实测「退出禅模式常驻快捷服务图标的
-   磨砂玻璃消失」）；opacity+transform 雾化语义不变，玻璃材质全程存活。 */
+/* v8.6.33 雾化 filter 回归（用户指令「不要删除雾化 filter」）：v8.6.32 曾以
+   opacity+transform 取代 blur 雾化，但 opacity<1 同为 backdrop root 毒物
+   （v8.6.22 自身剧毒实证），磁贴磨砂照样消失且雾化观感丢失——双输。
+   现在 zen-fade 只挂在时钟段（无玻璃子树），blur 雾化全量回归；磁贴墙已
+   迁出至 .zen-gone（visibility+transform 零毒退场），玻璃不再途径任何
+   opacity/filter 祖先。 */
+
+/* ---------- v8.6.33 磁贴墙禅退场（zen-gone）：visibility+transform 零毒通道。
+   visibility 与 transform 均不构成 backdrop root——磨砂采样全程存活。
+   进禅：transform 收缩散场，visibility 在过渡末帧隐没（transition 延迟 0.65s）；
+   退禅：visibility 即时可见（基线 0s 无延迟），磁贴自零聚拢复现。
+   ⚠ 本通道永不添加 opacity/filter——磁贴墙是玻璃载体（.tile-frost 挂内）。 */
+.zen-gone {
+  transition:
+    transform 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s;
+}
+html.zen .zen-gone {
+  visibility: hidden;
+  transform: scale(0);
+  transition:
+    transform 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s 0.65s;
+}
 
 /* ---------- 预设角落小部件层：禅模式同步雾化散场（与 .zen-fade 同语言）。
    ⚠ 不加 transform：wrapper 上的 transform 会成为 fixed 子盒的包含块，
@@ -1516,23 +1541,35 @@ html.zen .cl-dockwidget {
 }
 .zen-dock {
   transition:
-    opacity 0.65s cubic-bezier(0.22, 1, 0.36, 1),
-    filter 0.65s cubic-bezier(0.22, 1, 0.36, 1),
-    transform 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+    transform 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s;
 }
 html.zen .zen-dock {
-  opacity: 0;
-  transform: scale(0.985);
+  visibility: hidden;
+  transform: scale(0);
+  transform-origin: center bottom;
   pointer-events: none;
+  transition:
+    transform 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s 0.65s;
 }
-/* v8.6.32：dock 本体即玻璃（glass-pill backdrop-blur），雾化同禁 filter。 */
-/* 搜索药丸的禅雾化沿用其 transition-all 0.5s（不另设 transition 以免杀掉聚焦缩放/阴影过渡） */
+/* v8.6.33：dock 本体即玻璃（glass-pill backdrop-blur）——退场改 visibility+transform
+   零毒通道（原 opacity: 0 杀自身 backdrop-filter 且退禅后可常数帧不复原，用户实测
+   底栏磨砂消失通道之一）；origin bottom=向底缘收没/自底缘复生。Tailwind
+   -translate-x-1/2 走独立 translate 属性，与 transform: scale 合成不冲突。 */
+/* 搜索药丸禅退场（v8.6.33 零毒通道）：visibility+transform 承载（原 opacity: 0 杀
+   自身 backdrop-filter——用户实测搜索栏磨砂消失通道之一）。zen 态专属 transition
+   只在禅窗内生效（进禅：向顶缘收没+末帧隐没）；退禅由基线 Tailwind transition
+   接管（visibility 离散插值即时可见），聚焦缩放/阴影过渡不受影响。 */
 html.zen .search-pill {
-  opacity: 0;
-  transform: scale(0.985);
+  visibility: hidden;
+  transform: scale(0);
+  transform-origin: center top;
   pointer-events: none;
+  transition:
+    transform 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s 0.5s;
 }
-/* v8.6.32：搜索药丸本体即玻璃，雾化禁 filter（磨砂底层化同律）。 */
 
 /* ---------- 禅模式提示词/迷你番茄钟：掠影下随壁纸明暗自适应墨色 ----------
  * data-tone 由 page.tsx 进禅时采样壁纸亮度后设定：
