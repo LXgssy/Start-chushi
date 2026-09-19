@@ -121,6 +121,30 @@ export default function Home() {
   const [weather, setWeather] = useState<WeatherState>(INITIAL_WEATHER);
   const [isDark, setIsDark] = useState(true);
   const [zen, setZen] = useState(false);
+  /* zenRef：dblclick 切换 effect 的依赖不含 zen（闭包陈旧规避），退禅分支经由此镜像判断 */
+  const zenRef = useRef(false);
+  useEffect(() => {
+    zenRef.current = zen;
+  }, [zen]);
+  /* v8.6.34 退禅磨砂复原双保险：三玻璃载体（搜索药丸/dock/磁贴墙）禅态挂
+     opacity+blur 雾化（用户指令「改回模糊过渡」），玻璃祖先毒物令磨砂采样在
+     禅窗内失效；Chrome 层缓存可能令退禅移除毒物后磨砂常数帧乃至持续不复原
+     （v8.6.22/32/33 三案实证）。本函数在 html.zen 移除前同步执行：
+     display:none 往返 + 双 reflow 强制销毁毒物层缓存历史，磨砂参与者随新层
+     重建百分百复原；getAnimations({subtree}) cancel 抑制 display 重置引发的
+     入场动画重播（显影由 opacity/filter 过渡独占承载，与时钟段同语言）。
+     重挂全程元素处于 visibility:hidden 禅态——用户无感。 */
+  const defrostGlass = useCallback(() => {
+    for (const el of Array.from(
+      document.querySelectorAll<HTMLElement>(".search-pill, .zen-dock, .zen-gone")
+    )) {
+      el.style.display = "none";
+      void document.body.offsetWidth;
+      el.style.display = "";
+      void document.body.offsetWidth;
+      for (const a of el.getAnimations({ subtree: true })) a.cancel();
+    }
+  }, []);
   /** 「初始」专属右键菜单（见 ContextMenu；contextmenu 事件里记录坐标后置 open） */
   const [ctxMenu, setCtxMenu] = useState(false);
   const [ctxPos, setCtxPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -446,11 +470,12 @@ export default function Home() {
         ctxMenu
       )
         return;
+      if (zenRef.current) defrostGlass();
       setZen((z) => !z);
     };
     window.addEventListener("dblclick", onDblClick);
     return () => window.removeEventListener("dblclick", onDblClick);
-  }, [mounted, panel, editor.open, paletteOpen, ctxMenu]);
+  }, [mounted, panel, editor.open, paletteOpen, ctxMenu, defrostGlass]);
 
   /* ---------- 进入禅模式时收起所有浮层 ---------- */
   useEffect(() => {
@@ -571,6 +596,7 @@ export default function Home() {
       if (zen) {
         if (e.key === "Escape") {
           e.preventDefault();
+          defrostGlass();
           setZen(false);
         }
         return;
@@ -634,7 +660,7 @@ export default function Home() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [mounted, paletteOpen, editor.open, panel, dockWidget, zen, activePage, ctxMenu, devDocs]);
+  }, [mounted, paletteOpen, editor.open, panel, dockWidget, zen, activePage, ctxMenu, devDocs, defrostGlass]);
 
   /* ---------- 首次访问提示 ---------- */
   useEffect(() => {

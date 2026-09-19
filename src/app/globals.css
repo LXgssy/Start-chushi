@@ -1497,21 +1497,26 @@ html.zen .zen-fade {
    迁出至 .zen-gone（visibility+transform 零毒退场），玻璃不再途径任何
    opacity/filter 祖先。 */
 
-/* ---------- v8.6.33 磁贴墙禅退场（zen-gone）：visibility+transform 零毒通道。
-   visibility 与 transform 均不构成 backdrop root——磨砂采样全程存活。
-   进禅：transform 收缩散场，visibility 在过渡末帧隐没（transition 延迟 0.65s）；
-   退禅：visibility 即时可见（基线 0s 无延迟），磁贴自零聚拢复现。
-   ⚠ 本通道永不添加 opacity/filter——磁贴墙是玻璃载体（.tile-frost 挂内）。 */
+/* ---------- v8.6.34 磁贴墙禅退场（zen-gone）：模糊雾化回归（用户指令「改回之前的
+   模糊过渡而不是缩放动画」）——三玻璃载体与时钟段同语言 opacity+blur(12px) 雾化
+   散场/显影聚拢，scale 缩放退役。磨砂复原由退禅 defrostGlass（page.tsx）无感强制
+   重挂兜底：display 往返销毁毒物层缓存历史 + getAnimations cancel 抑制入场动画
+   重播，退禅显影全程磨砂在线（探针 TL19b 行为门验证）。
+   进禅：opacity/filter 雾化散场，visibility 过渡末帧隐没（延迟 0.65s）；
+   退禅：visibility 即时可见（基线 0s 无延迟），自雾化显影复现。 ---------- */
 .zen-gone {
   transition:
-    transform 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.65s cubic-bezier(0.22, 1, 0.36, 1),
     visibility 0s;
 }
 html.zen .zen-gone {
+  opacity: 0;
+  filter: blur(12px);
   visibility: hidden;
-  transform: scale(0);
   transition:
-    transform 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.65s cubic-bezier(0.22, 1, 0.36, 1),
     visibility 0s 0.65s;
 }
 
@@ -1541,33 +1546,38 @@ html.zen .cl-dockwidget {
 }
 .zen-dock {
   transition:
-    transform 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.65s cubic-bezier(0.22, 1, 0.36, 1),
     visibility 0s;
 }
 html.zen .zen-dock {
+  opacity: 0;
+  filter: blur(12px);
   visibility: hidden;
-  transform: scale(0);
-  transform-origin: center bottom;
   pointer-events: none;
   transition:
-    transform 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.65s cubic-bezier(0.22, 1, 0.36, 1),
     visibility 0s 0.65s;
 }
-/* v8.6.33：dock 本体即玻璃（glass-pill backdrop-blur）——退场改 visibility+transform
-   零毒通道（原 opacity: 0 杀自身 backdrop-filter 且退禅后可常数帧不复原，用户实测
-   底栏磨砂消失通道之一）；origin bottom=向底缘收没/自底缘复生。Tailwind
-   -translate-x-1/2 走独立 translate 属性，与 transform: scale 合成不冲突。 */
-/* 搜索药丸禅退场（v8.6.33 零毒通道）：visibility+transform 承载（原 opacity: 0 杀
-   自身 backdrop-filter——用户实测搜索栏磨砂消失通道之一）。zen 态专属 transition
-   只在禅窗内生效（进禅：向顶缘收没+末帧隐没）；退禅由基线 Tailwind transition
-   接管（visibility 离散插值即时可见），聚焦缩放/阴影过渡不受影响。 */
+/* v8.6.34：dock 退场回归时钟同款模糊雾化（用户指令「改回之前的模糊过渡而不是缩放
+   动画」）——scale 缩放退役；磨砂复原由退禅 defrostGlass（page.tsx）无感强制重挂
+   兜底（display 往返销毁毒物层缓存 + getAnimations cancel 抑制动画重播），显影
+   全程磨砂在线（探针 TL19b 行为门验证）。Tailwind -translate-x-1/2 走独立 translate
+   属性，与过渡无冲突。 */
+/* 搜索药丸禅退场（v8.6.34 模糊雾化回归，用户指令「改回之前的模糊过渡而不是缩放
+   动画」）：opacity+blur(12px) 与时钟段同语言散场/显影，scale 退役；磨砂复原由
+   退禅 defrostGlass（page.tsx）无感强制重挂兜底（探针 TL19b 行为门验证）。zen 态
+   专属 transition 只在禅窗内生效；退禅由基线 Tailwind transition（含 opacity/filter，
+   duration-500）接管显影，visibility 即时可见，聚焦缩放/阴影过渡不受影响。 */
 html.zen .search-pill {
+  opacity: 0;
+  filter: blur(12px);
   visibility: hidden;
-  transform: scale(0);
-  transform-origin: center top;
   pointer-events: none;
   transition:
-    transform 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.5s cubic-bezier(0.22, 1, 0.36, 1),
     visibility 0s 0.5s;
 }
 

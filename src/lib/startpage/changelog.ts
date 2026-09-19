@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.6.34",
+    date: "2026-09-19",
+    title: "禅过渡模糊雾化统一：搜索栏、磁贴、底栏与时钟同款散场",
+    channel: "page",
+    highlights: [
+      "搜索栏、快捷磁贴、底栏进入禅模式改回模糊雾化散场：与时钟同一套过渡语言，不再缩放",
+      "退出禅模式时玻璃材质无感重建：磨砂玻璃复原有了双保险，不再残留失效",
+      "雾化散场与聚拢显影全程丝滑：底栏、磁贴、搜索栏退出禅模式时自模糊中缓缓复现",
+    ],
+  },
+  {
     version: "8.6.33",
     date: "2026-09-19",
     title: "禅模式雾化滤镜回归：雾化与磨砂解耦，玻璃全程在线",
