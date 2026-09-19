@@ -279,49 +279,19 @@ const PanelStage = memo(function PanelStage({
   if (panel != null) lastPanelRef.current = panel;
   const displayPanel = panel ?? (phase === "closing" ? lastPanelRef.current : null);
 
-  /* ---------- v8.6.30 互切底锚律 ----------
-   * 收缩方向（高→矮）错位根因：玻璃卡在高度盒内【顶部对齐】，换装帧卡高随
-   * 新内容瞬变——玻璃底边先瞬收到新卡长（用户实测「底部收缩到卡片长度」），
-   * 随后窗口弹簧收缩、卡贴窗口顶整体悬空下降复位（「保持高度然后复位」）；
-   * 而伸展方向（矮→高）卡底溢出被壳体底缘裁掉，恰好呈现完美拉伸——不对称。
-   * 修复：换装帧把玻璃卡 minHeight 锁定为【换装前窗口高】（contentH + 卡
-   * border）——弹簧期卡高被撑住、贴窗口顶平滑下降，底部溢出段被壳体底缘
-   * （wrapper fixed bottom，恒定锚定 dock 上方）裁掉：玻璃底边恒定不动、
-   * 面板从顶部平滑收缩；弹簧 onAnimationComplete 摘锁，卡高回落=内容高，
-   * 圆角复位。渲染期同步检测（prevAnyActive 同律）；contentH 未武装（首开
-   * 500ms 内）不锁（退化 auto 直就位）；closed 相位 displayPanel=null 摘锁
-   * （防旧高泄入下次首开）。测量链：measureRef 挪挂 keyed 内容层——RO 只测
-   * 真实内容高，minHeight 锁在玻璃卡上不会毒化测高（否则窗口目标=锁值死锁）。 */
-  const [morphMinH, setMorphMinH] = useState<number | null>(null);
-  const lastMorphAtRef = useRef(0);
-  /* ---------- v8.6.31 底锚检测改版：渲染期 setState → 提交期 useLayoutEffect ----------
-   * 原实现（v8.6.30）在渲染期同步 setPrevPanel + setMorphMinH（render-phase update）。
-   * 探针 MORPHLOG 实锤的竞态：换装帧「渲染期 setState」与「ref 回调同步测高
-   * setContentH」同帧竞逐，React 18 会静默丢失 render-phase update——锁值 256 已
-   * 写进 DOM（min-height: 256px 见证）却在 1ms 后被无 setter 调用的重渲回退 null，
-   * 底锚锁形同虚设，收缩方向复现「底部收缩到卡长再复位」（用户第 26 点原始病灶）。
-   * v8.6.31 内容层模糊聚拢（blur 关键帧）改变提交时序，使该潜伏竞态 100% 触发。
-   * 修复：检测挪进 useLayoutEffect（普通更新队列不可能被静默丢弃，且 setState
-   * 同步冲刷 pre-paint 无闪烁窗）；prevPanel 降级为 ref（不再触发额外渲染）；
-   * contentH 以渲染体镜像 ref 供 effect 读取——layout effect 运行于「重测高渲染」
-   * 之前，读到的仍是换装前高度（正确锁值）。 */
-  const prevMorphPanelRef = useRef<PanelId>(null);
-  const contentHMirrorRef = useRef<number | null>(null);
-  contentHMirrorRef.current = contentH;
-  useLayoutEffect(() => {
-    if (displayPanel === prevMorphPanelRef.current) return;
-    const from = prevMorphPanelRef.current;
-    prevMorphPanelRef.current = displayPanel;
-    if (displayPanel == null) {
-      setMorphMinH(null);
-    } else if (from != null && phase === "open") {
-      const base = contentHMirrorRef.current;
-      if (base != null) {
-        lastMorphAtRef.current = performance.now();
-        setMorphMinH(base + PANEL_CARD_BORDER);
-      }
-    }
-  }, [displayPanel, phase]);
+  /* ---------- v8.6.32 玻璃壳满窗律（取代 v8.6.30/31 底锚 minHeight 锁）----------
+   * 收缩方向「底部收缩到卡长再复位」的终极根因：玻璃卡是高度盒内一段【独立高度】
+   * 的独立盒——换装帧卡高与窗口弹簧各行其是；v8.6.30/31 用 minHeight 锁追赶逐帧
+   * 弹簧，不仅滞后于动画本身，还引入渲染期 setState 静默丢锁的竞态（v8.6.31
+   * MORPHLOG 实锤：blur 关键帧改变提交时序即 100% 触发）。
+   * 结构解：玻璃卡 h-full——卡高每帧恒等于高度盒（=壳体窗口）当前动画值：
+   *   · 玻璃底边（含 1px 描边与圆角）恒定贴住壳体底缘不动，顶边随弹簧收放
+   *     ——收缩=顶边平滑收下、伸展=顶边平滑拉起，双向对称零跳变（第 26 点定案）；
+   *   · 切换全程玻璃自身完成边恒在窗底，不再出现裸切边高光（第 30 点）；
+   *   · 预设部件→内建互切（换装重挂）卡生而满窗，同样底锚拉伸（第 29 点）；
+   *   · 内容层高于窗口的溢出段由壳体 overflow-hidden 裁掉，永不露出；
+   *   · minHeight 锁/时间闸/底锚检测 effect 整链退役（无锁=无竞态）。
+   * 测高链不变：RO 测 keyed 内容层（cl-panel-content），与卡高解耦零死锁。 */
 
   return (
     /* 面板浮层：外层静态 wrapper 负责定位（fixed + CSS -translate-x-1/2 居中），
@@ -364,27 +334,21 @@ const PanelStage = memo(function PanelStage({
                 ? motionSpring
                 : { duration: 0.22, ease: EXIT_EASE }
           }
-          onAnimationComplete={() => {
-            /* v8.6.30 时间闸：换装帧后 150ms 内的 complete 是 framer 对「animate 目标
-               无变化重渲」的边缘触发，不得摘掉刚设的底锚锁；真弹簧完成 >300ms */
-            if (performance.now() - lastMorphAtRef.current > 150) setMorphMinH(null);
-          }}
         >
           {/* v8.6.29 互切拉伸律：内建玻璃卡 open 相位恒挂载（互切不重挂=同一张玻璃，
               「一张玻璃卡换内容」结构保证）；内容层 key=session+panel 换装重挂——
               旧内容同帧卸载（零残留结构性保证，不再依赖硬藏规则），新内容播
               .cl-panel-content 模糊聚拢淡入（0.3s，blur 10px→0——动效主角是高度/宽度弹簧拉伸）。
-              测高 ref v8.6.30 挪挂 keyed 内容层（cl-panel-content）：RO 只测真实
-              内容高、不被底锚 minHeight 毒化；重挂帧 ref 回调同步测高，弹簧零迟滞。
+              测高 ref 挂 keyed 内容层（cl-panel-content）：RO 只测真实内容高；
+              v8.6.32 玻璃卡 h-full 满窗（卡高=壳体动画值），与测高链解耦零死锁。
               displayPanel：closing 相位渲染 lastPanel 旧内容播散场，其余相位=panel。
               v8.6.25 律保留：内容层在玻璃卡内部（后代 opacity 不触磨砂采样链），
               p-4 在内容层（关闭按钮包含块矩形逐像素等位）。 */}
           {displayPanel != null && phase !== "closed" && (
-            <div className="flow-root">
+            <div className="flow-root h-full">
               <div
-                className="glass-card cl-panel panel-rise relative rounded-2xl shadow-2xl"
+                className="glass-card cl-panel panel-rise relative h-full rounded-2xl shadow-2xl"
                 data-panel={displayPanel}
-                style={{ minHeight: morphMinH != null ? morphMinH : undefined }}
               >
                 {/* panel-rise 上卡本体（仅挂载帧播：首开/部件→内建互切；互切不重挂
                     不重播=玻璃恒定）；关闭经 .panel-sink .glass-card 级联
