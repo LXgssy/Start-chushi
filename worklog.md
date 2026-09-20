@@ -700,3 +700,19 @@ Stage Summary:
 - v8.6.35 全链路闭环：禅时钟闪动修复（缩放残留清零 + 冒号呼吸/覆盖层动效 CSS 化——framer WAAPI 空窗家族在禅链路清零）+ 退禅幽灵复现结构根治（exit 卸载链路退役，常驻 + visibility 离散插值）——第十四轮两点全清
 - 分发：全改动在页面层（globals.css/page.tsx/Clock.tsx），云推 ≤6h 到存量装机，无需换 crx
 - 新律：①「CSS 常驻 + visibility 离散插值」是条件渲染浮层的结构免疫形态——AnimatePresence exit 的节流滞留与卸载层缓存 ghost 两类病灶从结构上不存在，代价仅常驻渲染（轻量组件可忽略）②组件内「到点结算/副作用」型子组件必须条件挂载（常驻会改变写者拓扑，ZenPomodoro 若常驻则禅外番茄钟到点双重结算）③探针行为门的 evaluate 前必须 rAF 轮询等待目标节点（bootNewTab 的 body.children>0 是水合早期信号非渲染完成信号）
+---
+Task ID: 137
+Agent: main (Super Z)
+Task: 用户第十六轮反馈「关闭 dock 栏功能面板时，面板顶部会出现一条白条，修复这个问题（不要动任何功能和动画）」——v8.6.36 面板关闭白条修复（最小影响面）+ 云推
+
+Work Log:
+- 【诊断基建坑】/tmp/ext-v869 被中途清空（manifest/shell.html 丢失）→ 扩展加载失败 ERR_BLOCKED_BY_CLIENT（sw=[] 实锤未加载）——诊断脚本须自带 rmSync profile + 重新解包；诊断脚本 profile 必须与 EXT_ID 派生路径一致
+- 【数值实锤根因】自写逐帧诊断（stage/card rect + computed 样式 + getAnimations）：关闭链路 = 高度盒折回 0（EXIT_EASE cubic-bezier(0.4,0,1,1) 前慢后快）+ 玻璃卡 h-full 满窗律被压扁（cardH==stageH 每帧贴合实证）+ 共享 out-kf 背景渐隐 0.22s 全程线性——压扁段（壳高 30-100px，t≈120-190ms）背景还剩 10-25% 白底 + blur 驻留满值把壁纸糊亮 → 压扁中的玻璃卡 = 面板顶部一条白条。卡壳贴合/底锚（stageY+stageH 恒 640）排除缝隙假说；anim 实验实锤 headless 时间膨胀（真实 120ms 动画只走 17ms）——数值采样必须 WAAPI currentTime 快进
+- 【最小修复】新增 .panel-sink .cl-panel 专属 keyframes（cl-panel-out-kf）：背景/描边/阴影渐隐提前到 40%（88ms，EXIT_EASE 高度进度仅 ~22%=壳高 78% 完整段正常散场）完成，压扁段背景全透明=纯 blur 磨砂无白底；blur 驻留 55% 与 0.22s/cubic-bezier(0.4,0,1,1) 完全不变（感知同步律保留）。共享 glass-card-out-kf（纱幕 veil-out/弹窗 dialog-sink/ctx-out 通道）一字不动——用户「不要动无关」约束下 diff 仅 globals.css +30 行纯新增 + changelog +11 + VERSION 1 行
+- 【探针】probe-v8636（sed 克隆 53 处 + TL24a/TL24b）：TL24a 静态门（专属 keyframes 在位 + 共享 out-kf 零波及 + 声明顺序后者胜）+ TL24b 行为门（真实关闭链路 + currentTime 快进：t=100ms bg=rgba(0,0,0,0)+blur(20px) 满值 / t=200ms bg 全透明+blur(6.8px) 收尾——修复前 t=100ms 白底 ~0.33）。94 PASS / 1 FAIL（T6a 存量 flake，v8.6.35 同款在案）
+- 【坑录】①插入块引用后声明变量 → TDZ FATAL（「Cannot access 'cssSrc' before initialization」，Task 132 坑录同款再踩）——探针插块必须锚在其引用变量的定义门之后 ②行为门同步采样扑空（React 18 事件批处理：click 后 setState 异步提交，click 后立刻 getAnimations names=[]）——点击后 rAF×2 等提交再采样 ③探针门间状态耦合（TL24b 结束时面板未关完 → TL23 的 dblclick 被排除表 panel!=null 拦截 → inZen 假阴）——每个行为门结束必须恢复初始态（等 SINK_MS+margin）再放行 ④headless 时间膨胀（CSS 动画走时 ≈1/7 真实时间）——动画帧级断言一律 WAAPI currentTime 快进，禁止真实等待采样
+
+Stage Summary:
+- v8.6.36 全链路闭环：dock 面板关闭白条根除（压扁段背景提前散场与收折同步）——动画语言/时长/手感零变化，共享散场通道零波及，探针行为级证据闭环（第十六轮清零）
+- 分发：全改动在页面层（globals.css），云推 ≤6h 到存量装机，无需换 crx
+- 新律：①「不同时间基线的双动画并行」是视觉裂缝之源——高度弹簧（JS 逐帧）与 CSS 渐隐（timeline）的进度曲线必须按压扁窗口对齐，让快完成者覆盖慢完成者的可视段 ②修复类改动的 diff 纪律：新增专属规则优于修改共享规则（影响面=病灶本身）③探针行为门的时序三律：React 提交等待（rAF×2）/门间状态复位（等卸载）/headless 时间膨胀豁免（currentTime 快进）
