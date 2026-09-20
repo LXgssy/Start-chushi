@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.6.36",
+    date: "2026-09-19",
+    title: "dock 面板关闭白条修复：底色散场与收折同步，压扁段不再露白",
+    channel: "page",
+    highlights: [
+      "关闭 dock 功能面板时面板顶部不再出现一条白条",
+      "面板底色在收折前期即完成散场，收拢段只剩纯净磨砂",
+      "面板关闭动画的时长与手感完全不变",
+    ],
+  },
+  {
     version: "8.6.35",
     date: "2026-09-19",
     title: "禅模式时钟稳定化：呼吸与覆盖层动效 CSS 化，退禅后不再幽灵复现",

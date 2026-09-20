@@ -875,6 +875,36 @@ html.cs-drawer-closing .cl-fade-leaf {
 .panel-sink .glass-card {
   animation: glass-card-out-kf 0.22s cubic-bezier(0.4, 0, 1, 1) forwards;
 }
+/* ---------- v8.6.36 dock 面板关闭「顶部白条」修复（仅 .cl-panel 专属）----------
+   机制：关闭 = 高度盒折回 0（EXIT_EASE 前慢后快）+ 玻璃卡 h-full 满窗律被压扁；
+   共享 out-kf 的背景渐隐是 0.22s 全程线性——壳高压到 30-100px 的压扁段（t≈120-190ms）
+   背景还剩 10-25% 白底，blur 驻留满值又把壁纸糊亮 → 压扁中的玻璃卡 = 面板顶部一条
+   白条（用户实测）。修复：背景/描边/阴影渐隐提前到 40%（88ms）完成——此时 EXIT_EASE
+   高度进度仅 ~22%（壳高 ~78%），完整高度段正常散场；压扁段（壳高 <200px）背景已
+   全透明 = 纯 blur 磨砂无白底。blur 驻留 55% 与时长/曲线完全不变（感知同步律保留）。
+   共享 glass-card-out-kf（纱幕 veil-out / 弹窗 dialog-sink / 右键 ctx-out 通道）
+   一字不动——影响面精确圈定在 dock 面板卡。声明位置须在本锚点之后（同特异性
+   (0,2,0) 后者胜，覆盖 .panel-sink .glass-card 的共享 out-kf 引用）。 ---------- */
+@keyframes cl-panel-out-kf {
+  0%,
+  55% {
+    backdrop-filter: blur(20px) saturate(1.5);
+  }
+  40% {
+    background-color: transparent;
+    border-color: transparent;
+    box-shadow: 0 0 0 0 transparent;
+  }
+  to {
+    background-color: transparent;
+    border-color: transparent;
+    box-shadow: 0 0 0 0 transparent;
+    backdrop-filter: blur(1px) saturate(1.5);
+  }
+}
+.panel-sink .cl-panel {
+  animation: cl-panel-out-kf 0.22s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
 @keyframes dialog-sink {
   from {
     transform: translateY(0) scale(1);
