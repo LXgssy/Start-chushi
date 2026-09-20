@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.6.37",
+    date: "2026-09-20",
+    title: "dock 面板关闭收尾重做：底色全程保留，收拢残影整体隐没（白条黑条同清）",
+    channel: "page",
+    highlights: [
+      "修复关闭 dock 功能面板时顶部出现的白条/黑条，且不再随壁纸明暗变化",
+      "面板底色全程保留：收拢过程中材质不再被抽成透明磨砂",
+      "面板关闭动画的时长与手感完全不变",
+    ],
+  },
+  {
     version: "8.6.36",
     date: "2026-09-19",
     title: "dock 面板关闭白条修复：底色散场与收折同步，压扁段不再露白",

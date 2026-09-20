@@ -875,30 +875,35 @@ html.cs-drawer-closing .cl-fade-leaf {
 .panel-sink .glass-card {
   animation: glass-card-out-kf 0.22s cubic-bezier(0.4, 0, 1, 1) forwards;
 }
-/* ---------- v8.6.36 dock 面板关闭「顶部白条」修复（仅 .cl-panel 专属）----------
-   机制：关闭 = 高度盒折回 0（EXIT_EASE 前慢后快）+ 玻璃卡 h-full 满窗律被压扁；
-   共享 out-kf 的背景渐隐是 0.22s 全程线性——壳高压到 30-100px 的压扁段（t≈120-190ms）
-   背景还剩 10-25% 白底，blur 驻留满值又把壁纸糊亮 → 压扁中的玻璃卡 = 面板顶部一条
-   白条（用户实测）。修复：背景/描边/阴影渐隐提前到 40%（88ms）完成——此时 EXIT_EASE
-   高度进度仅 ~22%（壳高 ~78%），完整高度段正常散场；压扁段（壳高 <200px）背景已
-   全透明 = 纯 blur 磨砂无白底。blur 驻留 55% 与时长/曲线完全不变（感知同步律保留）。
-   共享 glass-card-out-kf（纱幕 veil-out / 弹窗 dialog-sink / 右键 ctx-out 通道）
-   一字不动——影响面精确圈定在 dock 面板卡。声明位置须在本锚点之后（同特异性
-   (0,2,0) 后者胜，覆盖 .panel-sink .glass-card 的共享 out-kf 引用）。 ---------- */
+/* ---------- v8.6.37 dock 面板关闭收尾：材质恒定 + 整体尾隐（仅 .cl-panel 专属）----------
+   v8.6.36 路线（背景/描边/阴影 40% 提前清零）被用户否决：面板还有 ~78% 高时底色
+   就被抽成透明 blur（感知=「删除底色」），且残余压扁段成纯磨砂带——亮度随壁纸
+   明暗浮动（亮壁纸=白条、暗壁纸=黑条）。
+   本版：底色/描边/阴影全程自然值（材质配比恒定，底色零接触），压扁残带由整卡
+   opacity 在带区来临前统一隐没——60%（t≈132ms，EXIT_EASE 高度进度 ~44%，壳高
+   ~56%）前整卡全材质；60%→82%（t≈180ms，壳高 ~28%，进压扁带区前）整卡 1→0
+   （段内声明 animation-timing-function 快落前载：带区起点 t≈174ms 时 opacity
+   已 ≤0.04）——白条/黑条与壁纸明暗无关地同根除。blur 驻留 55% + blur(1px) 收尾
+   与时长/曲线一字不动（82% 后不可见，仅保留级联语言同构）。
+   ⚠ opacity 挂玻璃卡【自身】（非祖先）：自身 opacity 不构成自身 backdrop 采样根，
+   磨砂随整卡同步淡出；祖先 opacity 才会截断采样链（v8.6.22 壳体去 opacity 律，
+   故挂载点只能是卡本身）。共享 glass-card-out-kf（纱幕 veil-out / 弹窗 dialog-sink /
+   右键 ctx-out 通道）一字不动。声明位置须在本锚点之后（同特异性 (0,2,0) 后者胜，
+   覆盖 .panel-sink .glass-card 的共享 out-kf 引用）。 ---------- */
 @keyframes cl-panel-out-kf {
   0%,
   55% {
     backdrop-filter: blur(20px) saturate(1.5);
   }
-  40% {
-    background-color: transparent;
-    border-color: transparent;
-    box-shadow: 0 0 0 0 transparent;
+  60% {
+    opacity: 1;
+    animation-timing-function: cubic-bezier(0.3, 0, 0.55, 1);
+  }
+  82% {
+    opacity: 0;
   }
   to {
-    background-color: transparent;
-    border-color: transparent;
-    box-shadow: 0 0 0 0 transparent;
+    opacity: 0;
     backdrop-filter: blur(1px) saturate(1.5);
   }
 }
