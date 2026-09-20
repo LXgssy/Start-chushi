@@ -716,3 +716,21 @@ Stage Summary:
 - v8.6.36 全链路闭环：dock 面板关闭白条根除（压扁段背景提前散场与收折同步）——动画语言/时长/手感零变化，共享散场通道零波及，探针行为级证据闭环（第十六轮清零）
 - 分发：全改动在页面层（globals.css），云推 ≤6h 到存量装机，无需换 crx
 - 新律：①「不同时间基线的双动画并行」是视觉裂缝之源——高度弹簧（JS 逐帧）与 CSS 渐隐（timeline）的进度曲线必须按压扁窗口对齐，让快完成者覆盖慢完成者的可视段 ②修复类改动的 diff 纪律：新增专属规则优于修改共享规则（影响面=病灶本身）③探针行为门的时序三律：React 提交等待（rAF×2）/门间状态复位（等卸载）/headless 时间膨胀豁免（currentTime 快进）
+---
+Task ID: 138
+Agent: main (Super Z)
+Task: 用户第十七轮反馈「能不能保证不删除底色的情况下修复出现白条/黑条的问题」——v8.6.37 dock 面板关闭收尾重做（材质恒定+整体尾隐）+ 云推
+
+Work Log:
+- 【v8.6.36 路线被否的病理】v8.6.36 把背景/描边/阴影渐隐提前到 40%（88ms）——此刻 EXIT_EASE 高度进度仅 ~44%，面板还有 ~56% 高，底色被抽成透明 blur（用户感知=「删除底色」）；且残余压扁段成纯磨砂带，其亮度=壁纸局部均值——亮壁纸下呈白条、暗壁纸下呈黑条（用户「白条/黑条」复数与壁纸明暗挂钩即此特征）
+- 【新机制：材质恒定+整体尾隐】cl-panel-out-kf（仅 .cl-panel 专属，v8.6.36 块原地重写）：底色/描边/阴影从关键帧中清零（全程自然值 rgba(255,255,255,0.62)/暗色 rgba(22,22,27,0.6)——材质配比恒定零接触），压扁残带改由整卡 opacity 隐没——60% 帧（t≈132ms，壳高 ~56%）前全材质，60%→82%（t≈180ms，壳高 ~28%）1→0（帧内声明 animation-timing-function cubic-bezier(0.3,0,0.55,1) 快落前载：带区起点 t≈174ms 时 op 已 ≤0.04）——白条/黑条与壁纸明暗无关地同根除。blur 驻留 55% + blur(1px) 收尾 + 0.22s EXIT_EASE 一字不动（隐没后不可见，仅保留级联语言同构）
+- 【安全点核查】①.panel-rise（panel-fade）只动 bg/border/shadow 不碰 opacity——与尾隐帧零冲突 ②opacity 挂玻璃卡【自身】：自身 opacity 不构成自身 backdrop 采样根（磨砂随整卡同步淡出），祖先 opacity 才截断采样链（v8.6.22 壳体去 opacity 律不相干，挂载点只能是卡本身）③reduce 兜底 .panel-sink .glass-card{animation:none;opacity:0} 不受影响
+- 【探针】probe-v8637（sed 克隆 55 处 + TL24a/TL24b 重写）：TL24a 材质恒定静态门（kf 块提取断言：零 background-color/border-color/box-shadow 帧 + 60%/82% opacity 帧 + 段内快落 timing + blur 语言原样 + 专属挂载 + 共享 out-kf 零波及 + 声明顺序）+ TL24b 行为门（真实关闭链路 + currentTime 快进三点采样：t=100ms op=1+底色保留+blur(20px) 满值 / t=175ms op=0.02 带区已隐没且底色恒定 / t=210ms op=0——v8.6.36 断言的反转：底色从不透明到恒定保留）。94 PASS / 1 FAIL（T6a 存量 flake，v8.6.35/36 同款在案，纱幕通道与本轮零交集）
+- 【像素目检基建四连】①整页连拍败（单张 screenshot ~600ms > 动画 220-300ms，且本环境无 7× 膨胀——Task 137 膨胀结论是负载相关非恒定）②CDP screencast 抓到 25 帧但 headless 合成帧率 ~130ms/帧，动画夹在两帧之间——仅证首尾（全开材质正常/关闭后零残留）③clip 小区域连拍仍 ~200-380ms/张不够 ④终解「CSS 定格台」（probe freezeIntro 同款思路）：open 稳定后手动挂 .panel-sink（高度盒 phase 仍 open 不折回=壳高恒 255px），cl-panel-out-kf pause+currentTime 定格任意进度从容截图——t=100 全材质磨砂卡 / t=155 半透明雾面（自 opacity 0.45 下磨砂采样链不破实拍）/ t=175 面板区与壁纸无缝零亮带零暗带
+- 【坑录】①evaluate 箭头函数闭包变量不进浏览器上下文（ms is not defined）——必须显式传参 evaluate(fn, arg) ②诊断脚本在 iframe 架构下所有 DOM 操作必须走 content frame（#csShellFrame，bootNewTab 返回的 af），主 page 只有壳 ③单张 page.screenshot 在 headless 含大 PNG 编码延迟（1280×640 ~600ms）——动画帧级目检要么 screencast 流式、要么 CSS 定格台 ④fix-probe 断言计数：新插代码自带引用数要先数清（clKf37=11：1 声明+10 includes）；对比注释引入旧版本号字样属合法残留，断言应精确到出现次数而非 in/not-in
+- 【发布】main 2094582（4 文件对账无夹带：globals.css 专属块重写 ~39 行 / changelog.ts +11 / build-extension.py VERSION 1 行 / probe-v8637 新增 1234 行）；ZIP -> download/v8.6.37/（11.8MB）+ 云快照 73 文件
+
+Stage Summary:
+- v8.6.37 全链路闭环：dock 面板关闭白条/黑条根除（底色全程保留版）——材质配比恒定（不再抽底色），压扁残带由整卡 opacity 在带区前统一隐没，白条/黑条与壁纸明暗无关地同清（第十七轮清零）
+- 分发：全改动在页面层（globals.css），云推 ≤6h 到存量装机，无需换 crx
+- 新律：①「抽底色」与「整体隐没」是淡出两种形态——前者改材质配比（bg 与 blur 脱钩，暴露壁纸均值带），后者保材质配比整卡淡出（视觉=物件消散而非材质剥离），凡「不能失去材质」的收尾一律用后者 ②自 opacity 是 backdrop-filter 元素唯一安全的淡出挂载点（自身 opacity 不破采样根，祖先 opacity 才破）③headless 动画帧级目检终解=CSS 定格台（手动挂退场类 + pause+currentTime 定格 + 高度盒不参与），连拍/screencast/clip 在 220-300ms 动画窗口下均不可靠
