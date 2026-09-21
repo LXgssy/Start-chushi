@@ -771,3 +771,21 @@ Stage Summary:
 - v8.6.39 全链路闭环：面板互切幽灵内容双向根治（closing 会话归属判别——预设内容不再叠印原生面板/原生卡不在部件收场窗复活）+ 内建→预设互切收缩方向修正（部件视图互切底锚，纯 CSS 逐帧解析零动画改动）——第十九轮两点全清
 - 分发：全改动在页面层（Dock.tsx），云推 ≤6h 到存量装机，无需换 crx
 - 新律：①「相位保持可见」类语义必须限定会话归属——互切场景下 last*Ref 恒为陈旧键，直接复用会把上一会话的视图在当前相位点亮 ②abs-pos 子元素对「动画中的容器高度」做位置跟随，top:max(0px,calc(100%-hpx)) 是纯 CSS 的「s≤h 顶锚/s>h 底锚」分段器，零 JS 逐帧同步 ③动画帧级几何断言用布局空间（offsetTop/offsetHeight），rect 会被任何 transform 动画污染 ④探针行为门的「等待提交」帧数与被观察窗口时长必须做量级比较（2 帧×130ms > 240ms 窗口=必漏）
+
+---
+Task ID: 141
+Agent: main (Super Z)
+Task: 用户指令「在保留现在所有功能以及动画和美学设计的情况下全面重写初始，现在的垃圾代码太多了，很多问题修不来了，把现在所有的功能和动画从一开始就写到完美，不要再更改了，一次写好然后推送到仓库分支（创建一个 beta 分支）」——v8.7.0 beta 分支全面重写 + 推送 origin/beta
+
+Work Log:
+- 【基线对齐】main HEAD 7377284（v8.6.39/Task 140，探针 100 门全绿）为重写基线；git worktree add -b beta /tmp/beta-wt 独立工作树，main 工作区（含未提交清理态）零接触
+- 【范围决策】全面重写 = 编排/动效/材质层（page.tsx + Dock + globals.css + 六小组件）从零重写；引擎与数据层（lib/startpage 23 文件 + SettingsPanel/QuickLinks/PomodoroPanel/CommandPalette/PresetDocs 等特征密集稳定组件）原样保留——历史 bug 全部聚集在编排层，特征层经 140 轮验证；storage 键位/类名/动画参数为兼容契约逐字节保留
+- 【架构重写】①page.tsx 单体 1487 行拆解：状态按职责分五域 hook（use-start-settings/data/overlays/presets/zen）+ StartPageProvider 上下文（24 条 prop 钻孔清零；域调用序=effect 注册序律：settings 强调色先于 presets 令牌）+ 薄编排视图（跨域事件接线）②Dock.tsx 拆 PanelStage.tsx（面板统一舞台）+ dock-motion.ts（动效常量契约）：v8.6.39 三 ref 补丁（closingWidgetRef/lastPanelRef/lastOpenWidgetRef）收敛为单一 activeView 渲染期同步状态——关闭会话归属结构性单源（视图激活帧同步、closing 冻结前值），幽灵内容病灶类从结构上不存在③MusicPanel.tsx 死代码删除（535 行零引用）④globals.css 1867→1743 行：规则/顺序/数值逐字节保留（美学即数值），文档注释全面重写为四大底层律（磨砂存活/感知同步/framer 退役/压缩器陷阱）+ 声明顺序律；磁贴令牌 :root/.dark 同值去重⑤Clock/SearchBar/AuroraBackground/ZenPomodoro/ContextMenu/LinkDialog 重写（DOM/类名/动效契约不变；SearchHint 组件化消除重复；Aurora Tailwind 动态类名陷阱修复——字面量三档）
+- 【探针】probe-beta.mjs（sed 克隆 59 处版本字样 + 4 门适配）：TL20 defrostGlass 定义迁禅域断言 + Esc 编排域 sp. 前缀；TL21 zen-overlay sp.zen 锚点；TL25a 整门重写为 activeView 单源断言（定义/渲染期换装/displayPanel 双消费/visibility 双消费/旧 top:0 退役/top:max() 在位）；TL25a2 产物签名随状态机更新（"closing"===X&&Y?.kind==="widget"&&Y.key===）
+- 【坑录】①终端回显对 [m/[h 序列吞字双向坑再现（sed 与 python print 均假象）——chr(91) 构造检测串 + python 文件内断言鉴别，真实文件完好勿误修②changelog 插条锚在数组头括号时尾部自带 { 与原首元素 { 叠加双大括号——锚定应含首元素或去尾③Tailwind JIT 只识字面量类名，模板插值 duration-[${N}ms] 静默失效——三档写死分支④TL19c reload→TL24b 即点 .dock-btn 竞态：bootNewTab 只等水合早期信号，行为门前 rAF 轮询等目标节点（Task 135 坑录律再证）⑤跨版本像素对照的设置补丁竞态：useStored 挂载回写覆盖先写入的 localStorage——等水合完成后再写再重载；reload 后 app frame 重查找需重试轮询⑥PNG 解码按 colortype 2/6 分支（playwright 截图无 alpha 通道）
+- 【验证】①类型：新增文件零类型错误（基线存量 3 条不动：CheckUpdateButton/preset.ts/脚本目录）②构建：EXTENSION_MODE 构建 + build-extension.py 全防呆门通过，ZIP 11.8MB + 云快照 73 文件 v8.7.0（产物不入库，惯例同 v8.6.39）③probe-beta 101 PASS / 0 FAIL（T6a 存量 flake 本轮未触发；T10 pageerror=0）④像素跨版本对照（纯色底确定性渲染，v8.6.39 vs v8.7.0 各四态）：settings MAD=0.0021 / todo MAD=0.0003 IDENTICAL，home-dark/light MAD≈0.68=时钟分钟差（两次截图间隔 1 分钟），其余逐像素全等——美学保留像素级实证
+
+Stage Summary:
+- v8.7.0 beta 分支全链路闭环：编排层全面重写（五域 hook + Provider 上下文 + PanelStage activeView 单源状态机）——功能/动画/美学零损失（101 探针门 + 像素对照双实证），历史补丁链与死代码清零，未来修复面收敛到独立模块
+- 分发：beta 分支独立验证版，不云推不并 main；验证充分后由用户决定合并节奏
+- 新律：①「行为等价重写」三保险 = 探针门全绿（行为规格）+ 类名/键位/动画参数逐字节契约（视觉与数据规格）+ 跨版本像素对照（最终视觉规格）②关闭会话归属类 bug 的结构免疫 = 渲染期同步的单一 activeView 状态（v8.6.39 三 ref 补丁的收敛形态）③跨 hook 域拆分的 effect 注册序 = Provider 内域调用序，跨域同键写入顺序依赖必须显式注释
