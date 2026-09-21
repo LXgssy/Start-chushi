@@ -734,3 +734,20 @@ Stage Summary:
 - v8.6.37 全链路闭环：dock 面板关闭白条/黑条根除（底色全程保留版）——材质配比恒定（不再抽底色），压扁残带由整卡 opacity 在带区前统一隐没，白条/黑条与壁纸明暗无关地同清（第十七轮清零）
 - 分发：全改动在页面层（globals.css），云推 ≤6h 到存量装机，无需换 crx
 - 新律：①「抽底色」与「整体隐没」是淡出两种形态——前者改材质配比（bg 与 blur 脱钩，暴露壁纸均值带），后者保材质配比整卡淡出（视觉=物件消散而非材质剥离），凡「不能失去材质」的收尾一律用后者 ②自 opacity 是 backdrop-filter 元素唯一安全的淡出挂载点（自身 opacity 不破采样根，祖先 opacity 才破）③headless 动画帧级目检终解=CSS 定格台（手动挂退场类 + pause+currentTime 定格 + 高度盒不参与），连拍/screencast/clip 在 220-300ms 动画窗口下均不可靠
+---
+Task ID: 139
+Agent: main (Super Z)
+Task: 用户第十八轮反馈「把上一版把浅色/深色磨砂变成透明磨砂的坑填上，把功能面板关闭时会变成透明磨砂的情况恢复回原本的浅色/深色磨砂」——v8.6.38 dock 面板关闭材质修复（材质恒定·原样收折）+ 云推
+
+Work Log:
+- 【坑的定位】用户所指「上一版」= v8.6.37：整卡 opacity 60%→82%（t≈132-180ms）尾隐——面板在 ~143→72px 高度段整体溶解，感知=「浅色/深色磨砂变成透明磨砂」（v8.6.36 提前抽底色被否后的反向过修：为了压残带把「整体隐没」做成了「整体溶解」）
+- 【结构性实锤（Dock.tsx）】关闭链路时序：高度盒 framer tween 0.22s EXIT_EASE 逐帧写 height（非 WAAPI）归零在先 → SINK_MS=240ms 卸载在后（20ms 余量）——归零后卡片 h-full=0 不可见，卸载天然无突跳 ⇒ v8.6.37 的溶解尾隐本就多余，只要材质冻结即可同时满足「保底色 + 无白/黑条 + 无透明段」三约束
+- 【最小修复】globals.css v8.6.37 溶解块原地退役（@keyframes cl-panel-out-kf 删除），替换为 .panel-sink .cl-panel { animation: none }——同特异性 (0,2,0) 后者胜压过共享 glass-card-out-kf 引用，卡片关闭全程底色/描边/阴影/blur/透明度五项冻结自然值（浅 rgba(255,255,255,0.62)/暗 rgba(22,22,27,0.6)+blur(20px)），面板以与展开态完全相同的磨砂材质原样收折；白条/黑条（bg↓+blur 驻留的壁纸均值带）与透明磨砂段（整卡溶解）从结构上不存在。动画主体（高度弹簧 0.22s EXIT_EASE/壳体 panel-sink transform/内容散场 0.18s）零接触；共享 out-kf（纱幕/弹窗/右键通道）与 reduce 兜底（.panel-sink .glass-card{animation:none;opacity:0}）语义不变。diff：globals.css 1 块替换 + changelog +11 + VERSION 1 行
+- 【探针】probe-v8638（sed 克隆 55 处 + TL24a/TL24b 重写）：TL24a 收终静态门（cl-panel-out-kf 溶解退役 + animation:none 冻结规则在位 + 声明序在共享规则之后 + 共享 out-kf 零波及）+ TL24b 收终行为门（真实关闭链路反转断言：closing early 全材质 + 高度塌缩 <0.8·h0 进行中 late 材质依旧恒定——实拍 h0=256→late h=141 塌缩 45% 时 op=1/bg rgba(255,255,255,0.62)/blur(20px) 与展开态逐字节相同 + 卸载后 gone=true；卡片已无 WAAPI 动画，采样不再依赖 currentTime 快进，detach race 记 detached 兜底不造新 flake）。94 PASS / 1 FAIL（T6a 存量 flake，v8.6.35/36/37 同款在案）
+- 【像素目检】visual-v8638 CSS 定格台（Task 138 思路继承，材质冻结后无需 pause/currentTime——手动挂 .panel-sink + 高度盒 style.height=64px 即定格任意收折高度）：A 展开稳定态 vs B 定格 64px——矮板材质与展开态完全同调（同一磨砂、均匀无亮/暗带，视觉=「面板本身变矮」而非溶解/露壁纸）；C 真实关闭后面板区零残留。定格态计算样式旁证：op=1 + 暗玻璃 rgba(22,22,27,0.6) + blur(20px) + cardH=64
+- 【坑录】①/tmp/ext-ref 被_tmp 清理（build-extension 参照目录）——重建后构建恢复；②visual 脚本 .then() 回调在 Node 上下文误用 document——bootNewTab 用 pg.frames().find 取 iframe（probe 同款）；③脚本末尾不 browser.close()+process.exit 会被浏览器子进程吊住事件循环假死超时；④Write 工具只能落 /home/z——/tmp 真树的 node 脚本须 cp 过去再跑（python 修复脚本可直跑：目标文件在 /tmp，脚本本体位置无关）
+
+Stage Summary:
+- v8.6.38 全链路闭环：dock 面板关闭「透明磨砂」坑填平——材质五项全程冻结自然值，面板以原本浅色/深色磨砂原样收折归零（第十八轮清零；㊱ 白条/黑条家族三连修复路线收敛为终态：材质恒定是唯一同时满足「保底色/无条/无透明」的不动点）
+- 分发：全改动在页面层（globals.css），云推 ≤6h 到存量装机，无需换 crx
+- 新律：①「淡出」两种形态（抽底色/整体隐没）之外还有第三态「材质恒定·几何归零」——凡卸载时序保证「归零在先、卸载在后」（SINK_MS>动画时长+余量），材质冻结+animation:none 即为零伪影终态，任何溶解/隐没关键帧都是多余动作 ②行为门反转断言的写法：塌缩进行中（h<0.8·h0）采样材质恒定，比定时采样更抗 headless 时间膨胀 ③冻结台简化律：卡片无动画后，手动挂类+手写高度盒 height 即定格，无需 pause/currentTime
