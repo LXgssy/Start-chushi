@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.6.39",
+    date: "2026-09-21",
+    title: "dock 面板互切两修：切回原生面板关闭不再叠印预设内容，切到预设面板的收缩方向修正",
+    channel: "page",
+    highlights: [
+      "修复切换到预设面板再切回原生功能面板后关闭时，预设面板内容叠印在原生面板上的问题",
+      "修复其它功能面板切换到预设面板时的切换动画方向，现在底部贴住底栏、从顶部收缩，与其它切换一致",
+    ],
+  },
+  {
     version: "8.6.38",
     date: "2026-09-21",
     title: "dock 面板关闭材质修复：全程保持原本的浅色/深色磨砂，不再变成透明磨砂",

@@ -259,6 +259,16 @@ const PanelStage = memo(function PanelStage({
      （sink 动画里内容仍可见），转入 closed 后才缩为亚像素点保活 */
   const lastOpenWidgetRef = useRef<string | null>(null);
   if (dockWidgetOpen != null) lastOpenWidgetRef.current = dockWidgetOpen;
+  /* v8.6.39 关闭会话归属判别（互切幽灵内容根治）：closing 相位「谁在收场」只能
+     由关闭前最后一帧的活动视图决定——lastPanelRef/lastOpenWidgetRef 在互切后
+     各自残留旧会话键：内建面板收场时 lastOpenWidgetRef 命中 → 部件视图（iframe
+     卡 + 已揭开的白帧罩）在收场窗被重新点亮 = 预设内容叠印在原生面板上（㊲）；
+     部件收场时 lastPanelRef 非空 → 内建玻璃卡在收场窗重挂 = 原生面板幽灵（同根）。
+     渲染期同步：widgetActive→true / panel!=null→false；closing 期双方皆空保持
+     前值 = 恰为关闭会话的归属（panel/dockWidgetOpen 单帧批量互斥律保证无双活帧） */
+  const closingWidgetRef = useRef(false);
+  if (widgetActive) closingWidgetRef.current = true;
+  else if (panel != null) closingWidgetRef.current = false;
 
   /* 高度/宽度目标：内建=测高（首开 auto 直就位），部件=自报高度（chushi.resize） */
   const widgetH = activeWidget
@@ -274,10 +284,13 @@ const PanelStage = memo(function PanelStage({
   const shellAnim = phase === "closing" ? "panel-sink" : "";
   /* 渲染面板（v8.6.29）：open 相位=panel；closing 相位=lastPanelRef（旧内容继续
      渲染播散场，SINK_MS 后随 closed 卸载）；closed=null 不渲染。
-     lastPanelRef 渲染期同步（同 lastOpenWidgetRef 律） */
+     lastPanelRef 渲染期同步（同 lastOpenWidgetRef 律）。
+     v8.6.39：closing 相位渲染谁 = 关闭会话归属（closingWidgetRef）——部件会话
+     收场只渲染部件视图（内建卡不重挂，原生面板幽灵根治），内建会话收场照旧。 */
   const lastPanelRef = useRef<PanelId>(null);
   if (panel != null) lastPanelRef.current = panel;
-  const displayPanel = panel ?? (phase === "closing" ? lastPanelRef.current : null);
+  const displayPanel =
+    panel ?? (phase === "closing" && !closingWidgetRef.current ? lastPanelRef.current : null);
 
   /* ---------- v8.6.32 玻璃壳满窗律（取代 v8.6.30/31 底锚 minHeight 锁）----------
    * 收缩方向「底部收缩到卡长再复位」的终极根因：玻璃卡是高度盒内一段【独立高度】
@@ -428,13 +441,24 @@ const PanelStage = memo(function PanelStage({
                 position: "absolute",
                 left: 0,
                 right: 0,
-                top: 0,
+                /* v8.6.39 互切底锚律：窗口高 s≤部件高 h（首开/收折全程）top=0——
+                   顶边骑窗口顶边（与内建 h-full 玻璃卡同语言，开/关动画逐帧不变）；
+                   窗口高 s>h（内建→部件互切收折段）top=s-h——部件卡即帧贴住 dock
+                   底锚、窗口顶边收下来贴合，根除「卡底悬空下降」的底部收缩观感
+                   （㊳）。max() 纯 CSS 每帧随壳体动画高度重新解析，无 JS 逐帧同步 */
+                top: `max(0px, calc(100% - ${h}px))`,
                 height: h,
                 /* v8.6.29：visibility = active / closing 收尾可见，其余硬藏——切走
                    同帧隐没（零残留结构性保证）；重激活白帧由 boot-fade 同色罩
-                   盖住（见 globals.css），aria-hidden + pointer-events 承担可及性 */
+                   盖住（见 globals.css），aria-hidden + pointer-events 承担可及性。
+                   v8.6.39：closing 收尾可见收窄为「关闭会话=部件会话」——
+                   closingWidgetRef 归属判别 + lastOpenWidgetRef 键匹配双条件，
+                   内建会话收场不再被陈旧键误点亮（预设内容叠印根治） */
                 visibility:
-                  isActive || (phase === "closing" && lastOpenWidgetRef.current === w.key)
+                  isActive ||
+                  (phase === "closing" &&
+                    closingWidgetRef.current &&
+                    lastOpenWidgetRef.current === w.key)
                     ? "visible"
                     : "hidden",
                 pointerEvents: isActive ? "auto" : "none",
