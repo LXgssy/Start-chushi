@@ -1,15 +1,17 @@
 "use client";
 
-/* 「初始」专属右键菜单（v1.1.1）— 替代浏览器默认右键，把起始页最常用的动作
- * 放到指尖最近处。设计律：
- *  - 菜单是一块小 glass-card（材质预设可经 fx 作用面触及，视觉与全 app 同源）；
- *  - 触发：window contextmenu 委托；输入场景（输入框/可编辑区）与文字选区
- *    保留浏览器原生菜单（复制/翻译/拼写检查是系统级能力，不抢）；
- *  - 边界翻转：右/下缘放不下时向左/上展开；
- *  - 关闭：外点 / 点击菜单项 / Esc / 再按右键换位；开启时阻断 dblclick 禅模式
- *    （由 page.tsx 把 contextMenu 状态并入双击守卫）；
- *  - 焦点：不程序化 focus（避免 focus-visible 蓝框律），Esc 由 page.tsx 全局链关闭；
- *  - 无点击穿透：开启时铺一层透明捕获层（fixed inset-0）吃掉一切指针事件。
+/* 「初始」专属右键菜单 — 替代浏览器默认右键，把起始页最常用的动作放到指尖
+ * 最近处。设计律：
+ *  · 菜单是一块小 glass-card（材质与全 app 玻璃同源）；
+ *  · 触发：window contextmenu 委托（page 接线）；输入场景与文字选区保留
+ *    浏览器原生菜单（复制/翻译/拼写检查是系统级能力，不抢）；
+ *  · 边界翻转：右/下缘放不下时向左/上展开；
+ *  · 关闭：外点 / 点击菜单项 / Esc（page 全局链）/ 再按右键换位；
+ *  · 焦点：不程序化 focus（避免 focus-visible 蓝框）；
+ *  · 无点击穿透：开启时铺一层透明捕获层（fixed inset-0）吃掉一切指针事件。
+ * 动效：「从鼠标点长出来」——开 = 以鼠标点为原点回弹放大（transformOrigin
+ * 按翻转方向内联设定），关 = 向原点缩回淡出；视觉全走 CSS（ctx-in/ctx-out），
+ * 卸载时机由 PresenceClass 定时器接管（framer WAAPI opacity 空窗律）。
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -24,7 +26,6 @@ import {
   Plus,
   SunMoon,
 } from "lucide-react";
-/* v8.4.9 自绘套件（设计不变，零笔画交叉） */
 import { CsCommand, CsSettings2 } from "./cs-icons";
 
 export interface ContextMenuAction {
@@ -52,8 +53,7 @@ export default function ContextMenu({
   const [pos, setPos] = useState<{ x: number; y: number }>(initialPos);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
-  /* 宿主每次请求打开都同步最新坐标——React 官方「渲染期间调整 state」模式
-   * （不用 effect：effect 内同步 setState 会级联渲染，react-hooks 律） */
+  /* 宿主每次请求打开都同步最新坐标——React 官方「渲染期间调整 state」模式 */
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {
     setWasOpen(open);
@@ -61,13 +61,18 @@ export default function ContextMenu({
   }
 
   /* contextmenu 委托（开菜单后的再次右键 = 换位）：只记录原始坐标，
-   * 边界 clamp/翻转统一在渲染期做（打开与换位共享同一份定位逻辑） */
+     边界 clamp/翻转统一在渲染期做（打开与换位共享同一份定位逻辑） */
   useEffect(() => {
     if (!open) return;
     const onCtx = (e: MouseEvent) => {
       const t = e.target as Element | null;
       if (t?.closest("input, textarea, select, [contenteditable='true']")) return;
-      if (t && typeof t.closest === "function" && window.getSelection()?.toString() && t.closest("p, span, h1, h2, h3, a")) {
+      if (
+        t &&
+        typeof t.closest === "function" &&
+        window.getSelection()?.toString() &&
+        t.closest("p, span, h1, h2, h3, a")
+      ) {
         return; // 文字选区上保留原生复制/搜索菜单
       }
       e.preventDefault();
@@ -77,7 +82,7 @@ export default function ContextMenu({
     return () => window.removeEventListener("contextmenu", onCtx);
   }, [open]);
 
-  /* 打开瞬间聚焦容器以便 blur 外点？不——用捕获层处理外点，容器不抢焦点 */
+  /* Esc 关闭：捕获层先行（通常到不了 page 全局链，此处兜底并防双关） */
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -91,10 +96,9 @@ export default function ContextMenu({
   }, [open, onClose]);
 
   /* 边界翻转：右/下缘放不下时向左/上展开（预留估宽 176px、估高按动作数，
-   * clamp 到 8px 边距）。渲染期计算——宿主打开与组件内换位两路都经此收敛。
-   * 翻转方向同时决定弹出动画的 transformOrigin（v1.1.2）：菜单总是
-   * 「从鼠标点长出来」——向下展开用 top 原点、向上展开用 bottom、
-   * 向右展开用 left、向左展开用 right。 */
+     clamp 到 8px 边距）。翻转方向同时决定弹出动画的 transformOrigin：
+     菜单总是「从鼠标点长出来」——向下展开用 top 原点、向上用 bottom、
+     向右用 left、向左用 right。 */
   const estW = 176;
   const estH = actions.length * 34 + 12;
   const vw = typeof window === "undefined" ? 1280 : window.innerWidth;
@@ -136,7 +140,9 @@ export default function ContextMenu({
                 className="ctx-item"
                 style={{ ["--ci" as string]: i } as React.CSSProperties}
               >
-                {a.sep && <div className="mx-2 my-1 h-px bg-zinc-900/[0.06] dark:bg-white/[0.06]" />}
+                {a.sep && (
+                  <div className="mx-2 my-1 h-px bg-zinc-900/[0.06] dark:bg-white/[0.06]" />
+                )}
                 <button
                   type="button"
                   role="menuitem"
@@ -160,7 +166,7 @@ export default function ContextMenu({
   );
 }
 
-/* ---------- 动作图标集中导出（page.tsx 组装 actions 用） ---------- */
+/* ---------- 动作图标集中导出（page 组装 actions 用） ---------- */
 export const CM_ICONS = {
   palette: <CsCommand strokeWidth={1.5} />,
   addLink: <Plus strokeWidth={1.5} />,

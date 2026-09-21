@@ -1,5 +1,23 @@
 "use client";
 
+/* 「初始」— 时钟（beta 重写架构）
+ *
+ * 冒号采用自绘双圆点（而非字体字符 ":"）：
+ *  · 圆形由 border-radius 构造保证，与 Geist 超细字重的气质一致；
+ *  · digit-slot 槽位（overflow:hidden）的盒底落在行基线上，其内部数字墨迹
+ *    中心位于盒顶下方 0.5075em 处（Canvas 实测 @1em weight 150）；
+ *  · 两个圆点关于该墨迹中心上下对称分布，实现构造性光学居中，不依赖字体
+ *    度量，任何字号下严格一致。
+ *
+ * 动效分工（勿还给 framer 的部分，见各注）：
+ *  · 冒号呼吸 = CSS colon-breathe 关键帧（framer v12 对 opacity 走 WAAPI
+ *    加速，时钟每秒 re-render 下存在空窗/重启闪动风险——CSS 关键帧合成器
+ *    驱动，级联回落零空窗）；
+ *  · 数字位翻转 = framer AnimatePresence（sync 模式：多位并发翻转时
+ *    popLayout 的全局布局快照存在竞态，会让部分槽位卡在 exit 态——
+ *    sync 下各槽位独立管理 exit，并发安全；digit-slot 固定 height:1em 兜底防塌）。
+ */
+
 import { memo } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useNow } from "@/hooks/use-start";
@@ -11,14 +29,6 @@ const EASE = [0.22, 1, 0.36, 1] as const;
 
 const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
 
-/*
- * 时钟冒号采用自绘双圆点（而非字体字符 ":"）：
- * - 圆形由 border-radius 构造保证，与 Geist 超细字重的气质一致；
- * - digit-slot 槽位（overflow:hidden）的盒底落在行基线上，其内部
- *   数字墨迹中心位于盒顶下方 0.5075em 处（Canvas 实测 @1em weight 150）；
- * - 两个圆点关于该墨迹中心上下对称分布，实现构造性光学居中，
- *   不依赖字体度量，任何字号下严格一致。
- */
 /** 数字墨迹中心相对槽位盒顶的距离（em，实测烤定） */
 export const DIGIT_INK_CENTER_EM = 0.5075;
 /** 圆点直径（em） */
@@ -30,11 +40,7 @@ function pad(n: number): string {
   return n.toString().padStart(2, "0");
 }
 
-/** 单个数字槽位：逐字符翻转模糊动效（供时钟与番茄钟复用）
- *  注意：不用 popLayout——多位并发翻转（如番茄钟 25:00→24:59 三位同翻）时
- *  popLayout 的全局布局快照存在竞态，会让部分槽位卡在 exit 态（高度塌 0、
- *  字符消失直到该位下次翻转）。sync 模式下各槽位独立管理 exit（absolute 飞出），
- *  并发安全。digit-slot 固定 height:1em 兜底防塌。 */
+/** 单个数字槽位：逐字符翻转模糊动效（供时钟复用） */
 export function Digit({ char }: { char: string }) {
   return (
     <span className="digit-slot inline-block overflow-hidden align-baseline">
@@ -98,10 +104,9 @@ function Clock({
 }: {
   settings: Settings;
   mini?: boolean;
-  /** 预设时钟覆写（v1.7.1 语义修正）：仅 showDate / greeting 两个无面板控件的字段
-   *  仍走声明式覆写（字段存在即生效，删除预设即还原）；hour12 / showSeconds
-   *  已改为安装时一次性合入用户设置（否则预设装着时设置面板永远调不动——实证反馈），
-   *  故此处一律以 settings 为准，不再读 preset 的这两个字段 */
+  /** 预设时钟覆写：仅 showDate / greeting 两个无面板控件的字段仍走声明式覆写
+   *  （字段存在即生效，删除预设即还原）；hour12 / showSeconds 已在预设安装时
+   *  一次性合入用户设置，故此处一律以 settings 为准 */
   preset?: PresetClock;
 }) {
   const now = useNow();
@@ -155,8 +160,8 @@ function Clock({
         <Digit char={minutes[0]} />
         <Digit char={minutes[1]} />
         {showSeconds && !mini && (
-          /* 秒数组（含第二个冒号）：冒号与秒数同字号同行盒，双点关于小字墨迹中心对称——
-             构造性对齐秒数而非分钟；opacity 继承主色，photo/明暗主题自适应 */
+          /* 秒数组（含第二个冒号）：冒号与秒数同字号同行盒，双点关于小字墨迹
+             中心对称——构造性对齐秒数而非分钟；opacity 继承主色 */
           <span className="align-top text-[clamp(1.4rem,3vw,2.6rem)] opacity-60">
             <Colon />
             <Digit char={seconds[0]} />

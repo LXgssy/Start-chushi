@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.0",
+    date: "2026-09-21",
+    title: "beta 分支全面重写：全部功能与动效在全新架构上一次写对",
+    channel: "page",
+    highlights: [
+      "架构重写：页面编排拆分为设置/数据/浮层/预设/禅模式五个状态域，dock 面板舞台独立成组件，面板互切归属由状态机结构性保证",
+      "全部功能、动画与美学设计原样保留：玻璃材质、拉伸动效、模糊聚拢、禅模式雾化逐帧等价",
+      "清理全部历史补丁残留与无引用死代码，工程结构与注释全面翻新（beta 分支验证版）",
+    ],
+  },
+  {
     version: "8.6.39",
     date: "2026-09-21",
     title: "dock 面板互切两修：切回原生面板关闭不再叠印预设内容，切到预设面板的收缩方向修正",

@@ -2,8 +2,14 @@
 
 /* 禅模式迷你番茄钟：仅在计时运行时浮现（暂停/静止不显示，退出禅模式可暂停）。
  * 与 dock 徽标同源订阅 localStorage 运行时（subscribePomo，每秒拉新）；
- * 禅中自然到点时按面板同一结算规则（advanceRuntime：推进模式 + 提示音 + 自动续跑）。
- * 纯文字呈现（无玻璃底，不涉磨砂存活原则），墨色随禅模式采样 tone 自适应。 */
+ * 禅中自然到点时按面板同一结算规则（advanceRuntime：推进模式 + 提示音 +
+ * 自动续跑）。纯文字呈现（无玻璃底，不涉磨砂存活原则），墨色随禅模式采样
+ * tone 自适应。
+ *
+ * 结构律：本组件保持 zen 条件挂载（page 层 {zen && <ZenPomodoro/>}）——
+ * 到点结算是「写者」副作用，常驻会让禅外番茄钟到点双重结算（与
+ * PomodoroPanel 互斥写者语义，勿改为常驻）。
+ */
 
 import { memo, useEffect, useSyncExternalStore } from "react";
 import { AnimatePresence, motion } from "framer-motion";
