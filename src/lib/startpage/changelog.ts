@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.6.38",
+    date: "2026-09-21",
+    title: "dock 面板关闭材质修复：全程保持原本的浅色/深色磨砂，不再变成透明磨砂",
+    channel: "page",
+    highlights: [
+      "修复关闭 dock 功能面板时面板变成透明磨砂的问题，恢复原本的浅色/深色磨砂",
+      "关闭全程底色/描边/模糊/透明度恒定不变，面板以原材质收拢归零，白条黑条不复发",
+      "面板关闭动画的时长与手感完全不变",
+    ],
+  },
+  {
     version: "8.6.37",
     date: "2026-09-20",
     title: "dock 面板关闭收尾重做：底色全程保留，收拢残影整体隐没（白条黑条同清）",
