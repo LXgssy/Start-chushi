@@ -857,6 +857,26 @@ html.cs-drawer-closing .cl-fade-leaf {
 .panel-sink .cl-panel {
   animation: none;
 }
+
+/* ---------- 互切玻璃交卸（v8.7.2 ㊶）：内建→部件互切时，旧玻璃卡以恒定
+   材质整卡溶解（opacity 1→0，自 opacity 不破自身 backdrop 采样根），
+   SWAP_OUT_MS 后卸载——「同帧硬卸载」断层从结构上不存在，部件卡在底锚
+   恒贴下与溶解中的玻璃交叉完成交棒。animation 简写覆盖已播完的 panel-rise
+   （无损）；关闭路径 .panel-sink .cl-panel animation:none 特异性 (0,2,0) >
+   (0,1,0) 恒压本规则，材质冻结不受影响；pointer-events 摘除防半透明卡
+   截获点击。与 dock-motion.ts SWAP_OUT_MS 严格同参 ---------- */
+@keyframes cl-panel-swapout-kf {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+.cl-panel-swapout {
+  animation: cl-panel-swapout-kf 0.18s cubic-bezier(0.4, 0, 1, 1) forwards;
+  pointer-events: none;
+}
 @keyframes dialog-sink {
   from {
     transform: translateY(0) scale(1);
@@ -1248,6 +1268,35 @@ html.cs-drawer-closing .cl-fade-leaf {
   .docs-anim > section,
   .dialog-sink .docs-anim > section {
     animation: none;
+  }
+}
+
+/* ---------- 搜索建议常驻容器（v8.7.2 ㊸）：AnimatePresence 条件重挂 +
+   framer WAAPI opacity 空窗 = 「出现闪动一拍」根因（panel-fade 教训同族）。
+   常驻 DOM + data-open CSS 过渡：opacity+blur 聚拢与表单 height 揭示同参
+   （0.3s / cubic-bezier(0.22,1,0.36,1)），visibility 离散插值（收起末帧
+   隐没）——重挂不存在、WAAPI 空窗不存在，闪动从结构上不可能 ---------- */
+.search-sug-list {
+  opacity: 0;
+  visibility: hidden;
+  filter: blur(6px);
+  transition:
+    opacity calc(0.3s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1),
+    filter calc(0.3s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s linear calc(0.3s * var(--mo-speed, 1));
+}
+.search-sug-list[data-open] {
+  opacity: 1;
+  visibility: visible;
+  filter: blur(0);
+  transition:
+    opacity calc(0.3s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1),
+    filter calc(0.3s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s;
+}
+@media (prefers-reduced-motion: reduce) {
+  .search-sug-list {
+    transition-duration: 0s;
   }
 }
 

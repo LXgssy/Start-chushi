@@ -1,10 +1,12 @@
-// v8.7.1 探针——互切拉伸律（v8.7.0 全面重写基线）+ ㊴ 互切弹簧可见（白罩解耦加载保护）
+// v8.7.2 探针——互切拉伸律（v8.7.0 全面重写基线）+ ㊴ 互切弹簧可见 + ㊵ dock 浮签
 // + ㊵ dock 悬停浮签（原生 title 退役）：
 // ① 单卡律：互切窗全程 .glass-card.cl-panel 至多一张（双卡同框结构性不可能）
 // ② 同卡律：切换前后同一 DOM 节点（玻璃不重挂不重播=一张玻璃换内容）
 // ③ 零残留律：旧面板 data-panel 同帧消失，新内容 .cl-panel-content 简单淡入（零模糊）
 // ④ 退役门：.view-top/.cl-switching/view-defocus 规则清零；弹窗 view-exit 通道保留
 // ⑤ v8.7.1：部件视图 opacity 常驻合成（visibility 退役）+ boot-fade 仅 onLoad 挂
+// ⑦ v8.7.2：互切玻璃交卸（旧卡不再同帧硬卸载）+ 部件底锚恒贴（height min()）
+// ⑧ v8.7.2：搜索建议常驻 DOM + 6 行（AnimatePresence/WAAPI 空窗退役）
 // ⑥ v8.7.1：dock 按钮无原生 title + .dock-tip 浮签（与 ⌘K 同款样式）
 // 承 v8.6.3-v8.6.28 全部回归门。
 import { chromium } from "playwright-core";
@@ -13,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.1/ChuShi-NewTab-v8.7.1.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.2/ChuShi-NewTab-v8.7.2.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -39,11 +41,11 @@ for (const f of appHits) {
 }
 writeFileSync(MOCK + "/index.html", `<!DOCTYPE html><html><body>ok</body></html>`);
 writeFileSync(MOCK + "/version.json", JSON.stringify({
-  v: "8.7.1", files: [{ p: "index.html", s: statSync(MOCK + "/index.html").size }],
+  v: "8.7.2", files: [{ p: "index.html", s: statSync(MOCK + "/index.html").size }],
 }));
 const httpSrv = spawn("python3", ["-m", "http.server", String(PORT)], { cwd: MOCK, stdio: "ignore" });
 process.on("exit", () => { try { httpSrv.kill(); } catch { } });
-console.log("stage: mock 镜像就绪（v8.7.1 地板）");
+console.log("stage: mock 镜像就绪（v8.7.2 地板）");
 
 const EXT_ID = (() => {
   const h = crypto.createHash("sha256").update(Buffer.from(ROOT)).digest("hex").slice(0, 32);
@@ -1258,11 +1260,11 @@ try {
       /const \[activeView, setActiveView\] = useState<ActiveView>\(view\);/.test(stageSrc)
         && /if \(view != null && !sameView\(activeView, view\)\)/.test(stageSrc)
         && /setActiveView\(view\);/.test(stageSrc)
-        && /phase !== "closed" && activeView\?\.kind === "builtin"/.test(stageSrc)
+        && /phase !== "closed"\s*\n\s*\? activeView\?\.kind === "builtin"\s*\n\s*\? panel \?\? activeView\.panel\s*\n\s*: swapOut\s*\n\s*: null;/.test(stageSrc)
         && /phase === "closing" &&\s*\n\s*activeView\?\.kind === "widget" &&\s*\n\s*activeView\.key === w\.key/.test(stageSrc)
         && !/top: 0,/.test(stageSrc)
         && /top: `max\(0px, calc\(100% - \$\{h\}px\)\)`/.test(stageSrc),
-      `dp=${/phase !== "closed" && activeView\?\.kind === "builtin"/.test(stageSrc)} vis=${/activeView\?\.kind === "widget"/.test(stageSrc)} topMax=${/max\(0px, calc\(100% - \$\{h\}px\)\)/.test(stageSrc)} oldTop0=${/top: 0,/.test(stageSrc)}`);
+      `dp=${/phase !== "closed"\s*\n\s*\? activeView\?\.kind === "builtin"[\s\S]*?: swapOut/.test(stageSrc)} vis=${/activeView\?\.kind === "widget"/.test(stageSrc)} topMax=${/max\(0px, calc\(100% - \$\{h\}px\)\)/.test(stageSrc)} oldTop0=${/top: 0,/.test(stageSrc)}`);
     /* 产物门：打包 chunk 结构签名（minified 名不定，锚 minified 语法形状） */
     const chunk39 = execSync(`grep -rlo "max(0px" ${ROOT}/next/static/chunks/*.js 2>/dev/null | head -1`).toString().trim();
     let chunkSig39 = null;
@@ -1447,14 +1449,22 @@ try {
       wb39().click(); /* 从零重开 */
       requestAnimationFrame(poll2);
       await new Promise((r) => setTimeout(r, 1400));
-      const grow = rows2.filter((r) => r.sh < r.wh - 1);
+      /* v8.7.2 ㊷ 底锚恒贴律：部件视图 height=min(h,100%)——增长段（s<声明高 h）
+         卡随壳同步生长（offsetHeight==sh），顶锚 gapT==0 且满盒贴合；声明高从
+         内联 style 解析（min(Hpx, 100%)），不再用会被压缩的实测 offsetHeight */
+      const wvNow = document.querySelector('.cl-dockwidget[data-widget$=":w-t39"]');
+      const mh = wvNow ? /min\((\d+)px/.exec((wvNow.style || {}).height || '') : null;
+      const declared = mh ? parseInt(mh[1], 10) : 0;
+      const grow = rows2.filter((r) => declared > 0 && r.sh < declared - 1);
       const growGapT = grow.length ? Math.max(...grow.map((r) => Math.abs(r.gapT))) : null;
+      const growFill = grow.length ? Math.max(...grow.map((r) => Math.abs(r.wh - r.sh))) : null;
       await new Promise((r) => setTimeout(r, 300));
-      return { h0, n: rows.length, shrinkN: shrink.length, shrinkGapB, n2: rows2.length, growN: grow.length, growGapT };
+      return { h0, declared, n: rows.length, shrinkN: shrink.length, shrinkGapB, n2: rows2.length, growN: grow.length, growGapT, growFill };
     });
-    gate("TL25d 互切底锚行为门（㊳）：设置→预设 收折段（s>wh）部件卡底边贴壳底 gap≤1.5px + 正控增长段（s<wh）顶锚保留 gapT≤1.5px（开/关路径不变）",
+    gate("TL25d 互切底锚行为门（㊳+㊷）：设置→预设 收折段（s>声明高）部件卡底边贴壳底 gap≤1.5px + 正控增长段（s<声明高）顶锚 gapT≤1.5px 且卡随壳满盒贴合 fill≤1.5px（开/关路径不变）",
       !r39d.err && r39d.h0 > 420 && r39d.n > 3 && r39d.shrinkN > 0 && r39d.shrinkGapB !== null && r39d.shrinkGapB <= 1.5
-        && r39d.n2 > 3 && r39d.growN > 0 && r39d.growGapT !== null && r39d.growGapT <= 1.5,
+        && r39d.n2 > 3 && r39d.growN > 0 && r39d.growGapT !== null && r39d.growGapT <= 1.5
+        && r39d.growFill !== null && r39d.growFill <= 1.5,
       JSON.stringify(r39d));
   }
 
@@ -1582,13 +1592,184 @@ try {
     }
   }
 
+
+  /* ---------- TL28 v8.7.2：互切玻璃交卸（㊶）+ 底锚恒贴（㊷） ---------- */
+  if (af) {
+    const stage872 = readFileSync(new URL("../src/components/startpage/PanelStage.tsx", import.meta.url), "utf8");
+    const css872 = readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8");
+    const motion872 = readFileSync(new URL("../src/components/startpage/dock-motion.ts", import.meta.url), "utf8");
+    /* TL28a 静态门：swapOut 渲染期派生（与 activeView 同帧原子）+ 交卸类接线 +
+       SWAP_OUT_MS 计时 + 部件视图 height min()（旧固定 height 退役）+ CSS 在位 */
+    gate("TL28a 互切交卸+底锚恒贴静态门：swapOut 渲染期派生 + cl-panel-swapout 接线 + SWAP_OUT_MS 计时 + height min() 底锚（旧固定 height 退役）+ swapout 关键帧在位",
+      /const \[swapOut, setSwapOut\]/.test(stage872)
+        && /setSwapOut\(activeView\.panel\);/.test(stage872)
+        && /setSwapOut\(null\);/.test(stage872)
+        && /setTimeout\(\(\) => setSwapOut\(null\), SWAP_OUT_MS\)/.test(stage872)
+        && /swapOut != null \? "cl-panel-swapout" : ""/.test(stage872)
+        && /height: `min\(\$\{h\}px, 100%\)`/.test(stage872)
+        && !/height: h,/.test(stage872)
+        && /@keyframes cl-panel-swapout-kf/.test(css872)
+        && /\.cl-panel-swapout \{/.test(css872)
+        && /export const SWAP_OUT_MS = 200;/.test(motion872),
+      `swapOut=${/const \[swapOut/.test(stage872)} minH=${/height: `min/.test(stage872)} oldH=${/height: h,/.test(stage872)} kf=${/@keyframes cl-panel-swapout-kf/.test(css872)}`);
+    /* 产物签名门：swapout 类 + min() 底锚真实入包 */
+    const chunk872 = execSync(`grep -rlo "cl-panel-swapout" ${ROOT}/next/static/chunks/*.js 2>/dev/null | head -1`).toString().trim();
+    let chunkSig872 = null;
+    if (chunk872) {
+      const cs872 = readFileSync(chunk872, "utf8");
+      chunkSig872 = {
+        swapClass: cs872.includes("cl-panel-swapout"),
+        minH: /min\(.{0,40}px, ?100%\)/.test(cs872),
+      };
+    }
+    gate("TL28a2 产物签名门：swapout 类 + min() 底锚真实入包",
+      !!chunkSig872 && chunkSig872.swapClass && chunkSig872.minH, JSON.stringify(chunkSig872));
+    /* TL28b/c 行为门（㊶+㊷ 主诉路径）：settings→部件互切逐帧采样——
+       ① 交卸：点击后 cl-panel-swapout-kf 动画真实在旧卡上播放（WAAPI 名断言，
+          headless 帧粗也能命中），~SWAP_OUT_MS 后旧卡卸载（非同帧硬删），
+          部件视图 opacity 恒 1；
+       ② 恒贴：全程 wv.offsetTop+wv.offsetHeight ≈ 高度盒 offsetHeight（偏差
+          ≤1.5px）——卡底逐帧贴 dock 锚，欠阻尼回弹段（盒高 s<部件 h）卡随壳
+          压缩不再被 overflow-hidden 裁切。修复前：固定 height 使 s<h 帧出现
+          offsetTop+height > 盒高（裁切）+ 旧卡同帧消失（断层） */
+    const r872b = await af.evaluate(async () => {
+      const nf = () => new Promise((r) => requestAnimationFrame(r));
+      const sb = () => [...document.querySelectorAll(".dock-btn")].find((b) => b.getAttribute("aria-label") === "设置");
+      const wb = () => [...document.querySelectorAll(".cl-dock button")].find((b) => b.getAttribute("aria-label") === "测试面板");
+      if (!sb() || !wb()) return { err: "dock btn missing" };
+      wb().click(); /* 复位：关部件（TL27 遗留开启态） */
+      await new Promise((r) => setTimeout(r, 700));
+      if (!sb()) return { err: "settings btn missing" };
+      sb().click(); /* 开设置 */
+      let guard = 0;
+      while (!document.querySelector(".glass-card.cl-panel") && guard++ < 300) await nf();
+      await new Promise((r) => setTimeout(r, 900));
+      if (!wb()) return { err: "widget btn missing" };
+      const t0 = performance.now();
+      const rows = [];
+      let sawSwapAnim = false, sawCardGone = false, goneAt = -1;
+      const poll = () => {
+        const st = document.querySelector(".cl-stage");
+        const box = st ? st.firstElementChild : null;
+        const card = document.querySelector(".glass-card.cl-panel");
+        const wv = document.querySelector('.cl-dockwidget[data-widget$=":w-t39"]');
+        if (card) {
+          if (card.getAnimations().some((a) => a.animationName === "cl-panel-swapout-kf")) sawSwapAnim = true;
+        } else if (!sawCardGone && performance.now() - t0 > 30) {
+          sawCardGone = true;
+          goneAt = Math.round(performance.now() - t0);
+        }
+        if (wv && box) {
+          rows.push({
+            t: Math.round(performance.now() - t0),
+            boxH: box.offsetHeight,
+            wvTop: wv.offsetTop,
+            wvH: wv.offsetHeight,
+            wvOp: getComputedStyle(wv).opacity,
+          });
+        }
+        if (performance.now() - t0 < 900) requestAnimationFrame(poll);
+      };
+      wb().click(); /* 互切→部件 + 逐帧采样 */
+      requestAnimationFrame(poll);
+      await new Promise((r) => setTimeout(r, 1500));
+      if (!rows.length) return { err: "no rows", n: 0 };
+      const devMax = Math.max(...rows.map((r) => Math.abs(r.wvTop + r.wvH - r.boxH)));
+      return {
+        n: rows.length, sawSwapAnim, sawCardGone, goneAt, devMax,
+        wvOpMin: Math.min(...rows.map((r) => parseFloat(r.wvOp))),
+        boxH0: rows[0].boxH, boxHend: rows[rows.length - 1].boxH,
+      };
+    });
+    gate("TL28b 互切玻璃交卸行为门（㊶）：swapout 动画真实播放 + 旧卡延迟卸载（非同帧硬删）+ 部件视图 opacity 恒 1",
+      !r872b.err && r872b.n > 5 && r872b.sawSwapAnim && r872b.sawCardGone && r872b.goneAt > 60 && r872b.wvOpMin > 0.99,
+      JSON.stringify(r872b));
+    gate("TL28c 底锚恒贴行为门（㊷）：互切弹簧全程 offsetTop+offsetHeight ≈ 高度盒高（偏差 ≤1.5px，回弹段卡随壳压缩不裁切）",
+      !r872b.err && r872b.n > 5 && r872b.devMax <= 1.5,
+      JSON.stringify({ devMax: r872b.devMax, n: r872b.n, boxH0: r872b.boxH0, boxHend: r872b.boxHend }));
+  }
+
+  /* ---------- TL29 v8.7.2：搜索建议常驻 DOM + 6 行（㊸） ---------- */
+  if (af) {
+    const searchBar872 = readFileSync(new URL("../src/components/startpage/SearchBar.tsx", import.meta.url), "utf8");
+    const css872b = readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8");
+    gate("TL29a 搜索建议常驻静态门：AnimatePresence/motion 条件列表退役 + 常驻容器 data-open 接线 + SUG_MAX=6 + CSS data-open 过渡（visibility 离散插值）",
+      !/key="sug-list"/.test(searchBar872)
+        && !/<motion\.div/.test(searchBar872)
+        && /className="search-sug-list"/.test(searchBar872)
+        && /data-open=\{showDrop \? "true" : undefined\}/.test(searchBar872)
+        && /aria-hidden=\{!showDrop\}/.test(searchBar872)
+        && /const SUG_MAX = 6;/.test(searchBar872)
+        && /\.search-sug-list \{/.test(css872b)
+        && /\.search-sug-list\[data-open\] \{/.test(css872b)
+        && /visibility 0s linear calc\(0\.3s \* var\(--mo-speed, 1\)\);/.test(css872b),
+      `motionDiv=${/<motion\.div/.test(searchBar872)} sugMax6=${/const SUG_MAX = 6;/.test(searchBar872)} css=${/\.search-sug-list\[data-open\] \{/.test(css872b)}`);
+    /* TL29b 行为门：mock sugrec fetch → 输入 → 建议浮现（data-open + 6 行 +
+       opacity→1）→ 追加输入同一节点不重挂（闪动根因=重挂 WAAPI 空窗）→
+       Esc 收起 data-open 摘除但元素仍在 DOM（常驻结构） */
+    const r872c = await af.evaluate(async () => {
+      const nf = () => new Promise((r) => requestAnimationFrame(r));
+      const input = document.querySelector(".search-input");
+      if (!input) return { err: "input missing" };
+      const w = window;
+      if (!w.__origFetch) w.__origFetch = w.fetch;
+      w.fetch = (u, ...rest) => {
+        if (String(u).includes("sugrec")) {
+          const g = ["一", "二", "三", "四", "五", "六", "七"].map((n) => ({ q: "初始探针" + n }));
+          return Promise.resolve({ text: () => Promise.resolve('cb(' + JSON.stringify({ g }) + ')') });
+        }
+        return w.__origFetch(u, ...rest);
+      };
+      input.focus();
+      const setter = Object.getOwnPropertyDescriptor(w.HTMLInputElement.prototype, "value").set;
+      setter.call(input, "探针");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      let guard = 0;
+      while (!document.querySelector("#search-sug-list[data-open]") && guard++ < 400) await nf();
+      /* data-open 出现即过渡起步（opacity 0→1 需 0.3s）——等落定再采样 */
+      await new Promise((r) => setTimeout(r, 900));
+      const list = document.querySelector("#search-sug-list");
+      if (!list) return { err: "list missing" };
+      list.dataset.probeMark = "1";
+      const openState = {
+        open: list.hasAttribute("data-open"),
+        rows: list.querySelectorAll("[role=option]").length,
+        op: getComputedStyle(list).opacity,
+      };
+      await new Promise((r) => setTimeout(r, 150));
+      setter.call(input, "探针续");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      guard = 0;
+      while (guard++ < 40) await nf();
+      const list2 = document.querySelector("#search-sug-list");
+      const afterType = { same: list2 === list, mark: !!list2 && list2.dataset.probeMark === "1", open: !!list2 && list2.hasAttribute("data-open") };
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      let closedSeen = false;
+      for (let i = 0; i < 60; i++) {
+        await nf();
+        if (!document.querySelector("#search-sug-list[data-open]")) { closedSeen = true; break; }
+      }
+      const list3 = document.querySelector("#search-sug-list");
+      return {
+        openState, afterType, closedSeen,
+        stillInDom: !!list3,
+        visAfter: list3 ? getComputedStyle(list3).visibility : null,
+      };
+    });
+    gate("TL29b 搜索建议行为门（㊸）：浮现 data-open + 6 行 + opacity=1 + 追加输入同节点不重挂 + Esc 收起 data-open 摘除元素常驻",
+      !r872c.err && r872c.openState.open && r872c.openState.rows === 6 && parseFloat(r872c.openState.op) > 0.95
+        && r872c.afterType.same && r872c.afterType.mark && r872c.afterType.open
+        && r872c.closedSeen && r872c.stillInDom,
+      JSON.stringify(r872c));
+  }
+
   /* ---------- T10 pageerror ---------- */
   gate("T10 pageerror=0", errors.length === 0, errors.join(" | ").slice(0, 120));
 } catch (e) {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.0 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.2 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);
