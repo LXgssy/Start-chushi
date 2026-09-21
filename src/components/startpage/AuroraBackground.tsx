@@ -1,5 +1,21 @@
 "use client";
 
+/* 「初始」— 背景层（beta 重写架构）：极光 / 纯色 / 掠影三模式 + 壁纸黑幕换装
+ *
+ * 壁纸黑幕状态机：画面身份 shownKey（"bg:glow" | "bg:pure" | "photo:<url>" |
+ * "photo:none"）。目标身份变化时分流：
+ *  · glow ↔ pure → 渲染期直切（光斑层 2500ms 渐变柔化）；
+ *  · 自定义壁纸从无到有（IndexedDB 异步就绪）→ 直切（壁纸自身渐显，底下本为底色）；
+ *  · 其余掠影变化 → effect 走黑幕序列：渐入遮蔽 → 黑透换装 → 预热 → 渐出揭示。
+ * 连点中断合并：旧序列作废，新序列视黑幕现状续接（未全黑则补等剩余渐入）。
+ *
+ * 首载快显（v8.6.24）：首张壁纸身份 450ms 快显（黑幕 0.3s 揭开时已基本就位，
+ * 玻璃件不坐在近黑底上逾一秒）；后续壁纸变化保留 1800ms 自身柔化。
+ *
+ * 掠影前景反白（photo-mode 类）跟随「实际显示的画面」而非设置值：
+ * class 在黑透时刻切换，反白前景不会悬在旧画面上。
+ */
+
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { BackgroundMode } from "@/lib/startpage/types";
 import { resolveWallpaper, wallpaperKindOf, type WallpaperKind } from "@/lib/startpage/gallery";
@@ -27,6 +43,10 @@ const VEIL_IN_MS = 620;
 const VEIL_IN_WAIT = 660; // 渐入时长 + 合成缓冲
 const REVEAL_DELAY = 60; // 新壁纸挂载后的帧缓冲
 const PRELOAD_BUDGET = 3000; // 预热竞速上限，任何情况都揭开黑幕
+const VIDEO_PRELOAD_BUDGET = 2000; // 视频预热上限（体积大，边播边缓冲）
+const BLOB_FADE_MS = 2000; // 黑幕外光斑柔化（仅注释记录，类名为字面量）
+const PHOTO_FADE_MS = 1800; // 黑幕外壁纸自身柔化（仅注释记录，类名为字面量）
+const BOOT_FADE_MS = 450; // 首载壁纸快显（仅注释记录，类名为字面量）
 
 /** 预加载 + 解码壁纸（decode 确保揭幕瞬间可完整绘制；失败也继续，揭示后露底色而非卡黑屏） */
 function preloadImage(url: string): Promise<void> {
@@ -44,8 +64,7 @@ function preloadImage(url: string): Promise<void> {
   });
 }
 
-/** 视频预热：等 canplay（可首播）或 2s 预算内放行——视频体积大，
- *  全量缓冲不值得等，黑幕揭开后边播边缓冲即可 */
+/** 视频预热：等 canplay（可首播）或预算内放行 */
 function preloadVideo(url: string): Promise<void> {
   return new Promise((resolve) => {
     const v = document.createElement("video");
@@ -61,7 +80,7 @@ function preloadVideo(url: string): Promise<void> {
     v.preload = "auto";
     v.oncanplay = finish;
     v.onerror = finish;
-    window.setTimeout(finish, 2000);
+    window.setTimeout(finish, VIDEO_PRELOAD_BUDGET);
     v.src = url;
   });
 }
@@ -78,10 +97,9 @@ function AuroraBackground({
 }: {
   mode: BackgroundMode;
   photoId: string;
-  /** 自定义壁纸的 URL 导入源（v1.7.2）：非空时优先于 IndexedDB 本地文件 */
+  /** 自定义壁纸的 URL 导入源：非空时优先于 IndexedDB 本地文件 */
   wallpaperUrl?: string;
-  /** 自定义壁纸导入版本号（v1.7.3）：每次导入自增——custom 模式下重复导入
-   *  时 photoId/wallpaperUrl 均不变，无此依赖则 effect 不重跑、壁纸不刷新 */
+  /** 自定义壁纸导入版本号：每次导入自增——同一 custom 源下重复导入也强制重读 */
   wallpaperRev?: number;
 }) {
   const [phase, setPhase] = useState<Phase>("night");
@@ -106,11 +124,9 @@ function AuroraBackground({
   }, [photoId]);
   const galleryUrl = galleryMeta?.url ?? null;
 
-  /* 自定义壁纸（v1.7.2）：URL 导入优先（远程图片/视频直链，零下载持久化），
-     否则回退 IndexedDB 本地上传（Blob objectURL）。两种来源互斥由设置侧维护。
-     photoId 离开 custom 时同步清引用，避免下次回到 custom 时闪旧画面。
-     wallpaperRev（v1.7.3）：导入版本号入依赖——同一 custom 源下重复导入
-     （本地换新文件 / URL 重导）也强制重读，根除「导入后不刷新」 */
+  /* 自定义壁纸：URL 导入优先（远程图片/视频直链，零下载持久化），否则回退
+     IndexedDB 本地上传（Blob objectURL）。两种来源互斥由设置侧维护。
+     photoId 离开 custom 时同步清引用，避免下次回到 custom 时闪旧画面。 */
   useEffect(() => {
     if (photoId !== "custom") {
       customUrlRef.current = null;
@@ -151,7 +167,8 @@ function AuroraBackground({
     };
   }, [photoId, wallpaperUrl, wallpaperRev]);
 
-  /* 卸载时回收 objectURL */
+  /* 卸载时回收 objectURL 与散置 timer */
+  const timersRef = useRef<number[]>([]);
   useEffect(() => {
     return () => {
       if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
@@ -161,10 +178,7 @@ function AuroraBackground({
 
   const photoUrl = photoId === "custom" ? customUrl : galleryUrl;
 
-  /* ---------- 壁纸黑幕过渡状态机 ----------
-   * 画面身份 shownKey："bg:glow" | "bg:pure" | "photo:<url>" | "photo:none"。
-   * 目标身份 targetKey 变化时分流（详见渲染期直切与 effect 序列两处注释），
-   * 连点中断合并：旧序列作废，新序列视黑幕现状续接（未全黑则补等剩余渐入）。 */
+  /* ---------- 壁纸黑幕过渡状态机 ---------- */
   const targetKey =
     mode === "photo" ? `photo:${photoUrl ?? "none"}` : `bg:${mode}`;
   const [shownKey, setShownKey] = useState(targetKey);
@@ -172,12 +186,8 @@ function AuroraBackground({
   const veiledRef = useRef(false);
   const veiledAtRef = useRef(0); // 黑幕开始渐入的时刻（续接时补等剩余渐入）
   const shownRef = useRef(targetKey);
-  const timersRef = useRef<number[]>([]); // 跨序列的散置 timer（如回原点揭幕）
 
-  /* 渲染期直切分流（读/写均为 state；黑幕序列留给 effect 异步编排）：
-   *  · glow ↔ pure → 直接换身份，光斑层 2500ms 渐变柔化；
-   *  · 自定义壁纸从无到有（IndexedDB 异步就绪）→ 直切，靠壁纸自身渐显（底下本为底色）；
-   *  · 其余涉及掠影的变化 → 交给下方 effect 走黑幕序列。 */
+  /* 渲染期直切分流（读/写均为 state；黑幕序列留给 effect 异步编排） */
   const [prevTarget, setPrevTarget] = useState(targetKey);
   if (targetKey !== prevTarget) {
     setPrevTarget(targetKey);
@@ -255,8 +265,7 @@ function AuroraBackground({
     };
   }, [targetKey]);
 
-  /* 掠影前景反白跟随「实际显示的画面」而非设置值：
-   * class 在黑透时刻切换，反白前景不会悬在旧画面上 */
+  /* 掠影前景反白跟随「实际显示的画面」 */
   useEffect(() => {
     document.documentElement.classList.toggle(
       "photo-mode",
@@ -277,29 +286,31 @@ function AuroraBackground({
       ? customKindRef.current
       : wallpaperKindOf(shownUrl)
     : "image";
-  /* v8.6.24 首载壁纸快显：揭幕即完整画面——旧版首载也走 1800ms 柔化，
-     玻璃件（搜索 0.24s / 磁贴 0.24s / dock 0.55s）坐在近黑底上逾一秒，
-     磨砂质感晚于底栏出现（用户实测「磨砂底栏比模糊先出现」）。
-     首张壁纸身份 450ms 快显（黑幕 0.3s 揭开时已基本就位）；
-     后续壁纸变化保留 1800ms 自身柔化（黑幕外直切的防白闪语义不变） */
+  /* 首载壁纸快显：揭幕即完整画面；后续壁纸变化保留自身柔化（防白闪语义） */
   const bootUrlRef = useRef<string | null>(shownUrl);
+
+  /** 媒体/遮罩共用的渐显时长：黑幕中 0（揭幕即完整画面）、首载 450ms、其后 1800ms。
+      ⚠ Tailwind JIT 只识别字面量类名——三档必须写死在分支里，禁止模板拼接 */
+  const fadeDur = veiled
+    ? "duration-0"
+    : shownUrl === bootUrlRef.current
+      ? "duration-[450ms]"
+      : "duration-[1800ms]";
+  const blobFadeDur = veiled ? "duration-0" : "duration-[2000ms]";
 
   return (
     <div aria-hidden className="fixed inset-0 -z-10 overflow-hidden">
       {/* 底色 */}
       <div className="absolute inset-0 bg-[#f6f5f9] dark:bg-[#0a0a0e]" />
 
-      {/* 极光光斑层：启停由「显示身份」驱动；黑幕掩护下瞬时就位（避免揭幕时露底色发白），
-          黑幕外（辉光↔纯净直切）保留 2000ms 光斑柔化 */}
+      {/* 极光光斑层：启停由「显示身份」驱动；黑幕掩护下瞬时就位（避免揭幕时
+          露底色发白），黑幕外（辉光↔纯净直切）保留光斑柔化 */}
       <div
-        className={`absolute inset-0 transition-opacity ${
-          veiled ? "duration-0" : "duration-[2000ms]"
-        }`}
+        className={`absolute inset-0 transition-opacity ${blobFadeDur}`}
         style={{ opacity: showBlobs ? blobStrength : 0 }}
       >
-        {/* v8.6.16 瓷釉极光：浅色收敛让瓷白主导画布（旧 35~40% 铺满全页，
-            磁贴白雾与投影在满铺彩底上无从立体——「磨砂看不见」的画布因素）；
-            深色墨夜极光保持不动。色相结构与深色同族（绿/紫/琥珀/青）。 */}
+        {/* 瓷釉极光：浅色收敛让瓷白主导画布；深色墨夜极光保持。
+            色相结构与深色同族（绿/紫/琥珀/青） */}
         <div className="aurora-blob aurora-a bg-emerald-300/24 dark:bg-emerald-500/25" />
         <div className="aurora-blob aurora-b bg-fuchsia-300/24 dark:bg-fuchsia-400/20" />
         <div className="aurora-blob aurora-c bg-amber-200/30 dark:bg-amber-300/15" />
@@ -307,9 +318,7 @@ function AuroraBackground({
       </div>
 
       {/* 摄影壁纸层：挂载身份 = 显示身份，换图发生在黑幕全黑时刻。
-          黑幕掩护下免渐入（揭幕即完整画面，根除米白底透出的白闪）；
-          黑幕外直切（自定义壁纸就绪）保留 1800ms 自身柔化渐显。
-          v1.7.2：视频走 <video muted loop>（kenburns 让位于视频自身动效），
+          视频 <video muted loop>（kenburns 让位于视频自身动效），
           GIF 走 <img> 同样免 kenburns（自身已动，叠加易晕） */}
       {shownUrl && (
         <div key={shownUrl} className="absolute inset-0">
@@ -323,13 +332,9 @@ function AuroraBackground({
               preload="auto"
               onCanPlay={() => setLoadedUrl(shownUrl)}
               onError={() => setLoadedUrl(null)}
-              className={`absolute inset-0 h-full w-full object-cover transition-opacity ${
-                veiled
-                  ? "duration-0"
-                  : shownUrl === bootUrlRef.current
-                    ? "duration-[450ms]"
-                    : "duration-[1800ms]"
-              } ${photoReady ? "opacity-100" : "opacity-0"}`}
+              className={`absolute inset-0 h-full w-full object-cover transition-opacity ${fadeDur} ${
+                photoReady ? "opacity-100" : "opacity-0"
+              }`}
             />
           ) : (
             <img
@@ -340,25 +345,15 @@ function AuroraBackground({
               referrerPolicy="no-referrer"
               onLoad={() => setLoadedUrl(shownUrl)}
               onError={() => setLoadedUrl(null)}
-              className={`${shownKind === "gif" ? "" : "kenburns "}absolute inset-0 h-full w-full object-cover transition-opacity ${
-                veiled
-                  ? "duration-0"
-                  : shownUrl === bootUrlRef.current
-                    ? "duration-[450ms]"
-                    : "duration-[1800ms]"
-              } ${photoReady ? "opacity-100" : "opacity-0"}`}
+              className={`${
+                shownKind === "gif" ? "" : "kenburns "
+              }absolute inset-0 h-full w-full object-cover transition-opacity ${fadeDur} ${
+                photoReady ? "opacity-100" : "opacity-0"
+              }`}
             />
           )}
           {/* 双层压暗：整体平底 + 上下渐变，保证浅色主题下白字亦可读 */}
-          <div
-            className={`photo-scrim absolute inset-0 transition-opacity ${
-              veiled
-                ? "duration-0"
-                : shownUrl === bootUrlRef.current
-                  ? "duration-[450ms]"
-                  : "duration-[1800ms]"
-            } ${photoReady ? "opacity-100" : "opacity-0"}`}
-          />
+          <div className={`photo-scrim absolute inset-0 transition-opacity ${fadeDur} ${photoReady ? "opacity-100" : "opacity-0"}`} />
         </div>
       )}
 

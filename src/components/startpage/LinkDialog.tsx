@@ -1,5 +1,13 @@
 "use client";
 
+/* 链接编辑对话框（添加 / 编辑磁贴）。
+ * 动效分工：遮罩淡入淡出与卡片显影全走 CSS（.veil-in / .veil-out / .panel-rise，
+ * framer WAAPI opacity 空窗/取消回跳律）；卡片只保留 transform 弹簧（无 exit
+ * prop——整体随遮罩淡出），卸载由 PresenceClass 定时器接管。
+ * 遮罩为轻雾化（backdrop-blur-md + 极轻底色）——全屏幕布不做强模糊，
+ * 主页面在雾中仍可辨认（blur-2xl 糊到用户感知为「主页被隐藏」）。
+ */
+
 import { memo, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Trash2 } from "lucide-react";
@@ -59,7 +67,7 @@ function DialogForm({
   const urlRef = useRef<HTMLInputElement>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
 
-  /* 挂载时聚焦对应输入框；卸载时有条件归还焦点（同指令面板 v1.0.8 合并修复：
+  /* 挂载时聚焦对应输入框；卸载时有条件归还焦点（同指令面板合并修复：
      焦点已被其它视图接管时不抢回；归还命中 :focus-visible 时主动 blur） */
   useEffect(() => {
     const overlayEl = overlayRef.current;
@@ -82,6 +90,7 @@ function DialogForm({
         }
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function save() {
@@ -103,10 +112,6 @@ function DialogForm({
     <PresenceClass
       key="link-overlay"
       ref={overlayRef}
-      /* 入场淡入 .veil-in / 退场淡出 .veil-out 全走 CSS（framer WAAPI opacity 空窗/取消回跳律，
-         与指令面板同律）；卸载由 PresenceClass 定时器接管。
-         遮罩与指令面板同款轻雾化（backdrop-blur-md + 极轻底色）——全屏幕布不做强模糊，
-         主页面在雾中仍可辨认（v1.1.1 实证 blur-2xl 糊到用户感知为「主页被隐藏」） */
       exitClass="veil-out"
       duration={0.25}
       className="veil-in fixed inset-0 z-50 flex items-center justify-center bg-white/10 px-4 backdrop-blur-md backdrop-saturate-150 dark:bg-black/10"
@@ -118,8 +123,6 @@ function DialogForm({
       aria-label={editing ? "编辑链接" : "添加链接"}
     >
       <motion.div
-        /* 卡片只保留 transform 弹簧（淡入淡出由遮罩/卡片 CSS 承载，无 exit prop——
-           整体随遮罩淡出） */
         initial={{ scale: 0.96, y: 8 }}
         animate={{ scale: 1, y: 0 }}
         transition={SPRING}
@@ -135,82 +138,82 @@ function DialogForm({
           }
         }}
       >
-        {/* 内容模糊语言：表单内容随面板开关模糊聚拢/散场（.panel-rise 显影卡片，
-           内容层自持 .content-focus；关闭随遮罩整体淡出，无额外散场级联需求） */}
+        {/* 内容模糊语言：表单内容随面板开关模糊聚拢（.panel-rise 显影卡片，
+           内容层自持 .content-focus；关闭随遮罩整体淡出） */}
         <div className="content-focus">
-            <h2 className="mb-4 text-center text-xs font-normal tracking-[0.25em] text-zinc-500 dark:text-zinc-400">
-              {editing ? "编辑链接" : "添加链接"}
-            </h2>
+          <h2 className="mb-4 text-center text-xs font-normal tracking-[0.25em] text-zinc-500 dark:text-zinc-400">
+            {editing ? "编辑链接" : "添加链接"}
+          </h2>
 
-            <div className="space-y-3">
-              <input
-                ref={nameRef}
-                type="text"
-                value={name}
-                maxLength={16}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="名称（可选）"
-                aria-label="链接名称"
-                className="h-10 w-full rounded-xl border border-transparent bg-zinc-900/[0.04] px-3.5 text-sm font-light text-zinc-800 outline-none transition-all duration-300 placeholder:text-zinc-400 accent-focus focus:bg-transparent dark:bg-white/5 dark:text-zinc-100 dark:placeholder:text-zinc-500"
-              />
-              <input
-                ref={urlRef}
-                type="text"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="网址，如 github.com"
-                aria-label="链接网址"
-                inputMode="url"
-                autoCapitalize="off"
-                spellCheck={false}
-                className="h-10 w-full rounded-xl border border-transparent bg-zinc-900/[0.04] px-3.5 text-sm font-light text-zinc-800 outline-none transition-all duration-300 placeholder:text-zinc-400 accent-focus focus:bg-transparent dark:bg-white/5 dark:text-zinc-100 dark:placeholder:text-zinc-500"
-              />
-              <AnimatePresence>
-                {error && (
-                  <motion.p
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }}
-                    className="px-1 text-xs font-light text-red-400/90"
-                  >
-                    {error}
-                  </motion.p>
-                )}
-              </AnimatePresence>
-            </div>
-
-            <div className="mt-5 flex items-center justify-between gap-2">
-              {editing ? (
-                <button
-                  type="button"
-                  onClick={() => onDelete(editing.id)}
-                  className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-light tracking-wide text-red-400 transition-colors duration-200 hover:bg-red-400/10 dark:text-red-400/90"
+          <div className="space-y-3">
+            <input
+              ref={nameRef}
+              type="text"
+              value={name}
+              maxLength={16}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="名称（可选）"
+              aria-label="链接名称"
+              className="h-10 w-full rounded-xl border border-transparent bg-zinc-900/[0.04] px-3.5 text-sm font-light text-zinc-800 outline-none transition-all duration-300 placeholder:text-zinc-400 accent-focus focus:bg-transparent dark:bg-white/5 dark:text-zinc-100 dark:placeholder:text-zinc-500"
+            />
+            <input
+              ref={urlRef}
+              type="text"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="网址，如 github.com"
+              aria-label="链接网址"
+              inputMode="url"
+              autoCapitalize="off"
+              spellCheck={false}
+              className="h-10 w-full rounded-xl border border-transparent bg-zinc-900/[0.04] px-3.5 text-sm font-light text-zinc-800 outline-none transition-all duration-300 placeholder:text-zinc-400 accent-focus focus:bg-transparent dark:bg-white/5 dark:text-zinc-100 dark:placeholder:text-zinc-500"
+            />
+            <AnimatePresence>
+              {error && (
+                <motion.p
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="px-1 text-xs font-light text-red-400/90"
                 >
-                  <Trash2 className="h-3.5 w-3.5" strokeWidth={1.5} />
-                  删除
-                </button>
-              ) : (
-                <span />
+                  {error}
+                </motion.p>
               )}
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="rounded-full px-4 py-1.5 text-[11px] font-light tracking-wide text-zinc-500 transition-colors duration-200 hover:bg-zinc-900/5 dark:text-zinc-400 dark:hover:bg-white/10"
-                >
-                  取消
-                </button>
-                <button
-                  type="button"
-                  onClick={save}
-                  className="rounded-full bg-zinc-900 px-4 py-1.5 text-[11px] font-normal tracking-wider text-zinc-50 transition-opacity duration-200 hover:opacity-80 dark:bg-zinc-100 dark:text-zinc-900"
-                >
-                  完成
-                </button>
-              </div>
+            </AnimatePresence>
+          </div>
+
+          <div className="mt-5 flex items-center justify-between gap-2">
+            {editing ? (
+              <button
+                type="button"
+                onClick={() => onDelete(editing.id)}
+                className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-light tracking-wide text-red-400 transition-colors duration-200 hover:bg-red-400/10 dark:text-red-400/90"
+              >
+                <Trash2 className="h-3.5 w-3.5" strokeWidth={1.5} />
+                删除
+              </button>
+            ) : (
+              <span />
+            )}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-full px-4 py-1.5 text-[11px] font-light tracking-wide text-zinc-500 transition-colors duration-200 hover:bg-zinc-900/5 dark:text-zinc-400 dark:hover:bg-white/10"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={save}
+                className="rounded-full bg-zinc-900 px-4 py-1.5 text-[11px] font-normal tracking-wider text-zinc-50 transition-opacity duration-200 hover:opacity-80 dark:bg-zinc-100 dark:text-zinc-900"
+              >
+                完成
+              </button>
             </div>
+          </div>
         </div>
-          </motion.div>
+      </motion.div>
     </PresenceClass>
   );
 }

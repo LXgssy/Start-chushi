@@ -1,3 +1,45 @@
+/* ================================================================
+   「初始」全局样式 · beta 重写版
+   ================================================================
+   本样式表是「初始」的视觉宪法。四条底层律贯穿全文件，改动任何
+   规则前先读这里：
+
+   ① 磨砂玻璃存活律
+      backdrop-filter 元素【自身或祖先】opacity<1 / filter≠none 一律杀
+      磨砂（实验实证：动画中梯度 2.997 vs 稳态 1.395）。玻璃件的入退场
+      只许动四类安全通道：transform / background-color alpha /
+      backdrop-filter blur 值 / box-shadow；opacity 与 filter 只许落在
+      【无玻璃】的内容层。
+
+   ② 感知同步律（blur 领先/驻留）
+      底色 alpha 与 blur 值两条通道的感知速率不同——同曲线同时长插值
+      必然「开=白底先于模糊、关=模糊先于白底（幽灵板）」。故：入场
+      blur 先行（45% 凝满）；退场 blur 驻留（0-55% 满值，底色全程渐隐）。
+      hold 值经 --veil-hold-bf 逐元素适配且必须与该元素自然值同构同值。
+
+   ③ framer 退役律（勿还给 framer）
+      framer v12 对 opacity 走 WAAPI 加速：入场有空窗（内联值停在初始 0，
+      动画结束才补写），退场会被取消且不回写（元素滞留 DOM）。因此一切
+      opacity 视觉由 CSS 关键帧/过渡承载；framer 只保留 transform 弹簧与
+      计时职责。
+
+   ④ 压缩器陷阱（Lightning CSS）
+      · blur(0px) 被压成非法 blur()——尾帧一律写 blur(1px)；
+      · saturate(1) 的参数 1 被当默认值吃掉成非法 saturate()——必写 1.5；
+      · 标准属性 + -webkit- 前缀双写会被折叠为前缀版——只声明标准属性，
+        由压缩器自动补前缀；
+      · @keyframes 内 Chromium 不识别 webkit 别名——只写无前缀
+        backdrop-filter；
+      · `visibility 0s 0.65s` 被极简为 `visibility 0.65s`——语义等价
+        （visibility 离散插值：一端 visible 时中间全程 visible），无需防。
+
+   声明顺序律（同特异性后者胜的覆盖关系，勿重排）：
+   .panel-sink .cl-panel 在 .panel-sink .glass-card 之后；
+   .veil-out 在 .veil-in 之后；.ctx-out 在 .ctx-in 之后；
+   .panel-content-out 在 .cl-panel-content 之后；
+   .view-exit 级联在 .content-focus 之后。
+   ================================================================ */
+
 @import "tailwindcss";
 @import "tw-animate-css";
 
@@ -43,12 +85,13 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
-/* ---------- 「初始」主题令牌 v8.6.16 · 瓷釉浅色 / 墨夜深色 ----------
-   浅色整体重写（v8.6.16）：旧浅色是「暖纸白」（hue 85 微黄），与深色
-   「墨夜」（hue 297-300 冷紫黑）色温两族、视觉语言两族——用户定调
-   「简直就是两个风格」。本版把浅色重造为「瓷釉」：与深色同一色相家族
-   （hue 300 紫灰冷调）的明极，玻璃结构（雾面/描边/高光/投影）与深色
-   「暗玻璃」逐项同构镜像——同一套设计语言的明暗两极，不再是两种风格。 */
+/* ================================================================
+   主题令牌 · 瓷釉浅色 / 墨夜深色
+   ---------------------------------------------------------------
+   浅色「瓷釉」与深色「墨夜」同一色相家族（oklch hue 300 紫灰冷调）
+   的明暗两极，玻璃结构（雾面/描边/高光/投影）逐项同构镜像——同一套
+   设计语言的明暗两极，不是两种风格。
+   ================================================================ */
 :root {
   --radius: 0.75rem;
   /* 强调色（由设置面板动态覆盖） */
@@ -85,25 +128,6 @@
   --sidebar-accent-foreground: oklch(0.26 0.022 300);
   --sidebar-border: oklch(0.905 0.007 300);
   --sidebar-ring: oklch(0.62 0.16 295);
-  /* —— 磁贴「瓷釉磨砂」token（v8.6.16 新增，v8.6.17 减雾提质）——
-     磨砂玻璃的灵魂是「透」：背景的模糊纹理要能透过磁贴面。0.52 白雾
-     把透度压到 48% 以下，磁贴成了实心纸片——质感反而输给深色（暗雾
-     0.20 透 80%）。减雾到 0.30 让极光透进来，玻璃感回来；分层交给
-     描边+投影承担，不再依赖厚雾。 */
-  /* v8.6.21 图标样式统一深色釉（用户定调：快捷服务图标不分主题一律
-     深色模式样式）——浅色值整体换成 .dark 同值：磁贴面恒暗雾+浅白字母，
-     主题差异只留在投影（浅色地面亮，深影塑体积）与名称配色上 */
-  --tile-frost-bg: rgba(12, 12, 18, 0.2);
-  /* 描边环：随图标统一深色（hsl(hue 44% L)/a 由内联按 hue 注入） */
-  --tile-ring-l: 60%;
-  --tile-ring-a: 0.28;
-  /* 顶部内高光：0.85 是死白塑料感，降到釉面反光档 */
-  --tile-hl-a: 0.18;
-  /* 内容层色相渐变：雾减薄后自身透出更多彩底，渐变同步收一档防叠脏 */
-  --tile-grad-a1: 0.22;
-  --tile-grad-a2: 0.14;
-  --tile-grad-l1: 62%;
-  --tile-grad-l2: 50%;
 }
 
 .dark {
@@ -138,11 +162,21 @@
   --sidebar-accent-foreground: oklch(0.95 0.01 300);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.66 0.155 297);
-  /* 磁贴暗雾镜像（v8.6.16）：深色下霜层铺暗雾增强宝石感，结构与瓷釉浅色同构 */
+}
+
+/* —— 磁贴「瓷釉磨砂」token ——
+   磨砂玻璃的灵魂是「透」：背景的模糊纹理要能透过磁贴面。磁贴面恒暗雾
+   + 浅白字母（图标样式统一深色釉，不分主题），主题差异只留在投影
+   （浅色地面亮，深影塑体积）与名称配色上。双主题同值，单一声明。 */
+:root,
+.dark {
   --tile-frost-bg: rgba(12, 12, 18, 0.2);
+  /* 描边环：随图标统一深色（hsl(hue 44% L)/a 由内联按 hue 注入） */
   --tile-ring-l: 60%;
   --tile-ring-a: 0.28;
+  /* 顶部内高光：釉面反光档 */
   --tile-hl-a: 0.18;
+  /* 内容层色相渐变：雾减薄后自身透出更多彩底，渐变收一档防叠脏 */
   --tile-grad-a1: 0.22;
   --tile-grad-a2: 0.14;
   --tile-grad-l1: 62%;
@@ -160,21 +194,13 @@
     -webkit-user-select: none;
     user-select: none;
     -webkit-touch-callout: none;
-    /* 根滚动条隐藏（v8.1.1，替代 v1.8.0 的 scrollbar-gutter:stable）：
-       防抖目标同源——滚动条出现/消失不再改变布局宽度（无滚动条即无宽度变化，
-       「两排变一排页面抖动」保持根治）；同时根除 gutter 方案的两个代价：
-       ①Windows 经典滚动条槽位常驻露画布底色（壁纸模式下即右侧黑边，
-         且 Chromium 对槽位只画画布背景，元素与根背景图像的绘制均裁剪在
-         ICB——最小页实证，CSS 无解）；
-       ②经典滚动条本身压在壁纸右缘。
-       页面仍可滚（滚轮/触摸/键盘），起始页内容以居中为主，隐藏视觉噪声。
-       旧 CEF（无 scrollbar-width）自动回退经典滚动条，行为同 v8.0 时代。 */
+    /* 根滚动条隐藏：滚动条出现/消失不再改变布局宽度；同时根除经典滚动条
+       槽位常驻露画布底色（壁纸模式下右侧黑边）的问题。页面仍可滚
+       （滚轮/触摸/键盘）；旧 CEF（无 scrollbar-width）自动回退经典滚动条 */
     scrollbar-width: none;
-    /* 底色基调（v8.1.1）：画布用主题底色，首帧/极露底时不闪白；与 Aurora
-       底层 #f6f5f9/#0a0a0e 严格一致。注意：html 有了底色后 body 背景停止
-       向画布传播，body 必须保持透明（见下），否则会自绘盖住 -z-10 壁纸层 */
-    /* 瓷釉画布底色（v8.6.16）：与 --background 同族的冷瓷白 #f6f5f9，
-       首帧/极露底不闪黄（旧暖纸 #f6f5f2 与冷瓷 token 不同族） */
+    /* 底色基调：画布用主题底色，首帧/极露底时不闪白；与 Aurora 底层
+       #f6f5f9/#0a0a0e 严格一致。html 有了底色后 body 背景停止向画布传播，
+       body 必须保持透明（见下），否则会自绘盖住 -z-10 壁纸层 */
     background-color: #f6f5f9;
   }
   html.dark {
@@ -196,9 +222,9 @@
     user-select: text;
   }
   body {
-    /* 不可给 body 上不透明底色（v8.1.1 律）：html 画布底色（见上）一旦存在，
-       body 背景停止向画布传播并改为自绘盒背景——会盖住 -z-10 的 Aurora
-       壁纸层（整页变黑实测）。底部基调由 html 画布色 + Aurora 底层承担 */
+    /* 不可给 body 上不透明底色：html 画布底色一旦存在，body 背景停止向
+       画布传播并改为自绘盒背景——会盖住 -z-10 的 Aurora 壁纸层（整页变黑）。
+       底部基调由 html 画布色 + Aurora 底层承担 */
     @apply text-foreground;
     font-family:
       var(--font-geist-sans),
@@ -217,14 +243,14 @@
   }
 }
 
-/* ---------- 扩展环境字体锚（v1.7.2） ----------
+/* ---------- 扩展环境字体锚 ----------
  * chrome-extension:// 新标签页存在一条 UA 注入的未分层 body 字体规则
  * （CDP 实证 origin=injected：font-family 具体化 + font-size 75%），未分层
  * 声明恒压过 @layer base —— 扩展里时钟回退系统字体：字重发虚、且冒号
  * 双点（按 Geist 数字墨迹中心烤定，见 Clock.tsx DIGIT_INK_CENTER_EM）
  * 失去对齐基准而偏移。此处以未分层 + 更高特异性（0,0,2 > 0,0,1）锚回
  * 官方栈；网页版本就正常，本规则与其层叠结果一致，无副作用。 */
-/* ---------- 主页面禁滚（v8.6.20 用户律）----------
+/* ---------- 主页面禁滚 ----------
    不管浏览器大小如何，「初始」主页面禁止上下左右滚动。新标签页是单屏
    画布不是文档：缩小窗口时主列内容高度会超过视口，此前靠 body 默认
    overflow 把溢出泄漏成整页滚动。两轴封死；面板/抽屉/建议列表等功能性
@@ -283,15 +309,17 @@ html.dark .accent-bar {
 }
 
 /* ================================================================
-   「初始」视觉层
-   ================================================================ */
-
-/* ---------- 玻璃拟态（v8.6.16 瓷釉重写） ----------
+   玻璃拟态（瓷釉重写）
+   ---------------------------------------------------------------
    浅色「亮玻璃」与深色「暗玻璃」同构镜像：白雾面/墨色低透明描边
    （深色为暗面/白色低透明描边）；三态片段变量（seg/ring/line）同步
-   翻转色相但不翻转结构——同一套玻璃语法，明暗两极各说各话。 */
-/* dock 内部片段（选框/分隔线）用变量三态适配：浅色主题墨系、深色白系；
-   掠影模式玻璃强制深色（不分主题），故也用白系——否则浅色主题下选框/分隔线在深玻璃上不可见 */
+   翻转色相但不翻转结构——同一套玻璃语法，明暗两极各说各话。
+   dock 内部片段（选框/分隔线）用变量三态适配：浅色主题墨系、深色白系；
+   掠影模式玻璃强制深色（不分主题），故也用白系——否则浅色主题下
+   选框/分隔线在深玻璃上不可见。
+   全部玻璃卡片背板带 backdrop 磨砂；底色减薄让磨砂可见（浅 0.62 白玻璃
+   / 深 0.60 暗玻璃）；入退场走四类安全通道（见文件头①②律）。
+   ================================================================ */
 .glass-pill {
   background: rgba(255, 255, 255, 0.62);
   border: 1px solid rgba(24, 22, 36, 0.1);
@@ -307,21 +335,6 @@ html.dark .accent-bar {
   --pill-line: rgba(255, 255, 255, 0.12);
 }
 
-/* v8.6.21 磨砂升级：dock 面板/命令面板/对话框/右键菜单等全部玻璃卡片
-   背板加 backdrop 磨砂（用户：dock 所有面板的半透明背板升级磨砂玻璃，
-   深浅色都覆盖）。底色同步减薄让磨砂可见：浅 0.86→0.62 白玻璃 / 深
-   0.94→0.60 暗玻璃。
-   v8.6.22 磨砂存活 2.0：实验实证（scripts/blur-selftest.mjs，壁纸梯度能
-   判据）——元素自身 opacity<1 与祖先同样剧毒（动画中 2.997 / 静态 1.822
-   vs 稳态 1.395 ≈ 无磨砂参照 1.923），v8.6.21 的「壳体 opacity 淡入淡出
-   掩盖」不可行（用户实测入退场瞬间磨砂短暂退化为纯色底）。全部玻璃壳体
-   入退场去 opacity：入场=底色 alpha 凝入（panel-fade/card-in/ctx-in from
-   transparent→自然值，backdrop 恒 20px 全程在线）；退场=底色 alpha 渐隐 +
-   backdrop blur(20→1px) 收尾（dialog-sink/palette-out/ctx-out/glass-card-out）。
-   内容淡入淡出由既有内容模糊语言承担（content-focus 聚拢 / content-defocus
-   与 .view-exit 散场 / ctx-item 逐项 / docs-anim 分区），内容层是玻璃的
-   后代，其 opacity 不触采样链。磁贴霜层「自承载 0.18s 快速凝聚」实为窗口
-   极短+底色兜底的侥幸，非自身安全——旧律作废，勿再引用。 */
 .glass-card {
   background: rgba(255, 255, 255, 0.62);
   border: 1px solid rgba(24, 22, 36, 0.09);
@@ -405,8 +418,7 @@ html.dark .accent-bar {
   transform: translateZ(0);
 }
 .vignette {
-  /* v8.6.17：0.5 顶光是「整页白雾+时钟底部白高光带」的主源，砍到与深色
-     0.045 同档的极轻瓷光——体积感全权交给极光与投影，画布还给底色 */
+  /* 极轻瓷光——体积感全权交给极光与投影，画布还给底色 */
   background:
     radial-gradient(120% 90% at 50% 0%, rgba(255, 255, 255, 0.12), transparent 55%),
     radial-gradient(140% 120% at 50% 115%, rgba(24, 22, 36, 0.09), transparent 60%);
@@ -442,17 +454,13 @@ html.dark .accent-bar {
     rgba(0, 0, 0, 0.18);
 }
 
-/* ---------- 掠影模式前景 v8.6.20：壁纸裸文字恒白，玻璃面回归主题 ----------
-   分工律（v8.6.20 定稿，回应用户「浅色模式在掠影模式不生效」）：
+/* ---------- 掠影模式前景分工律 ----------
    · 壁纸裸文字（时钟/副行/搜索提示/dock/常驻磁贴名称/新建加号）——
-     一律白色（v8.6.19 用户定调「掠影模式下的文字一律改成白色」），不分
-     主题；可读性由压暗 scrim +（常驻形态）壁纸轻高斯模糊承担，文字本身
-     零描边零光效。
+     一律白色，不分主题；可读性由压暗 scrim +（常驻形态）壁纸轻高斯模糊
+     承担，文字本身零描边零光效。
    · 玻璃面内部（搜索药丸/建议行/磁贴字母/抽屉磁贴名称）——跟随主题：
      浅色=瓷釉浅玻璃+深墨字，深色=深磨砂+白字。玻璃底是什么颜色，
-     上面的字就跟着主题走——浅色模式开关在掠影下重新可见。
-   · 磁贴 token：v8.6.19 的「一律暗雾」块删除（值与 .dark 完全同值，深色
-     掠影由 .dark 原生承接、零变化；浅色掠影回归 :root 瓷釉 token）。 */
+     上面的字就跟着主题走——浅色模式开关在掠影下重新可见。 */
 html.photo-mode .clock-text {
   color: rgb(245 245 245);
 }
@@ -465,9 +473,8 @@ html.photo-mode .clock-sub [aria-hidden] {
 html.photo-mode .search-hint {
   color: rgb(255 255 255 / 0.5);
 }
-/* v8.6.21：dock 按钮收窄到深色掠影——dock 有自家玻璃背板（.glass-pill），
-   按分工律玻璃面跟随主题；浅色掠影回落基线墨系，与辉光/纯色模式一致
-   （用户：dock 浅色样式在掠影下和辉光/纯色完全不一样的修复） */
+/* dock 按钮收窄到深色掠影——dock 有自家玻璃背板（.glass-pill），
+   按分工律玻璃面跟随主题；浅色掠影回落基线墨系，与辉光/纯色模式一致 */
 html.photo-mode.dark .dock-btn {
   color: rgb(255 255 255 / 0.68);
 }
@@ -477,7 +484,7 @@ html.photo-mode.dark .dock-btn:hover {
 html.photo-mode.dark .dock-btn[data-active="true"] {
   color: rgb(255 255 255);
 }
-/* 深色掠影：深磨砂药丸 + 白系内部（值承 v8.6.19，与 .dark 基线一致） */
+/* 深色掠影：深磨砂药丸 + 白系内部（与 .dark 基线一致） */
 html.photo-mode.dark .glass-pill {
   background: rgb(12 12 18 / 0.44);
   border-color: rgb(255 255 255 / 0.14);
@@ -512,15 +519,15 @@ html.photo-mode.dark .search-sug-row[data-active="true"] {
 html.photo-mode.dark .search-sug-row:first-child {
   border-top-color: rgb(255 255 255 / 0.1);
 }
-/* 浅色掠影：瓷釉浅玻璃药丸（v8.6.18 同值复刻）——输入字/触发器/建议行/
-   提交按钮全部回落基线 Tailwind zinc 系（深墨压浅玻璃），无需另写 */
+/* 浅色掠影：瓷釉浅玻璃药丸——输入字/触发器/建议行/提交按钮全部回落
+   基线 Tailwind zinc 系（深墨压浅玻璃），无需另写 */
 html.photo-mode:not(.dark) .glass-pill {
   background: rgba(255, 255, 255, 0.72);
   border-color: rgba(20, 20, 25, 0.1);
 }
 /* 常驻磁贴名称：裸压壁纸 → 恒白（两主题一致，轻模糊+scrim 承接可读性）；
    抽屉磁贴名称压在纱罩上（浅=白纱/深=暗纱）→ 不写掠影规则，基线 zinc
-   系自动跟随主题（浅色白纱上=深墨，深色暗纱上=浅灰白） */
+   系自动跟随主题 */
 html.photo-mode .cl-links-docked .tile-label {
   color: rgb(255 255 255 / 0.85);
 }
@@ -529,32 +536,22 @@ html.photo-mode .cl-links-docked span.link-intro.border-dashed {
   border-color: rgb(255 255 255 / 0.4);
   color: rgb(255 255 255 / 0.6);
 }
-/* v8.6.21：浅掠影磁贴白雾霜层（0.44）退役——图标统一深色釉后回落
-   暗雾基线（rgba(12,12,18,0.2)），浅/深掠影磁贴同款，轻模糊+scrim 承载可读性 */
-/* vignette 在掠影下退役：它的顶部瓷光径向一直压在壁纸之上，就是用户反复
-   反馈的「时钟/文字底部白色高光」真凶（0.12 也可见，v8.6.17/18 两轮减淡
-   都没杀干净）；掠影的可读性职责全部移交 photo-scrim + 壁纸高斯模糊 */
+/* vignette 在掠影下退役：顶部瓷光径向压在壁纸上就是「时钟/文字底部白色
+   高光」真凶；掠影可读性职责全部移交 photo-scrim + 壁纸高斯模糊 */
 html.photo-mode .vignette {
   background: none;
 }
-/* ---------- 壁纸高斯模糊层（v8.6.20 减力：很轻一层）----------
+/* ---------- 壁纸高斯模糊层 ----------
    常驻模式裸文字直接压壁纸，白字可读性由「轻模糊 + scrim」承担；抽屉
    形态磁贴收进抽屉（玻璃自承载），壁纸保持原样不模糊。
    ⚠ 模糊值必须走 AuroraBackground 的【内联样式】通道——Lightning CSS 会把
    CSS 文件里的标准 backdrop-filter 改写成 -webkit- 别名并把 blur(0px) 压成
-   非法 blur()（v8.6.19b 实测 TL9d/TL10 双 FAIL 根因）。v8.6.20 用户定调
-   「模糊力度太高了，有一层很轻的模糊就行」：24px → 8px；v8.6.21 再减
-   8px → 4px（「再轻一点」：极轻薄纱，只软化像素细节）；blur(0)↔blur(4px)
-   平滑插值由内联 transition 承担。 */
-/* ---------- v8.6.25：磁贴投影整体退役（用户指令「删除快捷服务的图标底下
-   的阴影」）——.tile-shadow（浅/深两态）、入场通道 intro-tile-shadow、退场
-   淡出（cs-drawer-closing 投影淡出）一并拆除；磁贴体积全权交还描边+高光+
-   霜层着色（v8.6.16 的浅/深镜像律不再需要投影半边）。 ---------- */
-
-/* ---------- 编辑模式磁贴摇晃（v8.6.2 强化：±2°/0.28s，交替反向——青柠/iOS 同款，
-            批量管理状态一眼可辨；v8.6.1 的 ±1.4°/0.38s 幅度过小被用户当「没抖动」） ----------
+   非法 blur()。当前力度 4px：极轻薄纱，只软化像素细节。 */
+/* ---------- 编辑模式磁贴摇晃（±2°/0.28s，交替反向——iOS 同款，
+            批量管理状态一眼可辨） ----------
    transform 序列内保留 translateZ(0)：动画声明会覆盖磁贴玻璃本体的内联
-   transform，不把合成层提示写进关键帧的话，抖动期间黑边修复（独立合成层）会脱错 */
+   transform，不把合成层提示写进关键帧的话，抖动期间黑边修复（独立合成层）
+   会脱错 */
 @keyframes jiggle {
   0%, 100% { transform: translateZ(0) rotate(-2deg); }
   50%      { transform: translateZ(0) rotate(2deg); }
@@ -563,40 +560,29 @@ html.photo-mode .vignette {
   animation: jiggle 0.28s linear infinite;
   transform-origin: center;
 }
-/* 偶数磁贴反向摆（青柠同款交替节奏，比整齐划一更像 iOS 编辑态） */
+/* 偶数磁贴反向摆（交替节奏，比整齐划一更像 iOS 编辑态） */
 .cl-links-grid > *:nth-child(even) .jiggle {
   animation-direction: reverse;
 }
 /* 流畅模式豁免：抖动是编辑态的功能性指示（非装饰），白名单回原速
-   （否则 html.cs-lite 通配 0.001s 把它杀死——用户实测「抖动不见了」） */
+   （否则 html.cs-lite 通配 0.001s 把它杀死） */
 html.cs-lite .jiggle {
   animation-duration: 0.28s !important;
 }
 
-/* ---------- v8.6.3/v8.6.7 抽屉退场同步：磁贴单元随纱罩一同淡出 ----------
-   用户实测：关抽屉时整页模糊淡出了，磁贴却满透明度站到退场窗口最后一帧
-   被 portal 卸载——「图标没跟着模糊一起关」。修复 = 退场窗口
-   （html.cs-drawer-closing，随 mount latch 挂卸，见 QuickLinks）给玻璃与
-   名称【自身】加 opacity 0 过渡：opacity 落在带 backdrop-filter 的元素自身
-   不产生祖先 backdrop root（磨砂存活律无虞——祖先 opacity<1 才是毒）。
-   v8.6.7 两修：①去掉 !important——运行中的 CSS 动画会【阻断 opacity
-   transition 起步】（CSS Transitions §3），important 压动画只得到瞬跳得不到
-   过渡，打断关闭时磁贴叶从动画值直跳 0（「打断抽屉动画后关闭动画不执行、
-   直接消失」）。本规则降级为普通声明，只承担 intro 已播完的稳态退场；
-   入场中途退场由 QuickLinks 的 WAAPI 冻结-淡出接管（Web Animations 层级
-   高于普通声明，从当前值与纱罩 0.28s 并行淡出）。②过渡对齐纱罩 0.28s
-   （v8.6.4 起纱罩退场时长）。流畅模式过渡仍被通配压近零 → 原地即刻消失，
-   与 cs-lite 的瞬时语义一致。 */
+/* ---------- 抽屉退场同步：磁贴单元随纱罩一同淡出 ----------
+   关抽屉时磁贴叶【自身】加 opacity 0 过渡：opacity 落在带 backdrop-filter
+   的元素自身不产生祖先 backdrop root（磨砂存活律无虞——祖先 opacity<1
+   才是毒）。⚠ 不用 !important：运行中的 CSS 动画会阻断 opacity transition
+   起步，普通声明只承担 intro 已播完的稳态退场；入场中途退场由
+   QuickLinks 的 WAAPI 冻结-淡出接管（Web Animations 层级高于普通声明，
+   从当前值与纱罩 0.28s 并行淡出）。过渡对齐纱罩 0.28s。 */
 .cl-fade-leaf {
   transition: opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
 html.cs-drawer-closing .cl-fade-leaf {
   opacity: 0;
 }
-
-/* ---------- v8.6.25：磁贴投影退役后，本区原 .tile-shell 投影淡出与
-   .link-intro-tile 通道收窄两条规则一并拆除——无投影可淡；中途关闭只剩
-   rise（transform）通道，与叶子 opacity 过渡自然并行（v8.6.7 原行为）。 ---------- */
 
 /* ---------- 仅无悬停设备（触屏）显示 ---------- */
 .touch-only {
@@ -659,10 +645,8 @@ html.cs-drawer-closing .cl-fade-leaf {
   vertical-align: baseline;
 }
 
-/* ---------- v8.6.35 冒号呼吸 CSS 化：framer opacity WAAPI 退役（时钟每秒 re-render
-   下 WAAPI 动画存在空窗/重启闪动风险——panel-fade 同族教训「勿还给 framer」；CSS
-   关键帧合成器驱动，级联回落零空窗）。参数与原 framer 完全一致：4s ease-in-out
-   无限循环 opacity 0.9→0.35→0.9。 ---------- */
+/* ---------- 冒号呼吸（CSS 关键帧合成器驱动，级联回落零空窗）。
+   参数：4s ease-in-out 无限循环 opacity 0.9→0.35→0.9 ---------- */
 @keyframes colon-breathe {
   0%,
   100% {
@@ -718,7 +702,6 @@ html.cs-drawer-closing .cl-fade-leaf {
   }
 }
 
-
 /* ---------- 入场上浮（结束后还原 filter:none，保证磨砂玻璃生效） ---------- */
 @keyframes intro-rise {
   from {
@@ -741,10 +724,8 @@ html.cs-drawer-closing .cl-fade-leaf {
   }
 }
 
-/* ---------- dock 面板入场淡入：CSS 关键帧承载（勿还给 framer）。
-   framer v12 对 opacity 走 WAAPI 加速——内联值停在初始 0，动画结束后才在
-   主线程补写 1，中间存在空窗：真机上面板整板闪黑一拍（用户感知为
-   「进入动画卡一下然后复位」）。CSS 动画结束即自然回落级联值 1，零空窗 */
+/* ---------- dock 面板入场淡入：CSS 关键帧承载（framer 退役律，见文件头③）。
+   CSS 动画结束即自然回落级联值 1，零空窗 ---------- */
 @keyframes panel-fade {
   from {
     background-color: transparent;
@@ -761,18 +742,14 @@ html.cs-drawer-closing .cl-fade-leaf {
   }
 }
 
-/* ---------- v8.6.31 内容层过场（dock 面板专用）：模糊聚拢回归 ----------
-   互切 = 一张玻璃卡换内容（结构保证，见 Dock.tsx PanelStage）：旧内容同帧
-   卸载（零残留结构性保证，无残留窗），新内容播模糊聚拢淡入（blur 10px→0）。
-   v8.6.29 重写时曾收窄为纯 opacity 淡入，用户实测「切换面板时子元素的模糊
-   过渡没了」——v8.6.31 回归全 app 唯一内容过场词汇「模糊聚拢」（与
-   content-focus / intro-rise / 禅模式雾化同源 blur(10px)），动效主角仍是
-   高度/宽度 px 弹簧「拉伸」。关闭经 .panel-sink 级联反向淡出（与玻璃 out-kf
-   同窗，关闭语言原样）。
-   ⚠ 内容层是玻璃卡【后代】（非玻璃自身、非祖先），opacity/filter 动画不触
-   磨砂采样链（v8.6.25 下沉律；后代 filter 不改变玻璃 backdrop 采样面）；
-   0.3s 过场内内容盒内部玻璃片段短暂失霜可接受（intro-rise 同律）；倒计时
-   预算 0.3s 与玻璃凝入 panel-fade 同参，感知同步。 */
+/* ---------- 内容层过场（dock 面板专用）：模糊聚拢 ----------
+   互切 = 一张玻璃卡换内容（结构保证，见 PanelStage.tsx）：旧内容同帧卸载
+   （零残留结构性保证，无残留窗），新内容播模糊聚拢淡入（blur 10px→0）。
+   内容过场词汇与 content-focus / intro-rise / 禅模式雾化同源，动效主角仍是
+   高度/宽度 px 弹簧「拉伸」。关闭经 .panel-sink 级联反向淡出。
+   ⚠ 内容层是玻璃卡【后代】，opacity/filter 动画不触磨砂采样链（后代 filter
+   不改变玻璃 backdrop 采样面）；0.3s 过场内内容盒内部玻璃片段短暂失霜
+   可接受（intro-rise 同律）。 */
 @keyframes panel-content-in {
   from {
     opacity: 0;
@@ -795,18 +772,17 @@ html.cs-drawer-closing .cl-fade-leaf {
   animation: panel-content-out 0.18s cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 
-/* ---------- 玻璃层进显影（v1.0.8）：遮罩/对话框卡片的 opacity 入场由 CSS 承载
-   （framer v12 WAAPI 入场空窗律，同 panel-fade）。⚠ 必须声明在本文件退场区之前：
-   退场帧元素同时持有显影类与退场类（同特异性后者胜），退场类在后才能覆盖显影 */
+/* ---------- 玻璃层进显影：遮罩/对话框卡片的 opacity 入场由 CSS 承载
+   （framer 退役律）。⚠ 必须声明在本文件退场区之前：退场帧元素同时持有
+   显影类与退场类（同特异性后者胜），退场类在后才能覆盖显影 */
 @keyframes veil-in {
   from {
     background-color: transparent;
     backdrop-filter: blur(1px) saturate(1.5);
   }
-  /* v8.6.24 感知同步律（开=blur 领先）：blur 45% 即凝满自然值，底色 alpha
-     全程跟随渐显——早期帧不再出现「看得见的白底配清晰壁纸」。
-     hold 值经 --veil-hold-bf 逐元素适配（PresetDialog 40px / 无磨砂遮罩 none），
-     45% 后无后续站点 → 插值到自然值 = 满值驻留 */
+  /* 感知同步律（开=blur 领先）：blur 45% 即凝满自然值，底色 alpha 全程跟随
+     渐显——早期帧不再出现「看得见的白底配清晰壁纸」。hold 值经
+     --veil-hold-bf 逐元素适配，45% 后无后续站点 → 插值到自然值 = 满值驻留 */
   45% {
     backdrop-filter: var(--veil-hold-bf, blur(12px) saturate(1.5));
   }
@@ -831,12 +807,8 @@ html.cs-drawer-closing .cl-fade-leaf {
   }
 }
 
-/* ---------- dock 面板/对话框退场：CSS 关键帧承载（与 .panel-rise 对称，勿还给 framer）。
-   实测（v1.0.6）：退场 opacity 交由 framer 时，WAAPI 加速动画会在退出途中被
-   取消并回跳到内联值 1（面板滞留约 0.5s 后瞬间消失，采样：op 0.50→1.000→卸载），
-   视觉上等于没有关闭动画。退场视觉一律改走 CSS：animation 的级联优先级高于
-   内联值，WAAPI 被取消与否都不影响表现；framer 的 exit 仅保留 0.2s 计时职责
-   （到点卸载），时长与 CSS 严格一致 */
+/* ---------- dock 面板/对话框退场：CSS 关键帧承载（与 .panel-rise 对称）。
+   animation 的级联优先级高于内联值，WAAPI 被取消与否都不影响表现 ---------- */
 @keyframes panel-sink {
   from {
     transform: translateY(0) scale(1);
@@ -848,18 +820,13 @@ html.cs-drawer-closing .cl-fade-leaf {
 .panel-sink {
   animation: panel-sink 0.22s cubic-bezier(0.4, 0, 1, 1) forwards;
 }
-/* v8.6.22 磨砂存活 2.0：壳体（cl-stage 透明壳）去 opacity 后，内建视图的玻璃卡
-   背板渐隐由级联承担（部件视图走 content-focus-solid 散场）。to 帧 backdrop
-   blur(1px)——blur 渐弱=磨砂渐弱=壁纸透出，与底色渐隐合成自然淡出，卸载帧
-   无「纯色板突跳消失」的锐化跳变。blur 取 1px 非 0：Lightning CSS 会把 0px
-   压成非法 blur()（v8.6.19 坑）；saturate 必须写 1.5 与自然值同构且
-   不可省——压缩器把 saturate(1) 的参数 1 当默认值吃掉成非法 saturate()
-   （产物实测），且函数列表不同构时插值退化为离散跳变；
-   keyframes 内只写无前缀 backdrop-filter——双写会被压缩器去重成仅
-   -webkit- 版，而 Chromium 在 @keyframes 内不识别 webkit 别名（声明
-   被整个丢弃，CSSOM 序列化可证）。 */
+/* 壳体（cl-stage 透明壳）去 opacity 后，内建视图的玻璃卡背板渐隐由级联承担
+   （部件视图走 content-focus-solid 散场）。to 帧 backdrop blur(1px)——blur 渐弱
+   =磨砂渐弱=壁纸透出，与底色渐隐合成自然淡出，卸载帧无「纯色板突跳消失」
+   的锐化跳变。saturate 必须写 1.5 与自然值同构且不可省（压缩器陷阱，见
+   文件头④）；keyframes 内只写无前缀 backdrop-filter。 */
 @keyframes glass-card-out-kf {
-  /* v8.6.24 感知同步律：0-55% blur 满值驻留（glass-card 家族自然值 20px），
+  /* 感知同步律：0-55% blur 满值驻留（glass-card 家族自然值 20px），
      底色全程渐隐、尾段与 blur 残量同收 */
   0%,
   55% {
@@ -875,14 +842,13 @@ html.cs-drawer-closing .cl-fade-leaf {
 .panel-sink .glass-card {
   animation: glass-card-out-kf 0.22s cubic-bezier(0.4, 0, 1, 1) forwards;
 }
-/* ---------- v8.6.38 dock 面板关闭收终：材质恒定·原样收折（仅 .cl-panel 专属）----------
-   v8.6.37 整卡 opacity 60%→82% 尾隐被用户否决：面板在 ~143→72px 高度段整体溶解
-   （感知=「浅色/深色磨砂变成透明磨砂」）。本版回归材质物理：关闭全程底色/描边/
-   阴影/blur/透明度五项全部冻结自然值（浅 rgba(255,255,255,0.62) / 暗
-   rgba(22,22,27,0.6) + blur(20px)），面板以与展开态完全相同的浅色/深色磨砂原样
-   收折——高度盒 0.22s EXIT_EASE 折回归零在先（height 逐帧写入非 WAAPI），
-   SINK_MS=240ms 卸载在后，归零后无可见残留、无消失突跳；材质五项零解耦，
-   白条/黑条（bg↓+blur 驻留的壁纸均值带）与透明磨砂段（整卡溶解）从结构上不存在。
+/* ---------- dock 面板关闭收终：材质恒定·原样收折（仅 .cl-panel 专属）----------
+   关闭全程底色/描边/阴影/blur/透明度五项全部冻结自然值（浅
+   rgba(255,255,255,0.62) / 暗 rgba(22,22,27,0.6) + blur(20px)），面板以与
+   展开态完全相同的浅色/深色磨砂原样收折——高度盒 0.22s EXIT_EASE 折回归零
+   在先（height 逐帧写入非 WAAPI），SINK_MS=240ms 卸载在后，归零后无可见
+   残留、无消失突跳；材质五项零解耦，白条/黑条（bg↓+blur 驻留的壁纸均值带）
+   与透明磨砂段（整卡溶解）从结构上不存在。
    本规则唯一职责：压过 .panel-sink .glass-card 的共享 out-kf 引用（同特异性
    (0,2,0) 后者胜，声明序必须在其后）——共享 glass-card-out-kf（纱幕 veil-out /
    弹窗 dialog-sink / 右键 ctx-out 通道）一字不动；reduce 兜底
@@ -924,9 +890,8 @@ html.cs-drawer-closing .cl-fade-leaf {
   animation: overlay-sink 0.22s cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 @keyframes veil-fade {
-  /* v8.6.24 感知同步律（关=blur 驻留）：0-55% 满值驻留（底色先行渐隐），
-     55% 后收拢，尾段与底色残量同收——不再出现「模糊先消失、白板幽灵残留」。
-     hold 值经 --veil-hold-bf 逐元素适配，须与该元素自然值同构同值 */
+  /* 感知同步律（关=blur 驻留）：0-55% 满值驻留（底色先行渐隐），55% 后收拢，
+     尾段与底色残量同收——不再出现「模糊先消失、白板幽灵残留」 */
   0%,
   55% {
     backdrop-filter: var(--veil-hold-bf, blur(12px) saturate(1.5));
@@ -936,19 +901,17 @@ html.cs-drawer-closing .cl-fade-leaf {
     backdrop-filter: blur(1px) saturate(1.5);
   }
 }
-/* v8.6.24 hold 逐元素适配：veil-in/veil-fade 的 blur 驻留值须与遮罩自然值同构。
+/* hold 逐元素适配：veil-in/veil-fade 的 blur 驻留值须与遮罩自然值同构。
    veil-hold-none = 无磨砂遮罩（右键菜单捕获层：backdrop 自然值 none，
-   none↔blur(1px) 按列表替换律离散替换，1px 不可感——与旧律一致）；
-   veil-hold-2xl = PresetDialog 背板（backdrop-blur-2xl = 40px） */
+   none↔blur(1px) 按列表替换律离散替换，1px 不可感）；
+   veil-hold-2xl = 预设对话框背板（backdrop-blur-2xl = 40px） */
 .veil-hold-none {
   --veil-hold-bf: none;
 }
 .veil-hold-2xl {
   --veil-hold-bf: blur(40px) saturate(1.5);
 }
-/* 遮罩层退场（v8.6.23 底层律）：0.25s（dock 遮罩/指令面板磨砂遮罩）/ 0.28s（预设对话框背板）。
-   to 帧 blur(1px)：磨砂收拢=壁纸透出，与底色渐隐合成自然淡出；无磨砂遮罩
-   （右键菜单捕获层/沙箱页）按 none↔列表替换律插值，1px 过渡不可感。
+/* 遮罩层退场：0.25s（dock 遮罩/指令面板磨砂遮罩）/ 0.28s（预设对话框背板）。
    ⚠ 声明顺序律：.veil-out 必须在 .veil-in 之后（退场帧两者同在元素上，后者胜） */
 .veil-out {
   animation: veil-fade 0.25s cubic-bezier(0.4, 0, 1, 1) forwards;
@@ -958,8 +921,8 @@ html.cs-drawer-closing .cl-fade-leaf {
   animation: veil-fade 0.28s cubic-bezier(0.4, 0, 1, 1) forwards;
   --veil-out-dur: 0.28s;
 }
-/* v8.6.24 面板随纱同散：更新日志/添加链接等卡片自身无退场通道——纱幕 blur
-   驻留释放期间卡片满值驻留，用户感知「模糊先消失、面板后消失」（真机复现）。
+/* 面板随纱同散：更新日志/添加链接等卡片自身无退场通道——纱幕 blur
+   驻留释放期间卡片满值驻留，用户感知「模糊先消失、面板后消失」。
    级联 glass-card-out：卡片底色与纱幕同窗淡出，内容走 content-defocus 散场。
    :not 排除自带退场通道的卡片（palette-out Q 弹 / dialog-sink / ctx-out）——
    同 animation 属性互斥，防本级联以 (0,2,0)+ 特异性覆盖专属关键帧 */
@@ -983,17 +946,16 @@ html.cs-drawer-closing .cl-fade-leaf {
 }
 
 /* ================================================================
-   内容模糊语言（v1.0.8）：
+   内容模糊语言：
    面板骨架（卡片/遮罩）沿用「拉伸/淡切」语言，面板内容（子元素整体）
    的开/关/互切过场一律走「模糊聚拢 / 模糊散场」——与 intro-rise、
    禅模式雾化同源 blur(9-12px)，全 app 只有一种内容过场词汇。
    ⚠ 动画结束后 filter 自然还原 none（backwards 只作用于延迟期），
-     不触碰「磨砂玻璃存活原则」；内容盒内部玻璃片段仅在 0.3s 过场内
-     短暂失霜，可接受（intro-rise 同律）。
+     不触碰「磨砂玻璃存活原则」。
    ================================================================ */
 
 /* 内容进：模糊聚拢（指令面板/预设弹窗视图；dock 面板 .cl-panel-content
-   同词汇模糊聚拢——v8.6.31 回归，见内容层过场区） */
+   同词汇，见内容层过场区） */
 @keyframes content-focus {
   from {
     opacity: 0;
@@ -1008,10 +970,9 @@ html.cs-drawer-closing .cl-fade-leaf {
   animation: content-focus calc(0.32s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
-/* 内容进（v2.0.1）：无 opacity 的模糊聚拢——dock 部件（音乐面板）专用。
-   原版 opacity 0→1 会让暗色卡在开场半透明，明亮壁纸上透出灰白一闪
-   （真机 30fps 录屏实锤 1–2 帧）；实体色只做 blur+微位移，「聚拢」感不变，
-   壁纸永不透出。配合舞台壳体对部件视图不再套 .panel-rise 淡入 */
+/* 内容进：无 opacity 的模糊聚拢——dock 部件（音乐面板）专用。
+   原版 opacity 0→1 会让暗色卡在开场半透明，明亮壁纸上透出灰白一闪；
+   实体色只做 blur+微位移，「聚拢」感不变，壁纸永不透出。 */
 @keyframes content-focus-solid-kf {
   from {
     filter: blur(10px);
@@ -1026,11 +987,11 @@ html.cs-drawer-closing .cl-fade-leaf {
   animation: content-focus-solid-kf calc(0.32s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
-/* 部件 iframe 开盾白帧罩（v2.0.1 终案）：隐藏过的 iframe 重激活，Chromium 会
-   先用旧层树合成一帧纯白底（实测出现在点击后 ~150-250ms）；旧层树里 DOM 改动
-   不可见，所以罩子必须在「关闭期间就处于开启态」——基态 opacity:1（视图藏着，
-   罩子反正看不见），激活时播 280ms 驻留 + 180ms 揭开（forwards），关闭相位摘类
-   回基态（下一轮重激活的旧层树里罩子仍是 1，白帧永远被盖） */
+/* 部件 iframe 开盾白帧罩：隐藏过的 iframe 重激活，Chromium 会先用旧层树
+   合成一帧纯白底（实测出现在点击后 ~150-250ms）；旧层树里 DOM 改动不可见，
+   所以罩子必须在「关闭期间就处于开启态」——基态 opacity:1（视图藏着，
+   罩子反正看不见），激活时播 280ms 驻留 + 180ms 揭开（forwards），关闭相位
+   摘类回基态（下一轮重激活的旧层树里罩子仍是 1，白帧永远被盖） */
 .cl-dockwidget::after {
   content: "";
   position: absolute;
@@ -1051,10 +1012,9 @@ html.cs-drawer-closing .cl-fade-leaf {
   }
 }
 
-/* 内容退：模糊散场 —— 关闭路径由卡片退场类级联触发（旧视图已在卡片内，
-   不走自身退场类）：特异性 (0,2,0) > (0,1,0)，压过进行中的 content-focus。
-   覆盖全部三种卡片退场：dock 面板 .panel-sink / 对话框 .dialog-sink /
-   指令面板 Q 弹 .palette-out */
+/* 内容退：模糊散场 —— 关闭路径由卡片退场类级联触发：特异性 (0,2,0) >
+   (0,1,0)，压过进行中的 content-focus。覆盖全部三种卡片退场：dock 面板
+   .panel-sink / 对话框 .dialog-sink / 指令面板 Q 弹 .palette-out */
 @keyframes content-defocus {
   from {
     opacity: 1;
@@ -1072,16 +1032,13 @@ html.cs-drawer-closing .cl-fade-leaf {
   animation: content-defocus 0.16s cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 
-/* 视图交叉溶解退场：absolute 钉回内容盒原位 + 模糊散场（v1.0.8 起内容过场
-   统一「模糊语言」，替代原纯淡出 view-dissolve；framer exit 只保留计时）。
+/* 视图交叉溶解退场：absolute 钉回内容盒原位 + 模糊散场（指令面板/预设弹窗
+   视图沿用；dock 面板不走此通道——互切拉伸律「一张玻璃卡换内容」，旧内容
+   同帧卸载，见 PanelStage.tsx）。
    ⚠ 声明顺序律：必须在 .content-focus 之后——互切退场帧旧视图同时持有两个
-   动画类（flow-root content-focus view-exit），同特异性后者胜，退场才不会被
-   入场动画覆盖 */
-/* 视图交叉溶解退场（v8.6.29 起 dock 面板不走此通道——互切拉伸律「一张玻璃卡
-   换内容」，旧内容同帧卸载，见 Dock.tsx PanelStage；指令面板/预设弹窗视图沿用）：
-   v8.6.26 律保留：包裹层只钉位（opacity/filter 会成 backdrop root 杀磨砂），
-   散场视觉下沉到玻璃卡/内容层级联。⚠ 级联须在 .panel-rise 之后声明
-   （同 animation 属性互斥，特异性 (0,2,0) 胜 (0,1,0)）。 */
+   动画类，同特异性后者胜，退场才不会被入场动画覆盖。
+   ⚠ 包裹层只钉位（opacity/filter 会成 backdrop root 杀磨砂），
+   散场视觉下沉到玻璃卡/内容层级联。 */
 .view-exit {
   position: absolute !important;
   z-index: 0 !important;
@@ -1096,13 +1053,6 @@ html.cs-drawer-closing .cl-fade-leaf {
 .view-exit .content-focus {
   animation: content-defocus 0.16s cubic-bezier(0.4, 0, 1, 1) forwards;
 }
-/* v8.6.29 退役注记：.view-top 双层钉位 / .cl-switching 整卡动画双停与退场
-   硬藏 / .cl-dockwidget.view-exit（view-defocus 模糊散场）随互切拉伸律整体
-   删除——v8.6.25-28 的补丁链建立在「互切=整卡重挂、两卡交叉溶解」的错误
-   结构上，只能一层层打补丁（下沉→双停→硬藏）且各有残余。新结构（Dock.tsx
-   PanelStage）= 玻璃卡 open 相位恒挂载 + 内容层 keyed 同帧换装：单玻璃、
-   零残留由结构保证，钉位/双停/硬藏不再需要。指令面板/预设弹窗的 view-exit
-   交叉溶解通道保留（见上，弹窗互切未见用户反馈问题，不动）。 */
 @media (prefers-reduced-motion: reduce) {
   .content-focus {
     animation: none;
@@ -1119,8 +1069,8 @@ html.cs-drawer-closing .cl-fade-leaf {
     animation: none;
     opacity: 0;
   }
-  /* v8.6.29：互切拉伸律reduce 兜底——壳体 closing 恒挂 panel-sink（JS 不再
-     分支），散场级联在此即帧隐没（玻璃/内容直接 opacity 0，不播关键帧） */
+  /* 互切拉伸律 reduce 兜底——壳体 closing 恒挂 panel-sink（JS 不再分支），
+     散场级联在此即帧隐没（玻璃/内容直接 opacity 0，不播关键帧） */
   .cl-panel-content {
     animation: none;
   }
@@ -1136,13 +1086,12 @@ html.cs-drawer-closing .cl-fade-leaf {
 
 /* ================================================================
    指令面板专属开合（仅 ⌘K，不进面板通用语言）：
-   开 = Q 弹弹簧（framer 弹簧驱动 y/scale 过冲回弹，ζ≈0.5）+ CSS 快速显影
-   （.veil-in / .card-in，见入场区）；关 = 微胀再收的 Q 弹关键帧
-   （30% 处 scale 1.016 轻轻一顶再收走）。
-   内容模糊过场不经专用包裹层：视图自带 .content-focus，关闭时经
-   .palette-out .content-focus 级联散场（见内容模糊语言区）。
-   ⚠ opacity 一律 CSS 承载（framer v12 WAAPI 入场空窗律，见 panel-fade 注）；
-     framer 对卡片只保留 y/scale 弹簧与计时职责，与 .panel-sink 同构。
+   开 = Q 弹弹簧（framer 弹簧驱动 y/scale 过冲回弹）+ CSS 快速显影
+   （.veil-in / .card-in）；关 = 微胀再收的 Q 弹关键帧（30% 处 scale 1.016
+   轻轻一顶再收走）。内容模糊过场：视图自带 .content-focus，关闭时经
+   .palette-out .content-focus 级联散场。
+   ⚠ opacity 一律 CSS 承载（framer 退役律）；framer 对卡片只保留 y/scale
+     弹簧与计时职责。
    ================================================================ */
 @keyframes palette-out-kf {
   0% {
@@ -1172,16 +1121,15 @@ html.cs-drawer-closing .cl-fade-leaf {
 }
 
 /* ================================================================
-   右键菜单专属开合（v1.1.2）：「从鼠标点长出来」
+   右键菜单专属开合：「从鼠标点长出来」
    开 = 以鼠标点为原点回弹放大（scale 0.4→1，back-out 过冲即 Q 弹；
-     transformOrigin 由组件按翻转方向内联设定：右下展开→top left、
-     左下→top right、右上→bottom left、左上→bottom right）；
+     transformOrigin 由组件按翻转方向内联设定）；
    关 = 向原点缩回淡出。
-   ⚠ 声明顺序律：.ctx-out 必须在 .ctx-in 之后——退场帧两动画类同在
-     元素上（ctx-in glass-card … ctx-out），同特异性后者胜。
-   ⚠ v8.6.22 磨砂存活 2.0：菜单是玻璃元素，自身 opacity 动画同样杀磨砂
-     （blur-selftest 实证），开=底色凝入+scale、关=底色渐隐+scale，
-     opacity 通道全程为零。 */
+   ⚠ 声明顺序律：.ctx-out 必须在 .ctx-in 之后——退场帧两动画类同在元素上，
+     同特异性后者胜。
+   ⚠ 菜单是玻璃元素，自身 opacity 动画同样杀磨砂：开=底色凝入+scale、
+     关=底色渐隐+scale，opacity 通道全程为零。
+   ================================================================ */
 @keyframes ctx-in-kf {
   from {
     background-color: transparent;
@@ -1226,10 +1174,9 @@ html.cs-drawer-closing .cl-fade-leaf {
 }
 
 /* ================================================================
-   子元素模糊过场（v1.2.0）：右键菜单项 / 开发者文档分区。
+   子元素模糊过场：右键菜单项 / 开发者文档分区。
    与「内容模糊语言」同源（blur 聚拢/散场），级联延迟走 --ci / --di 变量。
-   ⚠ 声明顺序律：*-out 必须在 *-in 之后——退场帧容器同时持有两个动画类
-    （如 ctx-in … ctx-out），同特异性后者胜，子元素才播退场而非入场。
+   ⚠ 声明顺序律：*-out 必须在 *-in 之后。
    ================================================================ */
 @keyframes ctx-item-in-kf {
   from {
@@ -1303,32 +1250,9 @@ html.cs-drawer-closing .cl-fade-leaf {
   }
 }
 
-/* ================================================================
-   磨砂玻璃存活原则（v22 实验定律 · v23 底层律收官）：
-   backdrop-filter 元素【自身或祖先】opacity<1 / filter≠none 一律杀磨砂
-   （v22 blur-selftest 实验实证：自身与祖先同罪，动画中梯度 2.997 vs 稳态
-   1.395；v23 前总律②「自承载安全」为假律，作废勿再引用）。
-   磨砂写入底层——玻璃件的入退场只许动四类安全通道：
-   transform / background-color alpha / backdrop-filter blur 值 / box-shadow；
-   opacity 与 filter 只许落在【无玻璃】的内容层。遮罩族（veil-in/veil-fade）
-   与抽屉纱罩同改：磨砂经 blur 值通道凝聚/收拢（1px↔Npx 全程在线），
-   染色经底色 alpha 或无磨砂 ::before 层渐显，任何帧都不退化为纯色底。
-   ------------------------------------------------
-   v8.6.24 感知同步律（blur 领先/驻留）：底色 alpha 与 blur 值两条通道的
-   感知速率不同——同曲线同时长插值必然「开=白底先于模糊、关=模糊先于白底
-   （幽灵板）」。故：入场 blur 先行（veil-in 45% 凝满 / 纱罩 0.12s 凝满，
-   染色与底色全程跟随）；退场 blur 驻留（veil-fade 与全部卡片退场关键帧
-   0-55% 满值，底色全程渐隐，尾段同收）。任何帧不得出现
-   「看得见的白底配清晰壁纸」。hold 值经 --veil-hold-bf 逐元素适配且必须
-   与该元素自然值同构同值；无磨砂遮罩显式 veil-hold-none。
-   另：壁纸必须先于玻璃件就位（首载 450ms 快显，见 AuroraBackground），
-   否则磨砂坐在黑底上，质感无从谈起。
-   ================================================================ */
-
-/* ---------- 搜索药丸入场（v8.6.23 底层律）：壳体只动底色 alpha + transform
-   （opacity/filter 全程不碰——自身 opacity<1 与祖先同罪杀磨砂，v8.6.22 实验
-   实证，旧「自承载」写法为假律）；淡入+模糊聚拢移交内容子元素（无玻璃，安全）。
-   同参 0.95s/延迟 0.24s 与原 section 级 intro-rise 一致 ---------- */
+/* ---------- 搜索药丸入场：壳体只动底色 alpha + transform（opacity/filter
+   全程不碰——磨砂存活律）；淡入+模糊聚拢移交内容子元素（无玻璃，安全）。
+   同参 0.95s/延迟 0.24s 与主列 intro-rise 一致 ---------- */
 .search-pill {
   animation: pill-shell-in 0.95s cubic-bezier(0.22, 1, 0.36, 1) 0.24s backwards;
 }
@@ -1354,20 +1278,18 @@ html.cs-drawer-closing .cl-fade-leaf {
   }
 }
 
-/* ---------- 快捷磁贴入场（v8.6.7 三通道拆分）----------
-   两轮实机拉锯的合题：v8.6.4 只模糊内容 → 用户「没有模糊效果覆盖」；
-   v8.6.6 玻璃本体整块 filter → 本体 backdrop-filter 被 filter 全程压制
-   （Chromium 行为），抽屉有纱罩整页模糊兜底「观感一致」，常驻形态没有
-   纱罩——磨砂裸死 1s，用户「进入动画没有高斯模糊图标的效果」。
-   拆成三条互不相克的通道，模糊覆盖与霜感在线两头都要：
+/* ---------- 快捷磁贴入场：三条互不相克的通道，模糊覆盖与霜感在线两头都要
    ① 包裹层 .link-intro-tile：只动 transform（translateZ(0) 写进关键帧保
-      黑边修复的合成层提示）——transform 不形成 backdrop root，磨砂存活律无虞；
-   ② 霜层 .link-intro-frost：backdrop-filter 载体，0.18s 快速凝聚（v8.6.23
-      起 blur 值通道 1px→14px 凝聚——自承载 opacity 同样杀磨砂，旧写法作废）；
+      黑边修复的合成层提示）——transform 不形成 backdrop root；
+   ② 霜层 .link-intro-frost：backdrop-filter 载体，0.18s 快速凝聚（blur 值
+      通道 1px→14px 凝聚）；底板着色 .intro-tile-tint 与 body 完全同拍
+      （from transparent → 自然值归位，透明插值走 premultiplied 无黑移）；
    ③ 内容层 .link-intro-body：色相渐变+图标 0.95s opacity+blur(10px) 模糊
-      聚拢——覆盖整个磁贴面（v8.6.6 的「整块模糊」观感）；内容层是霜层的
-      【兄弟】不是祖先，其 filter 压不到霜层的 backdrop-filter。
-   名称与添加位保持 intro-rise 整块模糊上浮（v8.6.6 同款，不动）。 ---------- */
+      聚拢——覆盖整个磁贴面；内容层是霜层的【兄弟】不是祖先，其 filter
+      压不到霜层的 backdrop-filter。
+   名称与添加位保持 intro-rise 整块模糊上浮。描边层独立通道与内容层同拍
+   （同曲线/同时长/同模糊聚拢——原先环挂在 0.18s 快速凝聚的霜层上，
+   描边抢跑）。 ---------- */
 @keyframes intro-tile-rise {
   from {
     transform: translateZ(0) translateY(26px) scale(0.985);
@@ -1376,26 +1298,17 @@ html.cs-drawer-closing .cl-fade-leaf {
     transform: translateZ(0) translateY(0) scale(1);
   }
 }
-/* v8.6.25 底板着色同拍通道（用户实测「磨砂玻璃底板的黑色先入场」）：霜层
-   底色 --tile-frost-bg（暗雾）第 0 帧满值、而图标本体要 0.95s 聚拢——灰黑
-   底板抢跑于图标。intro-tile-tint from-only 通道（from transparent → 自然值
-   归位，透明插值走 premultiplied 无黑移）与 body 完全同拍（同 0.95s/曲线/
-   延迟，延迟经 .cl-links / main .cl-links 的 animation-delay 覆盖统一平移）；
-   磨砂本体仍 0.18s 快速凝聚（底色透明期=纯玻璃片，带磨砂不带黑底）。
-   v8.6.22 的 intro-tile-shadow 通道随投影退役一并拆除。 */
 @keyframes intro-tile-tint {
   from {
     background-color: transparent;
   }
 }
-/* ---------- v8.6.32 磨砂底层化·图标材质：磁贴霜层材质从 JSX 内联样式收编进
-   CSS 基线（用户指令「把磨砂写入底层，从底层代码改变图标材质」）——材质声明
-   常驻样式表，不随渲染路径/运行时注入波动；流畅系统（cs-lite）经通配
-   backdrop-filter:none !important 统一关停，双渲染系统其一/其二共享此基线。 */
+/* 磁贴霜层材质基线（磨砂底层化）：材质声明常驻样式表，不随渲染路径/
+   运行时注入波动；流畅系统（cs-lite）经通配 backdrop-filter:none 统一关停。
+   ⚠ 只声明标准属性：lightningcss 把「标准+前缀」别名折叠为最后声明
+   （前缀版），构建产物丢失标准声明且 Chromium 不生效——标准单声明由
+   lightningcss 自动补 -webkit-（.glass-card 同款双份输出实证） */
 .tile-frost {
-  /* ⚠ 只声明标准属性：lightningcss 把「标准+前缀」别名折叠为最后声明（前缀版），
-     构建产物丢失标准声明且 Chromium 不生效（探针首跑 computed=none 实锤）——
-     标准单声明由 lightningcss 自动补 -webkit-（.glass-card 同款双份输出实证） */
   backdrop-filter: blur(14px) saturate(1.6);
   background: var(--tile-frost-bg, transparent);
 }
@@ -1428,17 +1341,13 @@ html.cs-drawer-closing .cl-fade-leaf {
 .link-intro-body {
   animation: intro-tile-body calc(0.95s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) 0.38s backwards;
 }
-
-/* 描边层（v8.6.9）：1px inset 环从霜层拆出，走独立通道与内容层同拍
-   （同曲线 / 同时长 / 同模糊聚拢）。原先环挂在霜层上，霜层是 0.18s
-   快速凝聚 —— 环 0.42s 就成型，磁贴面要 1.19s 才聚完，看着像描边抢跑
-   （用户实测「图标边框的描边优先级没有同步」）。 */
+/* 描边层：1px inset 环从霜层拆出，走独立通道与内容层同拍 */
 .link-intro-ring {
   animation: intro-tile-body calc(0.95s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) 0.38s backwards;
 }
 
-/* v8.6.1：全屏抽屉每次唤出磁贴都重新入场（portal 重挂载），但 0.38s 延迟
-   对「中键→看墙」的即时预期偏慢，收紧到 0.06s；0.95s 本体时长保留（温润上浮） */
+/* 全屏抽屉每次唤出磁贴都重新入场（portal 重挂载），延迟收紧到 0.06s
+   （「中键→看墙」要即时）；0.95s 本体时长保留（温润上浮） */
 .cl-links .link-intro,
 .cl-links .link-intro-tile,
 .cl-links .link-intro-frost,
@@ -1447,13 +1356,11 @@ html.cs-drawer-closing .cl-fade-leaf {
   animation-delay: 0.06s;
 }
 
-/* ---------- v8.6.8：常驻形态磁贴的入场优先级与搜索框对齐 ----------
-   实机反馈：新标签页黑幕（壳 #csShellBoot 的 #0b0d12 全屏遮罩，0.3s 淡出）
-   揭开时，磁贴 0.06s 的延迟比时钟（0.1s）和搜索框（0.24s）都早，看着像抢跑。
-   常驻形态改与搜索框同拍起步（0.24s），整条入场顺序变成
-   时钟 0.1s → 搜索框 0.24s ＋ 磁贴 0.24s；抽屉形态保留 0.06s
-   （中键唤出看墙要即时，且那条场景没有黑幕）。
-   作用域用 main 限定：抽屉 portal 到 document.body，不在 main 内，天然不受影响。 ---------- */
+/* ---------- 常驻形态磁贴的入场优先级与搜索框对齐 ----------
+   新标签页黑幕揭开时，磁贴 0.06s 的延迟比时钟（0.1s）和搜索框（0.24s）都早，
+   看着像抢跑。常驻形态改与搜索框同拍起步（0.24s）：时钟 0.1s → 搜索框
+   0.24s ＋ 磁贴 0.24s；抽屉形态保留 0.06s。作用域用 main 限定：抽屉 portal
+   到 document.body，不在 main 内，天然不受影响。 ---------- */
 main .cl-links .link-intro,
 main .cl-links .link-intro-tile,
 main .cl-links .link-intro-frost,
@@ -1462,10 +1369,10 @@ main .cl-links .link-intro-ring {
   animation-delay: 0.24s;
 }
 
-/* ---------- dock 入场（v8.6.23 底层律 + v8.6.25 玻璃同拍通道）：壳体动
-   transform + 玻璃四通道凝入，淡入下沉到按钮子元素（> button 均无玻璃，
-   opacity 安全；选框 span / 指示器不参与，避免与其 framer 弹簧打架）。
-   居中是 Tailwind v4 独立 translate 属性，与 keyframes 的 transform 合成不覆盖 ---------- */
+/* ---------- dock 入场：壳体动 transform + 玻璃四通道凝入，淡入下沉到按钮
+   子元素（> button 均无玻璃，opacity 安全；选框 span / 指示器不参与，避免
+   与其 framer 弹簧打架）。居中是 Tailwind v4 独立 translate 属性，与
+   keyframes 的 transform 合成不覆盖 ---------- */
 .dock-intro {
   animation:
     dock-rise calc(0.8s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) calc(0.55s * var(--mo-speed, 1)) backwards,
@@ -1476,11 +1383,10 @@ main .cl-links .link-intro-ring {
     transform: translateY(18px);
   }
 }
-/* v8.6.25 玻璃入场通道（用户实测「dock 的磨砂玻璃比入场渐显动画还早出现」）：
-   dock-rise 只动 transform，玻璃底色/边框/投影/磨砂第 0 帧满值——backwards
-   填充的 0.55s 延迟窗里白条已坐在页面上（壁纸还在 450ms 快显途中，更显眼）。
-   dock-glass-in 与 dock-btn-in（按钮渐显）同拍：底色 alpha 凝入 + 磨砂
-   blur(1px) 凝聚。同构律：blur+saturate 两函数与自然值 blur(40px) saturate(1.5)
+/* 玻璃入场通道：dock-rise 只动 transform，玻璃底色/边框/投影/磨砂第 0 帧
+   满值——backwards 填充的 0.55s 延迟窗里白条已坐在页面上（壁纸还在 450ms
+   快显途中，更显眼）。dock-glass-in 与 dock-btn-in（按钮渐显）同拍：底色
+   alpha 凝入 + 磨砂 blur(1px) 凝聚。同构律：blur+saturate 两函数与自然值
    等构；saturate 禁 1 / blur 禁 0（压缩器两吃参数）；keyframes 内
    backdrop-filter 只写无前缀。from-only：浅 0.62 白玻璃 / 深 0.055 白纱各自
    归位——玻璃与按钮一同显影，磨砂全程在线（无 opacity 通道）。 */
@@ -1495,9 +1401,7 @@ main .cl-links .link-intro-ring {
 .dock-intro > button {
   animation: dock-btn-in calc(0.8s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) calc(0.55s * var(--mo-speed, 1)) backwards;
 }
-/* v8.6.26 分割线与按钮同拍（用户实测「dock 模块之间的竖状分割线先入场」）：
-   Divider 是 span 不在 > button 通道内，第 0 帧满值抢跑——纳入同款
-   dock-btn-in 凝入通道 */
+/* 分割线与按钮同拍（Divider 是 span 不在 > button 通道内，第 0 帧满值抢跑） */
 .dock-intro > .dock-divider {
   animation: dock-btn-in calc(0.8s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) calc(0.55s * var(--mo-speed, 1)) backwards;
 }
@@ -1507,12 +1411,13 @@ main .cl-links .link-intro-ring {
   }
 }
 
-/* ---------- 禅模式进出：雾化散场/聚拢（v8.6.33 定律）——雾化 filter 只作用于
-   无玻璃子树（zen-fade=时钟段 / cl-widgets=iframe 容器）；玻璃载体（zen-gone 磁贴墙 /
-   zen-dock / search-pill）退场一律 visibility+transform：opacity<1 与 filter≠none
-   在玻璃祖先/本体上同为 backdrop root 毒物（v8.6.22 自身剧毒 + v8.6.32 祖先 filter +
-   v8.6.32 用户实测「filter 删了、opacity 雾化仍在，磁贴磨砂照样消失」三案定罪）——
-   禅窗全程零毒，雾化与磨砂结构解耦互不杀伤 ---------- */
+/* ================================================================
+   禅模式进出：雾化散场/聚拢——雾化 filter 只作用于无玻璃子树
+   （zen-fade=时钟段 / cl-widgets=iframe 容器）；玻璃载体（zen-gone 磁贴墙 /
+   zen-dock / search-pill）退场一律 opacity+blur(12px) 雾化 + visibility
+   末帧隐没（玻璃载体已由退禅 defrostGlass 强制重挂兜底磨砂复原，见
+   use-start-zen.ts——雾化观感与磨砂存活双满足）。
+   ================================================================ */
 .zen-fade {
   transition:
     opacity 0.65s cubic-bezier(0.22, 1, 0.36, 1),
@@ -1522,23 +1427,12 @@ html.zen .zen-fade {
   opacity: 0;
   filter: blur(12px);
 }
-/* v8.6.35 时钟段缩放退役：scale(0.985) 是 v8.6.34 三载体缩放清理的漏网之鱼——
-   用户指令「模糊过渡而不是缩放动画」对时钟段同样适用；纯 opacity+blur 雾化
-   与 zen-gone/zen-dock/search-pill 完全同语言。 */
-/* v8.6.33 雾化 filter 回归（用户指令「不要删除雾化 filter」）：v8.6.32 曾以
-   opacity+transform 取代 blur 雾化，但 opacity<1 同为 backdrop root 毒物
-   （v8.6.22 自身剧毒实证），磁贴磨砂照样消失且雾化观感丢失——双输。
-   现在 zen-fade 只挂在时钟段（无玻璃子树），blur 雾化全量回归；磁贴墙已
-   迁出至 .zen-gone（visibility+transform 零毒退场），玻璃不再途径任何
-   opacity/filter 祖先。 */
+/* 时钟段零 transform：纯 opacity+blur(12px) 雾化与三玻璃载体完全同语言
+   （「模糊过渡而不是缩放动画」对时钟段同样适用） */
 
-/* ---------- v8.6.34 磁贴墙禅退场（zen-gone）：模糊雾化回归（用户指令「改回之前的
-   模糊过渡而不是缩放动画」）——三玻璃载体与时钟段同语言 opacity+blur(12px) 雾化
-   散场/显影聚拢，scale 缩放退役。磨砂复原由退禅 defrostGlass（page.tsx）无感强制
-   重挂兜底：display 往返销毁毒物层缓存历史 + getAnimations cancel 抑制入场动画
-   重播，退禅显影全程磨砂在线（探针 TL19b 行为门验证）。
+/* 磁贴墙禅退场：opacity+blur(12px) 雾化散场/显影聚拢。
    进禅：opacity/filter 雾化散场，visibility 过渡末帧隐没（延迟 0.65s）；
-   退禅：visibility 即时可见（基线 0s 无延迟），自雾化显影复现。 ---------- */
+   退禅：visibility 即时可见（基线 0s 无延迟），自雾化显影复现。 */
 .zen-gone {
   transition:
     opacity 0.65s cubic-bezier(0.22, 1, 0.36, 1),
@@ -1555,7 +1449,7 @@ html.zen .zen-gone {
     visibility 0s 0.65s;
 }
 
-/* ---------- 预设角落小部件层：禅模式同步雾化散场（与 .zen-fade 同语言）。
+/* 预设角落小部件层：禅模式同步雾化散场（与 .zen-fade 同语言）。
    ⚠ 不加 transform：wrapper 上的 transform 会成为 fixed 子盒的包含块，
    雾化期间部件盒会整体跳位 —— 只用 opacity + filter 雾化即可 */
 .cl-widgets {
@@ -1571,11 +1465,10 @@ html.zen .cl-widgets {
 html.zen .cl-widgets .cl-widget {
   pointer-events: none;
 }
-/* ---------- 预设 dock 弹出面板（v1.8.2 .cl-dockwidget 钩子）----------
- * 进退场动画由 framer 高度弹簧 + panel-rise/panel-sink 承载（与内建面板同语言）；
- * 这里只提供样式钩子：禅模式随 dock 一并隐藏（状态层由 page.tsx 进禅 effect 兜底关闭）。
- * ⚠ 不在此元素上加 transform/filter：它会成为 fixed 子内容（iframe）的包含块/裁剪上下文，
- *   雾化会令弹层跳位 —— 隐藏走 display 即可（进禅本就同步关闭状态） */
+/* 预设 dock 弹出面板样式钩子：进退场动画由舞台弹簧 + panel-rise/panel-sink
+   承载（与内建面板同语言）；禅模式随 dock 一并隐藏（状态层进禅兜底关闭）。
+   ⚠ 不在此元素上加 transform/filter：它会成为 fixed 子内容（iframe）的
+   包含块/裁剪上下文，雾化会令弹层跳位 —— 隐藏走 display 即可 */
 html.zen .cl-dockwidget {
   display: none;
 }
@@ -1595,16 +1488,10 @@ html.zen .zen-dock {
     filter 0.65s cubic-bezier(0.22, 1, 0.36, 1),
     visibility 0s 0.65s;
 }
-/* v8.6.34：dock 退场回归时钟同款模糊雾化（用户指令「改回之前的模糊过渡而不是缩放
-   动画」）——scale 缩放退役；磨砂复原由退禅 defrostGlass（page.tsx）无感强制重挂
-   兜底（display 往返销毁毒物层缓存 + getAnimations cancel 抑制动画重播），显影
-   全程磨砂在线（探针 TL19b 行为门验证）。Tailwind -translate-x-1/2 走独立 translate
-   属性，与过渡无冲突。 */
-/* 搜索药丸禅退场（v8.6.34 模糊雾化回归，用户指令「改回之前的模糊过渡而不是缩放
-   动画」）：opacity+blur(12px) 与时钟段同语言散场/显影，scale 退役；磨砂复原由
-   退禅 defrostGlass（page.tsx）无感强制重挂兜底（探针 TL19b 行为门验证）。zen 态
-   专属 transition 只在禅窗内生效；退禅由基线 Tailwind transition（含 opacity/filter，
-   duration-500）接管显影，visibility 即时可见，聚焦缩放/阴影过渡不受影响。 */
+/* 搜索药丸禅退场：opacity+blur(12px) 与时钟段同语言散场/显影；zen 态
+   专属 transition 只在禅窗内生效；退禅由基线 Tailwind transition（含
+   opacity/filter，duration-500）接管显影，visibility 即时可见，聚焦缩放/
+   阴影过渡不受影响。 */
 html.zen .search-pill {
   opacity: 0;
   filter: blur(12px);
@@ -1616,13 +1503,10 @@ html.zen .search-pill {
     visibility 0s 0.5s;
 }
 
-/* ---------- v8.6.35 禅模式覆盖层（迷你时钟/迷你番茄钟/提示词宿主）：常驻 DOM +
-   visibility 离散插值。AnimatePresence/exit 卸载链路退役（exit 被节流/中断时覆盖层
-   滞留 DOM + 卸载元素合成层缓存 ghost = 「退禅后单击页面禅时钟复现」两大通道）；
-   framer opacity WAAPI 空窗（panel-fade 同族教训）一并消除。visibility 离散插值：
-   进禅即时可见、退禅末帧隐没（淡出完成后才 hidden），opacity 0.7s 与原 framer 参数
-   一致。覆盖层内无玻璃子树（迷你时钟/提示词/番茄钟均非磨砂载体），opacity/
-   visibility 零毒。 ---------- */
+/* ---------- 禅模式覆盖层（迷你时钟/迷你番茄钟/提示词宿主）：常驻 DOM +
+   visibility 离散插值。visibility 离散插值：进禅即时可见、退禅末帧隐没
+   （淡出完成后才 hidden），opacity 0.7s。覆盖层内无玻璃子树（迷你时钟/
+   提示词/番茄钟均非磨砂载体），opacity/visibility 零毒。 ---------- */
 .zen-overlay {
   opacity: 0;
   visibility: hidden;
@@ -1639,19 +1523,19 @@ html.zen .zen-overlay {
 }
 
 /* ---------- 禅模式提示词/迷你番茄钟：掠影下随壁纸明暗自适应墨色 ----------
- * data-tone 由 page.tsx 进禅时采样壁纸亮度后设定：
+ * data-tone 由进禅时采样壁纸亮度后设定：
  *   on-dark  = 深色背景 → 浅墨字 + 极轻暗晕（在复杂纹理上稳住笔画）
  *   on-light = 浅色背景 → 深墨字 + 极轻亮晕
  *   auto（辉光/纯净/采样失败）= 保持主题默认色，与历史样式完全一致
  * html 前缀抬高特异性，压过 .dark 的主题默认色，避免覆盖判定结果 */
 .zen-hint {
-  color: rgb(161 161 170 / 0.9); /* zinc-400/90 —— 原浅色主题默认值 */
+  color: rgb(161 161 170 / 0.9); /* zinc-400/90 —— 浅色主题默认值 */
   transition:
     color 0.7s cubic-bezier(0.22, 1, 0.36, 1),
     text-shadow 0.7s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .dark .zen-hint {
-  color: rgb(113 113 122); /* zinc-500 —— 原深色主题默认值 */
+  color: rgb(113 113 122); /* zinc-500 —— 深色主题默认值 */
 }
 html .zen-hint[data-tone="on-dark"] {
   color: rgb(244 244 245 / 0.8);
@@ -1681,18 +1565,17 @@ html .zen-pomo[data-tone="on-light"] {
   text-shadow: 0 0 14px rgb(255 255 255 / 0.4);
 }
 
-
 /* ================================================================
-   ⌘K 选项选中高光门控（v1.1.3 建立；v8.4.11 mouse 模式改纯 :hover）
-   cmdk 恒有一个 data-selected 项作为键盘导航锚点——它只在指针
-   「移进某选项」那一刻更新，指针随后移到输入行/分组标题/列表空隙
-   仍残留在上一项上 = 「鼠标不在选项上方却一直有高光」。
-   data-nav 三态由 CommandPalette 写在 Command 根上：
+   ⌘K 选项选中高光门控
+   cmdk 恒有一个 data-selected 项作为键盘导航锚点——它只在指针「移进某
+   选项」那一刻更新，指针随后移到输入行/分组标题/列表空隙仍残留在上一项
+   上 = 「鼠标不在选项上方却一直有高光」。data-nav 三态由 CommandPalette
+   写在 Command 根上：
    idle = 指针不在面板内且未用键盘 → 不显示任何选中高光；
-   mouse = 指针在面板内 → 高光只随 CSS :hover 出现（指针真正压在
-           选项上才亮，移开即熄；cmdk 的 data-selected 仍承担
-           Enter 执行锚点，视觉与其解耦）；
-   kbd = 方向键导航 → 高光跟随 data-selected（键盘可达性不回退）。 */
+   mouse = 指针在面板内 → 高光只随 CSS :hover 出现（cmdk 的 data-selected
+           仍承担 Enter 执行锚点，视觉与其解耦）；
+   kbd = 方向键导航 → 高光跟随 data-selected（键盘可达性不回退）。
+   ================================================================ */
 [data-nav="mouse"] [cmdk-item]:hover,
 [data-nav="kbd"] [cmdk-item][data-selected="true"] {
   background: rgb(24 24 27 / 0.06);
@@ -1709,19 +1592,19 @@ html .zen-pomo[data-tone="on-light"] {
   display: inline;
 }
 
-/* ---------- 双渲染系统·其二：流畅系统（html.cs-lite）----------
-   v8.6.26 正名「双渲染系统」（用户指令：一套磨砂样式 + 一套流畅模式）：
-   磨砂系统（默认）= backdrop-filter 玻璃语言全套；流畅系统（html.cs-lite）=
-   完全独立的一套渲染——零 backdrop-filter、玻璃件换实底、动画近零时长、
+/* ================================================================
+   双渲染系统·其二：流畅系统（html.cs-lite）
+   ---------------------------------------------------------------
+   磨砂系统（默认）= backdrop-filter 玻璃语言全套；流畅系统（html.cs-lite）
+   = 完全独立的一套渲染——零 backdrop-filter、玻璃件换实底、动画近零时长、
    装饰滤镜隐藏，与磨砂系统无半帧共享视觉路径。入口两处（扩展弹窗快捷
-   面板 popup.js 与设置面板「性能」，同一 settings.perfLite 字段）；
-   page.tsx 切类 + storage 事件跨文档实时跟随。三层降级：
-   ① 模糊成本：全部 backdrop-filter 关停（磨砂是低配 GPU 最大头），
-      主要玻璃类补不透明兜底底色保可读性；
-   ② 动画成本：全局 CSS animation/transition 时长近零、长驻合成层
-      （will-change）清零——transitionend 仍会触发（时长缩短≠事件取消），
-      依赖过渡结束回调的高度自适应逻辑不受影响；
-   ③ 装饰成本：极光辉光 blob（blur 96px 大滤镜层）整体隐藏。 */
+   面板 popup.js 与设置面板「性能」，同一 settings.perfLite 字段）。
+   三层降级：
+   ① 模糊成本：全部 backdrop-filter 关停，主要玻璃类补不透明兜底底色；
+   ② 动画成本：全局 CSS animation/transition 时长近零、长驻合成层清零
+      （transitionend 仍会触发，依赖过渡结束回调的逻辑不受影响）；
+   ③ 装饰成本：极光辉光 blob（blur 96px 大滤镜层）整体隐藏。
+   ================================================================ */
 html.cs-lite *,
 html.cs-lite *::before,
 html.cs-lite *::after {
@@ -1736,9 +1619,8 @@ html.cs-lite .aurora-blob {
   display: none !important;
 }
 /* 液态玻璃引擎（WebGL）磨砂体：[data-lg] 的 backdrop-filter 走变量驱动
-   blur(var(--lg-blur)) saturate(var(--lg-sat)) 且带 important——变量在元素
-   自身的声明优先于 :root 继承，直接截断为恒等变换（blur(0)+sat(1)=无磨砂），
-   引擎的 important 规则保留但值恒等；折射带叠层画布一并隐藏。 */
+   且带 important——变量在元素自身的声明优先于 :root 继承，直接截断为恒等
+   变换（blur(0)+sat(1)=无磨砂）；折射带叠层画布一并隐藏。 */
 html.cs-lite [data-lg] {
   --lg-blur: 0px !important;
   --lg-sat: 1 !important;
@@ -1759,8 +1641,7 @@ html.cs-lite.dark .cl-panel,
 html.cs-lite.dark .cl-dockwidget {
   background: rgba(24, 24, 27, 0.94) !important;
 }
-/* v8.6.21：磨砂随流畅模式关停——玻璃卡片退 0.94 实底（上方兜底）后
-   不再保留 backdrop 合成开销 */
+/* 磨砂随流畅模式关停——玻璃卡片退 0.94 实底后不再保留 backdrop 合成开销 */
 html.cs-lite .glass-card,
 html.cs-lite .cl-panel,
 html.cs-lite .cl-dockwidget {
@@ -1773,9 +1654,7 @@ html.cs-lite:not(.dark) .veil-in {
 html.cs-lite.dark .veil-in {
   background: rgba(9, 9, 11, 0.5) !important;
 }
-/* v8.6.26 双渲染系统补全：dock/搜索药丸本体 .glass-pill 此前不在兜底
-   清单——流畅系统下 backdrop 通配关停后 0.62/0.055 半透底可读性崩，
-   换同款实底（玻璃族清单见上）。 */
+/* dock/搜索药丸本体 .glass-pill 兜底（流畅系统下 0.62/0.055 半透底可读性崩） */
 html.cs-lite:not(.dark) .glass-pill {
   background: rgba(255, 255, 255, 0.94) !important;
 }
@@ -1783,31 +1662,27 @@ html.cs-lite.dark .glass-pill {
   background: rgba(24, 24, 27, 0.94) !important;
 }
 
-/* ---------- v8.6.2 快捷服务抽屉（中键唤出全屏磁贴墙）----------
-   纱罩 = 【整页高斯模糊】+ 轻染色（用户指令：不要纯黑遮罩，模糊整个页面）：
-   backdrop blur(28px)+saturate 把壁纸/极光/搜索栏/Dock 以外的整页磨砂化，
-   搜索区雾化让位机制（.cl-drawer-fade）退役——它的 opacity+filter 过渡正是
-   「开关抽屉时搜索栏磨砂消失」的元凶（opacity<1/filter≠none 的祖先 = backdrop
-   root，后代 backdrop-filter 采样不到壁纸）。现在搜索栏磨砂恒定在线，让位感
-   由整页模糊承担。磁贴浮在磨砂化的整页之上，双层磨砂（纱罩 28px + 磁贴 14px）。
-   抽屉打开期间（html.cs-drawer）：Dock 与搜索栏同层坐在纱罩之下
-   （v8.6.26 用户指令——整页磨砂同样覆盖 Dock，不再浮在模糊上面）；
-   退场窗内点击不被吞由纱罩包裹层 pointerEvents:none 承担（open=false
-   即禁命中，click 穿透直达下层）。
+/* ---------- 快捷服务抽屉（中键唤出全屏磁贴墙）----------
+   纱罩 = 【整页高斯模糊】+ 轻染色（不要纯黑遮罩，模糊整个页面）：
+   backdrop blur(28px)+saturate 把整页磨砂化，让位感由整页模糊承担。
+   搜索栏磨砂恒定在线。磁贴浮在磨砂化的整页之上，双层磨砂（纱罩 28px +
+   磁贴 14px）。抽屉打开期间（html.cs-drawer）：Dock 与搜索栏同层坐在纱罩
+   之下（整页磨砂同样覆盖 Dock，不再浮在模糊上面）；退场窗内点击不被吞由
+   纱罩包裹层 pointerEvents:none 承担。
    类同步挂组件卸载 latch（+340ms）而非 open 开关：点击 Dock 关抽屉时
    capture pointerdown 先置 open=false，若类即刻移除 Dock 跌回 z-40，
-   退场中的纱罩（opacity 动画期间仍可命中）会重新盖住 Dock——pointerup
-   落纱罩、click 被吞，面板永远打不开。 */
-/* v8.6.23 磨砂底层律：纱罩拆两层——磨砂本体在底层走 blur 值通道
-   （transition 1px↔28px，data-veil 门控，全程无 opacity，任何帧不退化为
-   纯色纱）；染色渐变走 ::before（无磨砂载体，opacity 安全）。visibility
-   延迟门控：关态 blur(1px)+transparent 视觉不可见且退场收尾后才隐藏，
-   常挂架构下关态零合成开销。开态可见即时（0s）、隐藏延迟（0.28s 收拢后） */
+   退场中的纱罩会重新盖住 Dock——pointerup 落纱罩、click 被吞，面板永远
+   打不开。
+   磨砂底层律：纱罩拆两层——磨砂本体在底层走 blur 值通道（transition
+   1px↔28px，data-veil 门控，全程无 opacity，任何帧不退化为纯色纱）；染色
+   渐变走 ::before（无磨砂载体，opacity 安全）。visibility 延迟门控：关态
+   blur(1px)+transparent 视觉不可见且退场收尾后才隐藏，常挂架构下关态零
+   合成开销。开态可见即时（0s）、隐藏延迟（0.28s 收拢后）。 ---------- */
 .cl-drawer-veil {
   background-color: transparent;
   backdrop-filter: blur(1px) saturate(1.5);
   visibility: hidden;
-  /* v8.6.24 感知同步律（关=blur 驻留）：0.14s 满值驻留（染色 ::before 先行渐隐）
+  /* 感知同步律（关=blur 驻留）：0.14s 满值驻留（染色 ::before 先行渐隐）
      + 0.14s 收拢，与染色 0.28s 同窗收尾——幽灵白板不再残留 */
   transition:
     backdrop-filter 0.14s cubic-bezier(0.4, 0, 1, 1) 0.14s,
@@ -1829,8 +1704,8 @@ html.cs-lite.dark .glass-pill {
 .cl-drawer-veil[data-veil="1"] {
   backdrop-filter: blur(28px) saturate(1.5);
   visibility: visible;
-  /* v8.6.24 感知同步律（开=blur 领先）：0.12s 先凝满 28px，染色 ::before
-     0.28s 跟随渐显——磨砂底与模糊质感同步出现 */
+  /* 感知同步律（开=blur 领先）：0.12s 先凝满 28px，染色 ::before 0.28s
+     跟随渐显——磨砂底与模糊质感同步出现 */
   transition:
     backdrop-filter 0.12s cubic-bezier(0.22, 1, 0.36, 1),
     visibility 0s;
@@ -1839,7 +1714,8 @@ html.cs-lite.dark .glass-pill {
   opacity: 1;
 }
 .dark .cl-drawer-veil::before {
-  /* 深色态：zinc-900 轻纱替代旧 zinc-950 厚涂（「纯黑遮罩」差评），模糊承担主分离 */
+  /* 深色态：zinc-900 轻纱替代旧 zinc-950 厚涂（「纯黑遮罩」差评），
+     模糊承担主分离 */
   background: linear-gradient(
     180deg,
     rgba(24, 24, 27, 0.42),
@@ -1847,8 +1723,8 @@ html.cs-lite.dark .glass-pill {
     rgba(24, 24, 27, 0.38)
   );
 }
-/* 流畅模式：cs-lite 通配已把 backdrop-filter 压为 none，纱罩纯色加深保证磁贴可读性
-   （v8.6.23 随底层律移到 ::before 染色层；纯色模式无磨砂，opacity 渐显同构） */
+/* 流畅模式：cs-lite 通配已把 backdrop-filter 压为 none，纱罩纯色加深保证
+   磁贴可读性（染色移到 ::before 染色层；纯色模式无磨砂，opacity 渐显同构） */
 html.cs-lite .cl-drawer-veil::before {
   background: linear-gradient(
     180deg,

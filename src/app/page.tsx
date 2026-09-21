@@ -1,93 +1,34 @@
-/* 「初始」起始页 — 主页面编排 */
+/* 「初始」起始页 — 主页面（beta 重写架构）
+ *
+ * 结构：StartPageProvider（状态域组装，见 startpage-context.tsx）
+ *     + StartPageView（纯编排：页面级事件接线 + 布局树）。
+ * 页面级 effect 只保留「跨域接线」类：快捷键、右键菜单拦截、链接编辑事件、
+ * 外链提升兜底、弹窗意图消费、首次访问提示——域内 effect 一律在各域 hook。
+ */
+
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import AuroraBackground from "@/components/startpage/AuroraBackground";
 import Clock from "@/components/startpage/Clock";
 import SearchBar from "@/components/startpage/SearchBar";
-import QuickLinks, { emitEditLink } from "@/components/startpage/QuickLinks";
+import QuickLinks from "@/components/startpage/QuickLinks";
 import Dock from "@/components/startpage/Dock";
 import CommandPalette from "@/components/startpage/CommandPalette";
 import ContextMenu, { CM_ICONS, type ContextMenuAction } from "@/components/startpage/ContextMenu";
 import PresetDocs from "@/components/startpage/PresetDocs";
 import ZenPomodoro from "@/components/startpage/ZenPomodoro";
-import LinkDialog, { type LinkEditorState } from "@/components/startpage/LinkDialog";
-import PresetWidgets, { type ActiveWidget } from "@/components/startpage/PresetWidgets";
-import SandboxPage, { type ActivePage } from "@/components/startpage/SandboxPage";
-import {
-  dockIcon,
-  parsePreset,
-  PRESET_TOKEN_KEYS,
-  type InstalledPreset,
-  type PresetAction,
-  type PresetClock,
-  type PresetIconTarget,
-  type PresetLayout,
-  type PresetMotion,
-  type PresetPayload,
-} from "@/lib/startpage/preset";
-import { inlineOfficialAssets } from "@/lib/startpage/pack";
-import { OFFICIAL_PRESETS } from "@/lib/startpage/official-presets";
-import {
-  sandboxBridge,
-  type SandboxCommandInfo,
-  type SandboxScript,
-} from "@/lib/startpage/sandbox";
-import {
-  PRESET_SETTINGS_KEY,
-  prunePresetSettings,
-  readPresetSettingValues,
-  writePresetSettingValues,
-  type PresetSettingValues,
-  type PresetSettingsSchema,
-} from "@/lib/startpage/preset-settings";
-import { useMounted, useStored, readLS, writeLS, uid } from "@/hooks/use-start";
-import {
-  DEFAULT_SETTINGS,
-  DEFAULT_DURATIONS,
-  INITIAL_WEATHER,
-  type Place,
-  type PanelId,
-  type Settings,
-  type StartLink,
-  type TodoItem,
-  type WeatherState,
-} from "@/lib/startpage/types";
-import { fetchForecast, readWeatherSnapshot, writeWeatherSnapshot } from "@/lib/startpage/weather";
-import { getEngine } from "@/lib/startpage/engines";
+import LinkDialog from "@/components/startpage/LinkDialog";
+import PresetWidgets from "@/components/startpage/PresetWidgets";
+import SandboxPage from "@/components/startpage/SandboxPage";
 import { inExtIframe, openExternalUrl } from "@/lib/startpage/nav";
-import { sampleCoverLuminance } from "@/lib/startpage/luminance";
-import { smtc } from "@/lib/startpage/smtc";
+import { useMounted, uid } from "@/hooks/use-start";
 import { useToast } from "@/hooks/use-toast";
+import { StartPageProvider, useStartPage } from "./startpage/startpage-context";
+import { INTENT_KEY, SEEN_KEY } from "./startpage/keys";
+import type { StartLink } from "@/lib/startpage/types";
 
-const KEYS = {
-  settings: "start:settings",
-  links: "start:links",
-  todos: "start:todos",
-  note: "start:note",
-  place: "start:place",
-  presets: "start:presets",
-  sandboxFrozen: "start:sandbox-frozen",
-  presetSettings: PRESET_SETTINGS_KEY,
-};
-
-/** 预设 action 中 script / page 类型的 id 展开为本预设内复合键（运行时再由桥/overlay 路由） */
-function resolvePresetAction(a: PresetAction, presetId: string): PresetAction {
-  if (a.type === "script" || a.type === "page") {
-    return { type: a.type, id: `${presetId}:${a.id}` } as PresetAction;
-  }
-  return a;
-}
-
-const DEFAULT_LINKS: StartLink[] = [
-  { id: "gh", name: "GitHub", url: "https://github.com" },
-  { id: "bili", name: "哔哩哔哩", url: "https://www.bilibili.com" },
-  { id: "zhihu", name: "知乎", url: "https://www.zhihu.com" },
-  { id: "yt", name: "YouTube", url: "https://www.youtube.com" },
-  { id: "weibo", name: "微博", url: "https://weibo.com" },
-  { id: "163music", name: "网易云音乐", url: "https://music.163.com" },
-];
-
+/** 判定按键事件是否发生在输入场景（输入框/可编辑区不抢全局快捷键） */
 function isTypingTarget(el: Element | null): boolean {
   if (!el) return false;
   const tag = el.tagName;
@@ -100,413 +41,49 @@ function isTypingTarget(el: Element | null): boolean {
 }
 
 export default function Home() {
-  const mounted = useMounted();
+  return (
+    <StartPageProvider>
+      <StartPageView />
+    </StartPageProvider>
+  );
+}
+
+function StartPageView() {
+  const sp = useStartPage();
+  const mounted = sp.mounted;
   const { toast } = useToast();
 
-  /* ---------- 持久化状态 ---------- */
-  const [settings, setSettings] = useStored<Settings>(KEYS.settings, DEFAULT_SETTINGS);
-  const [links, setLinks] = useStored<StartLink[]>(KEYS.links, DEFAULT_LINKS);
-  const [todos, setTodos] = useStored<TodoItem[]>(KEYS.todos, []);
-  const [note, setNote] = useStored<string>(KEYS.note, "");
-  const [place, setPlace] = useStored<Place>(KEYS.place, {});
-  const [presets, setPresets] = useStored<InstalledPreset[]>(KEYS.presets, []);
-
-  /* ---------- 界面状态 ---------- */
-  const [panel, setPanel] = useState<PanelId>(null);
-  const [paletteOpen, setPaletteOpen] = useState(false);
-  const [editor, setEditor] = useState<LinkEditorState>({ open: false, editing: null });
-  const [weather, setWeather] = useState<WeatherState>(INITIAL_WEATHER);
-  const [isDark, setIsDark] = useState(true);
-  const [zen, setZen] = useState(false);
-  /* zenRef：dblclick 切换 effect 的依赖不含 zen（闭包陈旧规避），退禅分支经由此镜像判断 */
-  const zenRef = useRef(false);
-  useEffect(() => {
-    zenRef.current = zen;
-  }, [zen]);
-  /* v8.6.34 退禅磨砂复原双保险：三玻璃载体（搜索药丸/dock/磁贴墙）禅态挂
-     opacity+blur 雾化（用户指令「改回模糊过渡」），玻璃祖先毒物令磨砂采样在
-     禅窗内失效；Chrome 层缓存可能令退禅移除毒物后磨砂常数帧乃至持续不复原
-     （v8.6.22/32/33 三案实证）。本函数在 html.zen 移除前同步执行：
-     display:none 往返 + 双 reflow 强制销毁毒物层缓存历史，磨砂参与者随新层
-     重建百分百复原；getAnimations({subtree}) cancel 抑制 display 重置引发的
-     入场动画重播（显影由 opacity/filter 过渡独占承载，与时钟段同语言）。
-     重挂全程元素处于 visibility:hidden 禅态——用户无感。 */
-  const defrostGlass = useCallback(() => {
-    for (const el of Array.from(
-      document.querySelectorAll<HTMLElement>(".search-pill, .zen-dock, .zen-gone")
-    )) {
-      el.style.display = "none";
-      void document.body.offsetWidth;
-      el.style.display = "";
-      void document.body.offsetWidth;
-      for (const a of el.getAnimations({ subtree: true })) a.cancel();
-    }
-  }, []);
-  /** 「初始」专属右键菜单（见 ContextMenu；contextmenu 事件里记录坐标后置 open） */
-  const [ctxMenu, setCtxMenu] = useState(false);
-  const [ctxPos, setCtxPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
-  /** 开发者文档（右键菜单直达入口；组件内部 portal 到 body，不在 ⌘K 宿主内） */
-  const [devDocs, setDevDocs] = useState(false);
-  /** 正在展示的预设自定义页面（沙箱 overlay） */
-  const [activePage, setActivePage] = useState<ActivePage | null>(null);
-  /** 预设 dock 表面小部件的弹出面板（v1.8.2）：存 widget 运行时复合键，null = 关闭 */
-  const [dockWidget, setDockWidget] = useState<string | null>(null);
-
-  /* ---------- 沙箱 JS（高阶模式）状态：冻结标记持久化 + 运行时注册的命令 ----------
-     另有预设设置面 schema（v1.2.0）：脚本经 chushi.settings.define 声明，
-     桥校验后转入，渲染进设置面板（值持久化与下发见 changePresetSetting） */
-  const [frozenScripts, setFrozenScripts] = useState<Record<string, boolean>>(() =>
-    readLS<Record<string, boolean>>(KEYS.sandboxFrozen, {})
-  );
-  const [scriptCmds, setScriptCmds] = useState<SandboxCommandInfo[]>([]);
-  const [presetSchemas, setPresetSchemas] = useState<
-    Record<string, { presetName: string; schema: PresetSettingsSchema }>
-  >({});
-
-  const patchSettings = useCallback(
-    (patch: Partial<Settings>) => setSettings((prev) => ({ ...prev, ...patch })),
-    [setSettings]
-  );
-
-  const markFrozen = useCallback((key: string) => {
-    setFrozenScripts((prev) => {
-      const next = { ...prev, [key]: true };
-      writeLS(KEYS.sandboxFrozen, next);
-      return next;
-    });
-  }, []);
-
-  /* ---------- 主题应用 ---------- */
-  useEffect(() => {
-    if (!mounted) return;
-    const root = document.documentElement;
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const apply = () => {
-      const dark =
-        settings.themeMode === "dark" || (settings.themeMode === "system" && mq.matches);
-      root.classList.toggle("dark", dark);
-      root.style.colorScheme = dark ? "dark" : "light";
-      setIsDark(dark);
-    };
-    apply();
-    mq.addEventListener("change", apply);
-    /* 移动端切后台换主题后回到页面时事件可能不触发，主动重评估 */
-    const reapply = () => {
-      if (settings.themeMode === "system") apply();
-    };
-    document.addEventListener("visibilitychange", reapply);
-    window.addEventListener("pageshow", reapply);
-    return () => {
-      mq.removeEventListener("change", apply);
-      document.removeEventListener("visibilitychange", reapply);
-      window.removeEventListener("pageshow", reapply);
-    };
-  }, [mounted, settings.themeMode]);
-
-  /* ---------- 强调色（CSS 变量驱动全局点缀色） ---------- */
-  useEffect(() => {
-    if (!mounted) return;
-    document.documentElement.style.setProperty("--ui-accent", settings.accent);
-    /* v8.2.3 浮窗主题色跟随：把强调色镜像到 chrome.storage.local.cardAcc，
-       悬浮音乐卡内容脚本在任意网页读取 + onChanged 热跟随（网页/gh-pages
-       环境无 chrome，安全跳过 = 恒默认紫） */
-    try {
-      const ext = (window as unknown as {
-        chrome?: { storage?: { local?: { set?: (o: Record<string, string>) => void } } };
-      }).chrome;
-      if (ext?.storage?.local && typeof ext.storage.local.set === "function") {
-        ext.storage.local.set({ cardAcc: settings.accent });
-      }
-    } catch {
-      /* 非 extension 环境 */
-    }
-  }, [mounted, settings.accent]);
-
-  /* ---------- SMTC 媒体作用面（v1.8.0）----------
-     页面挂载即启动本地 SMTC 桥轮询（幂等单例；消费方为沙箱脚本与角落
-     小部件的 chushi.smtc API，见 lib/startpage/smtc.ts 头注）。
-     网易云插件路线（BetterNCM / CDP 桥）已于本版整体退役。 */
-  useEffect(() => {
-    if (!mounted) return;
-    smtc.start();
-  }, [mounted]);
-
-  /* ---------- v8.3.3 新标签页焦点归位（用户：新开「初始」不要聚焦网址栏）----------
-     Chrome 打开新标签页时把焦点交给地址栏（omnibox）——挂载后短窗内把
-     焦点偷回页面：body 设 tabIndex=-1 后 focus()，敲键自然落入全局
-     type-to-search（start:focus-search，body 聚焦不挡 window 键事件）。
-     只在前 ~1.2s 抢（多次重试赢 Chrome 的 omnibox 焦点竞速；页面内已有
-     具体焦点元素——输入框/部件 iframe——一律不碰），之后绝不和用户抢。
-     v8.5.8：改由 settings.noOmniboxFocus 门控（默认 false = 浏览器默认，不抢）；
-     只有弹窗开关「新标签页不聚焦地址栏」打开时才在页面内补一次抢焦点
-     （真正让出地址栏焦点是壳层的自发导航，见 shell-bridge.js focusRouting）。 */
-  useEffect(() => {
-    document.documentElement.dataset.csFocusGate = settings.noOmniboxFocus ? "page" : "omnibox";
-    if (!mounted || !settings.noOmniboxFocus) return;
-    const body = document.body;
-    body.dataset.csFocusSteal = "1"; /* tabIndex 未设时 body 默认即 -1，不可作证据 */
-    if (body.tabIndex !== -1) body.tabIndex = -1;
-    const t0 = Date.now();
-    const steal = () => {
-      const ae = document.activeElement;
-      if (ae === body || ae === document.documentElement) {
-        body.focus({ preventScroll: true });
-      }
-    };
-    const timers = [30, 120, 260, 450, 700, 1000].map((d) => window.setTimeout(steal, d));
-    const onFocus = () => {
-      if (Date.now() - t0 < 1200) steal();
-    };
-    window.addEventListener("focus", onFocus);
-    return () => {
-      timers.forEach((t) => clearTimeout(t));
-      window.removeEventListener("focus", onFocus);
-    };
-  }, [mounted, settings.noOmniboxFocus]);
-
-  /* ---------- v8.5.0 流畅模式（低配电脑优化）----------
-     html.cs-lite 全局降级类：globals.css 据此把磨砂玻璃换成纯色底、
-     停装饰动画/过渡与长驻合成层。入口两处：扩展弹窗快捷面板（popup.js
-     直改同一 localStorage 键）与设置面板。跨文档实时跟随：popup 改
-     localStorage 时本页收到 storage 事件即时切类（同文档修改不触发
-     storage 事件，所以自身路径仍走 settings.perfLite 依赖）。 */
-  useEffect(() => {
-    if (!mounted) return;
-    const root = document.documentElement;
-    root.classList.toggle("cs-lite", !!settings.perfLite);
-    const onStorage = (e: StorageEvent) => {
-      if (e.key !== KEYS.settings || e.newValue == null) return;
-      try {
-        const next = JSON.parse(e.newValue) as { perfLite?: boolean };
-        root.classList.toggle("cs-lite", !!next.perfLite);
-      } catch {
-        /* 残缺 JSON 忽略 */
-      }
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, [mounted, settings.perfLite]);
-
-  /* ---------- v8.5.0 弹窗快捷面板「打开完整设置」意图消费 ----------
-     popup 写一次性标志 start:ui-intent 后新开标签页；本 effect 在挂载时
-     读后即焚（30s 时效防陈旧触发），命中则直接打开设置面板。仅在新
-     标签页启动路径消费（popup 只新建页，不唤已开页，v1 行为）。 */
+  /* ---------- 弹窗快捷面板「打开完整设置」意图消费 ----------
+     popup 写一次性标志后新开标签页；挂载时读后即焚（30s 时效防陈旧触发），
+     命中则直接打开设置面板。仅在新标签页启动路径消费。 */
   useEffect(() => {
     if (!mounted) return;
     try {
-      const raw = localStorage.getItem("start:ui-intent");
+      const raw = localStorage.getItem(INTENT_KEY);
       if (!raw) return;
-      localStorage.removeItem("start:ui-intent");
+      localStorage.removeItem(INTENT_KEY);
       const j = JSON.parse(raw) as { panel?: string; ts?: number };
       if (j?.panel && Date.now() - (j.ts || 0) < 30000) {
-        setPanel(j.panel as PanelId);
+        sp.gotoPanel(j.panel as Parameters<typeof sp.gotoPanel>[0]);
       }
     } catch {
       /* 残缺标志静默清理失败也无害 */
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounted]);
 
-  /* ---------- 预设自定义 CSS（animations 字段，导入时已净化）----------
-     单一 <style> 承载全部已装预设的样式，安装顺序即优先级；
-     删除预设即整体重算，无残留 */
-  const presetCss = useMemo(
-    () =>
-      presets
-        .flatMap((p) => (p.raw.animations ?? []).map((a) => `/* ${p.name} · ${a.name ?? a.id} */\n${a.css}`))
-        .join("\n"),
-    [presets]
-  );
-  useEffect(() => {
-    if (!mounted) return;
-    let el = document.getElementById("chushi-preset-css") as HTMLStyleElement | null;
-    if (!presetCss) {
-      el?.remove();
-      return;
-    }
-    if (!el) {
-      el = document.createElement("style");
-      el.id = "chushi-preset-css";
-      document.head.appendChild(el);
-    }
-    el.textContent = presetCss;
-  }, [mounted, presetCss]);
-
-  /* ---------- 预设布局覆写派生：安装顺序后者胜，删除预设即还原 ---------- */
-  const layout = useMemo<PresetLayout>(() => {
-    const merged: PresetLayout = {};
-    for (const p of presets) {
-      const l = p.raw.layout;
-      if (l) Object.assign(merged, l);
-    }
-    return merged;
-  }, [presets]);
-
-  /* ---------- 预设焕新四作用面派生（v1.7.0）：图标/主题令牌/动效语言/时钟格式。
-     合并律与 layout 同源：安装顺序后者胜，字段级覆盖；删除预设即整体重算还原 */
-  const presetExtras = useMemo(() => {
-    const icons: Partial<Record<PresetIconTarget, string>> = {};
-    const tokens: Record<string, string> = {};
-    let motion: PresetMotion = {};
-    let clock: PresetClock = {};
-    for (const p of presets) {
-      for (const ic of p.raw.icons ?? []) icons[ic.target] = ic.icon;
-      if (p.raw.tokens) Object.assign(tokens, p.raw.tokens);
-      if (p.raw.motion) motion = { ...motion, ...p.raw.motion };
-      if (p.raw.clock) clock = { ...clock, ...p.raw.clock };
-    }
-    return { icons, tokens, motion, clock };
-  }, [presets]);
-
-  /* 主题令牌注入：白名单键 setProperty 到根元素；预设占用期间反复覆盖
-     （含强调色设置变更时），删除预设/值消失即 removeProperty 还原。
-     同时承载动效语言的 --mo-speed（CSS 入退场动画时长倍率）。
-     ⚠ 声明在强调色 effect 之后：同键（--ui-accent）时预设令牌胜（焕新语义） */
-  const presetTokenSig = Object.values(presetExtras.tokens).join("\n") +
-    Object.keys(presetExtras.tokens).join(",");
-  const motionSpeed = presetExtras.motion.speed ?? 1;
-  useEffect(() => {
-    if (!mounted) return;
-    const root = document.documentElement.style;
-    for (const key of Object.keys(PRESET_TOKEN_KEYS)) {
-      const v = presetExtras.tokens[key];
-      if (v) root.setProperty(key, v);
-      else if (key === "--ui-accent") root.setProperty(key, settings.accent);
-      else root.removeProperty(key);
-    }
-    root.setProperty("--mo-speed", String(motionSpeed));
-    /* 令牌净空兜底：presets 快速变化时旧值残留由本 effect 全量重算排除。
-       v8.6.21 修复强调色失效：--ui-accent 的「还原值」不在 CSS 里（JS 注入
-       的用户设置），无预设值时 removeProperty 会把强调色 effect 刚写好的
-       变量删掉——本 effect 声明在后、挂载时序必跑，新开标签页/更新后每次
-       挂载都删 → --ui-accent 落回 CSS fallback 默认紫。改为回落用户强调色
-       （装了带主题令牌的预设时仍预设胜，删除预设回落用户值，焕新语义不变）。 */
-  }, [mounted, presetTokenSig, motionSpeed, presetExtras.tokens, settings.accent]);
-
-  /* ---------- 旧版本设置字段迁移（缺失字段补默认值） ---------- */
-  useEffect(() => {
-    setSettings((prev) => ({
-      ...DEFAULT_SETTINGS,
-      ...prev,
-      pomodoro: { ...DEFAULT_DURATIONS, ...(prev.pomodoro ?? {}) },
-    }));
-  }, []);
-
-  /* ---------- 天气获取（成功落快照，失败回退快照+自动重试） ---------- */
-  useEffect(() => {
-    if (!mounted) return;
-    if (place.lat == null || place.lon == null) return;
-    let cancelled = false;
-
-    async function load() {
-      setWeather((w) => ({ ...w, loading: true }));
-      try {
-        const r = await fetchForecast(place);
-        if (!cancelled) {
-          writeWeatherSnapshot(r);
-          setWeather({
-            ...r,
-            loading: false,
-            error: null,
-            city: place.name ?? "",
-            staleAt: null,
-          });
-        }
-      } catch (e) {
-        if (cancelled) return;
-        /* 限流/断网回退：展示最近一次成功快照（面板标注缓存时间） */
-        const snap = readWeatherSnapshot();
-        if (snap) {
-          setWeather({
-            ...snap.data,
-            loading: false,
-            error: null,
-            city: place.name ?? "",
-            staleAt: snap.at,
-          });
-        } else {
-          setWeather((w) => ({
-            ...w,
-            loading: false,
-            error: e instanceof Error ? e.message : "天气获取失败，请检查网络后重试",
-          }));
-        }
-      }
-    }
-
-    load();
-    const t = setInterval(load, 30 * 60 * 1000);
-    /* 网络恢复即刻重试（限流回退态最常见的恢复路径） */
-    const onOnline = () => {
-      if (!cancelled) load();
-    };
-    window.addEventListener("online", onOnline);
-    return () => {
-      cancelled = true;
-      clearInterval(t);
-      window.removeEventListener("online", onOnline);
-    };
-  }, [mounted, place]);
-
-  /* ---------- 双击禅模式 + Edge 双击菜单抑制 ---------- */
-  useEffect(() => {
-    if (!mounted) return;
-    const onDblClick = (e: MouseEvent) => {
-      const t = e.target as Element | null;
-      // 输入场景保留双击选词，其余场景阻止浏览器默认行为（Edge 菜单）
-      if (t?.closest("input, textarea, select, [contenteditable='true']")) return;
-      e.preventDefault();
-      if (!t || typeof t.closest !== "function") return;
-      // 交互元素上的双击不进入禅模式
-      if (
-        t.closest(
-          "button, a, nav, [role='dialog'], [role='tablist'], [role='radiogroup']"
-        ) ||
-        panel != null ||
-        editor.open ||
-        paletteOpen ||
-        ctxMenu
-      )
-        return;
-      if (zenRef.current) defrostGlass();
-      setZen((z) => !z);
-    };
-    window.addEventListener("dblclick", onDblClick);
-    return () => window.removeEventListener("dblclick", onDblClick);
-  }, [mounted, panel, editor.open, paletteOpen, ctxMenu, defrostGlass]);
-
-  /* ---------- 进入禅模式时收起所有浮层 ---------- */
-  useEffect(() => {
-    if (zen) {
-      setPanel(null);
-      setDockWidget(null);
-      setPaletteOpen(false);
-      setEditor({ open: false, editing: null });
-      setCtxMenu(false);
-      setDevDocs(false);
-    }
-  }, [zen]);
-
-  /* ---------- 面板与预设 dock 弹出面板互斥（同一时间至多一个浮层，遮罩/动画语义才成立） ----------
-     打开内建面板即收起 dock 弹出面板；反向互斥在 toggleDockWidget 内做 */
-  useEffect(() => {
-    if (panel != null) setDockWidget(null);
-  }, [panel]);
-
   /* ---------- 「初始」专属右键菜单：拦截浏览器默认菜单 ----------
-   * 触发判定与 ContextMenu 组件内换位判定同律：输入区/文字选区让路给
-   * 浏览器（复制/翻译/拼写检查是系统级能力），沙箱自定义页让路
-   * （页面自己决定）；其余一律 preventDefault 弹「初始」菜单。
-   * 浮层（⌘K/面板/对话框）打开时照常弹出：菜单 z-[70] 高于浮层 z-50，
-   * glass-card 同源材质不破相。 */
+     触发判定与 ContextMenu 组件内换位判定同律：输入区/文字选区让路给
+     浏览器（复制/翻译/拼写检查是系统级能力），沙箱自定义页让路（页面自己
+     决定）；磁贴/添加位自带右键语义（右键即编辑该磁贴），整块让位；
+     其余一律 preventDefault 弹「初始」菜单。浮层打开时照常弹出：
+     菜单 z-[70] 高于浮层 z-50，glass-card 同源材质不破相。 */
   useEffect(() => {
     if (!mounted) return;
     const onCtx = (e: MouseEvent) => {
-      if (activePage != null) return;
+      if (sp.activePage != null) return;
       const t = e.target as Element | null;
       if (t?.closest("input, textarea, select, [contenteditable='true']")) return;
-      /* v8.6.3：磁贴/添加位自带右键语义（右键即编辑该快捷服务，Tile 已
-         preventDefault 原生菜单）——页面菜单若再弹就是「进编辑还弹菜单」的
-         双重响应（用户实测），磁贴上整块让位 */
       if (t && typeof t.closest === "function" && t.closest("[data-cl-tile]")) return;
       if (
         t &&
@@ -516,131 +93,81 @@ export default function Home() {
       )
         return;
       e.preventDefault();
-      setCtxPos({ x: e.clientX, y: e.clientY });
-      setCtxMenu(true);
+      sp.setCtxPos({ x: e.clientX, y: e.clientY });
+      sp.setCtxMenu(true);
     };
     window.addEventListener("contextmenu", onCtx);
     return () => window.removeEventListener("contextmenu", onCtx);
-  }, [mounted, activePage]);
-  /* ---------- 禅模式挂 html.zen 类：雾化散场/聚拢由 CSS 各自承载（见 globals.css 磨砂玻璃存活原则） ---------- */
-  useEffect(() => {
-    document.documentElement.classList.toggle("zen", zen);
-  }, [zen]);
+  }, [mounted, sp.activePage, sp.setCtxPos, sp.setCtxMenu]);
 
-  /* ---------- 禅模式提示词墨色：掠影下随壁纸明暗自适应（浅底深字 / 深底浅字） ----------
-   * 从当前壁纸缩略图采样提示词所在区域的感知亮度，叠乘掠影压暗遮罩的
-   * 合成衰减后判定：辉光/纯净底色恒定，不做采样，保持主题默认色。
-   * 禅模式内无法换壁纸（面板已收起），进禅采样一次即稳定。 */
-  const zenHintRef = useRef<HTMLParagraphElement | null>(null);
-  const [zenHintTone, setZenHintTone] = useState<"auto" | "on-dark" | "on-light">("auto");
-
-  useEffect(() => {
-    if (!zen) {
-      setZenHintTone("auto");
-      return;
-    }
-    let alive = true;
-    (async () => {
-      if (!document.documentElement.classList.contains("photo-mode")) return;
-      /* v8.6.14：浅色主题的掠影改白纱遮罩（globals.css「掠影·浅色模式」），
-         合成背景亮度 = L·(1−α)+α ≥ α ≈ 0.676（最坏纯黑壁纸），恒为浅底 →
-         墨色恒取深字。下面的采样公式是按压暗遮罩推的（L·0.722），对白纱不成立，
-         所以浅色主题直接短路，不再采样。 */
-      if (!document.documentElement.classList.contains("dark")) {
-        setZenHintTone("on-light");
-        return;
-      }
-      const img = document.querySelector<HTMLImageElement>("img[data-wallpaper]");
-      const el = zenHintRef.current;
-      if (!img || !el) return;
-      const src = img.dataset.thumb || img.currentSrc || img.src;
-      await new Promise<void>((r) => requestAnimationFrame(() => r())); // 等提示词布局就位
-      if (!alive) return;
-      const r = el.getBoundingClientRect();
-      if (r.width < 2 || r.height < 2) return;
-      const lum = await sampleCoverLuminance(
-        src,
-        { x: r.left, y: r.top, w: r.width, h: r.height },
-        { w: window.innerWidth, h: window.innerHeight }
-      );
-      if (!alive || lum == null) return;
-      /* 压暗遮罩在屏幕中段的合成不透明度：平底 0.18 与渐变中段 0.12 叠乘
-         ≈ 0.278；黑色遮罩下透亮率 L′ = L·(1−0.18)·(1−0.12) ≈ L·0.722。
-         阈值 0.3：按深/浅墨最终混合色的对比交叉点推导 ≈ 0.294，取 0.3 */
-      const shown = lum * (1 - 0.18) * (1 - 0.12);
-      setZenHintTone(shown >= 0.3 ? "on-light" : "on-dark");
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [zen]);
   /* ---------- 链接编辑事件（来自磁贴的加号 / 编辑按钮 / 长按） ---------- */
   useEffect(() => {
     const onEdit = (e: Event) => {
       const detail = (e as CustomEvent).detail as StartLink | null;
-      setEditor({ open: true, editing: detail });
-      setPanel(null);
+      sp.setEditor({ open: true, editing: detail });
+      sp.setPanel(null);
     };
     window.addEventListener("start:edit-link", onEdit);
     return () => window.removeEventListener("start:edit-link", onEdit);
-  }, []);
+  }, [sp.setEditor, sp.setPanel]);
 
-  /* ---------- 全局快捷键 ---------- */
+  /* ---------- 全局快捷键 ----------
+     禅模式只认 Esc；⌘K/Ctrl+K 切换命令面板；Esc 按优先级关浮层
+     （自定义页自带 Esc，全局避让防双关；右键菜单后开先关）；
+     「/」聚焦搜索，任意可打印字符直接开始搜索。 */
   useEffect(() => {
     if (!mounted) return;
     const onKey = (e: KeyboardEvent) => {
-      // 禅模式下仅响应 Esc 退出
-      if (zen) {
+      if (sp.zen) {
         if (e.key === "Escape") {
           e.preventDefault();
-          defrostGlass();
-          setZen(false);
+          sp.defrostGlass();
+          sp.setZen(false);
         }
         return;
       }
-      // ⌘K / Ctrl+K 切换命令面板
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setCtxMenu(false);
-        setDevDocs(false);
-        setPaletteOpen((o) => !o);
+        sp.setCtxMenu(false);
+        sp.setDevDocs(false);
+        sp.setPaletteOpen((o) => !o);
         return;
       }
       if (e.key === "Escape") {
-        /* 自定义页面 overlay 自带 Esc 关闭，全局避让防双关；
-           右键菜单后开先关（z 最高），开发者文档自带捕获拦截（通常
-           到不了这里，此处兜底）；之后依次 ⌘K → 链接编辑器 → 面板 */
-        if (activePage != null) return;
-        if (ctxMenu) {
-          setCtxMenu(false);
+        if (sp.activePage != null) return;
+        if (sp.ctxMenu) {
+          sp.setCtxMenu(false);
           return;
         }
-        if (devDocs) {
-          setDevDocs(false);
+        if (sp.devDocs) {
+          sp.setDevDocs(false);
           return;
         }
-        if (paletteOpen) {
-          setPaletteOpen(false);
+        if (sp.paletteOpen) {
+          sp.setPaletteOpen(false);
           return;
         }
-        if (editor.open) {
-          setEditor({ open: false, editing: null });
+        if (sp.editor.open) {
+          sp.setEditor({ open: false, editing: null });
           return;
         }
-        if (panel != null) {
-          setPanel(null);
+        if (sp.panel != null) {
+          sp.setPanel(null);
           return;
         }
-        if (dockWidget != null) {
-          setDockWidget(null);
+        if (sp.dockWidget != null) {
+          sp.setDockWidget(null);
           return;
         }
         return;
       }
-      // 「/」聚焦搜索；任意可打印字符直接开始搜索
       /* 快捷服务抽屉打开时同样锁定（打字进搜索会聚焦到已雾化的输入框） */
       const locked =
-        paletteOpen || editor.open || panel != null || ctxMenu || devDocs ||
+        sp.paletteOpen ||
+        sp.editor.open ||
+        sp.panel != null ||
+        sp.ctxMenu ||
+        sp.devDocs ||
         document.documentElement.classList.contains("cs-drawer");
       if (locked || isTypingTarget(document.activeElement)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -657,112 +184,23 @@ export default function Home() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [mounted, paletteOpen, editor.open, panel, dockWidget, zen, activePage, ctxMenu, devDocs, defrostGlass]);
+  }, [mounted, sp]);
 
-  /* ---------- 首次访问提示 ---------- */
-  useEffect(() => {
-    if (!mounted) return;
-    let seen: string | null = null;
-    try {
-      seen = localStorage.getItem("start:seen");
-    } catch {
-      return;
-    }
-    if (seen) return;
-    try {
-      localStorage.setItem("start:seen", "1");
-    } catch {
-      return;
-    }
-    toast({
-      title: "欢迎使用「初始」",
-      description: "直接输入即可搜索 · ⌘K 打开指令面板 · 底部栏常用工具",
-      duration: 6500,
-    });
-  }, [mounted]);
-
-  /* ---------- 数据管理 ---------- */
-  const exportData = useCallback(() => {
-    const data = {
-      version: 1,
-      exportedAt: new Date().toISOString(),
-      settings,
-      links,
-      todos,
-      note,
-      place,
-    };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `初始-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(a.href);
-    toast({ title: "已导出备份文件" });
-  }, [settings, links, todos, note, place, toast]);
-
-  const importData = useCallback(
-    (file: File) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        try {
-          const d = JSON.parse(String(reader.result));
-          if (typeof d !== "object" || d == null) throw new Error("bad file");
-          if (d.settings && typeof d.settings === "object") {
-            setSettings({ ...DEFAULT_SETTINGS, ...d.settings });
-          }
-          if (Array.isArray(d.links)) setLinks(d.links as StartLink[]);
-          if (Array.isArray(d.todos)) setTodos(d.todos as TodoItem[]);
-          if (typeof d.note === "string") setNote(d.note);
-          if (d.place && typeof d.place === "object") setPlace(d.place as Place);
-          toast({ title: "导入完成", description: "数据已恢复" });
-        } catch {
-          toast({ title: "导入失败", description: "文件格式不正确" });
-        }
-      };
-      reader.readAsText(file);
-    },
-    [setSettings, setLinks, setTodos, setNote, setPlace, toast]
-  );
-
-  const resetAll = useCallback(() => {
-    for (const key of Object.values(KEYS)) {
-      try {
-        localStorage.removeItem(key);
-      } catch {
-        /* noop */
-      }
-    }
-    window.location.reload();
-  }, []);
-
-  /* ---------- 稳定引用回调：panel 切换时 memo 子树（时钟/搜索/链接/背景/面板）可整体跳过渲染 ---------- */
-  const commitNote = useCallback((v: string) => setNote(v), [setNote]);
-  const openPalette = useCallback(() => setPaletteOpen(true), []);
-  const closePalette = useCallback(() => setPaletteOpen(false), []);
-  const closeEditor = useCallback(() => setEditor({ open: false, editing: null }), []);
-  const gotoPanel = useCallback((p: PanelId) => {
-    /* v2.0.1：与 Dock.switchTo 同律——单帧批量互斥（原先靠下方 effect 二段渲染，
-       两帧间隙选框/舞台双活，音乐面板→内建走了两段式开/关） */
-    setPanel(p);
-    setDockWidget(null);
-  }, []);
-  /* ---------- v8.4.8 · 外链提升兜底（扩展壳 iframe「拒绝连接」修复） ----------
-     应用跑在壳（shell.html）的全屏 iframe 里：任何不带 target 的 <a href>
-     默认只在 iframe 内导航，主流站点的 X-Frame-Options 会让整页呈现
-     「拒绝了我们的连接请求」。这里在捕获阶段统一拦截普通左键点击的
-     http(s) 锚点，提升到顶层框架整页打开；QuickLinks 磁贴自带同款逻辑
-     （且要区分编辑态），故用 data-cl-tile 标记跳过；修饰键/中键/_blank
-     均不拦，维持浏览器原生行为。 */
+  /* ---------- v8.4.8 外链提升兜底（扩展壳 iframe「拒绝连接」修复） ----------
+     应用跑在壳（shell.html）的全屏 iframe 里：不带 target 的 <a href> 默认
+     只在 iframe 内导航，主流站点的 X-Frame-Options 会让整页「拒绝连接」。
+     捕获阶段统一拦截普通左键点击的 http(s) 锚点，提升到顶层框架整页打开；
+     QuickLinks 磁贴自带同款逻辑（data-cl-tile 标记跳过）；修饰键/中键/
+     _blank 均不拦，维持浏览器原生行为。 */
   useEffect(() => {
     const onDocClick = (e: MouseEvent) => {
       if (e.defaultPrevented || e.button !== 0) return;
       if (e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
       const t = e.target as Element | null;
-      const a =
-        t && typeof t.closest === "function" ? t.closest("a[href]") : null;
+      const a = t && typeof t.closest === "function" ? t.closest("a[href]") : null;
       if (!a || a.hasAttribute("data-cl-tile")) return;
-      if (a.target && a.target !== "_self") return;
+      const anchor = a as HTMLAnchorElement;
+      if (anchor.target && anchor.target !== "_self") return;
       const href = a.getAttribute("href") || "";
       if (!/^https?:\/\//i.test(href)) return;
       if (!inExtIframe()) return;
@@ -773,8 +211,35 @@ export default function Home() {
     return () => document.removeEventListener("click", onDocClick, true);
   }, []);
 
-  const openAddLink = useCallback(() => emitEditLink(null), []);
-  /* 批量管理磁贴（v1.7.1）：PC 端右键菜单直达——进入磁贴编辑模式（连点/连删/拖拽排序），
+  /* ---------- 首次访问提示 ---------- */
+  useEffect(() => {
+    if (!mounted) return;
+    let seen: string | null = null;
+    try {
+      seen = localStorage.getItem(SEEN_KEY);
+    } catch {
+      return;
+    }
+    if (seen) return;
+    try {
+      localStorage.setItem(SEEN_KEY, "1");
+    } catch {
+      return;
+    }
+    toast({
+      title: "欢迎使用「初始」",
+      description: "直接输入即可搜索 · ⌘K 打开指令面板 · 底部栏常用工具",
+      duration: 6500,
+    });
+  }, [mounted, toast]);
+
+  /* ---------- 动作回调 ---------- */
+  const toggleTheme = useCallback(
+    () => sp.patchSettings({ themeMode: sp.isDark ? "light" : "dark" }),
+    [sp.isDark, sp.patchSettings]
+  );
+
+  /* 批量管理磁贴（v1.7.1）：进入磁贴编辑模式（连点/连删/拖拽排序），
      模式内点击空白处退出；与触屏长按进入的同一模式 */
   const manageLinks = useCallback(() => {
     window.dispatchEvent(new CustomEvent("start:links-manage"));
@@ -784,462 +249,59 @@ export default function Home() {
       duration: 5000,
     });
   }, [toast]);
-  const runSearch = useCallback((engineId: string, q: string) => {
-    const engine = getEngine(engineId);
-    openExternalUrl(engine.search(q)); // v8.4.8：壳 iframe 内提升到顶层整页打开
-  }, []);
-  const toggleTheme = useCallback(
-    () =>
-      patchSettings({
-        themeMode: isDark ? ("light" as const) : ("dark" as const),
-      }),
-    [isDark, patchSettings]
-  );
+
+  const openZen = useCallback(() => sp.setZen(true), [sp.setZen]);
+  const openSettings = useCallback(() => sp.gotoPanel("settings"), [sp.gotoPanel]);
+  const openDevDocs = useCallback(() => sp.setDevDocs(true), [sp.setDevDocs]);
 
   /* ---------- 右键菜单动作清单（与 CM_ICONS 同源；run 后菜单自动关闭） ---------- */
-  const closeCtxMenu = useCallback(() => setCtxMenu(false), []);
-  const openZen = useCallback(() => setZen(true), []);
-  const openSettings = useCallback(() => gotoPanel("settings"), [gotoPanel]);
-  const openDevDocs = useCallback(() => setDevDocs(true), []);
   const ctxActions = useMemo<ContextMenuAction[]>(
     () => [
-      { id: "palette", label: "指令面板", icon: CM_ICONS.palette, run: openPalette },
-      { id: "add-link", label: "添加链接", icon: CM_ICONS.addLink, run: openAddLink },
+      { id: "palette", label: "指令面板", icon: CM_ICONS.palette, run: sp.openPalette },
+      { id: "add-link", label: "添加链接", icon: CM_ICONS.addLink, run: sp.openAddLink },
       { id: "manage-links", label: "批量管理磁贴", icon: CM_ICONS.manageLinks, run: manageLinks },
       { id: "theme", label: "明暗切换", icon: CM_ICONS.theme, run: toggleTheme, sep: true },
       { id: "zen", label: "禅模式", icon: CM_ICONS.zen, run: openZen },
       { id: "settings", label: "设置", icon: CM_ICONS.settings, run: openSettings, sep: true },
       { id: "dev-docs", label: "开发者文档", icon: CM_ICONS.docs, run: openDevDocs },
-      { id: "export", label: "导出备份", icon: CM_ICONS.export, run: exportData },
+      { id: "export", label: "导出备份", icon: CM_ICONS.export, run: sp.exportData },
     ],
-    [openPalette, openAddLink, manageLinks, toggleTheme, openZen, openSettings, openDevDocs, exportData]
+    [sp.openPalette, sp.openAddLink, manageLinks, toggleTheme, openZen, openSettings, openDevDocs, sp.exportData]
   );
 
-  /* ---------- 预设系统（声明式，白名单 action，零代码执行） ----------
-     置于 runSearch/toggleTheme 等稳定回调之后：依赖数组在定义时求值，
-     放早了会 TDZ 崩页 */
-  const installPreset = useCallback(
-    (payload: PresetPayload, opts?: { replaceByName?: boolean }) => {
-      /* v8.4.11 替换语义（官方预设重装更新）：同名预设先移除再装——
-         官方预设换代（如音乐面板空态修复）时老用户一键重装即全量换新，
-         不产生重名副本；普通导入路径不变（append）。 */
-      const replacing =
-        opts?.replaceByName === true && presets.some((p) => p.name === payload.name);
-      setPresets((prev) => {
-        const base = opts?.replaceByName ? prev.filter((p) => p.name !== payload.name) : prev;
-        return [
-          ...base,
-          {
-            id: uid(),
-            name: payload.name,
-            author: payload.author,
-            installedAt: Date.now(),
-            raw: payload,
-          },
-        ];
-      });
-      /* 磁贴一次性合入（url 去重，重复导入不产生副本） */
-      if (payload.links.length > 0) {
-        setLinks((prev) => {
-          const seen = new Set(prev.map((l) => l.url.replace(/\/+$/, "")));
-          const add = payload.links
-            .filter((l) => !seen.has(l.url.replace(/\/+$/, "")))
-            .map((l) => ({ id: uid(), name: l.name, url: l.url }));
-          return add.length > 0 ? [...prev, ...add] : prev;
-        });
-      }
-      /* 设置白名单字段一次性合并（用户可再改） */
-      if (payload.settings) patchSettings(payload.settings);
-      /* 时钟格式中的小时制/秒数：一次性合入用户设置（v1.7.1 语义修正）——
-         原先的声明式覆写会永久遮蔽设置面板（预设装着时怎么调都无效）；
-         改为导入时写一次，之后与手调设置同源。日期行/问候语无面板控件，
-         仍走声明式覆写（删除预设即还原，见 presetExtras.clock） */
-      if (payload.clock && (payload.clock.hour12 !== undefined || payload.clock.showSeconds !== undefined)) {
-        patchSettings({
-          ...(payload.clock.hour12 !== undefined ? { hour12: payload.clock.hour12 } : null),
-          ...(payload.clock.showSeconds !== undefined ? { showSeconds: payload.clock.showSeconds } : null),
-        } as Partial<Settings>);
-      }
-      const extras = [
-        payload.scripts?.length ? `${payload.scripts.length} 个脚本` : null,
-        payload.animations?.length ? `${payload.animations.length} 段样式` : null,
-        payload.pages?.length ? `${payload.pages.length} 个页面` : null,
-        payload.widgets?.length ? `${payload.widgets.length} 个小部件` : null,
-        payload.layout ? "布局覆写" : null,
-      ].filter(Boolean);
-      toast({
-        title: replacing
-          ? `官方预设「${payload.name}」已更新`
-          : `预设「${payload.name}」已安装`,
-        description: [
-          `新增 ${payload.commands.length} 条命令、${payload.dock.length} 个栏按钮、${payload.links.length} 个磁贴`,
-          extras.length > 0 ? extras.join(" · ") : null,
-        ]
-          .filter(Boolean)
-          .join("；"),
-      });
-    },
-    [setPresets, setLinks, patchSettings, toast, presets]
-  );
-
-  /* ---------- 官方预设一键安装（v8.4.11，⌘K → 官方预设）----------
-     内嵌包与仓库 examples/ 同源（scripts/build-official-presets.py 生成）；
-     资产内联复用 parsePack 同一 data:URL 形态；同名已装即替换更新。 */
-  const installOfficialPreset = useCallback(
-    (id: string) => {
-      const entry = OFFICIAL_PRESETS.find((x) => x.id === id);
-      if (!entry) return;
-      const parsed = parsePreset(entry.manifest);
-      if (!parsed.ok) {
-        toast({ title: "官方预设数据异常", description: parsed.errors.join("；") });
-        return;
-      }
-      installPreset(inlineOfficialAssets(parsed.preset, entry.assets), {
-        replaceByName: true,
-      });
-    },
-    [installPreset, toast]
-  );
-
-  const removePreset = useCallback(
-    (id: string) => {
-      setPresets((prev) => {
-        const target = prev.find((p) => p.id === id);
-        if (target) toast({ title: `预设「${target.name}」已移除` });
-        return prev.filter((p) => p.id !== id);
-      });
-      /* 顺手清理该预设脚本的冻结标记（重新导入即全新实例，自动解冻） */
-      setFrozenScripts((prev) => {
-        const next: Record<string, boolean> = {};
-        for (const k of Object.keys(prev)) if (!k.startsWith(`${id}:`)) next[k] = prev[k];
-        if (Object.keys(next).length !== Object.keys(prev).length) {
-          writeLS(KEYS.sandboxFrozen, next);
-          return next;
-        }
-        return prev;
-      });
-      /* 同律回收该预设全部脚本的设置面持久化值（与分区消失对称） */
-      prunePresetSettings(`${id}:`);
-    },
-    [setPresets, toast]
-  );
-
-  /* ---------- 沙箱 JS（高阶模式）：脚本派生 ----------
-     置于 presetCommands/presetDock 之前：依赖数组定义时求值（TDZ 律） */
-  const sandboxScripts = useMemo<SandboxScript[]>(
-    () =>
-      presets.flatMap((p) =>
-        (p.raw.scripts ?? []).map((sc) => ({
-          key: `${p.id}:${sc.id}`,
-          presetName: p.name,
-          name: sc.name ?? sc.id,
-          code: sc.code,
-        }))
-      ),
-    [presets]
-  );
-  const activeSandboxScripts = useMemo(
-    () => sandboxScripts.filter((sc) => !frozenScripts[sc.key]),
-    [sandboxScripts, frozenScripts]
-  );
-  /** 激活脚本键集：声明式 script 命令/按钮只在此集合内的脚本上展示（冻结即隐藏） */
-  const activeScriptKeys = useMemo(
-    () => new Set(activeSandboxScripts.map((sc) => sc.key)),
-    [activeSandboxScripts]
-  );
-
-  /* 预设命令/dock 项派生：装了即生效，删除即失效（无隐藏状态）。
-     script action 在此展开为 `${presetId}:${scriptId}` 复合键；
-     引用未激活（冻结/无沙箱）脚本的项在此隐藏，避免幽灵命令 */
-  const presetCommands = useMemo(
-    () =>
-      presets.flatMap((p) =>
-        p.raw.commands.flatMap((c, i) => {
-          if (c.action.type === "script" && !activeScriptKeys.has(`${p.id}:${c.action.id}`)) {
-            return [];
-          }
-          return [
-            {
-              title: c.title,
-              action: resolvePresetAction(c.action, p.id),
-              key: `${p.id}:${i}`,
-              presetName: p.name,
-            },
-          ];
-        })
-      ),
-    [presets, activeScriptKeys]
-  );
-  const presetDock = useMemo(
-    () =>
-      presets.flatMap((p) =>
-        p.raw.dock.flatMap((d, i) => {
-          if (d.action.type === "script" && !activeScriptKeys.has(`${p.id}:${d.action.id}`)) {
-            return [];
-          }
-          return [
-            {
-              title: d.title,
-              icon: d.icon,
-              action: resolvePresetAction(d.action, p.id),
-              key: `${p.id}:d${i}`,
-            },
-          ];
-        })
-      ),
-    [presets, activeScriptKeys]
-  );
-
-  /* 预设小部件派生：装了即生效，删除即失效（与命令/dock 同律）。
-     surface（v1.8.2）：corner = 角落磁贴；dock = tab 栏按钮 + 弹出面板 */
-  const presetWidgets = useMemo<ActiveWidget[]>(
-    () =>
-      presets.flatMap((p) =>
-        (p.raw.widgets ?? []).map((w) => ({
-          key: `${p.id}:${w.id}`,
-          presetName: p.name,
-          name: w.name ?? w.id,
-          surface: w.surface ?? ("corner" as const),
-          icon: w.icon,
-          corner: w.corner ?? ("top-left" as const),
-          width: w.width ?? 216,
-          height: w.height ?? 88,
-          html: w.html,
-        }))
-      ),
-    [presets]
-  );
-  /** dock 表面小部件（tab 栏按钮 + 弹出面板的清单，传给 Dock 渲染按钮） */
-  const presetDockWidgets = useMemo(
-    () => presetWidgets.filter((w) => w.surface === "dock"),
-    [presetWidgets]
-  );
-
-  /* dock 弹出面板开关（v1.8.2）：与内建面板互斥（开 dock 弹层即收内建面板）；
-     预设被删除时对应弹层自动关闭（下面 effect 兕底） */
-  const toggleDockWidget = useCallback(
-    (key: string) => {
-      setPanel(null);
-      setDockWidget((k) => (k === key ? null : key));
-    },
-    []
-  );
-  const closeDockWidget = useCallback(() => setDockWidget(null), []);
-
-  /* 部件自报高度（v2.0.0 统一舞台）：chushi.resize → 这里 → Dock 舞台高度盒弹簧。
-     回调必须稳定（PresetWidgets 消息回调期经 cbRef 读取，重挂不必要） */
-  const [widgetHeights, setWidgetHeights] = useState<Record<string, number>>({});
-  const onWidgetResize = useCallback((key: string, height: number) => {
-    setWidgetHeights((prev) => (prev[key] === height ? prev : { ...prev, [key]: height }));
-  }, []);
-
-  /* 兕底：dock 弹出面板指向的小部件被删（预设移除）时自动关闭 */
-  useEffect(() => {
-    setDockWidget((k) => (k != null && !presetDockWidgets.some((w) => w.key === k) ? null : k));
-  }, [presetDockWidgets]);
-
-  /* ---------- 沙箱桥事件与同步生命周期 ---------- */
-  useEffect(() => {
-    sandboxBridge.onEvent = (ev) => {
-      switch (ev.kind) {
-        case "commands":
-          setScriptCmds((prev) => [
-            ...prev.filter((c) => c.scriptKey !== ev.scriptKey),
-            ...ev.commands,
-          ]);
-          break;
-        case "notify":
-          toast({ title: ev.title, description: ev.description || undefined });
-          break;
-        case "open":
-          if (/^https:\/\//i.test(ev.url)) openExternalUrl(ev.url); // v8.4.8：提升到顶层
-          break;
-        case "copy":
-          navigator.clipboard
-            .writeText(ev.text)
-            .then(() => toast({ title: "已复制", description: ev.text.slice(0, 30) + (ev.text.length > 30 ? "…" : "") }))
-            .catch(() => toast({ title: "复制失败", description: "浏览器未授权剪贴板" }));
-          break;
-        case "error":
-          toast({ title: "沙箱脚本", description: ev.message });
-          break;
-        case "frozen":
-          markFrozen(ev.key);
-          toast({
-            title: `脚本「${ev.name}」已自动停用`,
-            description: "启动超时（疑似死循环）；删除并重新导入该预设可恢复",
-            duration: 8000,
-          });
-          break;
-        case "settingsSchema":
-          setPresetSchemas((prev) => ({
-            ...prev,
-            [ev.scriptKey]: { presetName: ev.presetName, schema: ev.schema },
-          }));
-          break;
-      }
-    };
-    return () => {
-      sandboxBridge.onEvent = null;
-    };
-  }, [toast, markFrozen]);
-
-  useEffect(() => {
-    sandboxBridge.sync(activeSandboxScripts);
-  }, [activeSandboxScripts]);
-
-  /* 预设变更后同步清理失主脚本（删除/冻结）的运行时命令条目 */
-  useEffect(() => {
-    setScriptCmds((prev) => {
-      const next = prev.filter((c) => activeScriptKeys.has(c.scriptKey));
-      return next.length === prev.length ? prev : next;
-    });
-  }, [activeScriptKeys]);
-
-  /* 预设设置面 schema 同律：脚本不再激活即从设置面板移除分区 */
-  useEffect(() => {
-    setPresetSchemas((prev) => {
-      const next: typeof prev = {};
-      for (const k of Object.keys(prev)) if (activeScriptKeys.has(k)) next[k] = prev[k];
-      return Object.keys(next).length === Object.keys(prev).length ? prev : next;
-    });
-  }, [activeScriptKeys]);
-
-  /* 预设设置值读取器：注入桥，settingsGet 回执时按 schema 校验 LS 持久化值 */
-  useEffect(() => {
-    sandboxBridge.settingsProvider = (key, schema) => readPresetSettingValues(key, schema);
-    return () => {
-      sandboxBridge.settingsProvider = null;
-    };
-  }, []);
-
-  /* 设置面板变更：持久化整组值 + 下发沙箱（onChange 热调引擎参数） */
-  const changePresetSetting = useCallback(
-    (scriptKey: string, values: PresetSettingValues) => {
-      writePresetSettingValues(scriptKey, values);
-      sandboxBridge.pushSettingsValues(scriptKey, values);
-    },
-    []
-  );
-
-  /* 预设设置分区（渲染进设置面板）：脚本激活即出现，删除/冻结即消失 */
-  const presetSettingSections = useMemo(
-    () =>
-      Object.entries(presetSchemas).map(([scriptKey, v]) => ({
-        scriptKey,
-        presetName: v.presetName,
-        schema: v.schema,
-      })),
-    [presetSchemas]
-  );
-
-  /* 沙箱脚本运行时注册的命令 → ⌘K 派生项（与声明式命令同组展示） */
-  const sandboxDerivedCommands = useMemo(
-    () =>
-      scriptCmds.map((c) => ({
-        title: c.title,
-        action: { type: "script", id: `${c.scriptKey}:${c.id}` } as PresetAction,
-        key: `sc:${c.scriptKey}:${c.id}`,
-        presetName: c.presetName,
-      })),
-    [scriptCmds]
-  );
-  const allPresetCommands = useMemo(
-    () => [...presetCommands, ...sandboxDerivedCommands],
-    [presetCommands, sandboxDerivedCommands]
-  );
-
-  const runPresetAction = useCallback(
-    (a: PresetAction) => {
-      switch (a.type) {
-        case "open":
-          openExternalUrl(a.url); // v8.4.8：壳 iframe 内提升到顶层整页打开
-          break;
-        case "search":
-          runSearch(a.engine, a.q);
-          break;
-        case "panel":
-          setPanel(a.id);
-          setDockWidget(null); // v2.0.1：同帧互斥（见 gotoPanel 注释）
-          break;
-        case "theme":
-          patchSettings({ themeMode: a.mode });
-          break;
-        case "copy":
-          navigator.clipboard
-            .writeText(a.text)
-            .then(() => toast({ title: "已复制", description: a.text.slice(0, 30) + (a.text.length > 30 ? "…" : "") }))
-            .catch(() => toast({ title: "复制失败", description: "浏览器未授权剪贴板" }));
-          break;
-        case "script": {
-          /* id = `${presetId}:${scriptId}`（入口）或 `${presetId}:${scriptId}:${cmdId}`（命令），
-             由沙箱内统一路由（命令表优先，其次脚本入口 chushi.run） */
-          const ok = sandboxBridge.invoke(a.id);
-          if (!ok) {
-            toast({
-              title: "沙箱未运行",
-              description: "脚本已停用或初始化失败；删除并重新导入预设可恢复",
-            });
-          }
-          break;
-        }
-        case "page": {
-          /* id = `${presetId}:${pageId}`，从已装预设找回页面 HTML */
-          const sep = a.id.indexOf(":");
-          const presetId = sep > 0 ? a.id.slice(0, sep) : "";
-          const pageId = sep > 0 ? a.id.slice(sep + 1) : "";
-          const pg = presets
-            .find((p) => p.id === presetId)
-            ?.raw.pages?.find((x) => x.id === pageId);
-          if (!pg) {
-            toast({ title: "页面不存在", description: "预设可能已更新或删除，重新导入可恢复" });
-            break;
-          }
-          setActivePage({ key: a.id, name: pg.name ?? pageId, html: pg.html });
-          break;
-        }
-      }
-    },
-    [runSearch, patchSettings, toast, presets]
-  );
-
-  /* 预设导入/管理入口 = 指令面板内嵌视图（PresetPanel）：指令面板原地形变为
-     预设系统面板，无独立对话框 */
-
-  /* ---------- 自定义页面 overlay 稳定回调 ---------- */
-  const closePage = useCallback(() => setActivePage(null), []);
+  /* ---------- 沙箱自定义页 overlay 稳定回调 ---------- */
   const notifyFromPage = useCallback(
     (title: string, description?: string) => toast({ title, description }),
     [toast]
   );
   const openUrlFromPage = useCallback((url: string) => {
-    openExternalUrl(url); // v8.4.8：壳 iframe 内提升到顶层整页打开
+    openExternalUrl(url);
   }, []);
 
   /* ---------- 链接保存 / 删除 ---------- */
   const saveLink = useCallback(
     (link: StartLink) => {
-      setLinks((prev) =>
+      sp.setLinks((prev) =>
         link.id
           ? prev.map((l) => (l.id === link.id ? link : l))
           : [...prev, { ...link, id: uid() }]
       );
-      setEditor({ open: false, editing: null });
+      sp.setEditor({ open: false, editing: null });
       toast({ title: link.id ? "链接已更新" : "链接已添加" });
     },
-    [setLinks, toast]
+    [sp.setLinks, sp.setEditor, toast]
   );
 
   const deleteLink = useCallback(
     (id: string) => {
-      setLinks((prev) => prev.filter((l) => l.id !== id));
-      setEditor({ open: false, editing: null });
+      sp.setLinks((prev) => prev.filter((l) => l.id !== id));
+      sp.setEditor({ open: false, editing: null });
       toast({ title: "链接已删除" });
     },
-    [setLinks, toast]
+    [sp.setLinks, sp.setEditor, toast]
   );
 
-  /* 未挂载前的优雅启动画面（配合 head 脚本预置主题，无闪烁） */
+  /* ---------- 未挂载前的优雅启动画面（配合 head 脚本预置主题，无闪烁） ---------- */
   if (!mounted) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-[#f6f5f9] dark:bg-[#0a0a0e]">
@@ -1248,236 +310,194 @@ export default function Home() {
     );
   }
 
-  /* 主列垂直重心（v1.7.2）：磁贴两排时内容更高，居中后整组自然上移——
-     实测该状态视觉重心最舒服；单排磁贴时整组偏沉。磁贴容器 max-w-680px
-     （px-4 内可容 6 列，预设可覆写列数），行数按此估算；≥720px 才应用
-     额外底部留白（窄屏磁贴换行数变多，估算失真），一排时整组上移 32px。
-     v1.7.4：行数必须计入常驻「添加」磁贴（links+1）——它不是编辑态专属，
-     任何模式都占一个槽位；漏算导致 6 磁贴时误判单排（实际 7 槽两排），
-     pb 误上移后下一删网格塌回单排又回落——一上一下瞬跳即「删除抖动」。
-     pb 换挡配合同帧 padding 过渡（transition-[padding]），换排整列滑移不瞬跳 */
+  /* 主列垂直重心（v1.7.2/v1.7.4）：磁贴行数按「常驻添加位」计入估算
+     （links+1 槽位），两排时整组上移；pb 换挡配合同帧 padding 过渡不瞬跳 */
   const PB_NORMAL = "pb-[clamp(8rem,22vh,11rem)]";
   const PB_LIFTED = "pb-[clamp(8rem,22vh,11rem)] min-[720px]:pb-[clamp(8rem,30vh,15rem)]";
-  const linkRows = Math.ceil((links.length + 1) / (layout.linksColumns ?? 6));
+  const linkRows = Math.ceil((sp.links.length + 1) / (sp.layout.linksColumns ?? 6));
   const mainPb = linkRows === 1 ? PB_LIFTED : PB_NORMAL;
+  const linksForm = sp.settings.linksForm ?? "drawer";
 
   return (
     <div className="relative min-h-dvh">
-      <AuroraBackground mode={settings.background} photoId={settings.photoId} wallpaperUrl={settings.wallpaperUrl} wallpaperRev={settings.wallpaperRev} />
+      <AuroraBackground
+        mode={sp.settings.background}
+        photoId={sp.settings.photoId}
+        wallpaperUrl={sp.settings.wallpaperUrl}
+        wallpaperRev={sp.settings.wallpaperRev}
+      />
 
       {/* 禅模式：内容雾化散场由 html.zen + .zen-fade/.search-pill/.zen-dock 各自承载。
-          此包裹层绝不动画 opacity/filter——祖先 opacity<1 / filter≠none 会成为 backdrop root，
-          令内部磨砂玻璃整体失效直至动画结束才瞬跳恢复（v21 前 reload/禅切换的病根） */}
-      <div style={{ pointerEvents: zen ? ("none" as const) : undefined }}>
-      {/* 主内容：布局覆写（layout）在此生效——隐藏区块 / 垂直对齐 / 时钟缩放 / 磁贴列数；
-          zoom 用于时钟整体缩放（影响布局不重叠，Firefox 126+/Chromium/WebKit 均已标准化） */}
-      <main
-        className={`relative z-10 mx-auto flex min-h-dvh w-full max-w-4xl flex-col items-center ${
-          layout.verticalAlign === "top" ? "justify-start" : "justify-center"
-        } px-6 pt-[max(2.5rem,8vh)] transition-[padding] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${mainPb}`}
-      >
-        <div className="flex flex-col items-center">
-          {!layout.hideClock && (
-            <section
-              className="intro-rise zen-fade"
-              style={{ animationDelay: "0.1s", zoom: layout.clockScale ?? 1 }}
-              aria-label="时间与问候"
-            >
-              <Clock settings={settings} preset={presetExtras.clock} />
-            </section>
-          )}
+          此包裹层绝不动画 opacity/filter——祖先 opacity<1 / filter≠none 会成为
+          backdrop root，令内部磨砂玻璃整体失效（磨砂存活原则） */}
+      <div style={{ pointerEvents: sp.zen ? ("none" as const) : undefined }}>
+        {/* 主内容：布局覆写（layout）在此生效——隐藏区块 / 垂直对齐 / 时钟缩放 /
+            磁贴列数；zoom 用于时钟整体缩放（影响布局不重叠） */}
+        <main
+          className={`relative z-10 mx-auto flex min-h-dvh w-full max-w-4xl flex-col items-center ${
+            sp.layout.verticalAlign === "top" ? "justify-start" : "justify-center"
+          } px-6 pt-[max(2.5rem,8vh)] transition-[padding] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${mainPb}`}
+        >
+          <div className="flex flex-col items-center">
+            {!sp.layout.hideClock && (
+              <section
+                className="intro-rise zen-fade"
+                style={{ animationDelay: "0.1s", zoom: sp.layout.clockScale ?? 1 }}
+                aria-label="时间与问候"
+              >
+                <Clock settings={sp.settings} preset={sp.presetClock} />
+              </section>
+            )}
 
-          {/* 搜索：入场上浮移至 .search-pill 自身（玻璃元素祖先禁止 opacity/filter 动画）。
-              v8.6.2：cl-drawer-fade 雾化让位退役——它的 opacity+filter 过渡是「开关
-              抽屉时搜索栏磨砂消失」的元凶（backdrop root 律）；抽屉让位感由纱罩整页
-              高斯模糊承担，搜索栏磨砂恒定在线 */}
-          {!layout.hideSearch && (
-            <section
-              className="mt-[clamp(1.8rem,6vh,3.5rem)] w-full"
-              aria-label="搜索"
-            >
-              <div className="flex justify-center">
-                <SearchBar settings={settings} onPatchSettings={patchSettings} />
-              </div>
-            </section>
-          )}
+            {/* 搜索：入场上浮移至 .search-pill 自身（玻璃元素祖先禁止 opacity/filter
+                动画）；抽屉让位感由纱罩整页高斯模糊承担，搜索栏磨砂恒定在线 */}
+            {!sp.layout.hideSearch && (
+              <section className="mt-[clamp(1.8rem,6vh,3.5rem)] w-full" aria-label="搜索">
+                <div className="flex justify-center">
+                  <SearchBar settings={sp.settings} onPatchSettings={sp.patchSettings} />
+                </div>
+              </section>
+            )}
 
-          {/* 快捷服务·常驻形态（v8.6.2，settings.linksForm = docked）：磁贴墙一直铺在
-              搜索区下方（v8.5.9 原样式回归，56px 磁贴）。v8.6.33 禅退场改挂 .zen-gone
-              （visibility+transform 零毒通道）——磁贴墙是玻璃载体（.tile-frost），任何
-              opacity/filter 祖先（含雾化）都是 backdrop root 毒物；入场交给磁贴自身 */}
-          {!layout.hideLinks && (settings.linksForm ?? "drawer") === "docked" && (
-            <section
-              className="zen-gone mt-[clamp(2rem,8vh,4.5rem)] w-full"
-              aria-label="快捷链接"
-            >
-              <QuickLinks
-                links={links}
-                setLinks={setLinks}
-                iconStyle={settings.iconStyle}
-                columns={layout.linksColumns}
-                form="docked"
-              />
-            </section>
-          )}
+            {/* 快捷服务·常驻形态（settings.linksForm = docked）：磁贴墙一直铺在搜索区
+                下方（56px 磁贴）。磁贴墙是玻璃载体（.tile-frost），禅退场挂 .zen-gone
+                （visibility+transform 零毒通道），入场交给磁贴自身 */}
+            {!sp.layout.hideLinks && linksForm === "docked" && (
+              <section
+                className="zen-gone mt-[clamp(2rem,8vh,4.5rem)] w-full"
+                aria-label="快捷链接"
+              >
+                <QuickLinks
+                  links={sp.links}
+                  setLinks={sp.setLinks}
+                  iconStyle={sp.settings.iconStyle}
+                  columns={sp.layout.linksColumns}
+                  form="docked"
+                />
+              </section>
+            )}
 
-          {/* v8.6.19 抽屉形态布局占位（隐形克隆）：抽屉形态磁贴 portal 到 body 不占
-              主列 → 居中列变矮，时钟/搜索整体下移。这里以 invisible 克隆常驻区块
-              补回同高，时钟/搜索与常驻形态严格同位（切换形态零位移）。
-              探针以 .cl-layout-ghost 祖先豁免克隆内的同名类/磁贴 */}
-          {!layout.hideLinks && (settings.linksForm ?? "drawer") === "drawer" && (
-            <section
-              aria-hidden
-              className="cl-layout-ghost invisible mt-[clamp(2rem,8vh,4.5rem)] w-full"
-            >
-              <QuickLinks
-                links={links}
-                setLinks={setLinks}
-                iconStyle={settings.iconStyle}
-                columns={layout.linksColumns}
-                form="docked"
-              />
-            </section>
-          )}
-        </div>
-      </main>
+            {/* 抽屉形态布局占位（隐形克隆）：抽屉形态磁贴 portal 到 body 不占主列 →
+                居中列变矮，时钟/搜索整体下移。invisible 克隆常驻补回同高，两种形态
+                时钟/搜索严格同位（切换零位移）。探针以 .cl-layout-ghost 豁免克隆 */}
+            {!sp.layout.hideLinks && linksForm === "drawer" && (
+              <section
+                aria-hidden
+                className="cl-layout-ghost invisible mt-[clamp(2rem,8vh,4.5rem)] w-full"
+              >
+                <QuickLinks
+                  links={sp.links}
+                  setLinks={sp.setLinks}
+                  iconStyle={sp.settings.iconStyle}
+                  columns={sp.layout.linksColumns}
+                  form="docked"
+                />
+              </section>
+            )}
+          </div>
+        </main>
 
-      {/* 快捷服务·抽屉形态（v8.6.2，settings.linksForm = drawer，默认）：页面空白处
-          中键单击唤出，自 portal 到 body（纱罩 z-45 整页高斯模糊，Dock 点击自动收起）；
-          hideLinks 时整体停用。抽屉形态此处不产生内联 DOM，挂载位置不影响布局 */}
-      {!layout.hideLinks && (settings.linksForm ?? "drawer") === "drawer" && (
-        <QuickLinks
-          links={links}
-          setLinks={setLinks}
-          iconStyle={settings.iconStyle}
-          columns={layout.linksColumns}
-          form="drawer"
-        />
-      )}
+        {/* 快捷服务·抽屉形态（默认）：页面空白处中键单击唤出，自 portal 到 body
+            （纱罩整页高斯模糊，Dock 点击自动收起）；hideLinks 时整体停用 */}
+        {!sp.layout.hideLinks && linksForm === "drawer" && (
+          <QuickLinks
+            links={sp.links}
+            setLinks={sp.setLinks}
+            iconStyle={sp.settings.iconStyle}
+            columns={sp.layout.linksColumns}
+            form="drawer"
+          />
+        )}
 
-      {/* 底部 Dock：入场上浮移至 nav.dock-intro 自身，禅雾化走 .zen-dock
-          （原 framer 包裹层 opacity 动画会隔死 dock 磨砂，已移除） */}
-      <Dock
-        panel={panel}
-        setPanel={setPanel}
-        weather={weather}
-        place={place}
-        onPlaceChange={setPlace}
-        todos={todos}
-        setTodos={setTodos}
-        note={note}
-        commitNote={commitNote}
-        settings={settings}
-        patchSettings={patchSettings}
-        openPalette={openPalette}
-        exportData={exportData}
-        importData={importData}
-        resetAll={resetAll}
-        presetDock={presetDock}
-        onRunAction={runPresetAction}
-        presetDockWidgets={presetDockWidgets}
-        dockWidgetOpen={dockWidget}
-        onToggleDockWidget={toggleDockWidget}
-        onCloseDockWidget={closeDockWidget}
-        presetSettingSections={presetSettingSections}
-        onPresetSettingChange={changePresetSetting}
-        presetIcons={presetExtras.icons}
-        motionProfile={presetExtras.motion.profile ?? "standard"}
-        isDark={isDark}
-        accent={settings.accent}
-        widgetHeights={widgetHeights}
-      />
+        {/* 底部 Dock：入场上浮移至 nav.dock-intro 自身，禅雾化走 .zen-dock */}
+        <Dock />
       </div>
 
-      {/* 禅模式迷你时钟覆盖层（v8.6.35 常驻 DOM 化）：AnimatePresence/exit 卸载链路
-          整体退役——exit 动画被 rAF 节流/中断时覆盖层滞留 DOM，后续任何 re-render 都
-          可能令 motion 跳回可见态（用户实测「退禅后单击页面禅时钟复现」），卸载元素的
-          合成层缓存亦可能被单击触发的重绘闪现（v8.6.22 层缓存家族）；framer opacity
-          WAAPI 空窗（panel-fade 同族教训）一并消除——进禅淡入/退禅淡出改由 .zen-overlay
-          CSS 过渡承载（visibility 离散插值末帧隐没/即时复现，与 zen-gone/zen-dock 同
-          通道，覆盖层内无玻璃子树零毒）。迷你时钟常驻：时间热状态，进禅零延迟显示。
+      {/* 禅模式迷你时钟覆盖层：常驻 DOM + .zen-overlay CSS 过渡（visibility 离散
+          插值：进禅即时可见/退禅末帧隐没）。「CSS 常驻 + visibility 离散插值」
+          是条件渲染浮层的结构免疫形态——exit 卸载链路的滞留幽灵与卸载元素合成
+          层缓存两类病灶从结构上不存在。迷你时钟常驻：时间热状态，进禅零延迟。
           ZenPomodoro 保持 zen 条件挂载：到点结算/chime/toast 仅禅内生效（与
-          PomodoroPanel 互斥写者语义不变）。 */}
+          PomodoroPanel 互斥写者语义不变，常驻会改变写者拓扑）。 */}
       <div
         className="zen-overlay fixed inset-0 z-20 flex flex-col items-center justify-center"
-        aria-hidden={!zen}
+        aria-hidden={!sp.zen}
       >
-        <Clock settings={settings} preset={presetExtras.clock} mini />
-        {/* 迷你番茄钟：仅在计时运行时浮现（暂停/静止不显示），墨色随采样 tone 同步 */}
-        {zen && <ZenPomodoro settings={settings} tone={zenHintTone} />}
+        <Clock settings={sp.settings} preset={sp.presetClock} mini />
+        {sp.zen && <ZenPomodoro settings={sp.settings} tone={sp.zenHintTone} />}
         <p
-          ref={zenHintRef}
-          data-tone={zenHintTone}
+          ref={sp.zenHintRef}
+          data-tone={sp.zenHintTone}
           className="zen-hint mt-10 text-[11px] font-extralight tracking-[0.42em]"
         >
           双击任意处或按 ESC 退出
         </p>
       </div>
 
-      {/* 命令面板（内嵌预设系统视图，见 PresetPanel） */}
+      {/* 命令面板（内嵌预设系统视图） */}
       <CommandPalette
-        open={paletteOpen}
-        onClose={closePalette}
-        links={links}
-        runSearch={runSearch}
+        open={sp.paletteOpen}
+        onClose={sp.closePalette}
+        links={sp.links}
+        runSearch={sp.runSearch}
         toggleTheme={toggleTheme}
-        themeIsDark={isDark}
-        setPanel={gotoPanel}
-        openAddLink={openAddLink}
-        exportData={exportData}
-        presetCommands={allPresetCommands}
-        runPresetAction={runPresetAction}
-        presets={presets}
-        onInstall={installPreset}
-        onRemove={removePreset}
-        onInstallOfficial={installOfficialPreset}
+        themeIsDark={sp.isDark}
+        setPanel={sp.gotoPanel}
+        openAddLink={sp.openAddLink}
+        exportData={sp.exportData}
+        presetCommands={sp.presetCommandsAll}
+        runPresetAction={sp.runPresetAction}
+        presets={sp.presets}
+        onInstall={sp.installPreset}
+        onRemove={sp.removePreset}
+        onInstallOfficial={sp.installOfficialPreset}
       />
 
-      {/* 自定义页面 overlay（沙箱隔离，见 SandboxPage / sandbox.js pageMode） */}
+      {/* 自定义页面 overlay（沙箱隔离） */}
       <SandboxPage
-        page={activePage}
-        onClose={closePage}
+        page={sp.activePage}
+        onClose={sp.closePage}
         onNotify={notifyFromPage}
         onOpenUrl={openUrlFromPage}
       />
 
-      {/* 预设小部件层（角落磁贴 + API 路由；dock 部件渲染已并入 Dock 统一舞台） */}
+      {/* 预设小部件层（角落磁贴 + API 路由；dock 部件渲染在 Dock 统一舞台） */}
       <PresetWidgets
-        widgets={presetWidgets}
-        isDark={isDark}
-        accent={settings.accent}
+        widgets={sp.presetWidgets}
+        isDark={sp.isDark}
+        accent={sp.settings.accent}
         onNotify={notifyFromPage}
         onOpenUrl={openUrlFromPage}
-        dockPanelKey={dockWidget}
-        onCloseDockPanel={closeDockWidget}
-        heights={widgetHeights}
-        onResize={onWidgetResize}
+        dockPanelKey={sp.dockWidget}
+        onCloseDockPanel={sp.closeDockWidget}
+        heights={sp.widgetHeights}
+        onResize={sp.onWidgetResize}
       />
 
       {/* 链接编辑对话框 */}
       <LinkDialog
-        state={editor}
-        onClose={closeEditor}
+        state={sp.editor}
+        onClose={sp.closeEditor}
         onSave={saveLink}
         onDelete={deleteLink}
       />
 
-      {/* 「初始」专属右键菜单（拦截浏览器默认菜单，见 ContextMenu） */}
+      {/* 「初始」专属右键菜单（拦截浏览器默认菜单） */}
       <ContextMenu
-        open={ctxMenu}
-        pos={ctxPos}
+        open={sp.ctxMenu}
+        pos={sp.ctxPos}
         actions={ctxActions}
-        onClose={closeCtxMenu}
+        onClose={sp.closeCtxMenu}
       />
 
       {/* 开发者文档（右键菜单直达；portal 到 body，与 ⌘K 内入口同一组件） */}
-      <PresetDocs open={devDocs} onClose={() => setDevDocs(false)} />
+      <PresetDocs open={sp.devDocs} onClose={() => sp.setDevDocs(false)} />
 
       {/* 右下角落款 */}
       <footer
         aria-hidden
         className={`pointer-events-none fixed bottom-5 right-6 z-10 hidden select-none text-[10px] font-extralight tracking-[0.5em] text-zinc-400/70 transition-opacity duration-500 sm:block dark:text-zinc-500/70 ${
-          zen ? "opacity-0" : ""
+          sp.zen ? "opacity-0" : ""
         }`}
       >
         初 始
