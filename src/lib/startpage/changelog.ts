@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.1",
+    date: "2026-09-21",
+    title: "面板互切拉伸动画全程可见 + dock 悬停名字浮签",
+    channel: "page",
+    highlights: [
+      "原生功能面板与预设音乐面板互切时，高度/宽度弹簧不再被加载白罩遮蔽——拉伸/收缩动画全程可见，与其它面板切换同一套动效语言",
+      "dock 栏按钮悬停提示改版：去掉迟缓的原生气泡，功能名字即时浮现在图标下方（与指令面板 ⌘K 浮签同款样式）",
+    ],
+  },
+  {
     version: "8.7.0",
     date: "2026-09-21",
     title: "beta 分支全面重写：全部功能与动效在全新架构上一次写对",

@@ -36,7 +36,8 @@
  *  · 内容淡入不在 framer 内（framer v12 对 opacity 走 WAAPI 有入场空窗）——
  *    淡入走 CSS .cl-panel-content，玻璃凝入走 .panel-rise；
  *  · 部件视图 = 常驻 overlay（iframe 永不卸载 = 预热零白屏），激活经
- *    content-focus-solid 重播 + boot-fade 白帧罩（iframe 重激活白帧律）；
+ *    content-focus-solid 重播（模糊聚拢）；显隐用 opacity（v8.7.1：常驻合成
+ *    树，重激活零重栅格化——白帧从结构上不存在，白罩只剩加载保护职责）；
  *  · 互切底锚律：部件视图 top = max(0px, calc(100% - h px))——窗口高 s≤部件高
  *    h（首开/收折全程）顶锚保留，s>h（互切收折段）卡底即帧贴 dock 底锚、
  *    窗口顶边收下来贴合（收缩方向与内建一致）；
@@ -180,7 +181,12 @@ const PanelStage = memo(function PanelStage({
 
   /* 部件激活时重播 content-focus-solid（无 opacity 的模糊聚拢，杀闪白）：
      常驻元素不能靠重挂重播，用「摘类 → reflow → 挂类」重启同一 CSS 动画；
-     类此后保留——关闭时壳体 .panel-sink 级联散场依赖它在 */
+     类此后保留——关闭时壳体 .panel-sink 级联散场依赖它在。
+     ⚠ 白帧罩 boot-fade 不在此挂（v8.7.1 解耦）：罩子由 iframe onLoad 一次性
+     挂上（加载保护，forwards 保持揭开态）。若在此重挂，互切重激活会把
+     280ms 驻留白罩重新盖回弹簧期——高度/宽度弹簧全程被纯色罩遮蔽，
+     「拉伸/收缩」动画感知归零（㊴ 根因，诊断曲线：stageH 442→127 弹簧期间
+     ::after opacity 恒 1）。opacity 常驻合成后重激活零白帧，重挂纯属多余。 */
   const widgetViewRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const themeRef = useRef({ isDark, accent });
   useEffect(() => {
@@ -190,18 +196,10 @@ const PanelStage = memo(function PanelStage({
     if (phase !== "open" || !widgetActive || !dockWidgetOpen) return;
     const el = widgetViewRefs.current.get(dockWidgetOpen);
     if (!el) return;
-    /* 摘类→reflow→挂类：重启模糊聚拢 + 白帧罩揭开动画（boot-reveal：驻留
-       280ms 盖住 iframe 重激活白帧窗口，再 180ms 揭开） */
-    el.classList.remove("content-focus-solid", "boot-fade");
+    el.classList.remove("content-focus-solid");
     void el.offsetWidth;
-    el.classList.add("content-focus-solid", "boot-fade");
+    el.classList.add("content-focus-solid");
   }, [phase, widgetActive, dockWidgetOpen]);
-  /* 关闭相位摘掉 boot-fade：罩子回基态 opacity 1（视图藏着不可见），
-     下一轮重激活时旧层树里的罩子才是开启态——白帧永远被盖 */
-  useEffect(() => {
-    if (phase !== "closed") return;
-    for (const el of widgetViewRefs.current.values()) el.classList.remove("boot-fade");
-  }, [phase]);
 
   /* 高度/宽度目标：内建=测高（首开 auto 直就位），部件=自报高度（chushi.resize） */
   const activeWidget =
@@ -344,12 +342,19 @@ const PanelStage = memo(function PanelStage({
          * 与高度盒同壳（壳体 overflow-hidden 裁剪），absolute 高度自报，
          * 高度盒目标高度 = 部件自报高度，同高同弹簧；iframe 节点随页面常驻
          * （沙箱 srcdoc 只注入一次），SMTC 订阅/封面/歌词后台持续更新——
-         * 打开零白屏、零重载。激活重播 .content-focus-solid（模糊聚拢）+
-         * boot-fade 白帧罩；切走同帧 hidden（零残留律）、关闭由壳体
+         * 打开零白屏、零重载。激活重播 .content-focus-solid（模糊聚拢）；
+         * 切走同帧 opacity 0（零残留律）、关闭由壳体
          * .panel-sink 级联散场——与内建同语言。 */}
         {dockWidgets.map((w) => {
           const isActive = phase !== "closed" && dockWidgetOpen === w.key;
           const h = Math.max(WIDGET_H_MIN, Math.round(widgetHeights[w.key] ?? w.height));
+          /* 视图存活判定（显隐与散场豁免共用）：active / 部件会话收场可见，
+             其余（内建会话收场 / closed / 非激活部件）硬藏 */
+          const viewLive =
+            isActive ||
+            (phase === "closing" &&
+              activeView?.kind === "widget" &&
+              activeView.key === w.key);
           return (
             <div
               key={w.key}
@@ -373,16 +378,20 @@ const PanelStage = memo(function PanelStage({
                    收缩观感。max() 纯 CSS 每帧随壳体动画高度重新解析，零 JS 同步 */
                 top: `max(0px, calc(100% - ${h}px))`,
                 height: h,
-                /* visibility = active / closing 收尾可见，其余硬藏——切走同帧隐没
-                   （零残留结构性保证）。closing 收尾可见 = 关闭会话归属本部件
-                   （activeView 双条件），内建会话收场不再被陈旧键误点亮 */
-                visibility:
-                  isActive ||
-                  (phase === "closing" &&
-                    activeView?.kind === "widget" &&
-                    activeView.key === w.key)
-                    ? "visible"
-                    : "hidden",
+                /* v8.7.1 显隐换构：visibility → opacity——visibility:hidden 会在
+                   重激活时丢合成层栅格缓存（Chromium 旧层树白帧，白罩常开态的
+                   成因）；opacity 常驻合成树，重激活零重栅格化 = 白帧结构性
+                   不存在，互切弹簧全程内容可见（㊴）。opacity:0 +
+                   pointer-events:none 等价不可见；viewLive 三条件 = active /
+                   部件会话收场归属（内建会话收场不再被陈旧键误点亮） */
+                opacity: viewLive ? 1 : 0,
+                /* 散场豁免（v8.7.1）：panel-sink 级联的 content-defocus
+                   （opacity 1→0 动画）会覆盖 inline opacity——非存活视图若不
+                   豁免，内建会话收场时散场动画把 inline opacity:0 复活为
+                   1→0 的 160ms 淡出 = 幽灵叠印回归（visibility 时代
+                   visibility:hidden 硬藏优先于动画；换构 opacity 后必须显式
+                   豁免）。存活视图正常播散场与 content-focus-solid 激活聚拢 */
+                animation: viewLive ? undefined : "none",
                 pointerEvents: isActive ? "auto" : "none",
                 ["--boot-bg" as string]: isDark ? "rgba(24,24,28,1)" : "rgba(255,255,255,1)",
               }}
@@ -393,6 +402,12 @@ const PanelStage = memo(function PanelStage({
                 }}
                 src={sandboxWidgetSrc()}
                 onLoad={() => {
+                  /* 白帧罩一次性揭幕（v8.7.1）：srcdoc 加载完成即挂 boot-fade
+                     （280ms 驻留+180ms 揭开，forwards 保持揭开态）——加载保护
+                     与激活逻辑解耦：互切重激活时罩子早已揭开，弹簧全程内容
+                     可见（㊴）；极速点击（onLoad 未到）时基态罩仍盖着加载
+                     白屏，onLoad 后揭开，保护语义不破 */
+                  widgetViewRefs.current.get(w.key)?.classList.add("boot-fade");
                   postToWidget(w.key, {
                     type: "renderWidget",
                     key: w.key,

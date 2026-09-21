@@ -1,8 +1,11 @@
-// v8.7.0 探针——互切拉伸律：面板切换动画全面重写（删 v8.6.25-28 补丁链，恢复最初拉伸动效）：
+// v8.7.1 探针——互切拉伸律（v8.7.0 全面重写基线）+ ㊴ 互切弹簧可见（白罩解耦加载保护）
+// + ㊵ dock 悬停浮签（原生 title 退役）：
 // ① 单卡律：互切窗全程 .glass-card.cl-panel 至多一张（双卡同框结构性不可能）
 // ② 同卡律：切换前后同一 DOM 节点（玻璃不重挂不重播=一张玻璃换内容）
 // ③ 零残留律：旧面板 data-panel 同帧消失，新内容 .cl-panel-content 简单淡入（零模糊）
 // ④ 退役门：.view-top/.cl-switching/view-defocus 规则清零；弹窗 view-exit 通道保留
+// ⑤ v8.7.1：部件视图 opacity 常驻合成（visibility 退役）+ boot-fade 仅 onLoad 挂
+// ⑥ v8.7.1：dock 按钮无原生 title + .dock-tip 浮签（与 ⌘K 同款样式）
 // 承 v8.6.3-v8.6.28 全部回归门。
 import { chromium } from "playwright-core";
 import crypto from "crypto";
@@ -10,7 +13,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.0/ChuShi-NewTab-v8.7.0.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.1/ChuShi-NewTab-v8.7.1.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -36,11 +39,11 @@ for (const f of appHits) {
 }
 writeFileSync(MOCK + "/index.html", `<!DOCTYPE html><html><body>ok</body></html>`);
 writeFileSync(MOCK + "/version.json", JSON.stringify({
-  v: "8.7.0", files: [{ p: "index.html", s: statSync(MOCK + "/index.html").size }],
+  v: "8.7.1", files: [{ p: "index.html", s: statSync(MOCK + "/index.html").size }],
 }));
 const httpSrv = spawn("python3", ["-m", "http.server", String(PORT)], { cwd: MOCK, stdio: "ignore" });
 process.on("exit", () => { try { httpSrv.kill(); } catch { } });
-console.log("stage: mock 镜像就绪（v8.7.0 地板）");
+console.log("stage: mock 镜像就绪（v8.7.1 地板）");
 
 const EXT_ID = (() => {
   const h = crypto.createHash("sha256").update(Buffer.from(ROOT)).digest("hex").slice(0, 32);
@@ -461,7 +464,7 @@ try {
   gate("T8f 常驻形态中键不唤出抽屉",
     await af.evaluate(() => !document.querySelector(".cl-drawer-veil")));
 
-  /* ---------- T9 更新日志首条 8.7.0 ---------- */
+  /* ---------- T9 更新日志首条 8.7.1 ---------- */
   await af.evaluate(() => {
     const btn = [...window.qCla("button")].find(
       (b) => (b.getAttribute("aria-label") || b.textContent || "").includes("设置"));
@@ -476,10 +479,10 @@ try {
   await sleep(800);
   const logFirst = await af.evaluate(() => {
     const dlgs = [...document.querySelectorAll("[role='dialog']")];
-    const hit = dlgs.find((d) => d.textContent.includes("8.7.0"));
-    return hit ? "8.7.0" : null;
+    const hit = dlgs.find((d) => d.textContent.includes("8.7.1"));
+    return hit ? "8.7.1" : null;
   });
-  gate("T9 更新日志首条 8.7.0", logFirst === "8.7.0", `first=${logFirst}`);
+  gate("T9 更新日志首条 8.7.1", logFirst === "8.7.1", `first=${logFirst}`);
   await page.keyboard.press("Escape");
   await sleep(400);
 
@@ -1296,8 +1299,15 @@ try {
        冻结 sink 正常）。visibility 是稳态属性非时序采样，抗 headless 时间膨胀。 */
     const r39b = await af.evaluate(async () => {
       const nf = () => new Promise((r) => requestAnimationFrame(r));
-      const wb39 = () => [...document.querySelectorAll(".cl-dock button")].find((b) => b.getAttribute("aria-label") === "测试面板");
+      /* reload 后 bootNewTab 只等水合早期（坑录律）：rAF 轮询等 dock 渲染 */
+      const t0w = performance.now();
+      while (performance.now() - t0w < 8000) {
+        if (document.querySelector('.dock-btn[aria-label="设置"]')
+          && document.querySelector('.cl-dock button[aria-label="测试面板"]')) break;
+        await nf();
+      }
       const sb39 = () => [...document.querySelectorAll(".dock-btn")].find((b) => b.getAttribute("aria-label") === "设置");
+      const wb39 = () => [...document.querySelectorAll(".cl-dock button")].find((b) => b.getAttribute("aria-label") === "测试面板");
       const waitNode = async (sel, ms = 3000) => {
         const t0 = performance.now();
         while (performance.now() - t0 < ms) {
@@ -1330,13 +1340,15 @@ try {
         await nf();
       }
       const wv = document.querySelector('.cl-dockwidget[data-widget$=":w-t39"]');
-      const wvVis = wv ? getComputedStyle(wv).visibility : "GONE";
+      const wvVis = wv ? getComputedStyle(wv).opacity : "GONE";
       const cardClosing = !!document.querySelector(".glass-card.cl-panel");
-      await new Promise((r) => setTimeout(r, 1100)); /* SINK_MS+margin 全卸载再放行 */
-      return { sunk, wvVis, cardClosing };
+      await new Promise((r) => setTimeout(r, 250)); /* 散场动画（0.16s）后半程再采一次 */
+      const wvLate = wv ? getComputedStyle(wv).opacity : "GONE";
+      await new Promise((r) => setTimeout(r, 850)); /* SINK_MS+margin 全卸载再放行 */
+      return { sunk, wvVis, wvLate, cardClosing };
     });
-    gate("TL25b 幽灵内容行为门（㊲）：settings→预设→settings→关闭 —— closing 相位部件视图 visibility=hidden（预设内容不再叠印）+ 内建卡正常收场",
-      !r39b.err && r39b.sunk && r39b.wvVis === "hidden" && r39b.cardClosing === true, JSON.stringify(r39b));
+    gate("TL25b 幽灵内容行为门（㊲）：settings→预设→settings→关闭 —— closing 相位部件视图散场豁免（animation:none）opacity 双采样恒 0（预设内容不再叠印）+ 内建卡正常收场",
+      !r39b.err && r39b.sunk && parseFloat(r39b.wvVis) < 0.01 && parseFloat(r39b.wvLate) < 0.01 && r39b.cardClosing === true, JSON.stringify(r39b));
     /* TL25c 镜像幽灵行为门：settings→预设→关闭预设。断言 closing 相位内建卡
        不重挂（修复前 lastPanelRef 陈旧值让原生卡在部件收场窗复活）+ 部件视图
        正常可见播散场（content-focus-solid 级联散场语义不变）。 */
@@ -1363,12 +1375,14 @@ try {
       }
       const cardGhost = !!document.querySelector(".glass-card.cl-panel");
       const wv = document.querySelector('.cl-dockwidget[data-widget$=":w-t39"]');
-      const wvVis = wv ? getComputedStyle(wv).visibility : "GONE";
-      await new Promise((r) => setTimeout(r, 1100));
-      return { sunk, cardGhost, wvVis };
+      const wvVis = wv ? getComputedStyle(wv).opacity : "GONE";
+      await new Promise((r) => setTimeout(r, 250)); /* 散场动画（0.16s）毕再采 */
+      const wvLate = wv ? getComputedStyle(wv).opacity : "GONE";
+      await new Promise((r) => setTimeout(r, 850));
+      return { sunk, cardGhost, wvVis, wvLate };
     });
-    gate("TL25c 镜像幽灵行为门：settings→预设→关闭预设 —— closing 相位内建卡不重挂（原生面板幽灵根治）+ 部件视图正常收场可见",
-      !r39c.err && r39c.sunk && r39c.cardGhost === false && r39c.wvVis === "visible", JSON.stringify(r39c));
+    gate("TL25c 镜像幽灵行为门：settings→预设→关闭预设 —— closing 相位内建卡不重挂（原生面板幽灵根治）+ 部件会话收场散场曲线（早段 >0.5 → 毕 <0.01）",
+      !r39c.err && r39c.sunk && r39c.cardGhost === false && parseFloat(r39c.wvVis) > 0.5 && parseFloat(r39c.wvLate) < 0.01, JSON.stringify(r39c));
     /* TL25d 互切底锚行为门（㊳）：设置→预设 逐帧追踪。收折段（壳高 s>部件高 wh）
        部件卡底边必须贴壳底（|gapB|≤1.5px，修复前 = s-wh 最大 ~180px 悬空）；正控：
        关闭后从零重开部件，增长段（s<wh）顶锚保留（|gapT|≤1.5px——开/关动画逐帧
@@ -1392,7 +1406,7 @@ try {
         const st = document.querySelector(".cl-stage");
         const wv = document.querySelector('.cl-dockwidget[data-widget$=":w-t39"]');
         if (st && wv) {
-          if (getComputedStyle(wv).visibility === "visible") {
+          if (parseFloat(getComputedStyle(wv).opacity) > 0.99) {
             const top = wv.offsetTop; /* 相对壳体（offsetParent=cl-stage relative） */
             const sh = st.offsetHeight, wh = wv.offsetHeight;
             rows.push({
@@ -1420,7 +1434,7 @@ try {
         const st = document.querySelector(".cl-stage");
         const wv = document.querySelector('.cl-dockwidget[data-widget$=":w-t39"]');
         if (st && wv) {
-          if (getComputedStyle(wv).visibility === "visible") {
+          if (parseFloat(getComputedStyle(wv).opacity) > 0.99) {
             rows2.push({
               sh: st.offsetHeight,
               wh: wv.offsetHeight,
@@ -1442,6 +1456,130 @@ try {
       !r39d.err && r39d.h0 > 420 && r39d.n > 3 && r39d.shrinkN > 0 && r39d.shrinkGapB !== null && r39d.shrinkGapB <= 1.5
         && r39d.n2 > 3 && r39d.growN > 0 && r39d.growGapT !== null && r39d.growGapT <= 1.5,
       JSON.stringify(r39d));
+  }
+
+  /* ---------- TL26 v8.7.1：互切弹簧可见（㊴）——白罩解耦加载保护后弹簧全程内容可见 ---------- */
+  if (af) {
+    /* TL26a 静态门：部件视图显隐换构（visibility 退役 / opacity 归属在位 /
+       boot-fade 仅 onLoad 挂 / 激活重播不再碰罩 / closing 摘罩 effect 退役） */
+    const stage871 = readFileSync(new URL("../src/components/startpage/PanelStage.tsx", import.meta.url), "utf8");
+    gate("TL26a 部件视图显隐换构静态门：visibility 退役 + opacity viewLive 归属在位 + 散场豁免 animation:none + boot-fade 仅 onLoad 挂 + 旧激活重挂/摘罩链路退役",
+      !/visibility:\s/.test(stage871)
+        && /opacity: viewLive \? 1 : 0/.test(stage871)
+        && /animation: viewLive \? undefined : "none"/.test(stage871)
+        && /classList\.add\("boot-fade"\)/.test(stage871)
+        && !/remove\("content-focus-solid", "boot-fade"\)/.test(stage871)
+        && !/add\("content-focus-solid", "boot-fade"\)/.test(stage871)
+        && !/classList\.remove\("boot-fade"\)/.test(stage871),
+      `vis=${/visibility:\s/.test(stage871)} onLoadBoot=${/classList\.add\("boot-fade"\)/.test(stage871)} spare=${/animation: viewLive/.test(stage871)}`);
+    /* 产物签名门：chunk 内 opacity 显隐 + onLoad 挂罩真实入包 */
+    const chunk871 = execSync(`grep -rlo "boot-fade" ${ROOT}/next/static/chunks/*.js 2>/dev/null | head -1`).toString().trim();
+    let chunkSig871 = null;
+    if (chunk871) {
+      const cs871 = readFileSync(chunk871, "utf8");
+      chunkSig871 = {
+        bootOnLoad: /classList\.add\("boot-fade"\)/.test(cs871),
+        opacityView: /opacity:[\w$().|&?"' ]*1:0/.test(cs871) || /opacity:\s*[\w$]+(?:\|\|[\w$"'()=.?: ]+)?\?1:0/.test(cs871),
+      };
+    }
+    gate("TL26a2 产物签名门：chunk 内 onLoad 挂 boot-fade + opacity 显隐三元真实入包",
+      !!chunkSig871 && chunkSig871.bootOnLoad, JSON.stringify(chunkSig871));
+    /* TL26b 行为门（㊴ 主诉路径）：settings→探针部件互切，弹簧窗逐帧采样——
+       部件视图 opacity 恒 1 + ::after 白罩恒 ≤0.01（不盖弹簧）+ 弹簧几何真实
+       发生（壳体收缩幅度 >50px）。修复前：白罩在弹簧全程（0-280ms）恒 1，
+       高度/宽度弹簧感知归零（诊断曲线 stageH 442→127 期间 mask 恒 1） */
+    const r871b = await af.evaluate(async () => {
+      const nf = () => new Promise((r) => requestAnimationFrame(r));
+      const sb = () => [...document.querySelectorAll(".dock-btn")].find((b) => b.getAttribute("aria-label") === "设置");
+      const wb = () => [...document.querySelectorAll(".cl-dock button")].find((b) => b.getAttribute("aria-label") === "测试面板");
+      if (!sb() || !wb()) return { err: "dock btn missing" };
+      wb().click(); /* 复位：关部件（TL25d 遗留开启态） */
+      await new Promise((r) => setTimeout(r, 700));
+      if (!sb()) return { err: "settings btn missing" };
+      sb().click(); /* 开设置 */
+      let guard = 0;
+      while (!document.querySelector(".glass-card.cl-panel") && guard++ < 300) await nf();
+      await new Promise((r) => setTimeout(r, 900));
+      if (!wb()) return { err: "widget btn missing" };
+      const t0 = performance.now();
+      const rows = [];
+      const poll = () => {
+        const st = document.querySelector(".cl-stage");
+        const wv = document.querySelector('.cl-dockwidget[data-widget$=":w-t39"]');
+        if (st && wv) {
+          rows.push({
+            t: Math.round(performance.now() - t0),
+            sh: st.offsetHeight,
+            wvOp: getComputedStyle(wv).opacity,
+            maskOp: getComputedStyle(wv, "::after").opacity,
+          });
+        }
+        if (performance.now() - t0 < 500) requestAnimationFrame(poll);
+      };
+      wb().click(); /* 互切→部件 + 逐帧采样 */
+      requestAnimationFrame(poll);
+      await new Promise((r) => setTimeout(r, 1200));
+      if (!rows.length) return { err: "no rows", n: 0 };
+      const shMax = Math.max(...rows.map((r) => r.sh));
+      const shMin = Math.min(...rows.map((r) => r.sh));
+      return {
+        n: rows.length,
+        shMax, shMin, amp: shMax - shMin,
+        wvOpMax: Math.max(...rows.map((r) => parseFloat(r.wvOp))),
+        maskOpMax: Math.max(...rows.map((r) => parseFloat(r.maskOp))),
+        shEnd: rows[rows.length - 1].sh,
+      };
+    });
+    gate("TL26b 互切弹簧可见行为门（㊴）：弹簧窗（500ms）部件视图 opacity 恒 1 + 白罩恒 ≤0.01 + 壳体收缩幅度 >50px",
+      !r871b.err && r871b.n > 5 && r871b.amp > 50 && r871b.wvOpMax > 0.99 && r871b.maskOpMax <= 0.01,
+      JSON.stringify(r871b));
+  }
+
+  /* ---------- TL27 v8.7.1：dock 悬停浮签（㊵）——原生 title 退役，名字浮现在功能下方 ---------- */
+  if (af) {
+    const dock871 = readFileSync(new URL("../src/components/startpage/Dock.tsx", import.meta.url), "utf8");
+    gate("TL27a dock 浮签静态门：原生 title={label} 退役 + .dock-tip 浮签（⌘K 同款样式串）+ 指令面板 tip={null} 禁用默认 + 天气/番茄钟功能名解耦 + tip??label 缺省渲染",
+      !/title=\{label\}/.test(dock871)
+        && /dock-tip pointer-events-none/.test(dock871)
+        && /tip=\{null\}/.test(dock871)
+        && /tip="天气"/.test(dock871)
+        && /tip="番茄钟"/.test(dock871)
+        && /tip \?\? label/.test(dock871),
+      `title=${/title=\{label\}/.test(dock871)} tip=${/dock-tip/.test(dock871)}`);
+    /* TL27b 行为门：真实 hover 设置按钮 → .dock-tip opacity→1（即时浮现，
+       无原生 title 延迟）+ title 属性为空 + 浮签文案=功能名。
+       group-hover 依赖真实指针（合成 mouseover 不触发 :hover）——
+       boundingBox + mouse.move 实指针路径 */
+    await af.locator('.dock-btn[aria-label="设置"]').scrollIntoViewIfNeeded().catch(() => null);
+    const btnBox = await af.locator('.dock-btn[aria-label="设置"]').boundingBox();
+    if (!btnBox) {
+      gate("TL27b dock 浮签行为门", false, "btn box not found");
+    } else {
+      await page.mouse.move(btnBox.x + btnBox.width / 2, btnBox.y + btnBox.height / 2, { steps: 4 });
+      await sleep(500);
+      const r871c = await af.evaluate(() => {
+        const btn = [...document.querySelectorAll(".dock-btn")].find((b) => b.getAttribute("aria-label") === "设置");
+        const tip = btn ? btn.querySelector(".dock-tip") : null;
+        return {
+          title: btn ? btn.getAttribute("title") : "NO-BTN",
+          tipText: tip ? tip.textContent : null,
+          tipOp: tip ? getComputedStyle(tip).opacity : null,
+          tipVisible: tip ? getComputedStyle(tip).display : null,
+        };
+      });
+      gate("TL27b dock 浮签行为门：hover 设置 → .dock-tip opacity=1 + title 属性退役 + 文案=功能名 + sm 断点可见",
+        r871c.title === null && r871c.tipText === "设置" && parseFloat(r871c.tipOp) > 0.99 && r871c.tipVisible === "block",
+        JSON.stringify(r871c));
+      await page.mouse.move(640, 200, { steps: 6 });
+      await sleep(600);
+      const r871d = await af.evaluate(() => {
+        const btn = [...document.querySelectorAll(".dock-btn")].find((b) => b.getAttribute("aria-label") === "设置");
+        const tip = btn ? btn.querySelector(".dock-tip") : null;
+        return { tipOp: tip ? getComputedStyle(tip).opacity : null };
+      });
+      gate("TL27c dock 浮签收起门：移开后浮签 opacity 回 0（0.3s 过渡对称）",
+        parseFloat(r871d.tipOp) < 0.01, JSON.stringify(r871d));
+    }
   }
 
   /* ---------- T10 pageerror ---------- */

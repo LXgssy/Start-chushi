@@ -222,6 +222,7 @@ function Dock() {
           btnId="weather"
           registerRef={registerBtn}
           active={panel === "weather"}
+          tip="天气"
           label={
             sp.weather.temp != null
               ? `${sp.weather.temp}° ${weatherText(sp.weather.code)}`
@@ -284,6 +285,7 @@ function Dock() {
           btnId="pomodoro"
           registerRef={registerBtn}
           active={panel === "pomodoro"}
+          tip="番茄钟"
           label={pomoText ? `番茄钟 剩余 ${pomoText} 分钟` : "番茄钟"}
           onClick={() => switchTo(panel === "pomodoro" ? null : "pomodoro")}
           presetIcon={sp.presetIcons.pomodoro}
@@ -328,10 +330,11 @@ function Dock() {
 
         <Divider />
 
-        {/* 命令面板 */}
+        {/* 命令面板：⌘K 专用浮签（children 内），默认功能名浮签禁用 */}
         <DockButton
           active={false}
           label="指令 ⌘K"
+          tip={null}
           onClick={sp.openPalette}
           presetIcon={sp.presetIcons.command}
         >
@@ -466,6 +469,7 @@ function PresetGlyph({ spec }: { spec: string }) {
 function DockButton({
   children,
   label,
+  tip,
   active,
   onClick,
   badge,
@@ -475,6 +479,10 @@ function DockButton({
 }: {
   children: React.ReactNode;
   label: string;
+  /** 悬停浮签文案（v8.7.1 取代原生 title）：缺省=label；null=不渲染默认
+   *  浮签（指令面板按钮用 children 里的 ⌘K 专用浮签）。功能名与动态 label
+   *  解耦——天气/番茄钟按钮 label 携带实时读数，浮签恒显功能名 */
+  tip?: string | null;
   active: boolean;
   onClick: () => void;
   badge?: number;
@@ -490,7 +498,6 @@ function DockButton({
       ref={btnId && registerRef ? registerRef(btnId) : undefined}
       onClick={onClick}
       aria-label={label}
-      title={label}
       aria-pressed={active}
       data-active={active ? "true" : undefined}
       className={`dock-btn accent-ring group relative flex h-9 items-center rounded-full px-3 outline-none transition-colors duration-300 focus-visible:ring-2 ${
@@ -499,7 +506,22 @@ function DockButton({
           : "text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-50"
       }`}
     >
-      <span className="relative flex items-center">{children}</span>
+      <span className="relative flex items-center">
+        {children}
+        {/* 悬停浮签（v8.7.1）：原生 title 有 ~1s 延迟且样式脱节；改用与指令
+            面板 ⌘K 浮签同款的 CSS group-hover 即时浮现（0.3s 透明度过渡，
+            名字浮现在功能下方）。样式与既有 kbd 逐字节同款（视觉契约）；
+            aria-hidden 纯装饰（语义由 aria-label 承担）；sm:block 小屏隐藏
+            （触屏无悬停，与 ⌘K 浮签同策略） */}
+        {tip !== null && (
+          <span
+            aria-hidden
+            className="dock-tip pointer-events-none absolute -bottom-9 left-1/2 hidden -translate-x-1/2 whitespace-nowrap rounded-md border border-zinc-900/10 bg-white/80 px-1.5 py-0.5 font-sans text-[10px] tracking-wider text-zinc-500 opacity-0 shadow-sm backdrop-blur transition-opacity duration-300 group-hover:opacity-100 sm:block dark:border-white/10 dark:bg-[#17171c]/90 dark:text-zinc-400"
+          >
+            {tip ?? label}
+          </span>
+        )}
+      </span>
       <AnimatePresence initial={false}>
         {typeof badge === "number" && (
           <motion.span
