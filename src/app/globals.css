@@ -987,11 +987,12 @@ html.cs-drawer-closing .cl-fade-leaf {
   animation: content-focus-solid-kf calc(0.32s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
-/* 部件 iframe 开盾白帧罩：隐藏过的 iframe 重激活，Chromium 会先用旧层树
-   合成一帧纯白底（实测出现在点击后 ~150-250ms）；旧层树里 DOM 改动不可见，
-   所以罩子必须在「关闭期间就处于开启态」——基态 opacity:1（视图藏着，
-   罩子反正看不见），激活时播 280ms 驻留 + 180ms 揭开（forwards），关闭相位
-   摘类回基态（下一轮重激活的旧层树里罩子仍是 1，白帧永远被盖） */
+/* 部件 iframe 加载白帧罩（v8.7.1 语义收窄）：srcdoc 首次加载完成前 iframe
+   区域是白/透明底——基态 opacity:1 盖住加载白屏；onLoad 时挂 boot-fade
+   播 280ms 驻留 + 180ms 揭开（forwards 保持揭开态）。视图显隐已换构为
+   opacity 常驻合成（旧律 visibility:hidden 重激活会丢合成层栅格缓存 =
+   Chromium 旧层树白帧，那正是白罩曾经常开态的原因）——重激活零重栅格化，
+   白帧结构性不存在，罩子只剩加载保护一个职责，互切弹簧全程内容可见（㊴） */
 .cl-dockwidget::after {
   content: "";
   position: absolute;

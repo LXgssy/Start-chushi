@@ -789,3 +789,23 @@ Stage Summary:
 - v8.7.0 beta 分支全链路闭环：编排层全面重写（五域 hook + Provider 上下文 + PanelStage activeView 单源状态机）——功能/动画/美学零损失（101 探针门 + 像素对照双实证），历史补丁链与死代码清零，未来修复面收敛到独立模块
 - 分发：beta 分支独立验证版，不云推不并 main；验证充分后由用户决定合并节奏
 - 新律：①「行为等价重写」三保险 = 探针门全绿（行为规格）+ 类名/键位/动画参数逐字节契约（视觉与数据规格）+ 跨版本像素对照（最终视觉规格）②关闭会话归属类 bug 的结构免疫 = 渲染期同步的单一 activeView 状态（v8.6.39 三 ref 补丁的收敛形态）③跨 hook 域拆分的 effect 注册序 = Provider 内域调用序，跨域同键写入顺序依赖必须显式注释
+
+---
+Task ID: 142
+Agent: main (Super Z)
+Task: 用户第二十轮反馈「①原生功能面板切换到预设音乐面板时没有其它面板切换时的拉伸/收缩动画 ②不要让鼠标悬停在dock栏的功能面板上一段时间后出现功能名字，改成像dock栏里指令面板的那种名字浮现在功能下面的样式；再次全面重写解决这些问题」——v8.7.1 互切弹簧可见 + dock 悬停浮签 + 推送 origin/beta
+
+Work Log:
+- 【㊴ 根因（诊断曲线实锤）】diag-v871-morph 帧采样：设置(442px)→音乐部件(128px)互切时高度/宽度弹簧真实发生（stageH 442→341→127、stageW 360→340、top 314→213→0 底锚律逐帧正确），但 boot-fade 白帧罩 ::after opacity 在弹簧全程（0-280ms 驻留+180ms 揭开=460ms）恒 1——弹簧主段被纯色罩完全遮蔽，白罩揭开时弹簧已结束；叠加内建玻璃卡同帧卸载（设置卡瞬间蒸发）→ 用户感知=「硬切、无拉伸/收缩动画」。白罩常开态的成因：visibility:hidden 的 iframe 重激活时 Chromium 丢合成层栅格缓存（旧层树白帧，实测点击后 150-250ms 出现），v2.0.1 以「关闭期间罩子处于开启态」免疫
+- 【㊴ 修复（结构性换构）】PanelStage 部件视图显隐 visibility→opacity 常驻合成（opacity:0 渲染但全透明——合成层持续存活，重激活零重栅格化=白帧从结构上不存在，白罩失去重激活豁免职责）；boot-fade 从「激活重播」解耦为「iframe onLoad 一次性揭幕」（classList.add 于 onLoad handler，280ms 驻留+180ms 揭开 forwards 保持）——白罩语义收窄为纯「srcdoc 首加载保护」（极速点击时基态罩仍盖加载白屏）；激活 useLayoutEffect 只重播 content-focus-solid（模糊聚拢），closing 摘罩 effect 退役
+- 【换构连带回归（探针拦截）】TL25b/c 首轮 FAIL（wvVis=0.98）实锤：panel-sink 级联的 content-defocus 散场动画（opacity 1→0, 0.16s）覆盖 inline opacity——内建会话收场时非归属部件视图被散场动画复活 160ms（幽灵叠印回归；visibility 时代 visibility:hidden 硬藏优先于动画故无此题）。修复：viewLive 三条件（active / 部件会话收场归属）统一承担显隐（opacity: viewLive?1:0）与散场豁免（animation: viewLive?undefined:"none"）——非存活视图散场动画即停（inline opacity 0 恒定），存活视图正常播散场曲线（TL25c 双采样验证：早段 0.98→毕 0）
+- 【㊵ 修复】Dock.tsx DockButton：原生 title={label} 退役（~1s 延迟+样式脱节）；新增 .dock-tip 浮签（与指令面板 ⌘K kbd 样式串逐字节同款：-bottom-9 左右居中/rounded-md/border/bg-white/80 dark:bg-[#17171c]/90/backdrop-blur/text-[10px]/group-hover:opacity-100/duration-300/sm:block）——CSS group-hover 即时浮现（0.3s 透明度过渡），名字浮现在功能下方；tip prop（缺省=label，null=禁用默认浮签）；天气 tip="天气"、番茄钟 tip="番茄钟"（label 携带实时读数与功能名解耦）；指令面板 tip={null}（children 内 ⌘K 专用浮签保留，零双浮签）；aria-label 保留无障碍语义，浮签 aria-hidden 纯装饰
+- 【探针】probe-beta 版本字样克隆（ZIP 路径/mock v 地板/T9 changelog 首条→8.7.1）+ TL25b/c 断言重写（visibility 稳态→opacity 双采样：内建会话收场恒 0 散场豁免 / 部件会话收场早段>0.5→毕<0.01 散场曲线）+ TL25d 采样门 opacity 化（parseFloat>0.99 等价 visible）+ 新增 TL26a/TL26a2/TL26b（显隐换构静态门+chunk 签名门+互切弹簧可见行为门：弹簧窗 500ms 部件视图 opacity 恒 1+白罩恒≤0.01+壳体收缩幅度>50px）+ 新增 TL27a/TL27b/TL27c（浮签静态门+真实 hover 行为门：boundingBox+mouse.move 实指针路径 group-hover opacity=1+title 退役+移开回 0）+ TL25b 开头补 rAF 轮询等按钮（坑录律：bootNewTab 只等水合早期）
+- 【验证】①类型：三改文件零错误（基线存量不动）②构建：EXTENSION_MODE=1 + build-extension.py 防呆门全过，ZIP 11.8MB + 云快照 73 文件 v8.7.1 ③probe-beta 106 PASS / 1 FAIL（唯一 FAIL=T6a 存量 flake bfMin=27.7 与 Task 140 记录签名逐字节一致，v8.6.35-39 五版连续在案；TL16f 首跑 frames:7 次跑 9 确认为环境采样密度波动非行为回归）④诊断复跑：修复后互切弹簧全程 mask 恒 0（对照修复前 0-280ms 恒 1）、stageH 429→127 弹簧可见、top 底锚 301→0 ⑤浮签目检：hover 设置→「设置」浮签与 hover 指令面板→「⌘K」浮签同款样式同位（截图对照）⑥互切目检：t=50/100/200 帧音乐卡内容全程可见、贴底锚、零白罩白盒
+- 【坑录】①Edit 工具不能碰 /tmp 真树——/home/z/rewrite-staging 暂存+cp 工作流（本轮全部源码编辑走此通道）②opacity 换构的隐藏连带：CSS 动画（content-defocus）覆盖 inline opacity 的级联优先级——「visibility 硬藏优先于动画」是 visibility 方案的隐性福利，换 opacity 后必须显式 animation:none 豁免，否则散场动画复活非归属视图③诊断脚本 rAF 轮询偶发竞态（bootNewTab 返回后 React 二次渲染间隙）——等待目标节点而非按钮计数+失败 catch 重试④node -e "import(探针)" 做语法检查=触发完整探针执行（顶层代码全跑）且与真探针并发锁死 600s——语法检查只许 node --check⑤Playwright Frame 无 waitForSelector 空引用时 catch 兜不住（af 为 null 先炸在属性访问）
+- 【发布】beta 分支 6 文件对账无夹带（build-extension.py VERSION/probe-beta.mjs/globals.css/Dock.tsx/PanelStage.tsx/changelog.ts）；诊断脚本（diag-v871-morph/dock/tip）不入库（临时调试工具，行为门已由 TL26/TL27 固化）
+
+Stage Summary:
+- v8.7.1 beta 全链路闭环：①内建面板↔预设音乐面板互切的拉伸/收缩弹簧全程内容可见（visibility→opacity 常驻合成根治白帧、白罩收窄为加载保护、散场豁免防幽灵回归——三层结构性换构，探针 106 门+诊断曲线+三帧目检三重实证）②dock 悬停提示从原生 title 换为 ⌘K 同款浮签（即时浮现/功能名解耦/无障碍保留）——第二十轮两点全清
+- 分发：beta 分支迭代版（8.7.0→8.7.1），不云推不并 main；「CSS 常驻+opacity 常驻合成」为条件渲染浮层白帧免疫的新定案形态（visibility 硬藏的合成层栅格丢失是白帧白罩存在的总根源）
+- 新律：①显隐换构 opacity 时必须同步审计「面板相位级联动画会覆盖 inline opacity」的散场通道——存活判定（viewLive）同时承担显隐与动画豁免，二者必须同源否则幽灵复活 ②「加载保护罩」与「重激活白帧免疫」是两个职责——前者事件驱动（onLoad 一次性揭幕），后者结构免疫（常驻合成），耦合在一起会让前者遮蔽几何动画 ③行为门断言从 visibility（稳态）迁到 opacity（动态散场曲线）时采样策略必须从「单点等值」升级为「双采样曲线」（早段/终态）
