@@ -751,3 +751,23 @@ Stage Summary:
 - v8.6.38 全链路闭环：dock 面板关闭「透明磨砂」坑填平——材质五项全程冻结自然值，面板以原本浅色/深色磨砂原样收折归零（第十八轮清零；㊱ 白条/黑条家族三连修复路线收敛为终态：材质恒定是唯一同时满足「保底色/无条/无透明」的不动点）
 - 分发：全改动在页面层（globals.css），云推 ≤6h 到存量装机，无需换 crx
 - 新律：①「淡出」两种形态（抽底色/整体隐没）之外还有第三态「材质恒定·几何归零」——凡卸载时序保证「归零在先、卸载在后」（SINK_MS>动画时长+余量），材质冻结+animation:none 即为零伪影终态，任何溶解/隐没关键帧都是多余动作 ②行为门反转断言的写法：塌缩进行中（h<0.8·h0）采样材质恒定，比定时采样更抗 headless 时间膨胀 ③冻结台简化律：卡片无动画后，手动挂类+手写高度盒 height 即定格，无需 pause/currentTime
+---
+Task ID: 140
+Agent: main (Super Z)
+Task: 用户第十九轮反馈（视频）「①dock 切到预设面板再切回原生功能面板并关闭后，预设面板的内容会出现在原生功能面板上 ②其它功能面板切换到预设面板的切换动画还是收缩底部而不是收缩顶部」——v8.6.39 互切关闭归属判别 + 部件视图互切底锚 + 云推
+
+Work Log:
+- 【视频取证】2560x1600@60fps 逐帧分析（8fps 抽帧+放大）：t≈14.5s 关闭链路实锤——面板收折中叠印一个纯白圆角卡（h008-h010 随窗口顶边下降+缩小），t≈16.25s 预设面板关闭呈半透明幽灵（h022）；开场景 h002-h007 确认「从零打开」路径顶边骑窗口顶边（与内建同语言，勿动）
+- 【㊲ 根因（双向同一病灶）】PanelStage closing 相位「谁在收场」无归属判别：lastOpenWidgetRef/lastPanelRef 互切后各自残留旧会话键——内建面板收场时 lastOpenWidgetRef 命中 → 部件视图（iframe 卡+已揭开的 boot 罩）在收场窗被重新可见 = 预设内容叠印原生面板（白盒=卡+defocus blur 中段）；镜像向：部件收场时 lastPanelRef 非空 → 内建玻璃卡在收场窗重挂 = 原生面板幽灵。v8.6.29 互切拉伸律的「closing 保持可见」语义缺了会话归属限定
+- 【㊲ 修复（最小外科）】Dock.tsx 三处：①closingWidgetRef 渲染期同步（widgetActive→true / panel!=null→false；closing 期双方皆空保持前值=恰为关闭会话归属，单帧批量互斥律保证无双活帧）②displayPanel closing 分支加 !closingWidgetRef.current 门（部件会话收场不重挂内建卡）③部件视图 closing 可见性收窄为「closingWidgetRef.current && lastOpenWidgetRef.current === w.key」双条件
+- 【㊳ 根因】部件视图 absolute top:0 恒顶锚——互切收折段（窗口高 s>部件高 h，如设置 442→部件 380）部件卡顶边骑下降中的窗口顶边、卡底悬空 s-h px 随顶边下降 = 「收缩底部」观感；v8.6.32 玻璃壳满窗律只覆盖了内建卡（h-full）与部件→内建方向，内建→部件方向无玻璃满窗、悬空裸露
+- 【㊳ 修复（纯 CSS 逐帧解析）】部件视图 top: 0 → top: max(0px, calc(100% - h px))（%对壳体动画高度逐帧解析）：s≤h（首开/收折全程）max=0 顶锚保留=开/关动画逐帧不变；s>h（互切收折段）top=s-h 卡底即帧贴 dock 底锚、窗口顶边收下来贴合——与内建「底边贴 dock、顶边收放」语义对齐；弹簧过冲段（s 略大于 h）卡静止窗口贴合，自然正确。零 JS 逐帧同步、零动画时长/曲线改动
+- 【探针】probe-v8639（sed 克隆 55 处 + TL25 门族 5 门）：TL25a 源码门（closingWidgetRef 定义+双归属判定+displayPanel/visibility 双消费+旧 top:0 退役+top:max() 在位）+ TL25a2 产物签名门（chunk 内 minified top:max() 与 "closing"===A&&B.current&&V.current=== 结构链）+ TL25b 幽灵行为门（settings→预设→settings→关闭真实 React 链路：closing 相位部件视图 visibility=hidden + 内建卡正常收场——visibility 稳态属性抗时间膨胀）+ TL25c 镜像幽灵门（部件收场内建卡不重挂）+ TL25d 互切底锚行为门（布局空间逐帧：收折段 gapB=0 + 正控增长段 gapT=0 开/关路径不变）。100 PASS / 1 FAIL（T6a 存量 flake bfMin=27.7，v8.6.35-38 四版同签名在案）
+- 【像素目检】visual-v8639 复现用户视频操作流：A 设置稳态 / B 预设面板贴底就位 / C1-C2 关闭瞬间抓帧无白盒叠印 / D 关闭后零残留（card:false stageH:0）
+- 【发布】main 70e1e3c（5 文件对账无夹带：Dock.tsx +29-5 / changelog +10 / VERSION 1 行 / probe-v8639 新增 1446 行 / visual-v8639 新增）——本次推送同时补上上会话漏推的 v8.6.38 两笔（2ed0f49..70e1e3c 快进）；云推 gh-pages：version.json v=8.6.39、73 文件尺寸+SHA256 逐字节 ALL-GREEN、curl 线上验证通过
+- 【坑录】①evaluate 内引用 Node 层闭包助手（wb39/sb39）= ReferenceError——浏览器上下文不进 Node 闭包（Task 138 坑录二次踩，本次在探针自查时拦截）②部件视图 data-widget 值是 `${presetId}:${widgetId}` 复合键——选择器须 [data-widget$=":id"] 后缀匹配 ③getBoundingClientRect 含 transform：content-focus-solid 入场动画 translateY(3px)+scale(0.99) 给 rect 贡献恰 4.9px 假阳——锚点类逐帧断言一律 offsetTop/offsetHeight 布局空间（对 transform 免疫）④TL24b「click 后 rAF×2 再轮询」在高负载下 2 帧 ~260ms > SINK_MS 240ms，轮询首查时 sink 已过期（sunk=false 假阳）——立即轮询（轮询本身容纳 pre-commit 帧，首见 sink 即采样=窗口起点）⑤前会话 v8.6.38 两笔提交漏推远端（本地 a1a37c4 / 远端 2ed0f49 脱节）——发布链的 push 步骤必须显式核对 origin/main 落点
+
+Stage Summary:
+- v8.6.39 全链路闭环：面板互切幽灵内容双向根治（closing 会话归属判别——预设内容不再叠印原生面板/原生卡不在部件收场窗复活）+ 内建→预设互切收缩方向修正（部件视图互切底锚，纯 CSS 逐帧解析零动画改动）——第十九轮两点全清
+- 分发：全改动在页面层（Dock.tsx），云推 ≤6h 到存量装机，无需换 crx
+- 新律：①「相位保持可见」类语义必须限定会话归属——互切场景下 last*Ref 恒为陈旧键，直接复用会把上一会话的视图在当前相位点亮 ②abs-pos 子元素对「动画中的容器高度」做位置跟随，top:max(0px,calc(100%-hpx)) 是纯 CSS 的「s≤h 顶锚/s>h 底锚」分段器，零 JS 逐帧同步 ③动画帧级几何断言用布局空间（offsetTop/offsetHeight），rect 会被任何 transform 动画污染 ④探针行为门的「等待提交」帧数与被观察窗口时长必须做量级比较（2 帧×130ms > 240ms 窗口=必漏）
