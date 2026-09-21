@@ -9,7 +9,9 @@
  * 动效分工：
  *  · 高度展开 = framer height 动画（显式公式 58+n×40 而非 auto——聚焦态表单
  *    自带 scale(1.015)，framer 对 auto 的一次性测量会被变换污染）；
- *  · 列表/提示浮现 = framer 模糊聚拢（小元素、无玻璃，安全）；
+ *  · 列表浮现 = 常驻 DOM + data-open CSS 过渡（v8.7.2 ㊸：AnimatePresence
+ *    条件重挂 + framer WAAPI opacity 空窗是「出现闪动一拍」的根因，
+ *    panel-fade 教训同族——常驻结构 + visibility 离散插值免疫）；
  *  · 玻璃壳体入场 = CSS pill-shell-in（globals.css，祖先 opacity/filter 禁律）。
  *
  * 联想源：百度 sugrec JSONP（免 CORS、免密钥、国内可达）；扩展环境（MV3 CSP
@@ -30,7 +32,7 @@ const EASE = [0.22, 1, 0.36, 1] as const;
  *  边框，border-box）。收起 56 时输入行在 54px 内容盒中上下各溢 1px 空白带，
  *  无可见裁切 */
 const SUG_ROW_H = 40;
-const SUG_MAX = 5;
+const SUG_MAX = 6;
 /** 联想防抖 */
 const SUG_DEBOUNCE_MS = 180;
 /** 联想请求超时 */
@@ -300,52 +302,47 @@ function SearchBar({
             </button>
           </div>
 
-          {/* 建议列表：搜索栏向下拉长的部分。仅做雾化浮现，高度展开统一由表单
-              height 动画承载；列表自身无 margin 参与，卸载零残留。
-              首行上缘 hairline 兼作输入行与建议区的分隔线 */}
-          <AnimatePresence initial={false}>
-            {showDrop && (
-              <motion.div
-                key="sug-list"
-                id="search-sug-list"
-                role="listbox"
-                aria-label="搜索建议"
-                /* 鼠标移出列表即取消高亮：hover 设置的 active 在指针离开后残留，
-                   回车仍会命中旧选中项 */
-                onMouseLeave={() => setActive(-1)}
-                initial={{ opacity: 0, filter: "blur(6px)" }}
-                animate={{ opacity: 1, filter: "blur(0px)" }}
-                exit={{ opacity: 0, filter: "blur(6px)", transition: { duration: 0.18 } }}
-                transition={{ duration: 0.3, ease: EASE }}
+          {/* 建议列表：搜索栏向下拉长的部分。常驻 DOM（v8.7.2 ㊸结构免疫律）：
+              显隐走 data-open CSS 过渡（opacity+blur 聚拢 + visibility 离散
+              插值，globals.css .search-sug-list）——无 AnimatePresence 条件
+              重挂、无 framer WAAPI opacity，「出现闪动一拍」从结构上不存在；
+              高度揭示统一由表单 height 动画承载，列表自身无 margin 参与，
+              收起零残留。首行上缘 hairline 兼作输入行与建议区的分隔线 */}
+          <div
+            id="search-sug-list"
+            role="listbox"
+            aria-label="搜索建议"
+            aria-hidden={!showDrop}
+            data-open={showDrop ? "true" : undefined}
+            onMouseLeave={() => setActive(-1)}
+            className="search-sug-list"
+          >
+            {sugs.map((s, i) => (
+              <button
+                key={s}
+                type="button"
+                role="option"
+                aria-selected={i === active}
+                data-active={i === active ? "true" : undefined}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => submit(false, s)}
+                onMouseEnter={() => setActive(i)}
+                style={{ height: SUG_ROW_H }}
+                className={`search-sug-row flex w-full items-center gap-3 px-4 text-left text-[13px] font-light transition-colors duration-150 ${
+                  i === 0
+                    ? "border-t border-zinc-900/[0.07] dark:border-white/[0.07]"
+                    : ""
+                } ${
+                  i === active
+                    ? "bg-zinc-900/5 text-zinc-900 dark:bg-white/10 dark:text-zinc-50"
+                    : "text-zinc-700 dark:text-zinc-200"
+                }`}
               >
-                {sugs.map((s, i) => (
-                  <button
-                    key={s}
-                    type="button"
-                    role="option"
-                    aria-selected={i === active}
-                    data-active={i === active ? "true" : undefined}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => submit(false, s)}
-                    onMouseEnter={() => setActive(i)}
-                    style={{ height: SUG_ROW_H }}
-                    className={`search-sug-row flex w-full items-center gap-3 px-4 text-left text-[13px] font-light transition-colors duration-150 ${
-                      i === 0
-                        ? "border-t border-zinc-900/[0.07] dark:border-white/[0.07]"
-                        : ""
-                    } ${
-                      i === active
-                        ? "bg-zinc-900/5 text-zinc-900 dark:bg-white/10 dark:text-zinc-50"
-                        : "text-zinc-700 dark:text-zinc-200"
-                    }`}
-                  >
-                    <Search className="h-3.5 w-3.5 shrink-0 opacity-40" strokeWidth={1.5} />
-                    <span className="truncate">{s}</span>
-                  </button>
-                ))}
-              </motion.div>
-            )}
-          </AnimatePresence>
+                <Search className="h-3.5 w-3.5 shrink-0 opacity-40" strokeWidth={1.5} />
+                <span className="truncate">{s}</span>
+              </button>
+            ))}
+          </div>
         </motion.form>
       </div>
 

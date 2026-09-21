@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.2",
+    date: "2026-09-21",
+    title: "互切动画断层与回弹修复，搜索建议不再闪动且扩展到 6 行",
+    channel: "page",
+    highlights: [
+      "其它功能面板切换到预设音乐面板时，旧面板玻璃改为溶解交卸而非同帧消失，切换动画完整连贯",
+      "音乐面板的弹簧回弹不再出现底部裁切：面板卡底边逐帧贴住底栏，回弹段随壳体自然压缩",
+      "搜索建议浮现不再闪动一拍；建议数量扩展到 6 行",
+    ],
+  },
+  {
     version: "8.7.1",
     date: "2026-09-21",
     title: "面板互切拉伸动画全程可见 + dock 悬停名字浮签",

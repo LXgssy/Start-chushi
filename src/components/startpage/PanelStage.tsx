@@ -38,9 +38,15 @@
  *  · 部件视图 = 常驻 overlay（iframe 永不卸载 = 预热零白屏），激活经
  *    content-focus-solid 重播（模糊聚拢）；显隐用 opacity（v8.7.1：常驻合成
  *    树，重激活零重栅格化——白帧从结构上不存在，白罩只剩加载保护职责）；
- *  · 互切底锚律：部件视图 top = max(0px, calc(100% - h px))——窗口高 s≤部件高
- *    h（首开/收折全程）顶锚保留，s>h（互切收折段）卡底即帧贴 dock 底锚、
- *    窗口顶边收下来贴合（收缩方向与内建一致）；
+ *  · 底锚恒贴律（v8.7.2，互切底锚律的完备形态）：部件视图
+ *    top = max(0px, 100% - h) × height = min(h, 100%) 联立——
+ *    卡底边 top+height 每帧恒等于壳体当前高度 s（s>h 段满高底贴锚、s≤h 段
+ *    卡随壳同步压缩），弹簧欠阻尼回弹段（s 短暂低于 h）卡底不再被
+ *    overflow-hidden 裁切（㊷），开/互切/关闭四路几何与内建 h-full 同构；
+ *  · 互切玻璃交卸（v8.7.2 ㊶）：内建→部件互切瞬间旧玻璃卡不再同帧硬卸载，
+ *    挂 .cl-panel-swapout 以恒定材质整卡溶解交卸（0.18s），SWAP_OUT_MS 后
+ *    卸载——「其它面板→音乐面板」方向的断层从结构上不存在（反向
+ *    widget→builtin 的入场由 panel-rise 聚拢掩护，交卸态只补出场侧）；
  *  · 材质恒定律：关闭全程玻璃五项材质冻结自然值（globals.css
  *    .panel-sink .cl-panel animation:none），高度归零在先、卸载在后零突跳。
  */
@@ -64,7 +70,14 @@ import type {
 } from "@/lib/startpage/types";
 import type { ActiveWidget } from "./PresetWidgets";
 import type { PresetSettingValues, PresetSettingsSchema } from "@/lib/startpage/preset-settings";
-import { PANEL_TITLES, SINK_MS, EXIT_EASE, WIDGET_H_MIN, PANEL_CARD_BORDER } from "./dock-motion";
+import {
+  PANEL_TITLES,
+  SINK_MS,
+  EXIT_EASE,
+  WIDGET_H_MIN,
+  PANEL_CARD_BORDER,
+  SWAP_OUT_MS,
+} from "./dock-motion";
 
 /** 预设贡献的设置分区（v1.2.0 设置面作用面）：脚本激活即出现，删除/冻结即消失 */
 export interface PresetSettingSection {
@@ -157,6 +170,11 @@ const PanelStage = memo(function PanelStage({
   const [session, setSession] = useState(0);
   /** 关闭会话归属：仅在有视图激活的帧同步，closing 期冻结为最后激活视图 */
   const [activeView, setActiveView] = useState<ActiveView>(view);
+  /** 互切玻璃交卸（v8.7.2 ㊶）：内建→部件互切时记下旧面板名，旧卡带
+      .cl-panel-swapout 溶解（材质恒定，自 opacity 不破采样根），计时到卸载；
+      渲染期与 activeView 同源派生（无 ref 无 effect 竞态），任意→内建即取消
+      （旧卡将全新凝入，不留半溶解态），部件→部件不打断（溶解完自然卸载） */
+  const [swapOut, setSwapOut] = useState<Exclude<PanelId, null> | null>(null);
   /** 相位迁移用 React 官方「渲染期间调整 state」模式（同步 setState 在 effect
       里会级联渲染；对比键入 prev state，仅在真变化时派生新相位） */
   const [prevAnyActive, setPrevAnyActive] = useState(anyActive);
@@ -166,8 +184,22 @@ const PanelStage = memo(function PanelStage({
     setPhase(anyActive ? "open" : (p) => (p === "closed" ? "closed" : "closing"));
   }
   if (view != null && !sameView(activeView, view)) {
+    /* 互切换装时同步派生交卸态（与 activeView 同帧原子提交） */
+    if (activeView?.kind === "builtin" && view.kind === "widget") {
+      setSwapOut(activeView.panel);
+    } else if (view.kind === "builtin") {
+      setSwapOut(null);
+    }
     setActiveView(view); /* 首开赋值 + 互切换装 */
   }
+
+  /* 交卸计时：溶解动画（0.18s）播完即卸载旧卡（opacity 0 时卸载零视觉
+     变化）；快速互切/关闭时与渲染期派生各自收口，双路径幂等 */
+  useEffect(() => {
+    if (swapOut == null) return;
+    const t = window.setTimeout(() => setSwapOut(null), SWAP_OUT_MS);
+    return () => window.clearTimeout(t);
+  }, [swapOut]);
 
   /* closing → closed：sink 播完清类（下次打开重播 rise）并复位内建测高 */
   useEffect(() => {
@@ -222,10 +254,13 @@ const PanelStage = memo(function PanelStage({
 
   /* 渲染面板：open 相位 = 当前内建面板；closing 相位 = 关闭会话归属为内建时
      渲染 activeView.panel（旧内容继续渲染播散场，SINK_MS 后随 closed 卸载）；
-     closed = null 不渲染。 */
+     部件会话 + swapOut 在途 = 渲染交卸旧卡（溶解中，计时到卸载，此时 panel
+     prop 已为 null 故必须取 swapOut 记名）；closed = null 不渲染。 */
   const displayPanel: PanelId =
-    phase !== "closed" && activeView?.kind === "builtin"
-      ? panel ?? activeView.panel
+    phase !== "closed"
+      ? activeView?.kind === "builtin"
+        ? panel ?? activeView.panel
+        : swapOut
       : null;
 
   return (
@@ -279,12 +314,16 @@ const PanelStage = memo(function PanelStage({
           {displayPanel != null && phase !== "closed" && (
             <div className="flow-root h-full">
               <div
-                className="glass-card cl-panel panel-rise relative h-full rounded-2xl shadow-2xl"
+                className={`glass-card cl-panel panel-rise relative h-full rounded-2xl shadow-2xl ${
+                  swapOut != null ? "cl-panel-swapout" : ""
+                }`}
                 data-panel={displayPanel}
               >
                 {/* panel-rise 上卡本体（仅挂载帧播：首开/部件→内建互切；互切不重挂
                     不重播=玻璃恒定）；关闭经 .panel-sink .cl-panel animation:none
-                    材质冻结 + 高度盒归零（材质恒定律，见文件头）。 */}
+                    材质冻结 + 高度盒归零（材质恒定律，见文件头）；内建→部件互切
+                    挂 .cl-panel-swapout 整卡溶解交卸（animation 简写覆盖 rise，
+                    rise 已播完无损；sink 冻结规则特异性更高，关闭路径不受影响）。 */}
                 <div
                   key={`${session}-${displayPanel}`}
                   ref={measureRef}
@@ -371,13 +410,15 @@ const PanelStage = memo(function PanelStage({
                 position: "absolute",
                 left: 0,
                 right: 0,
-                /* 互切底锚律：窗口高 s≤部件高 h（首开/收折全程）top=0——顶边骑
-                   窗口顶边（与内建 h-full 玻璃卡同语言，开/关动画逐帧不变）；
-                   窗口高 s>h（内建→部件互切收折段）top=s-h——部件卡即帧贴住
-                   dock 底锚、窗口顶边收下来贴合，根除「卡底悬空下降」的底部
-                   收缩观感。max() 纯 CSS 每帧随壳体动画高度重新解析，零 JS 同步 */
+                /* 底锚恒贴律（v8.7.2 ㊷，互切底锚律的完备形态）：top=max(0,100%-h)
+                   × height=min(h,100%) 联立 → 卡底边 top+height 每帧恒等于壳体
+                   当前高度 s：s>h 段满高底贴锚（互切收折卡静止贴 dock）、s≤h 段
+                   卡随壳同步压缩（首开自零展开/关闭原样收折/回弹段随壳回弹）——
+                   欠阻尼弹簧收缩到 s 短暂低于 h 时卡底不再被 overflow-hidden
+                   裁切（v8.7.1 前「回弹断层」根因），四路几何与内建 h-full
+                   完全同构。max()/min() 纯 CSS 逐帧解析，零 JS 同步 */
                 top: `max(0px, calc(100% - ${h}px))`,
-                height: h,
+                height: `min(${h}px, 100%)`,
                 /* v8.7.1 显隐换构：visibility → opacity——visibility:hidden 会在
                    重激活时丢合成层栅格缓存（Chromium 旧层树白帧，白罩常开态的
                    成因）；opacity 常驻合成树，重激活零重栅格化 = 白帧结构性
