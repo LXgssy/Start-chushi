@@ -181,7 +181,7 @@ function PaletteInner({
       ref={overlayRef}
       exitClass="veil-out"
       duration={0.25}
-      className="veil-in fixed inset-0 z-50 flex items-start justify-center bg-white/10 px-4 pt-[16vh] backdrop-blur-md backdrop-saturate-150 dark:bg-black/10"
+      className="veil-in cl-screen-veil fixed inset-0 z-50 flex items-start justify-center bg-white/10 px-4 pt-[16vh] backdrop-blur-md backdrop-saturate-150 dark:bg-black/10"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}

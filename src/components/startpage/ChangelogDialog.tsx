@@ -61,7 +61,7 @@ function ChangelogDialog({ open, onClose }: { open: boolean; onClose: () => void
           key="changelog-overlay"
           exitClass="veil-out"
           duration={0.25}
-          className="veil-in fixed inset-0 z-50 flex items-center justify-center bg-white/10 px-4 backdrop-blur-md backdrop-saturate-150 dark:bg-black/10"
+          className="veil-in cl-screen-veil fixed inset-0 z-50 flex items-center justify-center bg-white/10 px-4 backdrop-blur-md backdrop-saturate-150 dark:bg-black/10"
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) onClose();
           }}

@@ -1820,10 +1820,11 @@ html.cs-lite.dark .glass-pill {
    退场中的纱罩会重新盖住 Dock——pointerup 落纱罩、click 被吞，面板永远
    打不开。
    磨砂底层律：纱罩拆两层——磨砂本体在底层走 blur 值通道（开态 transition
-   1px→20px 渐进凝聚（v8.7.6：0.12s→0.36s ease-in-out 渐入——旧 0.12s+
+   1px→14px 渐进凝聚（v8.7.6：0.12s→0.36s ease-in-out 渐入——旧 0.12s+
    ease-out 前 25% 冲完大半进度 = 「没有渐入、很突兀」两根因。v8.7.7：
    0.36→0.60s 再放慢——0.36s 窗内可感知段仅 ~150ms 用户复测「完全看不出
-   来有渐入」，放慢后可感知段 ~330ms 清晰可辨）；关闭散场移交 cl-drawer-veil-scatter-kf
+   来有渐入」，放慢后可感知段 ~330ms 清晰可辨；v8.7.9：满值 20→14px 再调轻
+   ——用户第三轮「模糊再轻一点」，让位感保留、纱下内容更透）；关闭散场移交 cl-drawer-veil-scatter-kf
    关键帧，data-veil/cs-drawer-closing 门控，全程无 opacity，任何帧不退化
    为纯色纱）；染色渐变走 ::before（无磨砂载体，opacity 安全）。visibility
    延迟门控：关态 blur(1px)+transparent 视觉不可见且退场收尾后才隐藏，
@@ -1833,6 +1834,13 @@ html.cs-lite.dark .glass-pill {
    旧快启 112ms 冲到 5px「太直接」，缓启大模糊区缓释 + 匀速长尾把渐出
    拉细）。 ---------- */
 .cl-drawer-veil {
+  /* 满值/中点站点变量化（v8.7.9）：data-veil=1 开态满值与散场关键帧 0%/35%
+     站点同源取值——开态满值与散场起点天然同值（无 V 跳起步），掠影去饱和
+     覆写只改变量一处（见文件尾掠影区 photo-mode 覆写：压暗壁纸不被
+     saturate 提亮）。fallback=默认站点值，同时充当探针断言锚 + 兜底
+     （veil-in/veil-fade 的 --veil-hold-bf var 同构先例）。 */
+  --dv-open-bf: blur(14px) saturate(1.5);
+  --dv-mid-bf: blur(9px) saturate(1.22);
   background-color: transparent;
   /* 关态常驻：blur(1px) 不带 saturate（=sat 1，压缩器律：sat 参数 1 不可
      显写、缺省即合法，见文件头④）——visibility 翻转帧与「无效果」仅差
@@ -1875,11 +1883,11 @@ html.cs-drawer-closing .cl-drawer-veil {
 }
 @keyframes cl-drawer-veil-scatter-kf {
   0% {
-    backdrop-filter: blur(20px) saturate(1.5);
+    backdrop-filter: var(--dv-open-bf, blur(14px) saturate(1.5));
     animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
   }
   35% {
-    backdrop-filter: blur(9px) saturate(1.22);
+    backdrop-filter: var(--dv-mid-bf, blur(9px) saturate(1.22));
     animation-timing-function: linear;
   }
   100% {
@@ -1905,13 +1913,14 @@ html.cs-drawer-closing .cl-drawer-veil {
   transition: opacity 0.40s cubic-bezier(0.45, 0, 0.55, 1);
 }
 .cl-drawer-veil[data-veil="1"] {
-  backdrop-filter: blur(20px) saturate(1.5);
+  backdrop-filter: var(--dv-open-bf, blur(14px) saturate(1.5));
   visibility: visible;
   /* 感知同步律（开=渐入，v8.7.6 ㊽ / v8.7.7 再放慢）：0.12s+ease-out（前
      25% 冲完大半进度）= 用户实测「没有渐入、很突兀」两根因；0.36s 时窗
      内可感知段仍仅 ~150ms——用户复测「完全看不出来有渐入」。v8.7.7
      放慢至 0.60s（曲线形态不变：缓起→中段糊开→末段缓落），可感知段
-     拉到 ~330ms 清晰可辨。满值 blur 20px（v8.7.7 调浅）。染色 ::before
+     拉到 ~330ms 清晰可辨。满值 blur 14px（v8.7.7 28→20 调浅 / v8.7.9 20→14
+     再调轻，站点经 --dv-open-bf 变量与散场同源）。染色 ::before
      0.60s 同拍渐显（见下条）——磨砂底与模糊质感同步渐现 */
   transition:
     backdrop-filter 0.60s cubic-bezier(0.5, 0, 0.3, 1),
@@ -1962,6 +1971,30 @@ html.cs-lite.dark .cl-drawer-veil::before {
    可读性设计，不属本轮指令范围）。 */
 html.photo-mode .cl-drawer-veil::before {
   display: none;
+}
+/* 掠影模式：纱幕去饱和律（v8.7.9）：用户指令「保证模糊效果不会提亮背景」
+   ——掠影为可读性刻意用 photo-scrim 压暗壁纸，而满值/散场站点里的
+   saturate(1.5→1.22) 会把压暗后的壁纸重新提色提亮（用户实测「抽屉模式以及
+   命令面板的高斯模糊会提亮背景」）。blur 本体亮度均值保持（模糊不改变
+   采样面平均亮度），饱和度才是提亮主犯——掠影下两站点变量覆写为无 sat 版本
+   （blur 值与曲线节奏零改动，只捕色感）；非掠影模式（辉光/纯净默认/深色）
+   sat 玻璃语言原样保留。 */
+html.photo-mode .cl-drawer-veil {
+  --dv-open-bf: blur(14px);
+  --dv-mid-bf: blur(9px);
+}
+/* 掠影满屏纱幕压暗律（v8.7.9）：命令面板/快捷服务编辑/预设文档/更新日志四张
+   满屏遮罩浅色主题 = bg-white/10 白纱 + backdrop-saturate-150——掠影下白纱
+   直接提亮压暗壁纸（右键快捷服务时编辑界面还叠在抽屉纱幕上，双层更亮）。
+   掠影下统一切深色纱：底色 rgba(0,0,0,0.18)（与 photo-scrim 平底同值，
+   压暗方向与掠影可读性设计同向）+ backdrop blur(12px)（=Tailwind
+   backdrop-blur-md 原值，保磨砂语言、去 saturate）——叠加在抽屉纱幕上的
+   第二层也从「提亮」变「轻压暗」。非掠影模式四遮罩白纱/黑纱原样零波及；
+   cs-lite 的 backdrop-filter:none !important 优先级高于本条（流畅模式
+   降级语义不变），background-color 在 cs-lite 下同样生效（纯色纱同向压暗）。 */
+html.photo-mode .cl-screen-veil {
+  background-color: rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(12px);
 }
 /* reduce-motion：抽屉关闭即刻隐没（visibility 延迟归零 + 散场动画瞬完
    停 blur(1px) 终帧 + 染色瞬隐）；开态凝聚/染色渐入 transition 一并归零
