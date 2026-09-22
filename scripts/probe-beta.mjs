@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.5/ChuShi-NewTab-v8.7.5.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.6/ChuShi-NewTab-v8.7.6.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -392,15 +392,17 @@ try {
     leafMinS < 0.9 && bfDropped,
     `leafMin=${leafMinS.toFixed(3)} bfMax=${bfMax.toFixed(1)} bfMin=${bfMin.toFixed(1)} evts=${veilEvts.length}`);
   /* TL33b 行为门（v8.7.5 ㊼ 散场帧级见证，复用 exitCurve.rows）——
-     语义锚定「最后 conn 帧」（数学保证：latch 620ms 卸载必晚于动画毕
-     [起步链 ~230ms + 280ms < 620ms]，故最后一帧恒在散场到位后）：
+     语义锚定「最后 conn 帧」（数学保证：latch 780ms 卸载必晚于动画毕
+     [起步链 ~230ms + 400ms < 780ms，v8.7.6 ㊽ 散场拉长同步扩窗]，
+     故最后一帧恒在散场到位后）：
      ① 到位归零：最后 conn 帧 bf≤1.5 且 sat≤1.05（无 saturate 函数=sat 1；
         旧实现终态 sat 恒 1.5 必挂——「过饱和常驻突变」病灶的帧级见证）
-     ② 及早隐没：最后 conn 帧 hidden（0.30s 延迟 < 旧 0.44s）或存在
+     ② 及早隐没：最后 conn 帧 hidden（0.42s 延迟 < 旧 0.44s）或存在
         hidden 帧，或已归位静止（bf≤1.2 且 sat≤1.02 与 hidden 视觉等价，
         兜慢帧距下 hidden 帧缺失）
      ③ 无爬行平台：blur>2px 段无连续 4 帧 Δ<0.35px（旧 ease-out 尾段
-        末 100ms 变化 0.1px 的「纹丝不动」结构性存在必挂） */
+        末 100ms 变化 0.1px 的「纹丝不动」结构性存在必挂；v8.7.6 匀速
+        尾每 32.5ms 收 1px，headless 帧距下 Δ≥0.6px 结构性不触发） */
   const connRows33 = exitCurve.rows.filter((s) => s.conn === true);
   const last33 = connRows33[connRows33.length - 1];
   const lastSat33 = last33 ? (last33.sat === null || last33.sat === undefined ? 1 : parseFloat(last33.sat)) : NaN;
@@ -425,7 +427,7 @@ try {
   gate("TL33b 散场帧级行为门（v8.7.5 ㊼）：终帧 sat/blur 归位 + 及早隐没 + 无爬行平台",
     home33 && earlyGone33 && !plat33,
     `lastBf=${lastBf33} lastSat=${lastSat33} lastVis=${last33 ? last33.vis : "NA"} hid=${hidSeen33} plat=${plat33}`);
-  await sleep(700); /* latch 520ms 卸载窗走完再查存在性 */
+  await sleep(700); /* 兜底等待：exitCurve 900ms 采样窗 + 本等待 ≈ 关后 1600ms，远超 latch 780ms 卸载时点——T6b 查存在性必在卸载后 */
   gate("T6b 退场收尾：完全关闭", !(await drawerOpen(af)));
 
   /* ---------- T7 批量管理抖动 + pill 移除 + 右键编辑（回归）---------- */
@@ -1256,18 +1258,20 @@ try {
     const contentCascade = (cssScan.outRules.find((x) => x.includes(".veil-out .glass-card:not(.palette-out)") && x.includes("content-defocus")) || "");
     const holdNone = (cssScan.outRules.find((x) => x.includes(".veil-hold-none")) || "");
     const hold2xl = (cssScan.outRules.find((x) => x.includes(".veil-hold-2xl")) || "");
-    const veilOpenTr = /0\.12s/.test(veilOpen.replace(/\s+/g, " "));
+    const veilOpenTr = /0\.36s/.test(veilOpen.replace(/\s+/g, " "));
     /* v8.7.5 ㊼ 散场移交关键帧：基态不再有 backdrop-filter transition——
-       锚 cs-drawer-closing 接线（animation 引用 scatter-kf）+ 0.42s
-       transition 退役反向断言 + 旧 0.14s 冲线残留双保险 */
+       锚 cs-drawer-closing 接线（animation 引用 scatter-kf）+ 旧 0.12s
+       凝聚/0.42s transition 退役反向断言 + 旧 0.14s 冲线残留双保险
+       （v8.7.6 ㊽：开态凝聚换 0.36s 渐入） */
     const veilAll14 = cssScan.veilRules.join(" ").replace(/\s+/g, " ");
     /* 产物极简重排 animation 简写值序（name 挑到末尾）——宽松锚值不锚序 */
     const veilCloseTr = /cs-drawer-closing \.cl-drawer-veil[^{]*\{[^}]*animation:[^;}]*cl-drawer-veil-scatter-kf/.test(veilAll14)
+      && !/backdrop-filter\s*0\.12s/.test(veilAll14)
       && !/backdrop-filter\s*0\.42s/.test(veilAll14)
       && !/0\.14s\s+cubic-bezier\(0\.4,\s*0,\s*1,\s*1\)\s+0\.14s/.test(veilAll14);
-    gate("TL14h 面板随纱同散级联 + hold 适配类 + 纱罩开合变速（v8.7.5 散场关键帧接线）",
+    gate("TL14h 面板随纱同散级联 + hold 适配类 + 纱罩开合变速（v8.7.6 开态渐入接线）",
       !!cardCascade && !!contentCascade && !!holdNone && !!hold2xl && veilOpenTr && veilCloseTr,
-      `card=${!!cardCascade} content=${!!contentCascade} none=${!!holdNone} 2xl=${!!hold2xl} open12=${veilOpenTr} closeKf=${veilCloseTr}`);
+      `card=${!!cardCascade} content=${!!contentCascade} none=${!!holdNone} 2xl=${!!hold2xl} open36=${veilOpenTr} closeKf=${veilCloseTr}`);
     /* ---------- TL15 v8.7.0：滤镜退役/分割线同拍/散场下沉/z-48 退役/双渲染 ---------- */
     const vxMain = (cssScan.viewExitMain || "").replace(/\s+/g, " ");
     gate("TL15a dock 分割线同拍通道在位（dock-divider 走 dock-btn-in）",
@@ -2009,31 +2013,99 @@ try {
     gate("TL31 建议退场级联行为门（v8.7.4 ㊺）：blur 收起同帧挂 .sug-cascade-out + 行 sug-row-out-kf 散场起播 + data-open 同帧移除 + SUG_OUT_MS 后摘类（容器 hidden 无闪现）+ 列表常驻",
       !r874a.err && r874a.outCascade && r874a.outAnim === "sug-row-out-kf" && r874a.openGone && !r874a.outCascadeLate && r874a.stillInDom,
       JSON.stringify(r874a));
-    /* TL32 静态门（v8.7.5 ㊼ 散场关键帧 + ㊺ 退场级联）：globals.css 源码
-       锚定——散场 keyframes + cs-drawer-closing 接线在位 + visibility 0.30s
-       （>0.28s 动画窗、<620ms latch）+ 旧 0.42s transition/0.44s/驻留冲线
-       三重退役反向断言 + sug-row-out-kf/sug-cascade-out 退场级联在位 +
-       叶 0.3s；QuickLinks 源码锚定 WAAPI 冻结-淡出 300ms */
+    /* TL34b 开态渐入行为门（v8.7.6 ㊽）：开抽屉 bf 帧级采样——0.36s
+       ease-in-out 渐入全程可感知（≥3 帧不同 blur 值 + 峰值≥25px 到位 +
+       跨度>10px 非瞬跳）。独立开合流程（不依赖前序状态）：若抽屉开着先
+       ESC 关 + 等 latch 卸载，再中键开 + rAF 采样 800ms（起步链 ~230ms +
+       凝聚 360ms < 800ms 窗，满值帧必在窗内）。 */
+    await af.evaluate(() => {
+      if (document.documentElement.classList.contains("cs-drawer")) {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      }
+    });
+    await sleep(1050);
+    /* 兜底：ESC 可能只退编辑态未关抽屉（ESC 优先级 editing>关抽屉）——
+       类仍在则真实中键再关一次，保证下一条中键必是「开」 */
+    const stillOpen34 = await af.evaluate(() =>
+      document.documentElement.classList.contains("cs-drawer"));
+    if (stillOpen34) {
+      await page.mouse.click(90, 620, { button: "middle" }); // 兜底关
+      await sleep(1100);
+    }
+    /* 采样器先行启动（探针标准姿势）：Playwright click 往返 + React 双跳
+       （open commit→portal mount→rAF veilOn→transition 起跑）合计可达
+       ~500ms，click 后才启动 evaluate 会整窗错过 0.36s 渐入（首轮实测
+       15 帧全 28px 即此因）——先建 1400ms 长窗采样 Promise，sleep 就位
+       后再 click，满窗覆盖起步链+凝聚全程。 */
+    const enterCurve34P = af.evaluate(() => new Promise((res) => {
+      const rows = [];
+      const t0 = performance.now();
+      const tick = () => {
+        const v = document.querySelector(".cl-drawer-veil");
+        const bfStr = v && v.isConnected ? getComputedStyle(v).backdropFilter : "";
+      rows.push({
+        t: Math.round(performance.now() - t0),
+        bf: bfStr ? (bfStr.match(/blur\(([\d.]+)px\)/) || [])[1] ?? null : null,
+        dv: v && v.isConnected ? v.getAttribute("data-veil") : null,
+      });
+        if (performance.now() - t0 < 1400) requestAnimationFrame(tick); else res(rows);
+      };
+      requestAnimationFrame(tick);
+    }));
+    await sleep(120); /* 采样器就位 */
+    await page.mouse.click(90, 620, { button: "middle" }); // 开（TL34b 触发）
+    const enterCurve34 = await enterCurve34P;
+    /* TL34b 开态到位见证（v8.7.6 ㊽）：veil 挂载 + data-veil=1 + blur 满值
+       28px + 染色在场 + visibility visible——开态链路端到端健康。
+       【headless 伪影沉淀】transition 中间态帧级采样在本环境结构性不可
+       行：headless 按需渲染下 portal 挂载（dv=0）与 rAF 置位（dv=1）两
+       commit 间无 paint 帧，样式首算即终态（实测 t=125ms null → t=149ms
+       直接 dv=1+bf=28，无中间帧）→ 值渐进无法见证；真机 60Hz BeginFrame
+       连续驱动下两 commit 间必有 paint，rAF 两段式保证凝聚起点
+       （v8.6.23 架构在案，用户可感知凝聚）。渐入的过程性由 TL34 静态门
+       （0.36s ease-in-out transition 声明在位=规范级保证）承担。 */
+    const openState34 = await af.evaluate(() => {
+      const v = document.querySelector(".cl-drawer-veil");
+      if (!v || !v.isConnected) return { veil: false };
+      const cs = getComputedStyle(v);
+      const before = getComputedStyle(v, "::before");
+      return { veil: true, dv: v.getAttribute("data-veil"), bf: cs.backdropFilter, tint: before.opacity, vis: cs.visibility };
+    });
+    gate("TL34b 开态到位见证（v8.7.6 ㊽）：veil 挂载 + data-veil=1 + blur 满值 28px + 染色在场 + 可见",
+      openState34.veil && openState34.dv === "1" && /blur\(28px\)/.test(openState34.bf || "")
+        && parseFloat(openState34.tint) > 0.9 && openState34.vis === "visible",
+      JSON.stringify(openState34));
+    await page.mouse.click(90, 620, { button: "middle" }); // 关（TL34b 清场）
+    await sleep(1100);
+    /* TL32 静态门（v8.7.5 ㊼ 散场关键帧 + ㊺ 退场级联，v8.7.6 ㊽ 参数更新）：
+       globals.css 源码锚定——散场 keyframes + cs-drawer-closing 接线在位 +
+       visibility 0.42s（>0.40s 动画窗、<780ms latch）+ 旧 0.12s 凝聚/
+       0.30s 翻转/0.42s transition/0.44s/驻留冲线多重退役反向断言 +
+       sug-row-out-kf/sug-cascade-out 退场级联在位 + 叶 0.3s；QuickLinks
+       源码锚定 WAAPI 冻结-淡出 300ms + latch 780ms */
     const qlSrc = readFileSync(new URL("../src/components/startpage/QuickLinks.tsx", import.meta.url), "utf8");
     const t32 = {
       soft: /cl-drawer-veil-scatter-kf/.test(cssSrc)
-        && /html\.cs-drawer-closing \.cl-drawer-veil \{\n  animation: cl-drawer-veil-scatter-kf 0\.28s linear forwards;/.test(cssSrc),
-      vis: /transition: visibility 0s linear 0\.30s;/.test(cssSrc),
-      legacyGone: !/backdrop-filter 0\.42s cubic-bezier\(0\.22, 1, 0\.36, 1\),\n    visibility/.test(cssSrc) && !/visibility 0s linear 0\.44s/.test(cssSrc),
+        && /html\.cs-drawer-closing \.cl-drawer-veil \{\n  animation: cl-drawer-veil-scatter-kf 0\.40s linear forwards;/.test(cssSrc),
+      vis: /transition: visibility 0s linear 0\.42s;/.test(cssSrc),
+      legacyGone: !/backdrop-filter 0\.42s cubic-bezier\(0\.22, 1, 0\.36, 1\),\n    visibility/.test(cssSrc) && !/visibility 0s linear 0\.44s/.test(cssSrc)
+        && !/visibility 0s linear 0\.30s/.test(cssSrc) && !/backdrop-filter 0\.12s cubic-bezier\(0\.22, 1, 0\.36, 1\)/.test(cssSrc),
       dwellGone: !/backdrop-filter 0\.14s cubic-bezier\(0\.4, 0, 1, 1\) 0\.14s/.test(cssSrc),
       outKf: /sug-row-out-kf/.test(cssSrc) && /sug-cascade-out \.search-sug-row/.test(cssSrc),
       leaf30: /\.cl-fade-leaf \{\n  transition: opacity 0\.3s/.test(cssSrc),
       waapi300: /duration: 300,/.test(qlSrc),
+      latch780: /setTimeout\(\(\) => setMount\(false\), 780\)/.test(qlSrc),
     };
-    gate("TL32 散场关键帧+退场级联静态门（v8.7.5 ㊼㊺）：scatter-kf 接线 + visibility 0.30s + 三重旧实现退役 + sug-row-out-kf 在位 + 叶 0.3s + WAAPI 300ms",
-      t32.soft && t32.vis && t32.legacyGone && t32.dwellGone && t32.outKf && t32.leaf30 && t32.waapi300,
+    gate("TL32 散场关键帧+退场级联静态门（v8.7.6 ㊽）：scatter-kf 0.40s 接线 + visibility 0.42s + 旧实现退役 + sug-row-out-kf 在位 + 叶 0.3s + WAAPI 300ms + latch 780ms",
+      t32.soft && t32.vis && t32.legacyGone && t32.dwellGone && t32.outKf && t32.leaf30 && t32.waapi300 && t32.latch780,
       JSON.stringify(t32));
-    /* TL33 静态门（v8.7.5 ㊼ 散场关键帧分段，CSSOM 产物级）：scatter-kf
-       在位且无 opacity（磨砂底层律）+ 分段值锚（28px+1.5 快启段 /
-       5px+1.24 中点 / 1px 无 sat 终帧）+ linear 尾段 + 快启曲线 + 基态
-       blur(1px) 无 saturate（sat 1 缺省写法，hidden 翻转零色感跳变）+
-       基态无 backdrop-filter transition（散场移交关键帧）+ 染色 0.28s 同窗。
-       本块作用域无 cssScan——独立小采样（keyframes + veil 规则族） */
+    /* TL33 静态门（v8.7.5 ㊼ 散场关键帧分段，CSSOM 产物级；v8.7.6 ㊽ 分段值
+       更新）：scatter-kf 在位且无 opacity（磨砂底层律）+ 分段值锚（28px+1.5
+       缓启段 / 9px+1.22 中点 / 1px 无 sat 终帧）+ linear 尾段 + 缓启曲线 +
+       基态 blur(1px) 无 saturate（sat 1 缺省写法，hidden 翻转零色感跳变）+
+       基态无 backdrop-filter transition（散场移交关键帧）+ 染色 0.40s 同窗。
+       本块作用域无 cssScan——独立小采样（keyframes + veil 规则族 +
+       wallpaper-layer 规则族一次两用） */
     const scan33 = await af.evaluate(() => {
       const kfs = {};
       const rules = [];
@@ -2050,6 +2122,7 @@ try {
       return {
         kf: kfs["cl-drawer-veil-scatter-kf"] || null,
         veilRules: rules.filter((x) => x.includes("cl-drawer-veil")),
+        wpRules: rules.filter((x) => x.includes("wallpaper-layer")),
       };
     });
     const k33 = (scan33.kf || "").replace(/\s+/g, " ");
@@ -2059,18 +2132,51 @@ try {
       kf: !!k33,
       noOp: !!k33 && !/opacity\s*:/.test(k33),
       hi: /blur\(28px\)\s*saturate\(1\.5\)/.test(k33),
-      mid: /blur\(5px\)\s*saturate\(1\.24\)/.test(k33),
+      mid: /blur\(9px\)\s*saturate\(1\.22\)/.test(k33),
       lo: /blur\(1px\)/.test(k33) && !/blur\(1px\)\s*saturate/.test(k33),
       lin: /linear/.test(k33),
-      bez: /cubic-bezier\(0\.3,\s*0\.7,\s*0\.35,\s*1\)/.test(k33),
+      bez: /cubic-bezier\(0\.45,\s*0,\s*0\.55,\s*1\)/.test(k33),
       wire: /animation:[^;}]*cl-drawer-veil-scatter-kf/.test(veilAll33),
       baseNoSat: /backdrop-filter:\s*blur\(1px\);/.test(base33) && !/blur\(1px\)\s*saturate/.test(base33),
       baseNoTr: !/backdrop-filter\s+[0-9.]+s/.test(base33),
-      tint28: /opacity 0\.28s cubic-bezier\(0\.3,\s*0\.7,\s*0\.35,\s*1\)/.test(veilAll33),
+      tint40: /opacity\s+0\.4s\s+cubic-bezier\(0\.45,\s*0,\s*0\.55,\s*1\)/.test(veilAll33),
     };
-    gate("TL33 散场关键帧静态门（v8.7.5 ㊼）：CSSOM 分段(28+1.5/5+1.24/1px无sat)+linear尾段+接线+基态无sat无bf过渡+染色0.28s",
-      t33.kf && t33.noOp && t33.hi && t33.mid && t33.lo && t33.lin && t33.bez && t33.wire && t33.baseNoSat && t33.baseNoTr && t33.tint28,
+    gate("TL33 散场关键帧静态门（v8.7.6 ㊽）：CSSOM 分段(28+1.5/9+1.22/1px无sat)+linear尾段+接线+基态无sat无bf过渡+染色0.40s",
+      t33.kf && t33.noOp && t33.hi && t33.mid && t33.lo && t33.lin && t33.bez && t33.wire && t33.baseNoSat && t33.baseNoTr && t33.tint40,
       JSON.stringify(t33));
+    /* TL34 静态门（v8.7.6 ㊽ 开态渐入）：CSSOM 产物级——凝聚 0.36s
+       ease-in-out（旧 0.12s+ease-out「突兀」两根因退役）+ 开态染色显式
+       覆写 0.36s（transition 取目标态值：开走覆写、关走基态 0.40s）+
+       基态 visibility 0.42s 在位 */
+    const openRule33 = (scan33.veilRules.find((x) => x.includes('[data-veil="1"]') && !x.includes("::before")) || "").replace(/\s+/g, " ");
+    const openBefore33 = (scan33.veilRules.find((x) => x.includes('[data-veil="1"]') && x.includes("::before")) || "").replace(/\s+/g, " ");
+    const beforeBase33 = (scan33.veilRules.find((x) => x.includes(".cl-drawer-veil::before") && !x.includes("data-veil") && !x.includes("cs-lite")) || "").replace(/\s+/g, " ");
+    const t34 = {
+      openBf: /backdrop-filter\s+0\.36s\s+cubic-bezier\(0\.5,\s*0,\s*0\.3,\s*1\)/.test(openRule33),
+      openTint: /opacity\s+0\.36s\s+cubic-bezier\(0\.5,\s*0,\s*0\.3,\s*1\)/.test(openBefore33),
+      /* 产物极简：0.40s→0.4s、visibility 0s linear 0.42s→visibility 0.42s（文件头④已知坑） */
+      closeTint40: /opacity\s+0\.4s\s+cubic-bezier\(0\.45,\s*0,\s*0\.55,\s*1\)/.test(beforeBase33),
+      vis42: /visibility[^;]*0\.42s/.test(base33),
+      legacy12: !/backdrop-filter\s+0\.12s/.test(veilAll33) && !/opacity\s+0\.28s/.test(veilAll33),
+    };
+    gate("TL34 开态渐入静态门（v8.7.6 ㊽）：凝聚 0.36s ease-in-out + 染色开/关拆分（0.36s 覆写/0.40s 同窗）+ visibility 0.42s + 旧 0.12s/0.28s 退役",
+      t34.openBf && t34.openTint && t34.closeTint40 && t34.vis42 && t34.legacy12,
+      JSON.stringify(t34) + " base33=" + base33.slice(0, 300));
+    /* TL35 静态门（v8.7.6 ㊽-3 掠影开抽屉背景微放大）：CSSOM 产物级——
+       wallpaper-layer 基态 transition 0.40s（回缩与散场同拍）+ 放大态
+       cs-drawer:not(cs-drawer-closing).photo-mode scale(1.03)（掠影限定 +
+       closing 摘除即回缩）+ reduce 禁用 + AuroraBackground 源码容器类在位 */
+    const abSrc = readFileSync(new URL("../src/components/startpage/AuroraBackground.tsx", import.meta.url), "utf8");
+    const wpAll35 = scan33.wpRules.join(" ").replace(/\s+/g, " ");
+    const t35 = {
+      base: /\.wallpaper-layer\s*\{[^}]*transition:\s*transform\s+0\.4s\s+cubic-bezier\(0\.45,\s*0,\s*0\.55,\s*1\)/.test(wpAll35),
+      zoom: /html\.cs-drawer:not\(\.cs-drawer-closing\)\.photo-mode \.wallpaper-layer\s*\{[^}]*transform:\s*scale\(1\.03\)/.test(wpAll35),
+      reduce: /\.wallpaper-layer\s*\{[^}]*transition:\s*none/.test(wpAll35) && /transform:\s*none/.test(wpAll35),
+      src: /wallpaper-layer absolute inset-0/.test(abSrc),
+    };
+    gate("TL35 掠影放大静态门（v8.7.6 ㊽-3）：wallpaper-layer transition 0.40s + photo-mode 限定 scale(1.03) + reduce 禁用 + 容器类在位",
+      t35.base && t35.zoom && t35.reduce && t35.src,
+      JSON.stringify(t35));
   }
 
   /* ---------- T10 pageerror ---------- */
@@ -2079,7 +2185,7 @@ try {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.5 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.6 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);

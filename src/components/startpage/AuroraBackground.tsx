@@ -319,9 +319,13 @@ function AuroraBackground({
 
       {/* 摄影壁纸层：挂载身份 = 显示身份，换图发生在黑幕全黑时刻。
           视频 <video muted loop>（kenburns 让位于视频自身动效），
-          GIF 走 <img> 同样免 kenburns（自身已动，叠加易晕） */}
+          GIF 走 <img> 同样免 kenburns（自身已动，叠加易晕）。
+          wallpaper-layer（v8.7.6 ㊽-3）：容器级缩放锚点——掠影开抽屉时
+          globals 用它做 1→1.03 微放大（开抽屉体感），与 img 级 kenburns
+          双层 transform 叠加零冲突（动画占用 img 的 transform，
+          容器级是唯一安全挂载点） */}
       {shownUrl && (
-        <div key={shownUrl} className="absolute inset-0">
+        <div key={shownUrl} className="wallpaper-layer absolute inset-0">
           {shownKind === "video" ? (
             <video
               src={shownUrl}

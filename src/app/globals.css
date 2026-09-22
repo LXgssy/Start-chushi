@@ -1788,13 +1788,17 @@ html.cs-lite.dark .glass-pill {
    退场中的纱罩会重新盖住 Dock——pointerup 落纱罩、click 被吞，面板永远
    打不开。
    磨砂底层律：纱罩拆两层——磨砂本体在底层走 blur 值通道（开态 transition
-   1px→28px 凝聚，关闭散场移交 cl-drawer-veil-scatter-kf 关键帧，data-veil/
-   cs-drawer-closing 门控，全程无 opacity，任何帧不退化为纯色纱）；染色
-   渐变走 ::before（无磨砂载体，opacity 安全）。visibility 延迟门控：关态
-   blur(1px)+transparent 视觉不可见且退场收尾后才隐藏，常挂架构下关态零
-   合成开销。开态可见即时（0s）、隐藏延迟（0.30s 关键帧散场收尾后，
-   v8.7.5：散场移交 cl-drawer-veil-scatter-kf 分段关键帧，尾段匀速不爬行、
-   saturate 同步归位、染色同步消散——「模糊残留卡一下」三病灶清零）。 ---------- */
+   1px→28px 渐进凝聚（v8.7.6：0.12s→0.36s ease-in-out 渐入——旧 0.12s+
+   ease-out 前 25% 冲完大半进度 = 「没有渐入、很突兀」两根因，拉长窗口+
+   缓起中段让糊化全程可感知）；关闭散场移交 cl-drawer-veil-scatter-kf
+   关键帧，data-veil/cs-drawer-closing 门控，全程无 opacity，任何帧不退化
+   为纯色纱）；染色渐变走 ::before（无磨砂载体，opacity 安全）。visibility
+   延迟门控：关态 blur(1px)+transparent 视觉不可见且退场收尾后才隐藏，
+   常挂架构下关态零合成开销。开态可见即时（0s）、隐藏延迟（0.42s 关键帧
+   散场收尾后，v8.7.5：尾段匀速不爬行、saturate 同步归位、染色同步消散——
+   「模糊残留卡一下」三病灶清零；v8.7.6：散场 0.28→0.40s 缓启长窗——
+   旧快启 112ms 冲到 5px「太直接」，缓启大模糊区缓释 + 匀速长尾把渐出
+   拉细）。 ---------- */
 .cl-drawer-veil {
   background-color: transparent;
   /* 关态常驻：blur(1px) 不带 saturate（=sat 1，压缩器律：sat 参数 1 不可
@@ -1804,43 +1808,44 @@ html.cs-lite.dark .glass-pill {
      （v8.7.5 ㊼ 退役）。 */
   backdrop-filter: blur(1px);
   visibility: hidden;
-  /* visibility 离散插值：0.30s（>0.28s 散场动画窗、<620ms mount latch
-     退场窗——余量给双跳渲染起步延迟；visibility 简写被压缩器极简，
-     语义等价无需防，见文件头④）。backdrop-filter 不再走 transition——
-     散场由下方关键帧独立承载（animation 值覆盖普通声明，data-veil 摘除
-     一帧过渡无空窗）。开态凝聚节奏不动。 */
-  transition: visibility 0s linear 0.30s;
+  /* visibility 离散插值：0.42s（>0.40s 散场动画窗、<780ms mount latch
+     退场窗——余量给双跳渲染起步延迟 ~230ms + 帧距波动；visibility 简写
+     被压缩器极简，语义等价无需防，见文件头④）。backdrop-filter 不再走
+     transition——散场由下方关键帧独立承载（animation 值覆盖普通声明，
+     data-veil 摘除一帧过渡无空窗）。 */
+  transition: visibility 0s linear 0.42s;
 }
-/* 感知同步律（关=关键帧分段散场，v8.7.5 ㊼ 重写）：v8.7.4 的 0.42s 快启
+/* 感知同步律（关=关键帧分段散场，v8.7.6 ㊽ 细腻化）：v8.7.4 的 0.42s 快启
    缓落 transition 三处叠加病灶（帧级实测）——
    ① 尾段爬行：bezier(0.22,1,0.36,1) 71% 时点已 97% 进度，blur 2→1px
       区间末 100ms 变化仅 0.1px，可感知残留区拖 ~120ms「纹丝不动」；
-   ② 裸模糊暴露期：染色 ::before 0.3s 先行渐隐，blur 尾段 ~2px 失去
-      染色掩护孤挂至 0.42s——残留被放大；
-   ③ 饱和度突变：saturate(1.5) 恒定全程，blur 252ms 到位后 veil 常驻
-      blur(1px)+sat(1.5) 挂至 0.44s visibility 翻转——整页过饱和一帧
-      突降 = 「模糊残留卡一下」主犯（①②是拖尾，③是跳变）。
-   重写：散场移交关键帧分段控制（html.cs-drawer-closing 载体——closing
+   ② 裸模糊暴露期：染色 ::before 先行渐隐，blur 尾段失去染色掩护孤挂——
+      残留被放大；
+   ③ 饱和度突变：saturate(1.5) 恒定全程挂至 visibility 翻转——整页过
+      饱和一帧突降 = 「模糊残留卡一下」主犯。
+   v8.7.5 两段快启修掉三病灶，但 0-40% 112ms 即冲到 5px——用户实测
+   「渐出太直接」。v8.7.6 保持三病灶免疫架构（匀速尾 + saturate 同步 +
+   染色全程掩护），把节奏拉细（html.cs-drawer-closing 载体——closing
    effect 与 veilOn 复位同批但 DOM 类写立即生效，动画起点帧 veil 仍处
    data-veil 的 blur(28px) 满值 → 无 V 跳起步；下一渲染 commit data-veil
    摘除后 animation 覆盖基态无空窗）：
-   · 0-40%（112ms）cubic-bezier(0.3,0.7,0.35,1) 快启缓落 28→5px——
-     起步即散（无迟滞），大模糊区快速穿过；
-   · 40-100%（168ms）linear 匀速 5→1px——尾段速度恒定（每 42ms 收
-     1px），「越收越慢爬到不动」结构性不存在；
-   · saturate 与 blur 同步归位（1.5→1.24→末帧缺省=sat 1，函数列表
+   · 0-35%（140ms）cubic-bezier(0.45,0,0.55,1) 缓启缓入 28→9px——起步
+     柔（对比 v8.7.5 快启猛冲），大模糊区先缓释再加速，糊感渐次松开；
+   · 35-100%（260ms）linear 匀速 9→1px——尾段速度恒定（每 32.5ms 收
+     1px，高于 v8.7.5 每 42ms 1px），「越收越慢爬到不动」结构性不存在；
+   · saturate 与 blur 同步归位（1.5→1.22→末帧缺省=sat 1，函数列表
      pad 插值平滑）——清晰可辨段（blur<2px）饱和已近归位，hidden
      翻转帧壁纸色感已同步，突变消失。 */
 html.cs-drawer-closing .cl-drawer-veil {
-  animation: cl-drawer-veil-scatter-kf 0.28s linear forwards;
+  animation: cl-drawer-veil-scatter-kf 0.40s linear forwards;
 }
 @keyframes cl-drawer-veil-scatter-kf {
   0% {
     backdrop-filter: blur(28px) saturate(1.5);
-    animation-timing-function: cubic-bezier(0.3, 0.7, 0.35, 1);
+    animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
   }
-  40% {
-    backdrop-filter: blur(5px) saturate(1.24);
+  35% {
+    backdrop-filter: blur(9px) saturate(1.22);
     animation-timing-function: linear;
   }
   100% {
@@ -1858,23 +1863,30 @@ html.cs-drawer-closing .cl-drawer-veil {
     rgba(255, 255, 255, 0.28)
   );
   opacity: 0;
-  /* 染色 0.28s 与散场同窗同拍（v8.7.5 ㊼：旧「先行渐隐」把 blur 尾段
-     ~2px 暴露成无掩护残影——染色与模糊同步消散，裸模糊暴露期归零）；
-     ease-out 尾段对 opacity 无感（透明度低时变化不可见），单段曲线
-     即可，无需关键帧。开启跟随凝聚（开合染色同参） */
-  transition: opacity 0.28s cubic-bezier(0.3, 0.7, 0.35, 1);
+  /* 关闭：染色 0.40s 与散场同窗同拍（v8.7.5 ㊼：旧「先行渐隐」把 blur
+     尾段暴露成无掩护残影——染色与模糊同步消散，裸模糊暴露期归零；
+     v8.7.6 曲线同步缓启与散场同频）。本条是关态 transition——transition
+     取目标态值：开→关时目标态是基态，走本条 0.40s；开启渐显在
+     [data-veil="1"]::before 显式覆写。单段曲线即可，无需关键帧 */
+  transition: opacity 0.40s cubic-bezier(0.45, 0, 0.55, 1);
 }
 .cl-drawer-veil[data-veil="1"] {
   backdrop-filter: blur(28px) saturate(1.5);
   visibility: visible;
-  /* 感知同步律（开=blur 领先）：0.12s 先凝满 28px，染色 ::before 0.28s
-     跟随渐显——磨砂底与模糊质感同步出现 */
+  /* 感知同步律（开=渐入，v8.7.6 ㊽）：0.12s+ease-out（前 25% 冲完大半
+     进度）= 用户实测「没有渐入、很突兀」两根因。0.36s ease-in-out：
+     起步缓（1px 慢慢起糊）→ 中段糊开 → 末段缓落满值 28px——糊化过程
+     全程可感知。染色 ::before 0.36s 同拍渐显（见下条）——磨砂底与
+     模糊质感同步渐现 */
   transition:
-    backdrop-filter 0.12s cubic-bezier(0.22, 1, 0.36, 1),
+    backdrop-filter 0.36s cubic-bezier(0.5, 0, 0.3, 1),
     visibility 0s;
 }
 .cl-drawer-veil[data-veil="1"]::before {
   opacity: 1;
+  /* 开启渐显显式覆写（transition 取目标态值：关→开时目标态是本条，
+     基态 0.40s 关闭渐隐不受影响）——染色与磨砂同拍渐入 */
+  transition: opacity 0.36s cubic-bezier(0.5, 0, 0.3, 1);
 }
 .dark .cl-drawer-veil::before {
   /* 深色态：zinc-900 轻纱替代旧 zinc-950 厚涂（「纯黑遮罩」差评），
@@ -1905,8 +1917,9 @@ html.cs-lite.dark .cl-drawer-veil::before {
   );
 }
 /* reduce-motion：抽屉关闭即刻隐没（visibility 延迟归零 + 散场动画瞬完
-   停 blur(1px) 终帧 + 染色瞬隐）；开态凝聚由 veilOn rAF 置位路径自然
-   瞬跳（transition 0.12s 不属本块——视觉上是即现，可接受） */
+   停 blur(1px) 终帧 + 染色瞬隐）；开态凝聚/染色渐入 transition 一并归零
+   （v8.7.6：0.36s 已不是「即现可接受」量级，显式归零；特异性高于基态
+   ::before 归零条，必须显式写） */
 @media (prefers-reduced-motion: reduce) {
   .cl-drawer-veil {
     transition-delay: 0s;
@@ -1916,5 +1929,32 @@ html.cs-lite.dark .cl-drawer-veil::before {
   }
   .cl-drawer-veil::before {
     transition-duration: 0s;
+  }
+  .cl-drawer-veil[data-veil="1"],
+  .cl-drawer-veil[data-veil="1"]::before {
+    transition-duration: 0s;
+  }
+}
+/* ---------- 掠影开抽屉背景微放大（v8.7.6 ㊽-3 感知锚） ----------
+   掠影（photo-mode 挂 <html>）下开抽屉壁纸容器 scale 1→1.03：磨砂凝聚
+   承担「让位」，微放大承担「前景浮出」——一点纵深变化给用户「抽屉已开」
+   的体感反馈。挂壁纸容器而非 <img>：图库图自带 kenburns（transform 被
+   CSS 动画占用且动画优先于过渡），容器级缩放与 img 级 kenburns 双层
+   叠加零冲突；video/gif 容器级统一生效。根容器 overflow-hidden 裁掉
+   1.03 溢出边缘无露白。回缩时机 = closing 类挂上（放大态失配）走基态
+   transition 与散场 0.40s 精确同拍——开合背景动作与模糊同频。
+   cs-lite（流畅模式）保留：transform 缩放是合成层动画，无磨砂也流畅。 */
+.wallpaper-layer {
+  transition: transform 0.40s cubic-bezier(0.45, 0, 0.55, 1);
+}
+html.cs-drawer:not(.cs-drawer-closing).photo-mode .wallpaper-layer {
+  transform: scale(1.03);
+}
+@media (prefers-reduced-motion: reduce) {
+  .wallpaper-layer {
+    transition: none;
+  }
+  html.cs-drawer:not(.cs-drawer-closing).photo-mode .wallpaper-layer {
+    transform: none;
   }
 }

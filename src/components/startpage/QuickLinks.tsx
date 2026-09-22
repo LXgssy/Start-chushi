@@ -754,11 +754,14 @@ function QuickLinks({
     [setLinks],
   );
 
-  /* portal 挂载 latch：开 → 立即挂载；关 → 留 620ms 窗口播完退场动画再卸载。
-     v8.7.4 ㊻ 柔散重写后纱罩 blur 收拢拉长到 0.42s + React 状态双跳渲染
+  /* portal 挂载 latch：开 → 立即挂载；关 → 留 780ms 窗口播完退场动画再卸载。
+     v8.7.4 ㊻ 柔散重写后纱罩 blur 收拢拉长 + React 状态双跳渲染
      （open=false → veilOn effect → data-veil 翻转）起步延迟 ~1-2 帧吃窗，
      旧 520ms 会把柔散尾段截断在 blur≈4px（探针帧级实测）——620ms 给足
      过渡完整走完 + 收尾余量。
+     v8.7.6 ㊽ 渐出细腻化后散场拉长到 0.40s——起步链实测 ~230ms + 400ms
+     = 630ms 已越过 620ms（尾段截断重演），780ms 重新给足（余量 150ms
+     覆盖帧距波动；0.42s visibility 翻转也在窗内）。
      （AnimatePresence 不能直接包 createPortal——framer v12 对 PORTAL 类型
      子元素的 presence 注册失效，首开整树不渲染；故把 AnimatePresence 放进
      portal 内部包纯 motion.div，外层用 latch 控制存续。） */
@@ -768,7 +771,7 @@ function QuickLinks({
       return;
     }
     if (!mount) return;
-    const t = setTimeout(() => setMount(false), 620);
+    const t = setTimeout(() => setMount(false), 780);
     return () => clearTimeout(t);
   }, [open, mount]);
 
