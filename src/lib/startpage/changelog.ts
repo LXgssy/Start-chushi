@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.4",
+    date: "2026-09-22",
+    title: "搜索建议字样模糊入场/退场，抽屉关闭模糊散场重写",
+    channel: "page",
+    highlights: [
+      "搜索建议的收起重做：建议字样逐行下沉并模糊散开，与展开时的逐行升起聚拢同一套动效语言，不再生硬消失",
+      "抽屉关闭的模糊散场重写：去掉「顿一拍再瞬间塌掉」的僵硬收拢，模糊随磁贴收拢柔和松解、余韵轻柔落定",
+    ],
+  },
+  {
     version: "8.7.3",
     date: "2026-09-22",
     title: "搜索建议展开动画打磨与首行复位修复，音乐面板切换与互切动画同步",

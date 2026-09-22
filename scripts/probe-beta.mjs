@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.3/ChuShi-NewTab-v8.7.3.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.4/ChuShi-NewTab-v8.7.4.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -221,12 +221,13 @@ try {
   });
   await page.mouse.click(90, 620, { button: "middle" }); // 打断关
   /* 无头软件渲染的关闭瞬间 jank 会让「渲染值首样本」不可测（冻结/skip 随机），
-     改断言确定性元数据：280ms WAAPI 的 from 关键帧 = 冻结前的当前动画值
-     （旧实现瞬跳路径无 WAAPI，T4b 即 FAIL——两门合围即「不瞬跳」回归门） */
+     改断言确定性元数据：300ms WAAPI 的 from 关键帧 = 冻结前的当前动画值
+     （v8.7.4 ㊻ WAAPI 280→300 与染色/叶 0.3s 同频；旧实现瞬跳路径无 WAAPI，
+     T4b 即 FAIL——两门合围即「不瞬跳」回归门） */
   const waapiProbe = await af.evaluate(() => {
     const leaf = window.qCl(".cl-links .cl-fade-leaf");
     if (!leaf) return null;
-    const a = leaf.getAnimations().find((x) => Number(x.effect.getTiming().duration) === 280);
+    const a = leaf.getAnimations().find((x) => Number(x.effect.getTiming().duration) === 300);
     return a ? { from: Number(a.effect.getKeyframes()[0].opacity), ps: a.playState } : null;
   });
   gate("T4a 打断冻结从当前动画值起步（WAAPI from=before）",
@@ -245,14 +246,14 @@ try {
         leaf: leaf ? parseFloat(getComputedStyle(leaf).opacity) : null,
         veil: veil ? (parseFloat((getComputedStyle(veil).backdropFilter || "").match(/blur\(([\d.]+)px\)/)?.[1] ?? "28")) : null,
         closing: document.documentElement.classList.contains("cs-drawer-closing"),
-        waapi280: anims.some((a) => a.dur === 280),
+        waapi300: anims.some((a) => a.dur === 300),
       };
     }));
     await sleep(35);
   }
   const leafMin = Math.min(...curve.filter((s) => s.leaf !== null).map((s) => s.leaf));
-  gate("T4b 磁贴叶挂 280ms WAAPI 并行淡出（与纱罩同频）",
-    curve.some((s) => s.waapi280), `waapi=${curve.filter((s) => s.waapi280).length} leafMin=${Number.isFinite(leafMin) ? leafMin.toFixed(3) : "?"}`);
+  gate("T4b 磁贴叶挂 300ms WAAPI 并行淡出（与染色/叶 0.3s 同频，v8.7.4 ㊻ 对齐）",
+    curve.some((s) => s.waapi300), `waapi=${curve.filter((s) => s.waapi300).length} leafMin=${Number.isFinite(leafMin) ? leafMin.toFixed(3) : "?"}`);
   gate("T4c 退场窗挂 cs-drawer-closing", curve.some((s) => s.closing));
   await sleep(800);
   gate("T4d 打断后抽屉完全关闭", !(await drawerOpen(af)));
@@ -376,8 +377,12 @@ try {
   const bfVals = exitCurve.rows.filter((s) => s.bf !== null && s.bf !== undefined).map((s) => parseFloat(s.bf));
   const bfMax = bfVals.length ? Math.max(...bfVals) : 0;
   const bfMin = bfVals.length ? Math.min(...bfVals) : 0;
-  const bfDropped = bfVals.length > 0 && bfMax >= 27 && bfMin < bfMax - 5; /* 驻留 28px 满值出现 + 过渡真实推进（降幅>5px） */
-  gate("T6a 稳态退场：叶淡出 + 纱罩 blur 帧级见证（驻留满值→真实渐降；end 事件在扩展环境不可靠已弃作门）",
+  /* v8.7.4 柔散语义（驻留退役）：起步即松解——采样起点若晚于 click 链路
+     延迟，首帧 blur 可能已 <27px，满值见证退役；改见证「多帧渐进推进」：
+     ≥3 帧不同 blur 值（防瞬跳 [28,1] 两帧）+ 降幅>5px + 收拢近底 <4px
+     （0.42s 柔散在 900ms 采样窗内完整走完） */
+  const bfDropped = bfVals.length >= 3 && bfMax - bfMin > 5 && bfMin < 4;
+  gate("T6a 稳态退场：叶淡出 + 纱罩 blur 帧级见证（柔散多帧渐进→收拢近底；驻留满值见证随 v8.7.4 驻留退役）",
     leafMinS < 0.9 && bfDropped,
     `leafMin=${leafMinS.toFixed(3)} bfMax=${bfMax.toFixed(1)} bfMin=${bfMin.toFixed(1)} evts=${veilEvts.length}`);
   await sleep(700); /* latch 520ms 卸载窗走完再查存在性 */
@@ -1212,10 +1217,13 @@ try {
     const holdNone = (cssScan.outRules.find((x) => x.includes(".veil-hold-none")) || "");
     const hold2xl = (cssScan.outRules.find((x) => x.includes(".veil-hold-2xl")) || "");
     const veilOpenTr = /0\.12s/.test(veilOpen.replace(/\s+/g, " "));
-    const veilCloseTr = /0\.14s\s+cubic-bezier\(0\.4,\s*0,\s*1,\s*1\)\s+0\.14s/.test(veilBase.replace(/\s+/g, " "));
-    gate("TL14h 面板随纱同散级联 + hold 适配类 + 纱罩开合变速",
+    /* v8.7.4 ㊻ 柔散重写：旧驻留冲线 0.14s ease-in 0.14s 退役，改锚 0.42s
+       快启缓落缓出（柔散）；0.14s 冲线残留双保险反向断言 */
+    const veilCloseTr = /backdrop-filter\s*0\.42s\s+cubic-bezier\(0\.22,\s*1,\s*0\.36,\s*1\)/.test(veilBase.replace(/\s+/g, " "))
+      && !/0\.14s\s+cubic-bezier\(0\.4,\s*0,\s*1,\s*1\)\s+0\.14s/.test(veilBase.replace(/\s+/g, " "));
+    gate("TL14h 面板随纱同散级联 + hold 适配类 + 纱罩开合变速（v8.7.4 柔散 0.42s）",
       !!cardCascade && !!contentCascade && !!holdNone && !!hold2xl && veilOpenTr && veilCloseTr,
-      `card=${!!cardCascade} content=${!!contentCascade} none=${!!holdNone} 2xl=${!!hold2xl} open12=${veilOpenTr} close1414=${veilCloseTr}`);
+      `card=${!!cardCascade} content=${!!contentCascade} none=${!!holdNone} 2xl=${!!hold2xl} open12=${veilOpenTr} close420=${veilCloseTr}`);
     /* ---------- TL15 v8.7.0：滤镜退役/分割线同拍/散场下沉/z-48 退役/双渲染 ---------- */
     const vxMain = (cssScan.viewExitMain || "").replace(/\s+/g, " ");
     gate("TL15a dock 分割线同拍通道在位（dock-divider 走 dock-btn-in）",
@@ -1697,10 +1705,12 @@ try {
     gate("TL29a 搜索建议常驻静态门：AnimatePresence/motion 条件列表退役 + 常驻容器 data-open 接线 + SUG_MAX=6 + CSS data-open 过渡（visibility 离散插值）",
       !/key="sug-list"/.test(searchBar872)
         && !/<motion\.div/.test(searchBar872)
-        && /className=\{`search-sug-list\$\{cascade \? " sug-cascade" : ""\}`\}/.test(searchBar872)
+        && /search-sug-list\$\{cascade \? " sug-cascade" : ""\}/.test(searchBar872)
+        && /cascadeOut \? " sug-cascade-out" : ""/.test(searchBar872)
         && /data-open=\{showDrop \? "true" : undefined\}/.test(searchBar872)
         && /aria-hidden=\{!showDrop\}/.test(searchBar872)
         && /const SUG_MAX = 6;/.test(searchBar872)
+        && /const SUG_CLEAR_MS = 460;/.test(searchBar872)
         && /\.search-sug-list \{/.test(css872b)
         && /\.search-sug-list\[data-open\] \{/.test(css872b)
         && /visibility 0s linear calc\(0\.3s \* var\(--mo-speed, 1\)\);/.test(css872b),
@@ -1917,6 +1927,61 @@ try {
         && r873c.swapAnim === "none" && !r873c.swapCascade
         && r873c.selAfter === "true" && r873c.closedSeen && r873c.stillInDom,
       JSON.stringify(r873c));
+    /* TL31 行为门（v8.7.4 ㊺ 建议退场级联）：复用 TL30c mock fetch（window 态
+       保留）——重新 focus+输入唤出建议 → blur 失焦收起（sugs 保留 = 行级退场
+       主路径；Esc 是 setSugs([]) 硬清语义、行同帧卸载无动画可播，不经此门）
+       → 收起同帧挂 .sug-cascade-out + 首行 sug-row-out-kf 起播 → data-open
+       同帧移除（退场动画与容器淡出并行）→ SUG_OUT_MS(340) 后摘类（容器已
+       hidden，回稳态无闪现）→ 列表常驻不卸载 */
+    const r874a = await af.evaluate(async () => {
+      const nf = () => new Promise((r) => requestAnimationFrame(r));
+      const input = document.querySelector(".search-input");
+      const list = document.querySelector("#search-sug-list");
+      if (!input || !list) return { err: "input/list missing" };
+      input.focus();
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+      setter.call(input, "探词");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      let guard = 0;
+      while ((!document.querySelector("#search-sug-list[data-open]") || !list.querySelector("[role=option]")) && guard++ < 400) await nf();
+      if (!list.querySelector("[role=option]")) return { err: "no rows" };
+      input.blur();
+      let outCascade = false;
+      for (let i = 0; i < 30; i++) {
+        await nf();
+        if (list.classList.contains("sug-cascade-out")) { outCascade = true; break; }
+      }
+      const rowOut = list.querySelector("[role=option]");
+      const outAnim = rowOut ? getComputedStyle(rowOut).animationName : "?";
+      const openGone = !list.hasAttribute("data-open");
+      await new Promise((r) => setTimeout(r, 500));
+      return {
+        outCascade, outAnim, openGone,
+        outCascadeLate: list.classList.contains("sug-cascade-out"),
+        stillInDom: document.querySelector("#search-sug-list") === list,
+        rowOpLate: rowOut && rowOut.isConnected ? getComputedStyle(rowOut).opacity : null,
+      };
+    });
+    gate("TL31 建议退场级联行为门（v8.7.4 ㊺）：blur 收起同帧挂 .sug-cascade-out + 行 sug-row-out-kf 散场起播 + data-open 同帧移除 + SUG_OUT_MS 后摘类（容器 hidden 无闪现）+ 列表常驻",
+      !r874a.err && r874a.outCascade && r874a.outAnim === "sug-row-out-kf" && r874a.openGone && !r874a.outCascadeLate && r874a.stillInDom,
+      JSON.stringify(r874a));
+    /* TL32 静态门（v8.7.4 ㊻ 纱罩柔散 + ㊺ 退场级联 + 叶对齐）：globals.css
+       源码锚定——闭态 backdrop-filter 0.42s 快启缓落（唯一出现）+ visibility
+       0.44s（<520ms latch 窗）+ 旧驻留冲线 0.14s ease-in 0.14s 延迟退役 +
+       sug-row-out-kf/sug-cascade-out 退场级联在位 + 叶 0.3s 对齐；
+       QuickLinks 源码锚定 WAAPI 冻结-淡出 300ms（与叶 0.3s 同频） */
+    const qlSrc = readFileSync(new URL("../src/components/startpage/QuickLinks.tsx", import.meta.url), "utf8");
+    const t32 = {
+      soft: /backdrop-filter 0\.42s cubic-bezier\(0\.22, 1, 0\.36, 1\)/.test(cssSrc),
+      vis: /visibility 0s linear 0\.44s/.test(cssSrc),
+      dwellGone: !/backdrop-filter 0\.14s cubic-bezier\(0\.4, 0, 1, 1\) 0\.14s/.test(cssSrc),
+      outKf: /sug-row-out-kf/.test(cssSrc) && /sug-cascade-out \.search-sug-row/.test(cssSrc),
+      leaf30: /\.cl-fade-leaf \{\n  transition: opacity 0\.3s/.test(cssSrc),
+      waapi300: /duration: 300,/.test(qlSrc),
+    };
+    gate("TL32 纱罩柔散+退场级联静态门（v8.7.4 ㊺㊻）：0.42s 快启缓落 + visibility 0.44s + 驻留冲线退役 + sug-row-out-kf 在位 + 叶 0.3s + WAAPI 300ms",
+      t32.soft && t32.vis && t32.dwellGone && t32.outKf && t32.leaf30 && t32.waapi300,
+      JSON.stringify(t32));
   }
 
   /* ---------- T10 pageerror ---------- */
@@ -1925,7 +1990,7 @@ try {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.3 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.4 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);

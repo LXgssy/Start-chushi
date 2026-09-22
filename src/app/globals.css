@@ -576,9 +576,10 @@ html.cs-lite .jiggle {
    才是毒）。⚠ 不用 !important：运行中的 CSS 动画会阻断 opacity transition
    起步，普通声明只承担 intro 已播完的稳态退场；入场中途退场由
    QuickLinks 的 WAAPI 冻结-淡出接管（Web Animations 层级高于普通声明，
-   从当前值与纱罩 0.28s 并行淡出）。过渡对齐纱罩 0.28s。 */
+   从当前值与纱罩并行淡出）。0.3s（v8.7.4 ㊻）：与染色 ::before 同拍——
+   磁贴轻散在先、纱罩模糊 0.42s 柔散收尾，层次松解而非同帧塌掉。 */
 .cl-fade-leaf {
-  transition: opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity 0.3s cubic-bezier(0.22, 1, 0.36, 1);
 }
 html.cs-drawer-closing .cl-fade-leaf {
   opacity: 0;
@@ -1323,11 +1324,41 @@ html.cs-drawer-closing .cl-fade-leaf {
     cubic-bezier(0.22, 1, 0.36, 1) backwards;
   animation-delay: calc(var(--sug-i, 0) * 24ms);
 }
+
+/* ---------- 建议行级联退场（v8.7.4 ㊺）：入场「升起聚拢」的对称散场——
+   收起不再只有容器 opacity 硬淡出，建议字样逐行下沉松解（opacity+y+blur
+   与入场同参反向：blur 0→3px 模糊散开、y 0→6px 下沉让位）。showDrop
+   true→false 边沿渲染期挂 .sug-cascade-out（与 data-open 移除同 commit
+   零空窗，SearchBar cascadeOut 派生同款）；SUG_OUT_MS 后摘类——此时容器
+   已 visibility hidden（0.3s < 0.34s），摘类回稳态无闪现；fill forwards
+   停在散场态防窗内回闪。级联方向与入场同序（首行先散 +14ms/行，散场比
+   入场更利落）；散场曲线与抽屉纱罩柔散（v8.7.4 ㊻）同一语言：快启缓落
+   缓出，起步即松解、尾段轻柔落定。 ---------- */
+@keyframes sug-row-out-kf {
+  from {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(6px);
+    filter: blur(3px);
+  }
+}
+.search-sug-list.sug-cascade-out .search-sug-row {
+  animation: sug-row-out-kf calc(0.22s * var(--mo-speed, 1))
+    cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: calc(var(--sug-i, 0) * 14ms);
+}
 @media (prefers-reduced-motion: reduce) {
   .search-sug-list {
     transition-duration: 0s;
   }
   .search-sug-list.sug-cascade .search-sug-row {
+    animation: none;
+  }
+  .search-sug-list.sug-cascade-out .search-sug-row {
     animation: none;
   }
 }
@@ -1751,7 +1782,7 @@ html.cs-lite.dark .glass-pill {
    磁贴 14px）。抽屉打开期间（html.cs-drawer）：Dock 与搜索栏同层坐在纱罩
    之下（整页磨砂同样覆盖 Dock，不再浮在模糊上面）；退场窗内点击不被吞由
    纱罩包裹层 pointerEvents:none 承担。
-   类同步挂组件卸载 latch（+340ms）而非 open 开关：点击 Dock 关抽屉时
+   类同步挂组件卸载 latch（+520ms 退场窗）而非 open 开关：点击 Dock 关抽屉时
    capture pointerdown 先置 open=false，若类即刻移除 Dock 跌回 z-40，
    退场中的纱罩会重新盖住 Dock——pointerup 落纱罩、click 被吞，面板永远
    打不开。
@@ -1759,16 +1790,22 @@ html.cs-lite.dark .glass-pill {
    1px↔28px，data-veil 门控，全程无 opacity，任何帧不退化为纯色纱）；染色
    渐变走 ::before（无磨砂载体，opacity 安全）。visibility 延迟门控：关态
    blur(1px)+transparent 视觉不可见且退场收尾后才隐藏，常挂架构下关态零
-   合成开销。开态可见即时（0s）、隐藏延迟（0.28s 收拢后）。 ---------- */
+   合成开销。开态可见即时（0s）、隐藏延迟（0.44s 柔散收尾后，v8.7.4）。 ---------- */
 .cl-drawer-veil {
   background-color: transparent;
   backdrop-filter: blur(1px) saturate(1.5);
   visibility: hidden;
-  /* 感知同步律（关=blur 驻留）：0.14s 满值驻留（染色 ::before 先行渐隐）
-     + 0.14s 收拢，与染色 0.28s 同窗收尾——幽灵白板不再残留 */
+  /* 感知同步律（关=柔散，v8.7.4 ㊻重写）：旧 0.14s 满值驻留 + 0.14s
+     ease-in 冲线 = 「顿一拍再瞬间塌掉」的僵硬根因，退役。改为 0.42s
+     快启缓落缓出（起步即松解、尾段轻柔落定），与磁贴墙 spring 收拢
+     同拍；染色 ::before 0.3s 先行渐隐——t=0.3s 时 blur 已收至 ~2px
+     （该曲线 71% 时点约 97% 进度），染色消失时背景已近清晰，幽灵白板
+     残留结构性不存在；visibility 0.44s 收尾（>0.42s 过渡窗、<0.62s
+     mount latch 退场窗——620ms 给足柔散 + 双跳渲染起步延迟余量）。
+     开态凝聚节奏不动。 */
   transition:
-    backdrop-filter 0.14s cubic-bezier(0.4, 0, 1, 1) 0.14s,
-    visibility 0s linear 0.28s;
+    backdrop-filter 0.42s cubic-bezier(0.22, 1, 0.36, 1),
+    visibility 0s linear 0.44s;
 }
 .cl-drawer-veil::before {
   content: "";
@@ -1781,7 +1818,9 @@ html.cs-lite.dark .glass-pill {
     rgba(255, 255, 255, 0.28)
   );
   opacity: 0;
-  transition: opacity 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  /* 染色 0.3s：关闭先行渐隐（blur 柔散 0.42s 的前 71% 窗内走完），
+     开启跟随凝聚（0.28s→0.3s 感知无差，开合染色同参） */
+  transition: opacity 0.3s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .cl-drawer-veil[data-veil="1"] {
   backdrop-filter: blur(28px) saturate(1.5);

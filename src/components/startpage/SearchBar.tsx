@@ -17,6 +17,11 @@
  *    逐行 opacity+y+blur 升起聚拢（globals.css sug-row-in-kf）；窗口内结果
  *    替换（真实网络二次 fetch 落地）新行同样级联，弹出中「第一行复位」的
  *    换装硬切同步消除；窗口后换装零动画零噪音；
+ *  · 行级联退场 = v8.7.4 ㊺：收起同帧挂 .sug-cascade-out（showDrop
+ *    true→false 边沿渲染期派生，与 data-open 移除同 commit）——建议字样
+ *    逐行下沉模糊散场（globals.css sug-row-out-kf，入场同参反向），
+ *    SUG_OUT_MS 后摘除（容器已 hidden，无回闪）；收起不再只有容器 opacity
+ *    硬淡出；
  *  · 高亮持久 = v8.7.3：fetch 回调不再 setActive(-1)——悬停/键选高亮跨
  *    重取保留（旧实现二次 fetch 落地即清高亮 = 「第一行复位」第二根因；
  *    鼠标不动无新 mouseenter，高亮清后不会自愈），越界索引自然失活、
@@ -45,6 +50,15 @@ const SUG_MAX = 6;
 /** 级联窗口：展开首帧行逐行入场（末行延迟 5×24ms + 0.26s ≈ 380ms）+ 覆盖
  *  窗口内结果替换（防抖 180ms + 网络往返典型 <500ms 落在窗内） */
 const SUG_CASCADE_MS = 520;
+/** 退场窗（v8.7.4 ㊺）：收起行级联散场（末行延迟 5×14ms + 0.22s ≈ 290ms）
+ *  + 容器 visibility hidden（0.3s）后摘类的安全余量。摘类时容器已不可见，
+ *  行回稳态无闪现；窗内重开由渲染期边沿即刻清类并重播入场 */
+const SUG_OUT_MS = 340;
+/** 行清空延迟（v8.7.4 ㊺）：收起主路径（失焦/清词）行保留 SUG_CLEAR_MS 供
+ *  退场级联播完再卸载（立即 setSugs([]) = 行同帧卸载，退场动画无行可播）。
+ *  比 SUG_OUT_MS 长 120ms：摘类（340）先行，清行（460）后行——轮询/门面
+ *  无同帧竞态。Esc 与 fetch 空结果仍是 setSugs([]) 立即硬清（无退场语义） */
+const SUG_CLEAR_MS = 460;
 /** 联想防抖 */
 const SUG_DEBOUNCE_MS = 180;
 /** 联想请求超时 */
@@ -159,13 +173,19 @@ function SearchBar({
   }, []);
 
   /* 联想获取：开关开启 + 聚焦 + 非空非 URL 词 → 防抖后请求；
-     关闭/失焦/清空即收起；URL 形态输入无需联想 */
+     关闭/失焦/清空即收起；URL 形态输入无需联想。
+     v8.7.4 ㊺ 收起分支改延迟清空：行保留 SUG_CLEAR_MS 让级联退场真实
+     播完（blur 同帧行仍在 → cascade-out 挂上即有行可动画），重开/继续
+     打字走 cleanup 取消清空 = 行直接复用换装零卸载；清空落地时容器已
+     hidden 240ms，行卸载零可见。Esc/fetch 空结果两条硬清路径不经此门 */
   useEffect(() => {
     const q = query.trim();
     if (!suggestOn || !focused || !q || looksLikeUrl(q)) {
-      setSugs([]);
-      setActive(-1);
-      return;
+      const c = window.setTimeout(() => {
+        setSugs([]);
+        setActive(-1);
+      }, SUG_CLEAR_MS);
+      return () => window.clearTimeout(c);
     }
     let alive = true;
     const t = window.setTimeout(() => {
@@ -196,23 +216,37 @@ function SearchBar({
 
   const showDrop = suggestOn && focused && sugs.length > 0;
 
-  /* 级联窗口（v8.7.3）：showDrop false→true 边沿在【渲染期】挂类（官方
-     「渲染期间调整 state」模式，PanelStage 相位机同款）——类与首帧行同
-     commit 提交，CSS 动画从首帧起播零空窗（effect 里挂会晚一帧 = 行先
-     裸态入画再跳进动画，正是要消灭的那一拍）；收起同帧摘除。计时摘除
-     走 effect（渲染期不能起定时器）。 */
+  /* 级联窗口（v8.7.3 入场 / v8.7.4 ㊺ 退场）：showDrop 边沿在【渲染期】挂类
+     （官方「渲染期间调整 state」模式，PanelStage 相位机同款）——类与首帧行
+     / 末帧行同 commit 提交，CSS 动画从边沿帧起播零空窗（effect 里挂会晚
+     一帧 = 行先裸态跳变，正是要消灭的那一拍）。开：挂 .sug-cascade（逐行
+     升起聚拢）、清 .sug-cascade-out；关：挂 .sug-cascade-out（逐行下沉
+     模糊散场，globals.css sug-row-out-kf，与 data-open 移除同帧——退场
+     动画与容器淡出并行起播）、清 .sug-cascade。计时摘除走 effect（渲染期
+     不能起定时器）。 */
   const [cascade, setCascade] = useState(false);
+  const [cascadeOut, setCascadeOut] = useState(false);
   const [prevShow, setPrevShow] = useState(showDrop);
   if (prevShow !== showDrop) {
     setPrevShow(showDrop);
-    if (showDrop) setCascade(true);
-    else if (cascade) setCascade(false);
+    if (showDrop) {
+      setCascade(true);
+      setCascadeOut(false);
+    } else {
+      if (cascade) setCascade(false);
+      setCascadeOut(true);
+    }
   }
   useEffect(() => {
     if (!cascade) return;
     const t = window.setTimeout(() => setCascade(false), SUG_CASCADE_MS);
     return () => window.clearTimeout(t);
   }, [cascade]);
+  useEffect(() => {
+    if (!cascadeOut) return;
+    const t = window.setTimeout(() => setCascadeOut(false), SUG_OUT_MS);
+    return () => window.clearTimeout(t);
+  }, [cascadeOut]);
 
   return (
     <div className="cl-search relative w-[min(92vw,580px)]">
@@ -346,7 +380,9 @@ function SearchBar({
             aria-hidden={!showDrop}
             data-open={showDrop ? "true" : undefined}
             onMouseLeave={() => setActive(-1)}
-            className={`search-sug-list${cascade ? " sug-cascade" : ""}`}
+            className={`search-sug-list${cascade ? " sug-cascade" : ""}${
+              cascadeOut ? " sug-cascade-out" : ""
+            }`}
           >
             {sugs.map((s, i) => (
               <button
