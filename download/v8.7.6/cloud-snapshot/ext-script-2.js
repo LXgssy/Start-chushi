@@ -1,1 +1,0 @@
-(()=>{try{var s=JSON.parse(localStorage.getItem("start:settings")||"{}");var m=s.themeMode||"dark";var d=m==="dark"||(m==="system"&&matchMedia("(prefers-color-scheme: dark)").matches);var r=document.documentElement;r.classList.toggle("dark",d);r.style.colorScheme=d?"dark":"light";}catch(e){}})();
