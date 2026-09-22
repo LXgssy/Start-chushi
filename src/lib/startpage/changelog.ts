@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.5",
+    date: "2026-09-22",
+    title: "抽屉关闭模糊残留「卡一下」根治",
+    channel: "page",
+    highlights: [
+      "抽屉关闭的模糊散场改为分段节奏：大模糊快速松解、收尾匀速清底，不再出现「越收越慢、雾迟迟不散」的残留拖尾",
+      "背景色彩随散场同步回归：模糊收净的同一拍壁纸颜色也回到原色，收尾不再有色感突变的一顿",
+      "白色纱层与模糊同步消散，全程无「纱没了雾还在」的空窗",
+    ],
+  },
+  {
     version: "8.7.4",
     date: "2026-09-22",
     title: "搜索建议字样模糊入场/退场，抽屉关闭模糊散场重写",
