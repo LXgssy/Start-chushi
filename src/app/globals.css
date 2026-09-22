@@ -1083,6 +1083,22 @@ html.cs-drawer-closing .cl-fade-leaf {
 .view-exit .content-focus {
   animation: content-defocus 0.16s cubic-bezier(0.4, 0, 1, 1) forwards;
 }
+/* 互切退场·自有内容盒（v8.7.8）：⌘K 指令列表/预设视图、预设面板导入/管理 tab、
+   预设弹窗视图——四处退场包裹层【自身】就是 .content-focus（className=
+   "flow-root content-focus" + exitClass="view-exit" 同元素），且视图内部无
+   .glass-card/.content-focus 后代（玻璃卡在祖先）——上面两条后代级联选择器
+   永不匹配 = 散场动画整条失联：旧视图满值钉住（absolute+z0 画在新视图上方）
+   350ms 后硬拆，新视图的模糊聚拢全程被盖住 = 用户实测「互切的子元素模糊过渡
+   动画没了」。补同元素伴随规则（stable 语义回归：0.2s 加速曲线模糊散场，与
+   PresenceClass duration={0.2} 卸载计时严格同参）。
+   磨砂安全：这些视图内部无 backdrop-filter 后代（玻璃卡是祖先，后代 filter
+   动画不影响祖先自身的 backdrop 采样——磨砂存活律约束的是「玻璃后代的祖先」,
+   此处被过滤的后代均非玻璃），wrapper 级 blur 散场零磨砂伤亡；dock 部件视图
+   若未来复用 view-exit（内部有玻璃后代）仍走上面两条后代级联，两路并存互斥。
+   ⚠ 特异性 (0,2,0) > .content-focus (0,1,0)，退场帧压过已播完的入场动画。 */
+.view-exit.content-focus {
+  animation: content-defocus 0.2s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
 @media (prefers-reduced-motion: reduce) {
   .content-focus {
     animation: none;
@@ -1249,16 +1265,30 @@ html.cs-drawer-closing .cl-fade-leaf {
     opacity: 0;
     filter: blur(9px);
     transform: translateY(6px);
+    animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  /* 感知同步律（开=blur 领先，v8.7.8 卡顿修复）：55% 处模糊凝满自然值——大分区
+     上的 filter 动画是重绘大户，旧单段 0.42s 把 blur<2px 的不可感尾段拖 ~170ms
+     （合成预算白烧、观感「糊不干净」）；分段后 filter 窗口 0.42s→0.23s，
+     并发 filter 分区数 ~12→~7，且模糊收敛果断不爬行。55% 后仅剩 opacity/
+     transform（合成器友好）用基线减速曲线落座 */
+  55% {
+    filter: blur(0);
+    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
   }
   to {
     opacity: 1;
-    filter: blur(0);
     transform: translateY(0);
   }
 }
 .docs-anim > section {
   animation: docs-item-in-kf calc(0.42s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) backwards;
-  animation-delay: calc(min(var(--di, 0), 10) * 36ms);
+  /* 基础延迟 0.20s（v8.7.8 卡顿修复）：文档 overlay 打开首帧主线程忙于巨量 DOM
+     挂载（§01–§15 全量提交）+ 幕布 veil-in / 卡片 card-in 双动画起步——级联若在
+     窗口内起跑，动画时钟先行流逝而首帧绘制迟到，前几帧被折叠成一次跳变（用户实测
+     「入场模糊有卡顿感」）。0.20s 让级联在重活落定后起跑，每帧增量完整可绘；
+     节奏序列 = 幕布雾化 → 卡片就位 → 内容级联，三段不重叠更从容 */
+  animation-delay: calc(0.2s + min(var(--di, 0), 10) * 36ms);
 }
 @keyframes docs-item-out-kf {
   from {
@@ -1921,6 +1951,17 @@ html.cs-lite.dark .cl-drawer-veil::before {
     rgba(9, 9, 11, 0.52) 42%,
     rgba(9, 9, 11, 0.6)
   );
+}
+/* 掠影模式：纱罩染色退役（v8.7.8）：壁纸是掠影主角——开抽屉时整页染色层把照片
+   蒙上一层主题色滤镜（浅色=白纱/深色=暗纱，用户指令原话「把掠影模式下的浅色/
+   深色模式的浅色/深色滤镜删掉，影响观感」）。磨砂本体（blur 值通道 0.60s 凝聚/
+   0.40s 散场）零改动——「模糊承担主分离」架构原样；磁贴自带玻璃背板承载可读性，
+   不依赖染色。display:none 摘除 ::before 盒子：开/关两态 opacity 过渡失去载体
+   自然归零，零残留零跳变；cs-lite（纯色纱降级）同样被本条覆盖——掠影下无论
+   磨砂与否都不再染色。辉光/纯净模式染色原样保留（平面底色上不可感且参与磁贴
+   可读性设计，不属本轮指令范围）。 */
+html.photo-mode .cl-drawer-veil::before {
+  display: none;
 }
 /* reduce-motion：抽屉关闭即刻隐没（visibility 延迟归零 + 散场动画瞬完
    停 blur(1px) 终帧 + 染色瞬隐）；开态凝聚/染色渐入 transition 一并归零
