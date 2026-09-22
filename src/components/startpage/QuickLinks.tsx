@@ -593,8 +593,9 @@ function QuickLinks({
      运行中的 intro 动画会阻断 CSS transition 起步（CSS Transitions §3），
      important 声明也只得到瞬跳——用户实测「打断抽屉动画后不会执行关闭
      动画，动画直接消失」。改为全叶 WAAPI 冻结-淡出：读叶当前动画值 →
-     el.animate 从当前值 280ms 淡出到 0（与纱罩退场同频同缓动，fill:
-     forwards 保持），Web Animations 层级高于普通声明且与纱罩并行。
+     el.animate 从当前值 300ms 淡出到 0（与染色/叶过渡 0.3s 同频同缓动，
+     v8.7.4 ㊻ 对齐；fill: forwards 保持），Web Animations 层级高于普通
+     声明且与纱罩并行。
      不设计算值阈值：EASE 长尾段 intro 最后 ~150ms 计算值就是 1.000 而动画
      仍在跑，阈值分路会让叶子滞留满透明度站满退场窗。也不动 intro 本体
      （无 inline animation:none）——快速重开 cancel 后 intro 从时间线当前
@@ -622,7 +623,7 @@ function QuickLinks({
         const o = parseFloat(getComputedStyle(leaf).opacity);
         if (!Number.isFinite(o)) return;
         const anim = leaf.animate([{ opacity: o }, { opacity: 0 }], {
-          duration: 280,
+          duration: 300,
           easing: "cubic-bezier(0.22, 1, 0.36, 1)",
           fill: "forwards",
         });
@@ -753,7 +754,11 @@ function QuickLinks({
     [setLinks],
   );
 
-  /* portal 挂载 latch：开 → 立即挂载；关 → 留 340ms 窗口播完退场动画再卸载。
+  /* portal 挂载 latch：开 → 立即挂载；关 → 留 620ms 窗口播完退场动画再卸载。
+     v8.7.4 ㊻ 柔散重写后纱罩 blur 收拢拉长到 0.42s + React 状态双跳渲染
+     （open=false → veilOn effect → data-veil 翻转）起步延迟 ~1-2 帧吃窗，
+     旧 520ms 会把柔散尾段截断在 blur≈4px（探针帧级实测）——620ms 给足
+     过渡完整走完 + 收尾余量。
      （AnimatePresence 不能直接包 createPortal——framer v12 对 PORTAL 类型
      子元素的 presence 注册失效，首开整树不渲染；故把 AnimatePresence 放进
      portal 内部包纯 motion.div，外层用 latch 控制存续。） */
@@ -763,7 +768,7 @@ function QuickLinks({
       return;
     }
     if (!mount) return;
-    const t = setTimeout(() => setMount(false), 520);
+    const t = setTimeout(() => setMount(false), 620);
     return () => clearTimeout(t);
   }, [open, mount]);
 
