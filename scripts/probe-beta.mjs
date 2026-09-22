@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.2/ChuShi-NewTab-v8.7.2.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.3/ChuShi-NewTab-v8.7.3.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -41,11 +41,11 @@ for (const f of appHits) {
 }
 writeFileSync(MOCK + "/index.html", `<!DOCTYPE html><html><body>ok</body></html>`);
 writeFileSync(MOCK + "/version.json", JSON.stringify({
-  v: "8.7.2", files: [{ p: "index.html", s: statSync(MOCK + "/index.html").size }],
+  v: "8.7.3", files: [{ p: "index.html", s: statSync(MOCK + "/index.html").size }],
 }));
 const httpSrv = spawn("python3", ["-m", "http.server", String(PORT)], { cwd: MOCK, stdio: "ignore" });
 process.on("exit", () => { try { httpSrv.kill(); } catch { } });
-console.log("stage: mock 镜像就绪（v8.7.2 地板）");
+console.log("stage: mock 镜像就绪（v8.7.3 地板）");
 
 const EXT_ID = (() => {
   const h = crypto.createHash("sha256").update(Buffer.from(ROOT)).digest("hex").slice(0, 32);
@@ -1600,7 +1600,7 @@ try {
     const motion872 = readFileSync(new URL("../src/components/startpage/dock-motion.ts", import.meta.url), "utf8");
     /* TL28a 静态门：swapOut 渲染期派生（与 activeView 同帧原子）+ 交卸类接线 +
        SWAP_OUT_MS 计时 + 部件视图 height min()（旧固定 height 退役）+ CSS 在位 */
-    gate("TL28a 互切交卸+底锚恒贴静态门：swapOut 渲染期派生 + cl-panel-swapout 接线 + SWAP_OUT_MS 计时 + height min() 底锚（旧固定 height 退役）+ swapout 关键帧在位",
+    gate("TL28a 互切交卸+底锚恒贴静态门：swapOut 渲染期派生 + cl-panel-swapout 接线 + SWAP_OUT_MS=320 计时 + height min() 底锚（旧固定 height 退役）+ swapout 关键帧在位 + v8.7.3 交卸层反转 z-20",
       /const \[swapOut, setSwapOut\]/.test(stage872)
         && /setSwapOut\(activeView\.panel\);/.test(stage872)
         && /setSwapOut\(null\);/.test(stage872)
@@ -1610,8 +1610,9 @@ try {
         && !/height: h,/.test(stage872)
         && /@keyframes cl-panel-swapout-kf/.test(css872)
         && /\.cl-panel-swapout \{/.test(css872)
-        && /export const SWAP_OUT_MS = 200;/.test(motion872),
-      `swapOut=${/const \[swapOut/.test(stage872)} minH=${/height: `min/.test(stage872)} oldH=${/height: h,/.test(stage872)} kf=${/@keyframes cl-panel-swapout-kf/.test(css872)}`);
+        && /export const SWAP_OUT_MS = 320;/.test(motion872)
+        && /swapOut != null \? "z-20" : ""/.test(stage872),
+      `swapOut=${/const \[swapOut/.test(stage872)} minH=${/height: `min/.test(stage872)} oldH=${/height: h,/.test(stage872)} kf=${/@keyframes cl-panel-swapout-kf/.test(css872)} z20=${/swapOut != null \? "z-20" : ""/.test(stage872)}`);
     /* 产物签名门：swapout 类 + min() 底锚真实入包 */
     const chunk872 = execSync(`grep -rlo "cl-panel-swapout" ${ROOT}/next/static/chunks/*.js 2>/dev/null | head -1`).toString().trim();
     let chunkSig872 = null;
@@ -1696,7 +1697,7 @@ try {
     gate("TL29a 搜索建议常驻静态门：AnimatePresence/motion 条件列表退役 + 常驻容器 data-open 接线 + SUG_MAX=6 + CSS data-open 过渡（visibility 离散插值）",
       !/key="sug-list"/.test(searchBar872)
         && !/<motion\.div/.test(searchBar872)
-        && /className="search-sug-list"/.test(searchBar872)
+        && /className=\{`search-sug-list\$\{cascade \? " sug-cascade" : ""\}`\}/.test(searchBar872)
         && /data-open=\{showDrop \? "true" : undefined\}/.test(searchBar872)
         && /aria-hidden=\{!showDrop\}/.test(searchBar872)
         && /const SUG_MAX = 6;/.test(searchBar872)
@@ -1763,13 +1764,168 @@ try {
       JSON.stringify(r872c));
   }
 
+
+  /* ---------- TL30 v8.7.3：交卸层反转同步律 + 建议行级联/高亮持久 ---------- */
+  if (af) {
+    const stage873 = readFileSync(new URL("../src/components/startpage/PanelStage.tsx", import.meta.url), "utf8");
+    const css873 = readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8");
+    const searchBar873 = readFileSync(new URL("../src/components/startpage/SearchBar.tsx", import.meta.url), "utf8");
+    /* TL30a 静态门：z-20 交卸层反转接线 + swapout 0.3s EASE（与聚拢同拍）+
+       建议行级联（sug-row-in-kf + sug-cascade 选择器 + --sug-i 延迟）+
+       容器 blur 退役 + 渲染期边沿挂类 + fetch 回调高亮持久（setActive 退役） */
+    gate("TL30a 同步律+级联静态门：z-20 抬盒接线 + swapout 0.3s EASE + sug-row-in-kf/级联选择器/--sug-i + 容器 blur 退役 + 渲染期 prevShow 边沿 + fetch 回调无 setActive(-1)",
+      /swapOut != null \? "z-20" : ""/.test(stage873)
+        && /cl-panel-swapout-kf calc\(0\.3s \* var\(--mo-speed, 1\)\)\s*\n\s*cubic-bezier\(0\.22, 1, 0\.36, 1\) forwards/.test(css873)
+        && /@keyframes sug-row-in-kf/.test(css873)
+        && /\.search-sug-list\.sug-cascade \.search-sug-row \{/.test(css873)
+        && /animation-delay: calc\(var\(--sug-i, 0\) \* 24ms\);/.test(css873)
+        && !/(\.search-sug-list \{[\s\S]{0,200}?)filter: blur\(6px\)/.test(css873)
+        && /const SUG_CASCADE_MS = 520;/.test(searchBar873)
+        && /if \(prevShow !== showDrop\) \{/.test(searchBar873)
+        && !/setSugs\(list\.slice\(0, SUG_MAX\)\);\s*\n\s*setActive\(-1\);/.test(searchBar873)
+        && /"--sug-i": i \} as CSSProperties/.test(searchBar873),
+      `z20=${/swapOut != null \? "z-20"/.test(stage873)} kf=${/@keyframes sug-row-in-kf/.test(css873)} blur6=${/filter: blur\(6px\)/.test(css873)} edge=${/prevShow !== showDrop/.test(searchBar873)} setActiveGone=${!/setSugs\(list\.slice\(0, SUG_MAX\)\);\s*\n\s*setActive\(-1\);/.test(searchBar873)}`);
+    /* 产物签名门：级联类 + 行级联关键帧真实入包 */
+    const chunk873 = execSync(`grep -rlo "sug-cascade" ${ROOT}/next/static/chunks/*.js 2>/dev/null | head -1`).toString().trim();
+    const cssChunk873 = execSync(`grep -rlo "sug-row-in-kf" ${ROOT}/next/static/chunks/*.css 2>/dev/null | head -1`).toString().trim();
+    gate("TL30a2 产物签名门：sug-cascade 类（JS）+ sug-row-in-kf（CSS）真实入包",
+      !!chunk873 && !!cssChunk873, `js=${!!chunk873} css=${!!cssChunk873}`);
+    /* TL30b 行为门（同步律主诉路径）：settings→部件互切逐帧采样——
+       ① 交卸揭示：溶解中段存在 opacity ∈ [0.05,0.95] 的帧（0.3s EASE 非瞬跳；
+          v8.7.2 的 0.18s EXIT 同样有中段帧，故配合 ②③ 才构成新律断言）；
+       ② 交卸期高度盒 z-index=20（抬盒在溶解窗内真实生效，卸载后归 auto）；
+       ③ 旧卡卸载 ≥200ms（0.3s 溶解除非同帧硬删）+ 部件视图 opacity 恒 1 */
+    const r873b = await af.evaluate(async () => {
+      const nf = () => new Promise((r) => requestAnimationFrame(r));
+      const sb = () => [...document.querySelectorAll(".dock-btn")].find((b) => b.getAttribute("aria-label") === "设置");
+      const wb = () => [...document.querySelectorAll(".cl-dock button")].find((b) => b.getAttribute("aria-label") === "测试面板");
+      if (!sb() || !wb()) return { err: "dock btn missing" };
+      wb().click(); /* 复位：关部件 */
+      await new Promise((r) => setTimeout(r, 700));
+      sb().click(); /* 开设置 */
+      let guard = 0;
+      while (!document.querySelector(".glass-card.cl-panel") && guard++ < 300) await nf();
+      await new Promise((r) => setTimeout(r, 900));
+      if (!wb()) return { err: "widget btn missing" };
+      const t0 = performance.now();
+      const rows = [];
+      let sawCardGone = false, goneAt = -1;
+      const poll = () => {
+        const st = document.querySelector(".cl-stage");
+        const box = st ? st.firstElementChild : null;
+        const card = document.querySelector(".glass-card.cl-panel");
+        const wv = document.querySelector('.cl-dockwidget[data-widget$=":w-t39"]');
+        if (card) {
+          rows.push({
+            t: Math.round(performance.now() - t0),
+            boxZ: box ? getComputedStyle(box).zIndex : "?",
+            cardOp: +(+getComputedStyle(card).opacity),
+            wvOp: wv ? +(+getComputedStyle(wv).opacity) : -1,
+          });
+        } else if (!sawCardGone && performance.now() - t0 > 30) {
+          sawCardGone = true;
+          goneAt = Math.round(performance.now() - t0);
+        }
+        if (performance.now() - t0 < 900) requestAnimationFrame(poll);
+      };
+      wb().click(); /* 互切→部件 + 逐帧采样 */
+      requestAnimationFrame(poll);
+      await new Promise((r) => setTimeout(r, 1500));
+      if (!rows.length) return { err: "no rows", n: 0 };
+      const midFrames = rows.filter((r) => r.cardOp >= 0.05 && r.cardOp <= 0.95);
+      const zFrames = rows.filter((r) => r.boxZ === "20");
+      return {
+        n: rows.length,
+        midN: midFrames.length,
+        zN: zFrames.length,
+        goneAt, sawCardGone,
+        wvOpMin: Math.min(...rows.map((r) => r.wvOp)),
+        firstOp: rows[0].cardOp, lastZ: rows[rows.length - 1].boxZ,
+      };
+    });
+    gate("TL30b 交卸揭示行为门（v8.7.3 同步律）：溶解中段帧存在 + 交卸期高度盒 z-index=20 + 旧卡 ≥200ms 延迟卸载 + 部件视图 opacity 恒 1",
+      !r873b.err && r873b.n > 5 && r873b.midN > 0 && r873b.zN > 0 && r873b.sawCardGone && r873b.goneAt > 200 && r873b.wvOpMin > 0.99,
+      JSON.stringify(r873b));
+    /* TL30c 行为门（级联+高亮持久主诉路径）：mock sugrec（按 query 返回不同
+       词表）→ 输入 → 首帧行级联动画真实起播（animationName 断言）→ 700ms 后
+       窗口摘除（类+动画双消）→ ArrowDown 选中首行 → 追加输入触发二次 fetch
+       换装 → 新首行 animationName=none（窗口后零重播零噪音）且 aria-selected
+       仍在（高亮跨刷新持久 = 「第一行复位」修复）→ Esc 收起元素常驻 */
+    const r873c = await af.evaluate(async () => {
+      const nf = () => new Promise((r) => requestAnimationFrame(r));
+      const input = document.querySelector(".search-input");
+      if (!input) return { err: "input missing" };
+      const w = window;
+      if (!w.__origFetch) w.__origFetch = w.fetch;
+      w.fetch = (u, ...rest) => {
+        if (String(u).includes("sugrec")) {
+          const wd = (() => { try { return new URL(String(u)).searchParams.get("wd") || ""; } catch { return ""; } })();
+          const names = wd.includes("续") ? ["甲", "乙", "丙", "丁", "戊", "己"] : ["子", "丑", "寅", "卯", "辰", "巳"];
+          const g = names.map((n) => ({ q: "探针词" + n }));
+          return Promise.resolve({ text: () => Promise.resolve('cb(' + JSON.stringify({ g }) + ')') });
+        }
+        return w.__origFetch(u, ...rest);
+      };
+      input.focus();
+      const setter = Object.getOwnPropertyDescriptor(w.HTMLInputElement.prototype, "value").set;
+      setter.call(input, "探词");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      let guard = 0;
+      while ((!document.querySelector("#search-sug-list[data-open]") || !document.querySelector("#search-sug-list.sug-cascade")) && guard++ < 400) await nf();
+      const list = document.querySelector("#search-sug-list");
+      if (!list) return { err: "list missing" };
+      const row0 = list.querySelector("[role=option]");
+      const openAnim = row0 ? getComputedStyle(row0).animationName : "?";
+      const openCascade = list.classList.contains("sug-cascade");
+      await new Promise((r) => setTimeout(r, 700));
+      const row0b = list.querySelector("[role=option]");
+      const lateAnim = row0b ? getComputedStyle(row0b).animationName : "?";
+      const lateCascade = list.classList.contains("sug-cascade");
+      /* 键盘选中首行（active=0） */
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+      await nf(); await nf();
+      const selBefore = list.querySelector("[role=option]")?.getAttribute("aria-selected");
+      /* 追加输入 → 二次 fetch 换装（窗口已过） */
+      setter.call(input, "探词续");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      guard = 0;
+      while (guard++ < 300) {
+        if (list.textContent && list.textContent.includes("探针词甲")) break;
+        await nf();
+      }
+      await new Promise((r) => setTimeout(r, 120));
+      const row0c = list.querySelector("[role=option]");
+      const swapAnim = row0c ? getComputedStyle(row0c).animationName : "?";
+      const selAfter = row0c ? row0c.getAttribute("aria-selected") : null;
+      const swapCascade = list.classList.contains("sug-cascade");
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      let closedSeen = false;
+      for (let i = 0; i < 60; i++) {
+        await nf();
+        if (!document.querySelector("#search-sug-list[data-open]")) { closedSeen = true; break; }
+      }
+      return {
+        openAnim, openCascade, lateAnim, lateCascade, selBefore,
+        swapAnim, selAfter, swapCascade, closedSeen,
+        stillInDom: !!document.querySelector("#search-sug-list"),
+      };
+    });
+    gate("TL30c 建议级联+高亮持久行为门（v8.7.3）：首帧行级联起播 + 窗口后类/动画双消 + 换装零重播 + 高亮跨刷新持久（aria-selected 保持）+ Esc 收起常驻",
+      !r873c.err && r873c.openAnim === "sug-row-in-kf" && r873c.openCascade
+        && r873c.lateAnim === "none" && !r873c.lateCascade
+        && r873c.selBefore === "true"
+        && r873c.swapAnim === "none" && !r873c.swapCascade
+        && r873c.selAfter === "true" && r873c.closedSeen && r873c.stillInDom,
+      JSON.stringify(r873c));
+  }
+
   /* ---------- T10 pageerror ---------- */
   gate("T10 pageerror=0", errors.length === 0, errors.join(" | ").slice(0, 120));
 } catch (e) {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.2 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.3 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);

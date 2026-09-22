@@ -43,10 +43,17 @@
  *    卡底边 top+height 每帧恒等于壳体当前高度 s（s>h 段满高底贴锚、s≤h 段
  *    卡随壳同步压缩），弹簧欠阻尼回弹段（s 短暂低于 h）卡底不再被
  *    overflow-hidden 裁切（㊷），开/互切/关闭四路几何与内建 h-full 同构；
- *  · 互切玻璃交卸（v8.7.2 ㊶）：内建→部件互切瞬间旧玻璃卡不再同帧硬卸载，
- *    挂 .cl-panel-swapout 以恒定材质整卡溶解交卸（0.18s），SWAP_OUT_MS 后
- *    卸载——「其它面板→音乐面板」方向的断层从结构上不存在（反向
- *    widget→builtin 的入场由 panel-rise 聚拢掩护，交卸态只补出场侧）；
+ *  · 互切玻璃交卸（v8.7.2 ㊶ / v8.7.3 同步律）：内建→部件互切瞬间旧玻璃卡
+ *    不再同帧硬卸载，挂 .cl-panel-swapout 以恒定材质整卡溶解（0.3s），
+ *    SWAP_OUT_MS 后卸载；v8.7.3 交卸层反转：溶解中的旧卡经高度盒 z-20 抬升
+ *    到部件卡【上方】——部件卡（底锚联立下与旧卡全程共面重叠）若按 v8.7.2
+ *    直接全量入场会一帧硬翻盖住旧卡（实测遥测：部件卡 opacity 首帧即 1、
+ *    与旧卡重叠率 100%，溶解变成被盖住的隐形 cross-fade = 亮→暗一帧硬翻
+ *    「不同步」根因）；反转后旧玻璃的溶解变成正向揭示幕：亮玻璃 0.3s 匀速
+ *    溶去逐帧露出下方暗卡，与部件 content-focus-solid 聚拢同拍，与内建互切
+ *    「玻璃恒定 + 内容 0.3s 聚拢」同一节奏；「其它面板→音乐面板」的硬翻/
+ *    不同步从结构上不存在（反向 widget→builtin 的入场由 panel-rise 聚拢
+ *    掩护，交卸态只补出场侧）；
  *  · 材质恒定律：关闭全程玻璃五项材质冻结自然值（globals.css
  *    .panel-sink .cl-panel animation:none），高度归零在先、卸载在后零突跳。
  */
@@ -291,9 +298,13 @@ const PanelStage = memo(function PanelStage({
         {/* 高度盒：打开从 0 弹簧展开 + 切换 px 弹簧 + 关闭折回 0（关闭走逐帧 height
             写入，height 非 WAAPI 加速属性，无取消回跳风险）；内容溢出由壳体
             overflow-hidden 裁剪；contain:layout 把弹簧逐帧 reflow 的失效范围
-            圈在本盒内部（帧预算从整页降到面板盒） */}
+            圈在本盒内部（帧预算从整页降到面板盒）。
+            z-20 交卸层反转（v8.7.3）：contain:layout 使本盒自成 stacking
+            context，盒内子元素 z 再高也只在盒内生效——交卸揭示必须抬盒本身：
+            swapOut 在途时盒 z-20 压过后置的部件 overlay（z auto），溶解中的
+            玻璃卡变成顶层揭示幕；交卸毕（卸载同帧）类摘除，层级归位。 */}
         <motion.div
-          className="relative"
+          className={`relative ${swapOut != null ? "z-20" : ""}`}
           style={{ contain: "layout" }}
           initial={false}
           animate={{ height: phase === "open" ? openH : 0 }}
@@ -322,8 +333,9 @@ const PanelStage = memo(function PanelStage({
                 {/* panel-rise 上卡本体（仅挂载帧播：首开/部件→内建互切；互切不重挂
                     不重播=玻璃恒定）；关闭经 .panel-sink .cl-panel animation:none
                     材质冻结 + 高度盒归零（材质恒定律，见文件头）；内建→部件互切
-                    挂 .cl-panel-swapout 整卡溶解交卸（animation 简写覆盖 rise，
-                    rise 已播完无损；sink 冻结规则特异性更高，关闭路径不受影响）。 */}
+                    挂 .cl-panel-swapout 整卡溶解交卸（0.3s 与内容聚拢同拍；
+                    animation 简写覆盖 rise，rise 已播完无损；sink 冻结规则
+                    特异性更高，关闭路径不受影响）。 */}
                 <div
                   key={`${session}-${displayPanel}`}
                   ref={measureRef}

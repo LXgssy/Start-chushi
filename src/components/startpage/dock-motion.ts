@@ -43,9 +43,10 @@ export const EXIT_EASE = [0.4, 0, 1, 1] as const;
 /** 收起退场时长（与 .panel-sink 同参，+余量后转入 closed） */
 export const SINK_MS = 240;
 
-/** 互切玻璃交卸时长（v8.7.2 ㊶）：内建→部件互切时旧卡溶解 0.18s + 卸载余量。
+/** 互切玻璃交卸时长（v8.7.2 ㊶ / v8.7.3 同步律）：内建→部件互切时旧卡在
+ *  部件卡上方作揭示式溶解（0.3s 与 .cl-panel-content 聚拢同拍）+ 卸载余量。
  *  与 globals.css .cl-panel-swapout 严格同参 */
-export const SWAP_OUT_MS = 200;
+export const SWAP_OUT_MS = 320;
 
 /** 部件视图最小高度 */
 export const WIDGET_H_MIN = 40;
