@@ -254,9 +254,9 @@ export default function PresetDocs({
                 <Code>{MIN_PRESET}</Code>
                 <P>
                   <K>chushi: 1</K> 是格式版本标记（必需，缺了会直接拒绝）；<K>name</K> 必填；
-                  <K>commands / links / dock</K> 至少写一项——九个内容字段
+                  <K>commands / links / dock</K> 至少写一项——十三个内容字段
                   （commands / links / dock / settings / scripts / animations / pages / widgets /
-                  layout）全空同样会被拒绝。
+                  layout / icons / tokens / motion / clock）全空同样会被拒绝。
                 </P>
               </Sec>
 
@@ -275,7 +275,7 @@ export default function PresetDocs({
                     [<K>scripts</K>, "数组 ≤3", "沙箱脚本，单段 code ≤16000 字符（见 §10）"],
                     [<K>animations</K>, "数组 ≤4", "CSS 注入，单段 ≤6000、合计 ≤12000 字符（见 §09）"],
                     [<K>pages</K>, "数组 ≤3", "沙箱整页，单页 html ≤24000 字符（见 §11）"],
-                    [<K>widgets</K>, "数组 ≤3", "小部件：角落磁贴 / dock 弹出面板，单块 html ≤18000 字符（见 §12）"],
+                    [<K>widgets</K>, "数组 ≤3", "小部件：角落磁贴 / dock 弹出面板，单块 html ≤26400 字符（见 §12）"],
                     [<K>layout</K>, "对象", "声明式布局覆写（见 §07）"],
                   ]}
                 />
@@ -389,7 +389,7 @@ export default function PresetDocs({
                       <>[&#123; target, icon &#125;]</>,
                       <><b>图标替换</b>：target ∈ weather / todo / note / pomodoro / settings / command
                       （tab 栏六个内建按钮）；icon 填内置图标名（与 dock 按钮同一白名单）或 base64
-                      data:image URL（≤8KB，&lt;img&gt; 静态渲染，不执行脚本）。每按钮仅接受一条覆写，≤6 条</>,
+                      data:image URL（≤8KB，&lt;img&gt; 静态渲染，不执行脚本）。每按钮仅接受一条覆写，数组 ≤7 条</>,
                     ],
                     [
                       <K>tokens</K>,
@@ -628,7 +628,7 @@ chushi.settings.onChange((values) => { /* 整组热更新 */ });`}</Code>
                     [<K>icon</K>, <>仅 dock 表面：按钮图标，内置图标名或 data:image base64 URL（≤8KB）</>],
                     [<K>corner</K>, <>仅 corner 表面：停靠角 <K>top-left / top-right / bottom-left / bottom-right</K></>],
                     [<K>width</K>, "卡片/面板宽度 120–420 px（缺省 216）"],
-                    [<K>height</K>, "初始高度 40–320 px（缺省 88；dock 表面即面板初始高度）"],
+                    [<K>height</K>, "初始高度 40–460 px（缺省 88；dock 表面即面板初始高度）"],
                     [<K>chushi.resize(w, h)</K>, "小部件内调用，调整自身高度（宿主夹紧；dock 面板高度弹簧跟随）"],
                     [<K>chushi.close()</K>, "关闭本部件的 dock 弹出面板（仅 dock 表面有意义，v1.8.2）"],
                     [

@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.7/ChuShi-NewTab-v8.7.7.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.8/ChuShi-NewTab-v8.7.8.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -2184,13 +2184,162 @@ try {
       JSON.stringify(t35));
   }
 
+  /* ---------- TL36 面板互切散场回归（v8.7.8 ①）：行为双门 + 静态锚 ----------
+     根因：beta 把 .view-exit 散场下沉到后代级联（.view-exit .glass-card /
+     .view-exit .content-focus），但 ⌘K 指令列表/预设视图、预设面板导入/管理 tab、
+     预设弹窗视图四处【包裹层自身就是 .content-focus】且内部无玻璃后代——
+     后代选择器永不匹配 = 散场动画整条失联，旧视图满值钉住 350ms 后硬拆。
+     行为门：真开 ⌘K → 点「导入预设」→ 退场帧元素必须挂 content-defocus 动画
+     （旧病灶：animationName 停留在 content-focus）+ absolute 钉位；
+     静态门：CSSOM 产物级同元素伴随规则在位 + 后代级联不回归。 */
+  {
+    /* 清场：Esc + 空白点点击，避免前置用例残留浮层 */
+    await af.evaluate(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await sleep(500);
+    /* 开 ⌘K（监听在 iframe window，直接派发） */
+    await af.evaluate(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true, bubbles: true, cancelable: true })));
+    await sleep(900);
+    const opened36 = await af.evaluate(() => !!document.querySelector('[aria-label="指令面板"]'));
+    gate("TL36-pre ⌘K 打开", opened36);
+    /* 采样器：记录退场帧元素类名/动画/定位，随帧更新直至 500ms */
+    await af.evaluate(() => {
+      window.__t36 = null;
+      const pick = () => {
+        const el = document.querySelector(".view-exit");
+        if (!el) return;
+        const cs = getComputedStyle(el);
+        window.__t36 = {
+          cls: el.className, anim: cs.animationName, pos: cs.position,
+          op: cs.opacity, filter: cs.filter,
+        };
+      };
+      const tick = () => { pick(); if ((window.__t36n = (window.__t36n || 0) + 1) < 40) requestAnimationFrame(tick); };
+      requestAnimationFrame(tick);
+    });
+    await af.evaluate(() => {
+      const item = document.querySelector('[cmdk-item][data-value="导入预设"]');
+      item?.click();
+    });
+    await sleep(700);
+    const t36 = await af.evaluate(() => window.__t36);
+    gate("TL36 面板互切散场行为门（v8.7.8）：退场帧挂 content-defocus + absolute 钉位",
+      !!t36 && /content-defocus/.test(t36.anim || "") && t36.pos === "absolute",
+      JSON.stringify(t36));
+    /* 新视图入场在飞（回归保护：交叉溶解另一半） */
+    const enter36 = await af.evaluate(() => {
+      const el = document.querySelector('[aria-label="指令面板"] .content-focus');
+      if (!el) return null;
+      return { anim: getComputedStyle(el).animationName, cls: el.className };
+    });
+    gate("TL36b 预设视图入场聚拢在位", !!enter36 && /content-focus/.test(enter36.anim || "") && !/view-exit/.test(enter36.cls || ""),
+      JSON.stringify(enter36));
+    /* 预设面板内导入→管理互切（同一套同元素伴随规则的第二处用点） */
+    await af.evaluate(() => {
+      window.__t36c = null;
+      const pick = () => {
+        const el = document.querySelector(".view-exit");
+        if (!el) return;
+        window.__t36c = { anim: getComputedStyle(el).animationName, pos: getComputedStyle(el).position };
+      };
+      const tick = () => { pick(); if ((window.__t36cn = (window.__t36cn || 0) + 1) < 40) requestAnimationFrame(tick); };
+      requestAnimationFrame(tick);
+    });
+    await af.evaluate(() => {
+      const btn = [...document.querySelectorAll("button")].find((b) => (b.textContent || "").includes("管理预设"));
+      btn?.click();
+    });
+    await sleep(700);
+    const t36c = await af.evaluate(() => window.__t36c);
+    gate("TL36c 导入→管理互切散场行为门（v8.7.8）：退场帧挂 content-defocus",
+      !!t36c && /content-defocus/.test(t36c.anim || "") && t36c.pos === "absolute", JSON.stringify(t36c));
+    /* 关面板清场 */
+    await af.evaluate(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    await sleep(500);
+    /* 静态锚：CSSOM 同元素伴随规则 + 后代级联双路并存 */
+    const scan36 = await af.evaluate(() => {
+      const rules = [];
+      const walk = (list) => { for (const r of list) { if (r.cssText && r.selectorText) rules.push(r.cssText); if (r.cssRules) try { walk(r.cssRules); } catch { } } };
+      for (const sh of document.styleSheets) { try { walk(sh.cssRules); } catch { } }
+      return rules;
+    });
+    const all36 = scan36.join(" ").replace(/\s+/g, " ");
+    const s36 = {
+      /* 压缩器序列化坑（文件头④律）：shorthand 分量可能重排（animation:.2s ... content-defocus）、
+         0.2s→.2s——断言锚定「规则块含 content-defocus + 含 0.2s 时值」而非完整短语 */
+      self: (() => { const m = all36.match(/\.view-exit\.content-focus\s*\{[^}]*\}/); return !!m && /content-defocus/.test(m[0]) && /0?\.2s/.test(m[0]); })(),
+      desc: /view-exit \.content-focus\s*\{[^}]*content-defocus/.test(all36),
+      enter: /\.content-focus\s*\{[^}]*animation:\s*content-focus/.test(all36),
+    };
+    gate("TL36d 互切散场静态锚（v8.7.8）：同元素伴随 0.2s + 后代级联保留 + 入场在位", s36.self && s36.desc && s36.enter, JSON.stringify(s36));
+  }
+
+  /* ---------- TL37 开发者文档（v8.7.8 ②）：分段关键帧 + 基础延迟 + 内容同步 ----------
+     卡顿根因：①首帧主线程忙于巨量 DOM 挂载，级联在窗口内起跑 → 动画时钟先行
+     流逝，前几帧折叠成跳变；②单段 0.42s 让 blur<2px 不可感尾段拖 ~170ms。
+     修复：0.20s 基础延迟避让 + 关键帧 55% 站点模糊凝满（filter 窗口 0.42→0.23s）。
+     内容同步：widgets html 上限 18000→26400 / 高度 40–320→40–460 / 图标 ≤6→≤7 /
+     内容字段九→十三（与 preset.ts PRESET_LIMITS 对账）。 */
+  {
+    const scan37 = await af.evaluate(() => {
+      const kfs = {}; const rules = [];
+      const walk = (list) => { for (const r of list) { if (r.type === CSSRule.KEYFRAMES_RULE) kfs[r.name] = r.cssText; else if (r.cssText && r.selectorText) rules.push(r.cssText); if (r.cssRules) try { walk(r.cssRules); } catch { } } };
+      for (const sh of document.styleSheets) { try { walk(sh.cssRules); } catch { } }
+      return { kf: kfs["docs-item-in-kf"] || "", rules };
+    });
+    const k37 = (scan37.kf || "").replace(/\s+/g, " ");
+    const all37 = scan37.rules.join(" ").replace(/\s+/g, " ");
+    const t37 = {
+      /* blur(0) 被压缩器压成 blur()（文件头④已知坑，非法但序列化形态稳定） */
+      seg: /55%\s*\{[^}]*blur\(\s*\)/.test(k37),
+      tfA: /0\.4,\s*0,\s*0\.2,\s*1/.test(k37),
+      tfB: /0\.22,\s*1,\s*0\.36,\s*1/.test(k37),
+      delay: /\.docs-anim\s*>\s*section\s*\{[^}]*animation-delay:\s*calc\(\s*0?\.2s\s*\+/.test(all37),
+    };
+    gate("TL37 文档入场节奏静态门（v8.7.8）：55% 模糊凝满分段 + 双段曲线 + 0.20s 基础延迟", t37.seg && t37.tfA && t37.tfB && t37.delay, JSON.stringify(t37) + " kf=" + k37.slice(0, 200));
+    const docsSrc = readFileSync(new URL("../src/components/startpage/PresetDocs.tsx", import.meta.url), "utf8");
+    const devMd = readFileSync(new URL("../docs/PRESET_DEV.md", import.meta.url), "utf8");
+    const c37 = {
+      htmlCap: docsSrc.includes("26400"),
+      height: docsSrc.includes("40–460"),
+      icons: docsSrc.includes("数组 ≤7 条"),
+      fields: docsSrc.includes("十三个内容字段"),
+      md: devMd.includes("26400"),
+      legacyGone: !docsSrc.includes("≤18000") && !docsSrc.includes("40–320"),
+    };
+    gate("TL37b 文档内容同步源码门（v8.7.8）：26400/40–460/≤7/十三字段 + 应用内与仓内 md 对账 + 旧值退役", c37.htmlCap && c37.height && c37.icons && c37.fields && c37.md && c37.legacyGone, JSON.stringify(c37));
+  }
+
+  /* ---------- TL38 掠影染色退役（v8.7.8 ③）：CSSOM 门 + 默认态零波及对账 ----------
+     指令原话「把掠影模式下的浅色/深色模式的浅色/深色滤镜删掉」= 开抽屉整页染色
+     层（浅=白纱/深=暗纱）在掠影下退役；磨砂本体（0.60s 凝聚/0.40s 散场）零改动。 */
+  {
+    const scan38 = await af.evaluate(() => {
+      const rules = [];
+      const walk = (list) => { for (const r of list) { if (r.cssText && r.selectorText) rules.push(r.cssText); if (r.cssRules) try { walk(r.cssRules); } catch { } } };
+      for (const sh of document.styleSheets) { try { walk(sh.cssRules); } catch { } }
+      return rules;
+    });
+    const all38 = scan38.join(" ").replace(/\s+/g, " ");
+    const photoRule = (scan38.find((x) => /html\.photo-mode\s+\.cl-drawer-veil::before/.test(x)) || "").replace(/\s+/g, " ");
+    const darkRule = (scan38.find((x) => /\.dark \.cl-drawer-veil::before/.test(x) && !/cs-lite/.test(x)) || "");
+    const baseBefore = (scan38.find((x) => x.includes(".cl-drawer-veil::before") && !x.includes("data-veil") && !x.includes("cs-lite") && !x.includes("photo-mode") && !x.includes(".dark")) || "").replace(/\s+/g, " ");
+    const t38 = {
+      retired: /display:\s*none/.test(photoRule),
+      noBg: !/background/.test(photoRule),
+      darkKept: !!darkRule,
+      baseKept: /opacity\s+0\.4s/.test(baseBefore),
+      order: all38.indexOf("photo-mode .cl-drawer-veil") > all38.indexOf("cs-lite .cl-drawer-veil"),
+    };
+    gate("TL38 掠影染色退役静态门（v8.7.8）：photo-mode display:none + 无背景残留 + 默认/深色态染色保留（零波及）", t38.retired && t38.noBg && t38.darkKept && t38.baseKept && t38.order, JSON.stringify(t38) + " photo=" + photoRule.slice(0, 120));
+  }
+
   /* ---------- T10 pageerror ---------- */
   gate("T10 pageerror=0", errors.length === 0, errors.join(" | ").slice(0, 120));
 } catch (e) {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.7 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.8 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);
