@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.8/ChuShi-NewTab-v8.7.8.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.9/ChuShi-NewTab-v8.7.9.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -178,7 +178,7 @@ try {
   gate("T2a 中键唤出（磁贴墙+cs-drawer）",
     veilState.veil && veilState.tiles > 0 && veilState.htmlClass,
     `tiles=${veilState.tiles}`);
-  gate("T2b 纱罩整页高斯模糊（blur 20px，v8.7.7 调浅）", /blur\(20px\)/.test(veilState.bf || ""), veilState.bf);
+  gate("T2b 纱罩整页高斯模糊（blur 14px，v8.7.9 再调轻）", /blur\(14px\)/.test(veilState.bf || ""), veilState.bf);
 
   /* ---------- T3 v8.7.0 核心：三通道入场（霜感先行 + 整块模糊覆盖）----------
      开抽屉稳态 → 重触发 intro 冻结 @-0.30s（31.6% 进度）：
@@ -1231,12 +1231,12 @@ try {
       /backdrop-filter/.test(veilInT) && /blur\(1px\)\s*saturate\(1\.5\)/.test(veilInT) &&
       /backdrop-filter/.test(veilOutT) && /blur\(1px\)\s*saturate\(1\.5\)/.test(veilOutT),
       `in=${veilInT.slice(0, 120)} | out=${veilOutT.slice(0, 120)}`);
-    const veilBase = (cssScan.veilRules.find((x) => x.includes(".cl-drawer-veil") && !x.includes("data-veil") && !x.includes("::before") && !x.includes("cs-lite")) || "");
+    const veilBase = (cssScan.veilRules.find((x) => x.includes(".cl-drawer-veil") && !x.includes("data-veil") && !x.includes("::before") && !x.includes("cs-lite") && !x.includes("photo-mode")) || "");
     const veilOpen = (cssScan.veilRules.find((x) => x.includes('.cl-drawer-veil[data-veil="1"]') && !x.includes("::before")) || "");
     const veilBefore = (cssScan.veilRules.find((x) => x.includes(".cl-drawer-veil::before")) || "");
-    gate("TL14f 纱罩底层律（base blur transition + open 20px + ::before 染色层）",
+    gate("TL14f 纱罩底层律（base blur transition + open 14px var 站点 + ::before 染色层）",
       /backdrop-filter\s*:\s*blur\(1px\)/.test(veilBase.replace(/\s+/g, " ")) &&
-      /blur\(20px\)/.test(veilOpen.replace(/\s+/g, " ")) && !!veilBefore,
+      /var\(--dv-open-bf,\s*blur\(14px\)\s*saturate\(1\.5\)\)/.test(veilOpen.replace(/\s+/g, " ")) && !!veilBefore,
       `base=${veilBase ? "ok" : "NULL"} open=${veilOpen ? "ok" : "NULL"} before=${veilBefore ? "ok" : "NULL"}`);
     /* ---------- TL14g/h v8.7.0 感知同步律（blur 领先/驻留） ---------- */
     gate("TL14g 纱幕 blur 领先/驻留（veil-in 45% 凝满 + veil-fade 0-55% 驻留）",
@@ -2070,11 +2070,16 @@ try {
       if (!v || !v.isConnected) return { veil: false };
       const cs = getComputedStyle(v);
       const before = getComputedStyle(v, "::before");
-      return { veil: true, dv: v.getAttribute("data-veil"), bf: cs.backdropFilter, tint: before.opacity, vis: cs.visibility };
+      /* v8.7.9 双模饱和度律自明见证：探针自 TL9 起常驻掠影态——掠影下满值
+         backdrop-filter 必须无 saturate（提亮律退役）；非掠影态必须带
+         saturate(1.5)（玻璃语言保留）。模式判定取自 html 实际类名，不依赖
+         探针流程假设。 */
+      const photo = document.documentElement.classList.contains("photo-mode");
+      return { veil: true, dv: v.getAttribute("data-veil"), bf: cs.backdropFilter, tint: before.opacity, vis: cs.visibility, photo, satLaw: photo ? !/saturate/.test(cs.backdropFilter || "") : /saturate\(1\.5\)/.test(cs.backdropFilter || "") };
     });
-    gate("TL34b 开态到位见证（v8.7.7）：veil 挂载 + data-veil=1 + blur 满值 20px + 染色在场 + 可见",
-      openState34.veil && openState34.dv === "1" && /blur\(20px\)/.test(openState34.bf || "")
-        && parseFloat(openState34.tint) > 0.9 && openState34.vis === "visible",
+    gate("TL34b 开态到位见证（v8.7.9）：veil 挂载 + data-veil=1 + blur 满值 14px + 染色在场 + 可见 + 饱和度律（掠影无sat/常规有sat）",
+      openState34.veil && openState34.dv === "1" && /blur\(14px\)/.test(openState34.bf || "")
+        && parseFloat(openState34.tint) > 0.9 && openState34.vis === "visible" && openState34.satLaw,
       JSON.stringify(openState34));
     await page.mouse.click(90, 620, { button: "middle" }); // 关（TL34b 清场）
     await sleep(1100);
@@ -2131,12 +2136,12 @@ try {
     });
     const k33 = (scan33.kf || "").replace(/\s+/g, " ");
     const veilAll33 = scan33.veilRules.join(" ").replace(/\s+/g, " ");
-    const base33 = (scan33.veilRules.find((x) => x.includes(".cl-drawer-veil") && !x.includes("data-veil") && !x.includes("::before") && !x.includes("cs-lite")) || "").replace(/\s+/g, " ");
+    const base33 = (scan33.veilRules.find((x) => x.includes(".cl-drawer-veil") && !x.includes("data-veil") && !x.includes("::before") && !x.includes("cs-lite") && !x.includes("photo-mode")) || "").replace(/\s+/g, " ");
     const t33 = {
       kf: !!k33,
       noOp: !!k33 && !/opacity\s*:/.test(k33),
-      hi: /blur\(20px\)\s*saturate\(1\.5\)/.test(k33),
-      mid: /blur\(9px\)\s*saturate\(1\.22\)/.test(k33),
+      hi: /var\(--dv-open-bf,\s*blur\(14px\)\s*saturate\(1\.5\)\)/.test(k33),
+      mid: /var\(--dv-mid-bf,\s*blur\(9px\)\s*saturate\(1\.22\)\)/.test(k33),
       lo: /blur\(1px\)/.test(k33) && !/blur\(1px\)\s*saturate/.test(k33),
       lin: /linear/.test(k33),
       bez: /cubic-bezier\(0\.45,\s*0,\s*0\.55,\s*1\)/.test(k33),
@@ -2145,7 +2150,7 @@ try {
       baseNoTr: !/backdrop-filter\s+[0-9.]+s/.test(base33),
       tint40: /opacity\s+0\.4s\s+cubic-bezier\(0\.45,\s*0,\s*0\.55,\s*1\)/.test(veilAll33),
     };
-    gate("TL33 散场关键帧静态门（v8.7.7）：CSSOM 分段(20+1.5/9+1.22/1px无sat)+linear尾段+接线+基态无sat无bf过渡+染色0.40s",
+    gate("TL33 散场关键帧静态门（v8.7.9）：CSSOM 分段 var 站点(14+1.5/9+1.22/1px无sat)+linear尾段+接线+基态无sat无bf过渡+染色0.40s",
       t33.kf && t33.noOp && t33.hi && t33.mid && t33.lo && t33.lin && t33.bez && t33.wire && t33.baseNoSat && t33.baseNoTr && t33.tint40,
       JSON.stringify(t33));
     /* TL34 静态门（v8.7.6 ㊽ 开态渐入，v8.7.7 放慢）：CSSOM 产物级——凝聚 0.60s
@@ -2333,13 +2338,53 @@ try {
     gate("TL38 掠影染色退役静态门（v8.7.8）：photo-mode display:none + 无背景残留 + 默认/深色态染色保留（零波及）", t38.retired && t38.noBg && t38.darkKept && t38.baseKept && t38.order, JSON.stringify(t38) + " photo=" + photoRule.slice(0, 120));
   }
 
+  /* ---------- TL39 掠影模糊不提亮律（v8.7.9）：CSSOM 门 + 源码级接线 ----------
+     用户指令「保证模糊效果不会提亮背景」双实现对账：
+     ① 抽屉纱幕站点变量化 --dv-open-bf/--dv-mid-bf，掠影覆写为无 saturate 版本
+        （blur 亮度均值保持，饱和度才是压暗壁纸被重新提色的主犯）；
+     ② 四张满屏遮罩（命令面板/快捷服务编辑/预设文档/更新日志）挂 cl-screen-veil，
+        掠影下白纱 bg-white/10 → rgba(0,0,0,0.18) 深纱（与 photo-scrim 平底
+        同值）+ blur(12px) 无 sat——右键编辑快捷服务叠在抽屉纱幕上的第二层
+        同向压暗不再提亮。
+     行为/像素见证由 visual-v879 承担（TL34b 伪影定律：过程性由静态门规范级
+     保证 + visual 截图强制出帧）。 */
+  {
+    const scan39 = await af.evaluate(() => {
+      const rules = [];
+      const walk = (list) => { for (const r of list) { if (r.cssText && r.selectorText) rules.push(r.cssText); if (r.cssRules) try { walk(r.cssRules); } catch { } } };
+      for (const sh of document.styleSheets) { try { walk(sh.cssRules); } catch { } }
+      return rules;
+    });
+    const photoVarRule = (scan39.find((x) => /html\.photo-mode\s+\.cl-drawer-veil\s*\{/.test(x)) || "").replace(/\s+/g, " ");
+    const screenRules = scan39.filter((x) => x.includes("cl-screen-veil")).map((x) => x.replace(/\s+/g, " "));
+    const screenRule = screenRules.find((x) => /photo-mode/.test(x)) || "";
+    /* 源码级接线：构建产物 JS 内 cl-screen-veil 出现次数 ≥4（四组件 className 各一次） */
+    const src39 = await af.evaluate(async () => {
+      const urls = [...document.querySelectorAll("script[src]")].map((s) => s.src);
+      let n = 0;
+      await Promise.all(urls.map(async (u) => {
+        try { const t = await (await fetch(u)).text(); n += (t.match(/cl-screen-veil/g) || []).length; } catch { }
+      }));
+      return n;
+    });
+    const t39 = {
+      photoVarSat: /--dv-open-bf:\s*blur\(14px\)\s*;/.test(photoVarRule) && /--dv-mid-bf:\s*blur\(9px\)\s*;/.test(photoVarRule) && !/saturate/.test(photoVarRule),
+      screenDark: /backdrop-filter:\s*blur\(12px\)/.test(screenRule) && /(#0000002e|rgba?\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0?\.18\)|rgb\(\s*0\s+0\s+0\s*\/\s*0?\.18\))/.test(screenRule) && !/saturate/.test(screenRule),
+      onlyPhoto: screenRules.length > 0 && screenRules.every((x) => /photo-mode/.test(x)),
+      srcCount: src39 >= 4,
+    };
+    gate("TL39 掠影模糊不提亮律静态门（v8.7.9）：photo 站点变量无sat + cl-screen-veil 深纱blur12无sat + 规则仅掠影态 + 源码接线≥4",
+      t39.photoVarSat && t39.screenDark && t39.onlyPhoto && t39.srcCount,
+      JSON.stringify(t39) + " screen=" + screenRule.slice(0, 140));
+  }
+
   /* ---------- T10 pageerror ---------- */
   gate("T10 pageerror=0", errors.length === 0, errors.join(" | ").slice(0, 120));
 } catch (e) {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.8 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.9 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);

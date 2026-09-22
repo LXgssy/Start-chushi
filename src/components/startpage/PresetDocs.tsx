@@ -185,7 +185,7 @@ export default function PresetDocs({
           key="preset-docs-overlay"
           exitClass="veil-out"
           duration={0.22}
-          className="veil-in fixed inset-0 z-[60] flex items-center justify-center bg-white/10 px-4 backdrop-blur-md backdrop-saturate-150 dark:bg-black/10"
+          className="veil-in cl-screen-veil fixed inset-0 z-[60] flex items-center justify-center bg-white/10 px-4 backdrop-blur-md backdrop-saturate-150 dark:bg-black/10"
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) onClose();
           }}
