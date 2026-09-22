@@ -858,13 +858,19 @@ html.cs-drawer-closing .cl-fade-leaf {
   animation: none;
 }
 
-/* ---------- 互切玻璃交卸（v8.7.2 ㊶）：内建→部件互切时，旧玻璃卡以恒定
-   材质整卡溶解（opacity 1→0，自 opacity 不破自身 backdrop 采样根），
-   SWAP_OUT_MS 后卸载——「同帧硬卸载」断层从结构上不存在，部件卡在底锚
-   恒贴下与溶解中的玻璃交叉完成交棒。animation 简写覆盖已播完的 panel-rise
-   （无损）；关闭路径 .panel-sink .cl-panel animation:none 特异性 (0,2,0) >
-   (0,1,0) 恒压本规则，材质冻结不受影响；pointer-events 摘除防半透明卡
-   截获点击。与 dock-motion.ts SWAP_OUT_MS 严格同参 ---------- */
+/* ---------- 互切玻璃交卸（v8.7.2 ㊶ / v8.7.3 交卸层反转·同步律）：内建→部件
+   互切时，旧玻璃卡以恒定材质整卡溶解（opacity 1→0，自 opacity 不破自身
+   backdrop 采样根），SWAP_OUT_MS 后卸载。v8.7.3 实测改版：部件卡与旧卡在底
+   锚恒贴下全程共面重叠（opacity 首帧即 1），若旧卡垫底溶解则是被盖住的隐形
+   cross-fade = 亮→暗一帧硬翻；PanelStage 改为交卸期高度盒 z-20 抬升，旧卡
+   变成部件卡上方的【揭示幕】——溶解曲线换 EASE(0.22,1,0.36,1)、时长 0.3s
+   与 .cl-panel-content 聚拢同拍（减速曲线前段揭示量大，与聚拢的前置 blur
+   坍缩同步；EXIT 加速曲线会把揭示量堆到尾段产生二次节拍），净效果 =
+   亮玻璃匀速溶去逐帧揭示暗卡聚拢成形，与内建互切同一节奏。
+   animation 简写覆盖已播完的 panel-rise（无损）；关闭路径
+   .panel-sink .cl-panel animation:none 特异性 (0,2,0) > (0,1,0) 恒压本规则，
+   材质冻结不受影响；pointer-events 摘除防半透明卡截获点击。
+   与 dock-motion.ts SWAP_OUT_MS 严格同参 ---------- */
 @keyframes cl-panel-swapout-kf {
   from {
     opacity: 1;
@@ -874,7 +880,8 @@ html.cs-drawer-closing .cl-fade-leaf {
   }
 }
 .cl-panel-swapout {
-  animation: cl-panel-swapout-kf 0.18s cubic-bezier(0.4, 0, 1, 1) forwards;
+  animation: cl-panel-swapout-kf calc(0.3s * var(--mo-speed, 1))
+    cubic-bezier(0.22, 1, 0.36, 1) forwards;
   pointer-events: none;
 }
 @keyframes dialog-sink {
@@ -1271,32 +1278,57 @@ html.cs-drawer-closing .cl-fade-leaf {
   }
 }
 
-/* ---------- 搜索建议常驻容器（v8.7.2 ㊸）：AnimatePresence 条件重挂 +
-   framer WAAPI opacity 空窗 = 「出现闪动一拍」根因（panel-fade 教训同族）。
-   常驻 DOM + data-open CSS 过渡：opacity+blur 聚拢与表单 height 揭示同参
-   （0.3s / cubic-bezier(0.22,1,0.36,1)），visibility 离散插值（收起末帧
-   隐没）——重挂不存在、WAAPI 空窗不存在，闪动从结构上不可能 ---------- */
+/* ---------- 搜索建议常驻容器（v8.7.2 ㊸ / v8.7.3 展开动画打磨）：
+   AnimatePresence 条件重挂 + framer WAAPI opacity 空窗 = 「出现闪动一拍」
+   根因（panel-fade 教训同族）。常驻 DOM + data-open CSS 过渡：容器只承担
+   opacity+visibility（v8.7.3 容器 blur 退役——blur 移交行级联逐行承担，
+   双层 filter 叠加发糊且费合成）；visibility 离散插值（收起末帧隐没）——
+   重挂不存在、WAAPI 空窗不存在，闪动从结构上不可能 ---------- */
 .search-sug-list {
   opacity: 0;
   visibility: hidden;
-  filter: blur(6px);
   transition:
     opacity calc(0.3s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1),
-    filter calc(0.3s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1),
     visibility 0s linear calc(0.3s * var(--mo-speed, 1));
 }
 .search-sug-list[data-open] {
   opacity: 1;
   visibility: visible;
-  filter: blur(0);
   transition:
     opacity calc(0.3s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1),
-    filter calc(0.3s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1),
     visibility 0s;
+}
+
+/* ---------- 建议行级联入场（v8.7.3 展开动画打磨）：Raycast/Arc 式逐行
+   升起聚拢。仅播一次的窗口由 JS 标记（SearchBar 渲染期 showDrop false→true
+   边沿挂 .sug-cascade，SUG_CASCADE_MS 后摘除）：展开首帧即带类（渲染期
+   派生同 commit 提交，零空窗）；窗口内结果替换（真实网络二次 fetch 落地）
+   新行同样级联入场 = 「第一行复位」的换装硬切同步消除；窗口后打字换装
+   不再重播（常驻行只有文字切换，零动画零噪音）。行级 opacity+y+blur 与
+   容器过渡同参同曲线；--sug-i 由行内样式携带（0 起步逐行 +24ms）。 ---------- */
+@keyframes sug-row-in-kf {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+    filter: blur(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
+  }
+}
+.search-sug-list.sug-cascade .search-sug-row {
+  animation: sug-row-in-kf calc(0.26s * var(--mo-speed, 1))
+    cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation-delay: calc(var(--sug-i, 0) * 24ms);
 }
 @media (prefers-reduced-motion: reduce) {
   .search-sug-list {
     transition-duration: 0s;
+  }
+  .search-sug-list.sug-cascade .search-sug-row {
+    animation: none;
   }
 }
 

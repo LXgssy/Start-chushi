@@ -12,6 +12,15 @@
  *  · 列表浮现 = 常驻 DOM + data-open CSS 过渡（v8.7.2 ㊸：AnimatePresence
  *    条件重挂 + framer WAAPI opacity 空窗是「出现闪动一拍」的根因，
  *    panel-fade 教训同族——常驻结构 + visibility 离散插值免疫）；
+ *  · 行级联入场 = v8.7.3 展开动画打磨：showDrop false→true 边沿【渲染期】
+ *    挂 .sug-cascade（与首帧行同 commit，零空窗），SUG_CASCADE_MS 后摘除——
+ *    逐行 opacity+y+blur 升起聚拢（globals.css sug-row-in-kf）；窗口内结果
+ *    替换（真实网络二次 fetch 落地）新行同样级联，弹出中「第一行复位」的
+ *    换装硬切同步消除；窗口后换装零动画零噪音；
+ *  · 高亮持久 = v8.7.3：fetch 回调不再 setActive(-1)——悬停/键选高亮跨
+ *    重取保留（旧实现二次 fetch 落地即清高亮 = 「第一行复位」第二根因；
+ *    鼠标不动无新 mouseenter，高亮清后不会自愈），越界索引自然失活、
+ *    位移键位自校正，与桌面 omnibox 行为同构；
  *  · 玻璃壳体入场 = CSS pill-shell-in（globals.css，祖先 opacity/filter 禁律）。
  *
  * 联想源：百度 sugrec JSONP（免 CORS、免密钥、国内可达）；扩展环境（MV3 CSP
@@ -19,7 +28,7 @@
  * 检索，与引擎语义解耦。3s 超时/出错静默降级为无建议，不阻塞输入。
  */
 
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState, type CSSProperties } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, Check, ChevronDown, Search } from "lucide-react";
@@ -33,6 +42,9 @@ const EASE = [0.22, 1, 0.36, 1] as const;
  *  无可见裁切 */
 const SUG_ROW_H = 40;
 const SUG_MAX = 6;
+/** 级联窗口：展开首帧行逐行入场（末行延迟 5×24ms + 0.26s ≈ 380ms）+ 覆盖
+ *  窗口内结果替换（防抖 180ms + 网络往返典型 <500ms 落在窗内） */
+const SUG_CASCADE_MS = 520;
 /** 联想防抖 */
 const SUG_DEBOUNCE_MS = 180;
 /** 联想请求超时 */
@@ -158,10 +170,10 @@ function SearchBar({
     let alive = true;
     const t = window.setTimeout(() => {
       fetchSuggest(q, (list) => {
-        if (alive) {
-          setSugs(list.slice(0, SUG_MAX));
-          setActive(-1);
-        }
+        /* v8.7.3 高亮持久：不再 setActive(-1)——二次 fetch 落地即清高亮 =
+           「第一行复位」根因（鼠标不动无新 mouseenter，清后不自愈）；
+           越界索引自然失活（i===active 无匹配），↑↓ 取模自校正 */
+        if (alive) setSugs(list.slice(0, SUG_MAX));
       });
     }, SUG_DEBOUNCE_MS);
     return () => {
@@ -183,6 +195,24 @@ function SearchBar({
   }
 
   const showDrop = suggestOn && focused && sugs.length > 0;
+
+  /* 级联窗口（v8.7.3）：showDrop false→true 边沿在【渲染期】挂类（官方
+     「渲染期间调整 state」模式，PanelStage 相位机同款）——类与首帧行同
+     commit 提交，CSS 动画从首帧起播零空窗（effect 里挂会晚一帧 = 行先
+     裸态入画再跳进动画，正是要消灭的那一拍）；收起同帧摘除。计时摘除
+     走 effect（渲染期不能起定时器）。 */
+  const [cascade, setCascade] = useState(false);
+  const [prevShow, setPrevShow] = useState(showDrop);
+  if (prevShow !== showDrop) {
+    setPrevShow(showDrop);
+    if (showDrop) setCascade(true);
+    else if (cascade) setCascade(false);
+  }
+  useEffect(() => {
+    if (!cascade) return;
+    const t = window.setTimeout(() => setCascade(false), SUG_CASCADE_MS);
+    return () => window.clearTimeout(t);
+  }, [cascade]);
 
   return (
     <div className="cl-search relative w-[min(92vw,580px)]">
@@ -303,9 +333,10 @@ function SearchBar({
           </div>
 
           {/* 建议列表：搜索栏向下拉长的部分。常驻 DOM（v8.7.2 ㊸结构免疫律）：
-              显隐走 data-open CSS 过渡（opacity+blur 聚拢 + visibility 离散
-              插值，globals.css .search-sug-list）——无 AnimatePresence 条件
-              重挂、无 framer WAAPI opacity，「出现闪动一拍」从结构上不存在；
+              显隐走 data-open CSS 过渡（opacity+visibility，globals.css
+              .search-sug-list）——无 AnimatePresence 条件重挂、无 framer WAAPI
+              opacity，「出现闪动一拍」从结构上不存在；展开首帧行级联入场由
+              .sug-cascade 窗口标记承载（v8.7.3，渲染期边沿派生见上）；
               高度揭示统一由表单 height 动画承载，列表自身无 margin 参与，
               收起零残留。首行上缘 hairline 兼作输入行与建议区的分隔线 */}
           <div
@@ -315,7 +346,7 @@ function SearchBar({
             aria-hidden={!showDrop}
             data-open={showDrop ? "true" : undefined}
             onMouseLeave={() => setActive(-1)}
-            className="search-sug-list"
+            className={`search-sug-list${cascade ? " sug-cascade" : ""}`}
           >
             {sugs.map((s, i) => (
               <button
@@ -327,7 +358,7 @@ function SearchBar({
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => submit(false, s)}
                 onMouseEnter={() => setActive(i)}
-                style={{ height: SUG_ROW_H }}
+                style={{ height: SUG_ROW_H, "--sug-i": i } as CSSProperties}
                 className={`search-sug-row flex w-full items-center gap-3 px-4 text-left text-[13px] font-light transition-colors duration-150 ${
                   i === 0
                     ? "border-t border-zinc-900/[0.07] dark:border-white/[0.07]"
