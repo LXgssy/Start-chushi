@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.7",
+    date: "2026-09-22",
+    title: "抽屉模糊再打磨：渐入放慢看得见，磨砂力度调浅一档",
+    channel: "page",
+    highlights: [
+      "打开抽屉的模糊凝聚放慢到 0.6 秒：从清晰到磨砂的过渡现在清楚可辨，不再一闪而过",
+      "整页磨砂力度调浅：背景模糊从 28px 降到 20px，让位感依旧，纱下的页面内容更容易辨认",
+      "关闭散场节奏不变：依旧先缓释再匀速收底，收尾干净无残留",
+    ],
+  },
+  {
     version: "8.7.6",
     date: "2026-09-22",
     title: "抽屉开合模糊手感重写：渐入不再突兀，渐出更细腻，掠影开抽屉背景微放大",

@@ -874,7 +874,7 @@ function QuickLinks({
                   {/* 纱罩：整页高斯模糊 + 轻染色（v8.6.2 用户指令——不再纯色遮罩）。
                       v8.6.23 磨砂底层律：自身 opacity<1 与祖先同罪杀磨砂（v8.6.22
                       blur-selftest 实验实证，「自承载安全」旧律作废）——磨砂本体在
-                      底层走 blur 值通道（CSS transition，data-veil 门控，1px↔28px
+                      底层走 blur 值通道（CSS transition，data-veil 门控，1px↔20px
                       全程在线），染色渐变走 ::before opacity；模糊经 cs-lite 通配
                       自动降级为纯色纱。veilOn 经 rAF 置位：首次唤出（portal 首挂
                       即 open）也走闭态值→开态的凝聚入场，不瞬跳 */}

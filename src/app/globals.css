@@ -1778,8 +1778,10 @@ html.cs-lite.dark .glass-pill {
 
 /* ---------- 快捷服务抽屉（中键唤出全屏磁贴墙）----------
    纱罩 = 【整页高斯模糊】+ 轻染色（不要纯黑遮罩，模糊整个页面）：
-   backdrop blur(28px)+saturate 把整页磨砂化，让位感由整页模糊承担。
-   搜索栏磨砂恒定在线。磁贴浮在磨砂化的整页之上，双层磨砂（纱罩 28px +
+   backdrop blur(20px)+saturate 把整页磨砂化，让位感由整页模糊承担
+   （v8.7.7：28→20px——用户实测「高斯模糊调浅一点」，磨砂让位感不变、
+   底下页面内容更易辨认）。
+   搜索栏磨砂恒定在线。磁贴浮在磨砂化的整页之上，双层磨砂（纱罩 20px +
    磁贴 14px）。抽屉打开期间（html.cs-drawer）：Dock 与搜索栏同层坐在纱罩
    之下（整页磨砂同样覆盖 Dock，不再浮在模糊上面）；退场窗内点击不被吞由
    纱罩包裹层 pointerEvents:none 承担。
@@ -1788,9 +1790,10 @@ html.cs-lite.dark .glass-pill {
    退场中的纱罩会重新盖住 Dock——pointerup 落纱罩、click 被吞，面板永远
    打不开。
    磨砂底层律：纱罩拆两层——磨砂本体在底层走 blur 值通道（开态 transition
-   1px→28px 渐进凝聚（v8.7.6：0.12s→0.36s ease-in-out 渐入——旧 0.12s+
-   ease-out 前 25% 冲完大半进度 = 「没有渐入、很突兀」两根因，拉长窗口+
-   缓起中段让糊化全程可感知）；关闭散场移交 cl-drawer-veil-scatter-kf
+   1px→20px 渐进凝聚（v8.7.6：0.12s→0.36s ease-in-out 渐入——旧 0.12s+
+   ease-out 前 25% 冲完大半进度 = 「没有渐入、很突兀」两根因。v8.7.7：
+   0.36→0.60s 再放慢——0.36s 窗内可感知段仅 ~150ms 用户复测「完全看不出
+   来有渐入」，放慢后可感知段 ~330ms 清晰可辨）；关闭散场移交 cl-drawer-veil-scatter-kf
    关键帧，data-veil/cs-drawer-closing 门控，全程无 opacity，任何帧不退化
    为纯色纱）；染色渐变走 ::before（无磨砂载体，opacity 安全）。visibility
    延迟门控：关态 blur(1px)+transparent 视觉不可见且退场收尾后才隐藏，
@@ -1827,10 +1830,11 @@ html.cs-lite.dark .glass-pill {
    「渐出太直接」。v8.7.6 保持三病灶免疫架构（匀速尾 + saturate 同步 +
    染色全程掩护），把节奏拉细（html.cs-drawer-closing 载体——closing
    effect 与 veilOn 复位同批但 DOM 类写立即生效，动画起点帧 veil 仍处
-   data-veil 的 blur(28px) 满值 → 无 V 跳起步；下一渲染 commit data-veil
+   data-veil 的 blur(20px) 满值 → 无 V 跳起步；下一渲染 commit data-veil
    摘除后 animation 覆盖基态无空窗）：
-   · 0-35%（140ms）cubic-bezier(0.45,0,0.55,1) 缓启缓入 28→9px——起步
-     柔（对比 v8.7.5 快启猛冲），大模糊区先缓释再加速，糊感渐次松开；
+   · 0-35%（140ms）cubic-bezier(0.45,0,0.55,1) 缓启缓入 20→9px（v8.7.7
+     满值 28→20px 同步改）——起步柔（对比 v8.7.5 快启猛冲），大模糊区先
+     缓释再加速，糊感渐次松开；
    · 35-100%（260ms）linear 匀速 9→1px——尾段速度恒定（每 32.5ms 收
      1px，高于 v8.7.5 每 42ms 1px），「越收越慢爬到不动」结构性不存在；
    · saturate 与 blur 同步归位（1.5→1.22→末帧缺省=sat 1，函数列表
@@ -1841,7 +1845,7 @@ html.cs-drawer-closing .cl-drawer-veil {
 }
 @keyframes cl-drawer-veil-scatter-kf {
   0% {
-    backdrop-filter: blur(28px) saturate(1.5);
+    backdrop-filter: blur(20px) saturate(1.5);
     animation-timing-function: cubic-bezier(0.45, 0, 0.55, 1);
   }
   35% {
@@ -1871,22 +1875,24 @@ html.cs-drawer-closing .cl-drawer-veil {
   transition: opacity 0.40s cubic-bezier(0.45, 0, 0.55, 1);
 }
 .cl-drawer-veil[data-veil="1"] {
-  backdrop-filter: blur(28px) saturate(1.5);
+  backdrop-filter: blur(20px) saturate(1.5);
   visibility: visible;
-  /* 感知同步律（开=渐入，v8.7.6 ㊽）：0.12s+ease-out（前 25% 冲完大半
-     进度）= 用户实测「没有渐入、很突兀」两根因。0.36s ease-in-out：
-     起步缓（1px 慢慢起糊）→ 中段糊开 → 末段缓落满值 28px——糊化过程
-     全程可感知。染色 ::before 0.36s 同拍渐显（见下条）——磨砂底与
-     模糊质感同步渐现 */
+  /* 感知同步律（开=渐入，v8.7.6 ㊽ / v8.7.7 再放慢）：0.12s+ease-out（前
+     25% 冲完大半进度）= 用户实测「没有渐入、很突兀」两根因；0.36s 时窗
+     内可感知段仍仅 ~150ms——用户复测「完全看不出来有渐入」。v8.7.7
+     放慢至 0.60s（曲线形态不变：缓起→中段糊开→末段缓落），可感知段
+     拉到 ~330ms 清晰可辨。满值 blur 20px（v8.7.7 调浅）。染色 ::before
+     0.60s 同拍渐显（见下条）——磨砂底与模糊质感同步渐现 */
   transition:
-    backdrop-filter 0.36s cubic-bezier(0.5, 0, 0.3, 1),
+    backdrop-filter 0.60s cubic-bezier(0.5, 0, 0.3, 1),
     visibility 0s;
 }
 .cl-drawer-veil[data-veil="1"]::before {
   opacity: 1;
   /* 开启渐显显式覆写（transition 取目标态值：关→开时目标态是本条，
-     基态 0.40s 关闭渐隐不受影响）——染色与磨砂同拍渐入 */
-  transition: opacity 0.36s cubic-bezier(0.5, 0, 0.3, 1);
+     基态 0.40s 关闭渐隐不受影响）——染色与磨砂 0.60s 同拍渐入
+     （v8.7.7 与凝聚同步放慢） */
+  transition: opacity 0.60s cubic-bezier(0.5, 0, 0.3, 1);
 }
 .dark .cl-drawer-veil::before {
   /* 深色态：zinc-900 轻纱替代旧 zinc-950 厚涂（「纯黑遮罩」差评），
@@ -1918,7 +1924,7 @@ html.cs-lite.dark .cl-drawer-veil::before {
 }
 /* reduce-motion：抽屉关闭即刻隐没（visibility 延迟归零 + 散场动画瞬完
    停 blur(1px) 终帧 + 染色瞬隐）；开态凝聚/染色渐入 transition 一并归零
-   （v8.7.6：0.36s 已不是「即现可接受」量级，显式归零；特异性高于基态
+   （v8.7.7：0.60s 更非「即现可接受」量级，显式归零；特异性高于基态
    ::before 归零条，必须显式写） */
 @media (prefers-reduced-motion: reduce) {
   .cl-drawer-veil {
