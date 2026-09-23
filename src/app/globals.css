@@ -1937,26 +1937,47 @@ html.cs-drawer-closing .cl-drawer-veil {
      [data-veil="1"]::before 显式覆写。单段曲线即可，无需关键帧 */
   transition: opacity 0.40s cubic-bezier(0.45, 0, 0.55, 1);
 }
+/* 凝聚入场动画化（v8.7.12）：挂 data-veil=1 即从 from 站点起播。
+   旧 transition 方案（v8.7.6~11）的凝聚起点依赖「浏览器 paint 过闭态
+   blur(1px) 帧」（CSS Transitions before-change style），而完整关闭后
+   再开走 portal 重挂路径：mount commit 与 veilOn rAF 置位 commit 在
+   生产 BeginFrame 的同一 rAF 阶段内完成、同帧一次 paint=终态（v8.6.23
+   「真机两 commit 间必有 paint」假设被用户实测推翻）——0 态帧被吞，
+   transition 无起点瞬跳满值 =「关闭动画完全结束后打开没有入场动画」；
+   打断重开（元素常驻已 paint 过 0 态）才有凝聚 = 症状另一面。animation
+   挂上必从 from 起播、零 paint 时序依赖——首挂/完整重开/打断重开三
+   路径统一必现凝聚。0.60s→0.50s（用户「入场速度加快一点点」）。
+   染色 ::before 同步 animation 化（同根因同修，关闭渐隐仍走基态
+   transition 0.40s 与散场同拍不变）。to 站点 var(--dv-open-bf) 与开态
+   稳态/散场 0% 站点同源——掠影变量覆写穿透动画窗（v8.7.9/10 不提亮律
+   零波及）；from blur(1px) 与闭态基态同源无 sat。cs-lite 流畅模式
+   backdrop none !important 压关键帧（级联序：!important > animations）
+   降级语义不变；mo-speed 乘法与 animation 家族惯例对齐（veil-in 同构）。 */
+@keyframes dv-open-kf {
+  from {
+    backdrop-filter: blur(1px);
+  }
+  to {
+    backdrop-filter: var(--dv-open-bf, blur(14px) saturate(1.5));
+  }
+}
+@keyframes dv-tint-kf {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
 .cl-drawer-veil[data-veil="1"] {
   backdrop-filter: var(--dv-open-bf, blur(14px) saturate(1.5));
   visibility: visible;
-  /* 感知同步律（开=渐入，v8.7.6 ㊽ / v8.7.7 再放慢）：0.12s+ease-out（前
-     25% 冲完大半进度）= 用户实测「没有渐入、很突兀」两根因；0.36s 时窗
-     内可感知段仍仅 ~150ms——用户复测「完全看不出来有渐入」。v8.7.7
-     放慢至 0.60s（曲线形态不变：缓起→中段糊开→末段缓落），可感知段
-     拉到 ~330ms 清晰可辨。满值 blur 14px（v8.7.7 28→20 调浅 / v8.7.9 20→14
-     再调轻，站点经 --dv-open-bf 变量与散场同源）。染色 ::before
-     0.60s 同拍渐显（见下条）——磨砂底与模糊质感同步渐现 */
-  transition:
-    backdrop-filter 0.60s cubic-bezier(0.5, 0, 0.3, 1),
-    visibility 0s;
+  animation: dv-open-kf calc(0.5s * var(--mo-speed, 1)) cubic-bezier(0.5, 0, 0.3, 1) backwards;
+  transition: visibility 0s;
 }
 .cl-drawer-veil[data-veil="1"]::before {
   opacity: 1;
-  /* 开启渐显显式覆写（transition 取目标态值：关→开时目标态是本条，
-     基态 0.40s 关闭渐隐不受影响）——染色与磨砂 0.60s 同拍渐入
-     （v8.7.7 与凝聚同步放慢） */
-  transition: opacity 0.60s cubic-bezier(0.5, 0, 0.3, 1);
+  animation: dv-tint-kf calc(0.5s * var(--mo-speed, 1)) cubic-bezier(0.5, 0, 0.3, 1) backwards;
 }
 .dark .cl-drawer-veil::before {
   /* 深色态：zinc-900 轻纱替代旧 zinc-950 厚涂（「纯黑遮罩」差评），
@@ -2055,6 +2076,9 @@ html.photo-mode .veil-hold-2xl {
   }
   .cl-drawer-veil[data-veil="1"],
   .cl-drawer-veil[data-veil="1"]::before {
+    /* v8.7.12 凝聚 animation 化后 reduce 同步禁 animation（backwards+0s
+       = 立即 to 站点满值到位）；transition-duration 保留防回退复活 */
+    animation-duration: 0s;
     transition-duration: 0s;
   }
 }
@@ -2068,7 +2092,11 @@ html.photo-mode .veil-hold-2xl {
    （放大态失配）走基态 transition 与散场 0.40s 精确同拍——开合背景动作与模糊
    同频。cs-lite（流畅模式）保留：transform 缩放是合成层动画，无磨砂也流畅。 */
 .wallpaper-layer {
-  transition: transform 0.40s cubic-bezier(0.45, 0, 0.55, 1);
+  /* v8.7.12 与抽屉凝聚动画严格同步（用户指令「壁纸的放大速度也要和抽屉
+     的打开动画同步」）：同时长（凝聚 v8.7.12 加快后 0.50s）同曲线
+     cubic-bezier(0.5,0,0.3,1)——模糊让位与壁纸浮出同拍起步同拍落座。
+     回缩（closing 摘除放大态失配）同走本条与散场同窗。 */
+  transition: transform 0.50s cubic-bezier(0.5, 0, 0.3, 1);
 }
 html.cs-drawer:not(.cs-drawer-closing).photo-mode .wallpaper-layer {
   transform: scale(1.05);

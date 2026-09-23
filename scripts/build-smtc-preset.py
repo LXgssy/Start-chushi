@@ -55,7 +55,7 @@ html = minify_html((SRC / "music-widget.html").read_text(encoding="utf-8"))
 code = minify_js((SRC / "music-commands.js").read_text(encoding="utf-8"))
 cover_svg = (SRC / "assets" / "cover.svg").read_text(encoding="utf-8")
 
-assert len(html) <= 26400, f"widget html 超限: {len(html)} > 26400"  # v8.4.4：25600→26400 与宿主同步放宽（+反向同步 patch 消费端；向后兼容，旧面板不受影响）
+assert len(html) <= 27200, f"widget html 超限: {len(html)} > 27200"  # v8.7.12：26400→27200（v8.7.11 音乐卡玻璃协作 CSS 余量）与宿主同步放宽（Task 100 两道数字门律）
 # v8.2.9 特征门（宿主 preset.ts widgetHtmlLen 同步改，两道数字门禁止漂移——Task 100 律）
 for feat in ("csGlowBtn", "csFloatBtn", "csGlow", "csFloat",
              "mus.now(lyMode === 0)", "bandAvg(n.bands, 9, 85)", "glowOn2",
