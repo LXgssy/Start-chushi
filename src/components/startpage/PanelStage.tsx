@@ -235,9 +235,16 @@ const PanelStage = memo(function PanelStage({
     if (phase !== "open" || !widgetActive || !dockWidgetOpen) return;
     const el = widgetViewRefs.current.get(dockWidgetOpen);
     if (!el) return;
-    el.classList.remove("content-focus-solid");
-    void el.offsetWidth;
-    el.classList.add("content-focus-solid");
+    /* v8.7.11 聚拢动画类挂 iframe 而非容器：容器现挂磨砂玻璃 backdrop-filter
+       （与内建 glass-card 同款），filter/transform 动画挂容器会在聚拢期杀自身
+       backdrop 合成（玻璃失效露壁纸=半透明主犯）且成 fixed 子内容包含块。
+       iframe 自身播 filter 动画不影响兄弟级玻璃背板；散场由既有
+       .panel-sink .content-focus-solid 级联规则对 iframe 同样生效（后代匹配）。 */
+    const frame = el.querySelector("iframe");
+    if (!frame) return;
+    frame.classList.remove("content-focus-solid");
+    void frame.offsetWidth;
+    frame.classList.add("content-focus-solid");
   }, [phase, widgetActive, dockWidgetOpen]);
 
   /* 高度/宽度目标：内建=测高（首开 auto 直就位），部件=自报高度（chushi.resize） */
@@ -417,7 +424,8 @@ const PanelStage = memo(function PanelStage({
                 if (el) widgetViewRefs.current.set(w.key, el);
                 else widgetViewRefs.current.delete(w.key);
               }}
-              className="cl-dockwidget content-focus-solid"
+              /* v8.7.11 content-focus-solid 已移至 iframe（容器玻璃化，见重播 effect 注释） */
+              className="cl-dockwidget"
               style={{
                 position: "absolute",
                 left: 0,
@@ -473,8 +481,15 @@ const PanelStage = memo(function PanelStage({
                   });
                 }}
                 title={`初始 dock 面板：${w.name}`}
-                className="block border-0 bg-transparent"
-                style={{ width: "100%", height: "100%" }}
+                className="content-focus-solid block border-0 bg-transparent"
+                style={{
+                  width: "100%",
+                  height: "100%",
+                  /* 散场豁免同构（v8.7.11）：非存活视图不播任何关键帧，
+                     与容器 inline animation 豁免同语义（容器 opacity 0 已兜底
+                     不可见，此为防御性同构——防未来显隐架构变化复活幽灵） */
+                  animation: viewLive ? undefined : "none",
+                }}
                 sandbox="allow-scripts"
               />
             </div>

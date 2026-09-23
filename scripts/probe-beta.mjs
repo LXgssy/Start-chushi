@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.10/ChuShi-NewTab-v8.7.10.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.11/ChuShi-NewTab-v8.7.11.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -164,7 +164,7 @@ try {
 
   /* ---------- T2 中键唤出 + 整页高斯模糊纱罩（回归）---------- */
   await page.mouse.click(90, 620, { button: "middle" });
-  /* v8.7.10 时序欠账校准：起步链(~230ms)+凝聚(0.60s)=830ms，旧 sleep(700)
+  /* v8.7.11 时序欠账校准：起步链(~230ms)+凝聚(0.60s)=830ms，旧 sleep(700)
      采样点系统性落进凝聚窗（blur 10.9px≈78% 进度，v8.7.8 已知 flake 族实为
      系统性欠账）。改 rAF 轮询等稳态 blur(14px) 凝满（上限 2.5s），门语义不变。 */
   await af.evaluate(async () => {
@@ -188,7 +188,7 @@ try {
   gate("T2a 中键唤出（磁贴墙+cs-drawer）",
     veilState.veil && veilState.tiles > 0 && veilState.htmlClass,
     `tiles=${veilState.tiles}`);
-  gate("T2b 纱罩整页高斯模糊（blur 14px，v8.7.10 再调轻）", /blur\(14px\)/.test(veilState.bf || ""), veilState.bf);
+  gate("T2b 纱罩整页高斯模糊（blur 14px，v8.7.11 再调轻）", /blur\(14px\)/.test(veilState.bf || ""), veilState.bf);
 
   /* ---------- T3 v8.7.0 核心：三通道入场（霜感先行 + 整块模糊覆盖）----------
      开抽屉稳态 → 重触发 intro 冻结 @-0.30s（31.6% 进度）：
@@ -1504,10 +1504,12 @@ try {
         const wv = document.querySelector('.cl-dockwidget[data-widget$=":w-t39"]');
         if (st && wv) {
           if (parseFloat(getComputedStyle(wv).opacity) > 0.99) {
+            const cs2 = getComputedStyle(wv);
             rows2.push({
               sh: st.offsetHeight,
               wh: wv.offsetHeight,
               gapT: wv.offsetTop, /* 布局空间顶锚断言 */
+              box: cs2.boxSizing, bw: cs2.borderTopWidth, hCss: cs2.height,
             });
           }
         }
@@ -1522,11 +1524,16 @@ try {
       const wvNow = document.querySelector('.cl-dockwidget[data-widget$=":w-t39"]');
       const mh = wvNow ? /min\((\d+)px/.exec((wvNow.style || {}).height || '') : null;
       const declared = mh ? parseInt(mh[1], 10) : 0;
-      const grow = rows2.filter((r) => declared > 0 && r.sh < declared - 1);
+      /* sh≤8 起步帧排除：容器 border-box 下 height:0 被 1px 描边撑出 2px
+         （offsetHeight=min 高=border 总和），壳 overflow-hidden 裁剪零视觉
+         影响——门语义「增长段卡随壳贴合」从有几何意义的帧起测（v8.7.11） */
+      const grow = rows2.filter((r) => declared > 0 && r.sh > 8 && r.sh < declared - 1);
       const growGapT = grow.length ? Math.max(...grow.map((r) => Math.abs(r.gapT))) : null;
       const growFill = grow.length ? Math.max(...grow.map((r) => Math.abs(r.wh - r.sh))) : null;
+      const maxFillRow = grow.length ? grow.reduce((a, b) => (Math.abs(b.wh - b.sh) > Math.abs(a.wh - a.sh) ? b : a)) : null;
       await new Promise((r) => setTimeout(r, 300));
-      return { h0, declared, n: rows.length, shrinkN: shrink.length, shrinkGapB, n2: rows2.length, growN: grow.length, growGapT, growFill };
+      const lastGrow = rows2.length ? rows2[rows2.length - 1] : null;
+      return { h0, declared, n: rows.length, shrinkN: shrink.length, shrinkGapB, n2: rows2.length, growN: grow.length, growGapT, growFill, maxFillRow, lastGrow };
     });
     gate("TL25d 互切底锚行为门（㊳+㊷）：设置→预设 收折段（s>声明高）部件卡底边贴壳底 gap≤1.5px + 正控增长段（s<声明高）顶锚 gapT≤1.5px 且卡随壳满盒贴合 fill≤1.5px（开/关路径不变）",
       !r39d.err && r39d.h0 > 420 && r39d.n > 3 && r39d.shrinkN > 0 && r39d.shrinkGapB !== null && r39d.shrinkGapB <= 1.5
@@ -2080,14 +2087,14 @@ try {
       if (!v || !v.isConnected) return { veil: false };
       const cs = getComputedStyle(v);
       const before = getComputedStyle(v, "::before");
-      /* v8.7.10 双模饱和度律自明见证：探针自 TL9 起常驻掠影态——掠影下满值
+      /* v8.7.11 双模饱和度律自明见证：探针自 TL9 起常驻掠影态——掠影下满值
          backdrop-filter 必须无 saturate（提亮律退役）；非掠影态必须带
          saturate(1.5)（玻璃语言保留）。模式判定取自 html 实际类名，不依赖
          探针流程假设。 */
       const photo = document.documentElement.classList.contains("photo-mode");
       return { veil: true, dv: v.getAttribute("data-veil"), bf: cs.backdropFilter, tint: before.opacity, vis: cs.visibility, photo, satLaw: photo ? !/saturate/.test(cs.backdropFilter || "") : /saturate\(1\.5\)/.test(cs.backdropFilter || "") };
     });
-    gate("TL34b 开态到位见证（v8.7.10）：veil 挂载 + data-veil=1 + blur 满值 14px + 染色在场 + 可见 + 饱和度律（掠影无sat/常规有sat）",
+    gate("TL34b 开态到位见证（v8.7.11）：veil 挂载 + data-veil=1 + blur 满值 14px + 染色在场 + 可见 + 饱和度律（掠影无sat/常规有sat）",
       openState34.veil && openState34.dv === "1" && /blur\(14px\)/.test(openState34.bf || "")
         && parseFloat(openState34.tint) > 0.9 && openState34.vis === "visible" && openState34.satLaw,
       JSON.stringify(openState34));
@@ -2160,7 +2167,7 @@ try {
       baseNoTr: !/backdrop-filter\s+[0-9.]+s/.test(base33),
       tint40: /opacity\s+0\.4s\s+cubic-bezier\(0\.45,\s*0,\s*0\.55,\s*1\)/.test(veilAll33),
     };
-    gate("TL33 散场关键帧静态门（v8.7.10）：CSSOM 分段 var 站点(14+1.5/9+1.22/1px无sat)+linear尾段+接线+基态无sat无bf过渡+染色0.40s",
+    gate("TL33 散场关键帧静态门（v8.7.11）：CSSOM 分段 var 站点(14+1.5/9+1.22/1px无sat)+linear尾段+接线+基态无sat无bf过渡+染色0.40s",
       t33.kf && t33.noOp && t33.hi && t33.mid && t33.lo && t33.lin && t33.bez && t33.wire && t33.baseNoSat && t33.baseNoTr && t33.tint40,
       JSON.stringify(t33));
     /* TL34 静态门（v8.7.6 ㊽ 开态渐入，v8.7.7 放慢）：CSSOM 产物级——凝聚 0.60s
@@ -2184,17 +2191,17 @@ try {
       JSON.stringify(t34) + " base33=" + base33.slice(0, 300));
     /* TL35 静态门（v8.7.6 ㊽-3 掠影开抽屉背景微放大）：CSSOM 产物级——
        wallpaper-layer 基态 transition 0.40s（回缩与散场同拍）+ 放大态
-       cs-drawer:not(cs-drawer-closing).photo-mode scale(1.03)（掠影限定 +
+       cs-drawer:not(cs-drawer-closing).photo-mode scale(1.05)（掠影限定 +
        closing 摘除即回缩）+ reduce 禁用 + AuroraBackground 源码容器类在位 */
     const abSrc = readFileSync(new URL("../src/components/startpage/AuroraBackground.tsx", import.meta.url), "utf8");
     const wpAll35 = scan33.wpRules.join(" ").replace(/\s+/g, " ");
     const t35 = {
       base: /\.wallpaper-layer\s*\{[^}]*transition:\s*transform\s+0\.4s\s+cubic-bezier\(0\.45,\s*0,\s*0\.55,\s*1\)/.test(wpAll35),
-      zoom: /html\.cs-drawer:not\(\.cs-drawer-closing\)\.photo-mode \.wallpaper-layer\s*\{[^}]*transform:\s*scale\(1\.03\)/.test(wpAll35),
+      zoom: /html\.cs-drawer:not\(\.cs-drawer-closing\)\.photo-mode \.wallpaper-layer\s*\{[^}]*transform:\s*scale\(1\.05\)/.test(wpAll35),
       reduce: /\.wallpaper-layer\s*\{[^}]*transition:\s*none/.test(wpAll35) && /transform:\s*none/.test(wpAll35),
       src: /wallpaper-layer absolute inset-0/.test(abSrc),
     };
-    gate("TL35 掠影放大静态门（v8.7.6 ㊽-3）：wallpaper-layer transition 0.40s + photo-mode 限定 scale(1.03) + reduce 禁用 + 容器类在位",
+    gate("TL35 掠影放大静态门（v8.7.11 再大一点）：wallpaper-layer transition 0.40s + photo-mode 限定 scale(1.05) + reduce 禁用 + 容器类在位",
       t35.base && t35.zoom && t35.reduce && t35.src,
       JSON.stringify(t35));
   }
@@ -2348,7 +2355,7 @@ try {
     gate("TL38 掠影染色退役静态门（v8.7.8）：photo-mode display:none + 无背景残留 + 默认/深色态染色保留（零波及）", t38.retired && t38.noBg && t38.darkKept && t38.baseKept && t38.order, JSON.stringify(t38) + " photo=" + photoRule.slice(0, 120));
   }
 
-  /* ---------- TL39 掠影模糊不提亮律（v8.7.10）：CSSOM 门 + 源码级接线 ----------
+  /* ---------- TL39 掠影模糊不提亮律（v8.7.11）：CSSOM 门 + 源码级接线 ----------
      用户指令「保证模糊效果不会提亮背景」双实现对账：
      ① 抽屉纱幕站点变量化 --dv-open-bf/--dv-mid-bf，掠影覆写为无 saturate 版本
         （blur 亮度均值保持，饱和度才是压暗壁纸被重新提色的主犯）；
@@ -2383,12 +2390,12 @@ try {
       onlyPhoto: screenRules.length > 0 && screenRules.every((x) => /photo-mode/.test(x)),
       srcCount: src39 >= 4,
     };
-    gate("TL39 掠影模糊不提亮律静态门（v8.7.10）：photo 站点变量无sat + cl-screen-veil 深纱blur12无sat + 规则仅掠影态 + 源码接线≥4",
+    gate("TL39 掠影模糊不提亮律静态门（v8.7.11）：photo 站点变量无sat + cl-screen-veil 深纱blur12无sat + 规则仅掠影态 + 源码接线≥4",
       t39.photoVarSat && t39.screenDark && t39.onlyPhoto && t39.srcCount,
       JSON.stringify(t39) + " screen=" + screenRule.slice(0, 140));
   }
 
-  /* ---------- TL40 纱幕动画窗无提亮律（v8.7.10）：CSSOM 门 + 源码级接线 ----------
+  /* ---------- TL40 纱幕动画窗无提亮律（v8.7.11）：CSSOM 门 + 源码级接线 ----------
      用户复测「打开有模糊效果背景的页面还是会出现提亮一两秒，看起来很割裂」
      根因：v8.7.9 静态覆写在动画窗内被 veil-in/veil-fade 关键帧硬编码的
      saturate(1.5) 架空（CSS 动画运行期优先级高于普通声明）——开遮罩头 45%
@@ -2428,9 +2435,52 @@ try {
       hardGone: !/background-color: transparent;\s*\n\s*backdrop-filter: blur\(1px\) saturate\(1\.5\);/.test(cssSrc40),
       photoBlock: /html\.photo-mode \.veil-hold-2xl \{[\s\S]*?--veil-hold-bf: blur\(40px\);/.test(cssSrc40),
     };
-    gate("TL40 纱幕动画窗无提亮律静态门（v8.7.10）：关键帧 from/to var 化(bg+bf) + photo 深纱站点无sat + veil-hold-2xl 补网无sat + 源码硬编码退役",
+    gate("TL40 纱幕动画窗无提亮律静态门（v8.7.11）：关键帧 from/to var 化(bg+bf) + photo 深纱站点无sat + veil-hold-2xl 补网无sat + 源码硬编码退役",
       t40.kfInBg && t40.kfInBf && t40.kfFadeBg && t40.kfFadeBf && t40.photoVars && t40.hold2xl && src40.inVar && src40.fadeVar && src40.hardGone && src40.photoBlock,
       JSON.stringify({ ...t40, ...src40 }) + " in=" + veilInKf.slice(0, 150));
+  }
+
+  /* ---------- TL41 dock 部件磨砂玻璃化（v8.7.11）：CSSOM 门 + 源码级接线 ----------
+     用户复测「其它面板切到音乐面板时背景半透明然后又变回纯色」根因：
+     ①部件容器 --boot-bg 纯色垫底 + 互切揭示幕（旧玻璃溶解）透出纯色暗卡
+       = 材质跳变；②content-focus-solid（filter 动画）挂容器，聚拢期
+       filter≠none 杀容器 backdrop 合成。修复=容器挂与内建 glass-card 同款
+       磨砂玻璃（玻璃溶于玻璃无跳变）+ 动画类迁移 iframe（背板恒定）+
+       音乐卡 panelMode 透明协作（official-presets.json）。 */
+  {
+    /* 自建扫描（TL40 的 scan40 为块内局部不可跨块引用） */
+    const scan41 = await af.evaluate(() => {
+      const rules = [];
+      const walk = (list) => { for (const r of list) { if (r.cssText && r.selectorText) rules.push(r.cssText); if (r.cssRules) try { walk(r.cssRules); } catch { } } };
+      for (const sh of document.styleSheets) { try { walk(sh.cssRules); } catch { } }
+      return rules;
+    });
+    const dockGlass = (scan41.find((x) => /^\.cl-dockwidget\s*\{/.test(x.trim())) || "").replace(/\s+/g, " ");
+    const dockDark = (scan41.find((x) => x.replace(/\s+/g, " ").startsWith(".dark .cl-dockwidget {")) || "").replace(/\s+/g, " ");
+    /* cs-lite 降级改源码级断言：产物规则为 -webkit- 别名分组（压缩器改写），
+       Chromium CSSOM 对该形态序列化不可靠（压缩器序列化坑第三次）——
+       锚定 globals.css 源（cs-lite 清单含 .cl-dockwidget + backdrop:none） */
+    const gsrc41 = readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8");
+    const liteOff = /html\.cs-lite \.glass-card,\s*\n\s*html\.cs-lite \.cl-panel,\s*\n\s*html\.cs-lite \.cl-dockwidget \{[\s\S]{0,60}backdrop-filter: none !important;/.test(gsrc41);
+    const t41css = {
+      glass: /backdrop-filter:\s*blur\(20px\)\s*saturate\(1\.5\)/.test(dockGlass) && /rgba\(255,\s*255,\s*255,\s*0?\.62\)/.test(dockGlass) && /border:\s*1px solid rgba\(24,\s*22,\s*36,\s*0?\.09\)/.test(dockGlass),
+      dark: /rgba\(22,\s*22,\s*27,\s*0?\.6\)/.test(dockDark),
+      liteOff,
+      found: dockGlass.length > 0,
+    };
+    const stageSrc41 = readFileSync(new URL("../src/components/startpage/PanelStage.tsx", import.meta.url), "utf8");
+    const presetSrc41 = readFileSync(new URL("../src/lib/startpage/official-presets.json", import.meta.url), "utf8");
+    const t41src = {
+      containerBare: /className="cl-dockwidget"/.test(stageSrc41) && !/className="cl-dockwidget content-focus-solid"/.test(stageSrc41),
+      iframeCarries: /className="content-focus-solid block border-0 bg-transparent"/.test(stageSrc41),
+      replayOnFrame: /const frame = el\.querySelector\("iframe"\);/.test(stageSrc41) && /frame\.classList\.add\("content-focus-solid"\)/.test(stageSrc41),
+      frameExempt: /animation: viewLive \? undefined : "none",/.test(stageSrc41),
+      musicClear: presetSrc41.includes("[data-panel] .cs-card{background:transparent") && presetSrc41.includes("backdrop-filter:none"),
+    };
+    gate("TL41 dock 部件磨砂玻璃化静态门（v8.7.11）：容器 glass-card 同款材质(blur20+sat1.5+0.62/暗0.6+描边) + cs-lite 降级不回归 + 动画类迁移 iframe(容器裸类+frame 挂类+重播 querySelector+豁免同构) + 音乐卡 panelMode 透明协作",
+      t41css.glass && t41css.dark && t41css.liteOff && t41css.found && t41src.containerBare && t41src.iframeCarries && t41src.replayOnFrame && t41src.frameExempt && t41src.musicClear,
+      JSON.stringify({ ...t41css, ...t41src }) + " rule=" + dockGlass.slice(0, 120)
+        + " lite=" + scan41.filter((x) => /cl-dockwidget/.test(x) && /cs-lite/.test(x) && /backdrop/.test(x)).join(" @@ ").slice(0, 420));
   }
 
   /* ---------- T10 pageerror ---------- */
@@ -2439,7 +2489,7 @@ try {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.10 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.11 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);
