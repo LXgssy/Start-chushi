@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.9/ChuShi-NewTab-v8.7.9.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.10/ChuShi-NewTab-v8.7.10.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -164,7 +164,17 @@ try {
 
   /* ---------- T2 中键唤出 + 整页高斯模糊纱罩（回归）---------- */
   await page.mouse.click(90, 620, { button: "middle" });
-  await sleep(700);
+  /* v8.7.10 时序欠账校准：起步链(~230ms)+凝聚(0.60s)=830ms，旧 sleep(700)
+     采样点系统性落进凝聚窗（blur 10.9px≈78% 进度，v8.7.8 已知 flake 族实为
+     系统性欠账）。改 rAF 轮询等稳态 blur(14px) 凝满（上限 2.5s），门语义不变。 */
+  await af.evaluate(async () => {
+    const t0 = performance.now();
+    while (performance.now() - t0 < 2500) {
+      const v = document.querySelector(".cl-drawer-veil");
+      if (v && /blur\(14px\)/.test(getComputedStyle(v).backdropFilter || "")) break;
+      await new Promise((r) => requestAnimationFrame(r));
+    }
+  });
   const veilState = await af.evaluate(() => {
     const veil = document.querySelector(".cl-drawer-veil");
     if (!veil) return { veil: false };
@@ -178,7 +188,7 @@ try {
   gate("T2a 中键唤出（磁贴墙+cs-drawer）",
     veilState.veil && veilState.tiles > 0 && veilState.htmlClass,
     `tiles=${veilState.tiles}`);
-  gate("T2b 纱罩整页高斯模糊（blur 14px，v8.7.9 再调轻）", /blur\(14px\)/.test(veilState.bf || ""), veilState.bf);
+  gate("T2b 纱罩整页高斯模糊（blur 14px，v8.7.10 再调轻）", /blur\(14px\)/.test(veilState.bf || ""), veilState.bf);
 
   /* ---------- T3 v8.7.0 核心：三通道入场（霜感先行 + 整块模糊覆盖）----------
      开抽屉稳态 → 重触发 intro 冻结 @-0.30s（31.6% 进度）：
@@ -2070,14 +2080,14 @@ try {
       if (!v || !v.isConnected) return { veil: false };
       const cs = getComputedStyle(v);
       const before = getComputedStyle(v, "::before");
-      /* v8.7.9 双模饱和度律自明见证：探针自 TL9 起常驻掠影态——掠影下满值
+      /* v8.7.10 双模饱和度律自明见证：探针自 TL9 起常驻掠影态——掠影下满值
          backdrop-filter 必须无 saturate（提亮律退役）；非掠影态必须带
          saturate(1.5)（玻璃语言保留）。模式判定取自 html 实际类名，不依赖
          探针流程假设。 */
       const photo = document.documentElement.classList.contains("photo-mode");
       return { veil: true, dv: v.getAttribute("data-veil"), bf: cs.backdropFilter, tint: before.opacity, vis: cs.visibility, photo, satLaw: photo ? !/saturate/.test(cs.backdropFilter || "") : /saturate\(1\.5\)/.test(cs.backdropFilter || "") };
     });
-    gate("TL34b 开态到位见证（v8.7.9）：veil 挂载 + data-veil=1 + blur 满值 14px + 染色在场 + 可见 + 饱和度律（掠影无sat/常规有sat）",
+    gate("TL34b 开态到位见证（v8.7.10）：veil 挂载 + data-veil=1 + blur 满值 14px + 染色在场 + 可见 + 饱和度律（掠影无sat/常规有sat）",
       openState34.veil && openState34.dv === "1" && /blur\(14px\)/.test(openState34.bf || "")
         && parseFloat(openState34.tint) > 0.9 && openState34.vis === "visible" && openState34.satLaw,
       JSON.stringify(openState34));
@@ -2150,7 +2160,7 @@ try {
       baseNoTr: !/backdrop-filter\s+[0-9.]+s/.test(base33),
       tint40: /opacity\s+0\.4s\s+cubic-bezier\(0\.45,\s*0,\s*0\.55,\s*1\)/.test(veilAll33),
     };
-    gate("TL33 散场关键帧静态门（v8.7.9）：CSSOM 分段 var 站点(14+1.5/9+1.22/1px无sat)+linear尾段+接线+基态无sat无bf过渡+染色0.40s",
+    gate("TL33 散场关键帧静态门（v8.7.10）：CSSOM 分段 var 站点(14+1.5/9+1.22/1px无sat)+linear尾段+接线+基态无sat无bf过渡+染色0.40s",
       t33.kf && t33.noOp && t33.hi && t33.mid && t33.lo && t33.lin && t33.bez && t33.wire && t33.baseNoSat && t33.baseNoTr && t33.tint40,
       JSON.stringify(t33));
     /* TL34 静态门（v8.7.6 ㊽ 开态渐入，v8.7.7 放慢）：CSSOM 产物级——凝聚 0.60s
@@ -2338,7 +2348,7 @@ try {
     gate("TL38 掠影染色退役静态门（v8.7.8）：photo-mode display:none + 无背景残留 + 默认/深色态染色保留（零波及）", t38.retired && t38.noBg && t38.darkKept && t38.baseKept && t38.order, JSON.stringify(t38) + " photo=" + photoRule.slice(0, 120));
   }
 
-  /* ---------- TL39 掠影模糊不提亮律（v8.7.9）：CSSOM 门 + 源码级接线 ----------
+  /* ---------- TL39 掠影模糊不提亮律（v8.7.10）：CSSOM 门 + 源码级接线 ----------
      用户指令「保证模糊效果不会提亮背景」双实现对账：
      ① 抽屉纱幕站点变量化 --dv-open-bf/--dv-mid-bf，掠影覆写为无 saturate 版本
         （blur 亮度均值保持，饱和度才是压暗壁纸被重新提色的主犯）；
@@ -2373,9 +2383,54 @@ try {
       onlyPhoto: screenRules.length > 0 && screenRules.every((x) => /photo-mode/.test(x)),
       srcCount: src39 >= 4,
     };
-    gate("TL39 掠影模糊不提亮律静态门（v8.7.9）：photo 站点变量无sat + cl-screen-veil 深纱blur12无sat + 规则仅掠影态 + 源码接线≥4",
+    gate("TL39 掠影模糊不提亮律静态门（v8.7.10）：photo 站点变量无sat + cl-screen-veil 深纱blur12无sat + 规则仅掠影态 + 源码接线≥4",
       t39.photoVarSat && t39.screenDark && t39.onlyPhoto && t39.srcCount,
       JSON.stringify(t39) + " screen=" + screenRule.slice(0, 140));
+  }
+
+  /* ---------- TL40 纱幕动画窗无提亮律（v8.7.10）：CSSOM 门 + 源码级接线 ----------
+     用户复测「打开有模糊效果背景的页面还是会出现提亮一两秒，看起来很割裂」
+     根因：v8.7.9 静态覆写在动画窗内被 veil-in/veil-fade 关键帧硬编码的
+     saturate(1.5) 架空（CSS 动画运行期优先级高于普通声明）——开遮罩头 45%
+     饱和度冲顶=纯提亮脉冲、末段回落=割裂；PresetDialog（bg-white/20+
+     blur-2xl+sat-150 且无 cl-screen-veil）为 v8.7.9 穷举漏网。修复=关键帧
+     from/to bg/bf 全面 var 化（fallback 字面值原样=非掠影字节级零波及）+
+     掠影注入无 sat 站点 + veil-hold-2xl 补网。 */
+  {
+    const scan40 = await af.evaluate(() => {
+      const rules = [];
+      const kfs = {};
+      const walk = (list) => { for (const r of list) { if (r.type === CSSRule.KEYFRAMES_RULE) kfs[r.name] = r.cssText; if (r.cssText && r.selectorText) rules.push(r.cssText); if (r.cssRules) try { walk(r.cssRules); } catch { } } };
+      for (const sh of document.styleSheets) { try { walk(sh.cssRules); } catch { } }
+      return { rules, kfs };
+    });
+    const veilInKf = (scan40.kfs["veil-in"] || "").replace(/\s+/g, " ");
+    const veilFadeKf = (scan40.kfs["veil-fade"] || "").replace(/\s+/g, " ");
+    const screenPhoto = (scan40.rules.find((x) => x.includes("cl-screen-veil") && x.includes("photo-mode")) || "").replace(/\s+/g, " ");
+    const hold2xlPhoto = (scan40.rules.find((x) => x.includes("veil-hold-2xl") && x.includes("photo-mode")) || "").replace(/\s+/g, " ");
+    /* 压缩器序列化坑（TL33 同族再录）：CSSOM 把 from/to 归一化为 0%/100%，
+       正则双兼容锚定；var fallback 逗号后空格可能被压缩，\s* 兼容零空格 */
+    const t40 = {
+      kfInBg: /(?:from|0%)\s*\{[^}]*background-color:\s*var\(--veil-from-bg,\s*transparent\)/.test(veilInKf),
+      kfInBf: /(?:from|0%)\s*\{[^}]*backdrop-filter:\s*var\(--veil-from-bf,\s*blur\(1px\)\s*saturate\(1\.5\)\)/.test(veilInKf),
+      kfFadeBg: /(?:to|100%)\s*\{[^}]*background-color:\s*var\(--veil-out-bg,\s*transparent\)/.test(veilFadeKf),
+      kfFadeBf: /(?:to|100%)\s*\{[^}]*backdrop-filter:\s*var\(--veil-to-bf,\s*blur\(1px\)\s*saturate\(1\.5\)\)/.test(veilFadeKf),
+      photoVars: /--veil-from-bf:\s*blur\(1px\)/.test(screenPhoto) && /--veil-hold-bf:\s*blur\(12px\)/.test(screenPhoto) && /--veil-to-bf:\s*blur\(1px\)/.test(screenPhoto) && !/saturate/.test(screenPhoto),
+      hold2xl: /backdrop-filter:\s*blur\(40px\)/.test(hold2xlPhoto) && /--veil-hold-bf:\s*blur\(40px\)/.test(hold2xlPhoto) && !/saturate/.test(hold2xlPhoto),
+    };
+    /* 源码级接线：源 globals.css 两关键帧 from/to 已 var 化，且不再存在
+       「background-color: transparent + backdrop-filter: blur(1px) saturate(1.5)」
+       硬编码对（veil-in from / veil-fade to 两处曾是仅有的提亮入口） */
+    const cssSrc40 = readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8");
+    const src40 = {
+      inVar: /@keyframes veil-in \{[\s\S]*?var\(--veil-from-bf, blur\(1px\) saturate\(1\.5\)\)/.test(cssSrc40),
+      fadeVar: /@keyframes veil-fade \{[\s\S]*?var\(--veil-to-bf, blur\(1px\) saturate\(1\.5\)\)/.test(cssSrc40),
+      hardGone: !/background-color: transparent;\s*\n\s*backdrop-filter: blur\(1px\) saturate\(1\.5\);/.test(cssSrc40),
+      photoBlock: /html\.photo-mode \.veil-hold-2xl \{[\s\S]*?--veil-hold-bf: blur\(40px\);/.test(cssSrc40),
+    };
+    gate("TL40 纱幕动画窗无提亮律静态门（v8.7.10）：关键帧 from/to var 化(bg+bf) + photo 深纱站点无sat + veil-hold-2xl 补网无sat + 源码硬编码退役",
+      t40.kfInBg && t40.kfInBf && t40.kfFadeBg && t40.kfFadeBf && t40.photoVars && t40.hold2xl && src40.inVar && src40.fadeVar && src40.hardGone && src40.photoBlock,
+      JSON.stringify({ ...t40, ...src40 }) + " in=" + veilInKf.slice(0, 150));
   }
 
   /* ---------- T10 pageerror ---------- */
@@ -2384,7 +2439,7 @@ try {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.9 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.10 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);

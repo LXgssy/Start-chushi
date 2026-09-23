@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.10",
+    date: "2026-09-23",
+    title: "模糊页面打开瞬间的背景提亮完全根除",
+    channel: "page",
+    highlights: [
+      "修复打开命令面板、预设管理等模糊页面时背景先提亮一两秒再回落的问题：开合动画过程中的滤镜状态不再绕过掠影深纱设置",
+      "预设管理对话框背板的 40px 强模糊变体一并纳入掠影深纱体系（含开合动画全程），不留任何提亮死角",
+      "非掠影模式的玻璃质感与动画手感完全不变",
+    ],
+  },
+  {
     version: "8.7.9",
     date: "2026-09-22",
     title: "磨砂再调轻一档 + 掠影模糊不再提亮壁纸",

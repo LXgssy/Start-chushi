@@ -779,12 +779,15 @@ html.cs-drawer-closing .cl-fade-leaf {
    显影类与退场类（同特异性后者胜），退场类在后才能覆盖显影 */
 @keyframes veil-in {
   from {
-    background-color: transparent;
-    backdrop-filter: blur(1px) saturate(1.5);
+    background-color: var(--veil-from-bg, transparent);
+    backdrop-filter: var(--veil-from-bf, blur(1px) saturate(1.5));
   }
   /* 感知同步律（开=blur 领先）：blur 45% 即凝满自然值，底色 alpha 全程跟随
      渐显——早期帧不再出现「看得见的白底配清晰壁纸」。hold 值经
-     --veil-hold-bf 逐元素适配，45% 后无后续站点 → 插值到自然值 = 满值驻留 */
+     --veil-hold-bf 逐元素适配，45% 后无后续站点 → 插值到自然值 = 满值驻留。
+     from 帧同样 var 化（--veil-from-bg/--veil-from-bf，v8.7.10 动画窗无提亮
+     律）：关键帧运行期优先级高于普通声明，掠影深纱必须经变量进入动画窗；
+     fallback 字面值=非掠影行为字节级不变 */
   45% {
     backdrop-filter: var(--veil-hold-bf, blur(12px) saturate(1.5));
   }
@@ -926,8 +929,8 @@ html.cs-drawer-closing .cl-fade-leaf {
     backdrop-filter: var(--veil-hold-bf, blur(12px) saturate(1.5));
   }
   to {
-    background-color: transparent;
-    backdrop-filter: blur(1px) saturate(1.5);
+    background-color: var(--veil-out-bg, transparent);
+    backdrop-filter: var(--veil-to-bf, blur(1px) saturate(1.5));
   }
 }
 /* hold 逐元素适配：veil-in/veil-fade 的 blur 驻留值须与遮罩自然值同构。
@@ -1995,6 +1998,24 @@ html.photo-mode .cl-drawer-veil {
 html.photo-mode .cl-screen-veil {
   background-color: rgba(0, 0, 0, 0.18);
   backdrop-filter: blur(12px);
+  /* 动画窗无提亮律（v8.7.10）：veil-in/veil-fade 关键帧 from/to 站点经下列
+     变量注入无 sat 版本——开合任何帧 sat≡1，深纱平底 bg 常驻，blur 亮度
+     均值保持=任何帧都不比开启前更亮（「提亮一两秒很割裂」根除） */
+  --veil-from-bf: blur(1px);
+  --veil-hold-bf: blur(12px);
+  --veil-to-bf: blur(1px);
+}
+/* 预设对话框背板补网（v8.7.10）：PresetDialog 遮罩 = bg-white/20 +
+   backdrop-blur-2xl(40px) + backdrop-saturate-150 且未挂 cl-screen-veil
+   ——v8.7.9「全库穷举」以 bg-white/10+blur-md 单一特征扫描漏掉 20/2xl
+   变体，掠影下白纱 20% + 40px 模糊 + 饱和 1.5 是全场最强提亮通道。
+   同律补齐：深纱 0.18 + blur(40px) 无 sat + 关键帧站点无 sat 注入。 */
+html.photo-mode .veil-hold-2xl {
+  background-color: rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(40px);
+  --veil-from-bf: blur(1px);
+  --veil-hold-bf: blur(40px);
+  --veil-to-bf: blur(1px);
 }
 /* reduce-motion：抽屉关闭即刻隐没（visibility 延迟归零 + 散场动画瞬完
    停 blur(1px) 终帧 + 染色瞬隐）；开态凝聚/染色渐入 transition 一并归零
