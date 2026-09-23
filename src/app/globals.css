@@ -1043,6 +1043,12 @@ html.cs-drawer-closing .cl-fade-leaf {
   background: rgba(255, 255, 255, 0.62);
   border: 1px solid rgba(24, 22, 36, 0.09);
   backdrop-filter: blur(20px) saturate(1.5);
+  /* v8.7.14 自圆律（顶角直角根修）：backdrop-filter 输出按元素自身
+     border-radius 裁圆——玻璃圆角绝不可依赖祖先壳圆角裁切（backdrop
+     合成层逃逸祖先 rounded clip 是 Chromium 经典病灶：弹簧期逐帧重绘
+     + 合成层提升走独立路径，顶角直角暴露）。与内建 .cl-panel
+     rounded-2xl 同参。 */
+  border-radius: 1rem;
 }
 .dark .cl-dockwidget {
   background: rgba(22, 22, 27, 0.6);
@@ -1056,6 +1062,8 @@ html.cs-drawer-closing .cl-fade-leaf {
   pointer-events: none;
   background: var(--boot-bg, transparent);
   opacity: 1;
+  /* v8.7.14 自圆律同构：boot 罩随容器圆角，不越玻璃圆角 */
+  border-radius: inherit;
 }
 .cl-dockwidget.boot-fade::after {
   animation: boot-reveal-kf 0.18s cubic-bezier(0.4, 0, 1, 1) 0.28s forwards;
@@ -2093,15 +2101,16 @@ html.photo-mode .veil-hold-2xl {
     transition-duration: 0s;
   }
 }
-/* ---------- 掠影开抽屉背景微放大（v8.7.6 ㊽-3 感知锚；v8.7.11 再大一点） ----------
-   掠影（photo-mode 挂 <html>）下开抽屉壁纸容器 scale 1→1.05（v8.7.6 起 1.03，
-   用户复测「放大动画再大一点」升 1.05）：磨砂凝聚承担「让位」，微放大承担
-   「前景浮出」——一点纵深变化给用户「抽屉已开」的体感反馈。挂壁纸容器而非
-   <img>：图库图自带 kenburns（transform 被 CSS 动画占用且动画优先于过渡），
-   容器级缩放与 img 级 kenburns 双层叠加零冲突；video/gif 容器级统一生效。
-   根容器 overflow-hidden 裁掉 1.05 溢出边缘无露白。回缩时机 = closing 类挂上
-   （放大态失配）走基态 transition 与散场 0.40s 精确同拍——开合背景动作与模糊
-   同频。cs-lite（流畅模式）保留：transform 缩放是合成层动画，无磨砂也流畅。 */
+/* ---------- 掠影开抽屉背景微放大（v8.7.6 ㊽-3 感知锚；v8.7.11/14 再大一点） ----------
+   掠影（photo-mode 挂 <html>）下开抽屉壁纸容器 scale 1→1.08（v8.7.6 起
+   1.03、v8.7.11 复测「再大一点」升 1.05、v8.7.14 再复测升 1.08）：磨砂凝聚
+   承担「让位」，微放大承担「前景浮出」——一点纵深变化给用户「抽屉已开」
+   的体感反馈。挂壁纸容器而非 <img>：图库图自带 kenburns（transform 被 CSS
+   动画占用且动画优先于过渡），容器级缩放与 img 级 kenburns 双层叠加零冲突；
+   video/gif 容器级统一生效。根容器 overflow-hidden 裁掉 1.08 溢出边缘无露白。
+   回缩时机 = closing 类挂上（放大态失配）走基态 transition 与散场 0.40s
+   精确同拍——开合背景动作与模糊同频。cs-lite（流畅模式）保留：transform
+   缩放是合成层动画，无磨砂也流畅。 */
 .wallpaper-layer {
   /* v8.7.12 与抽屉凝聚动画严格同步（用户指令「壁纸的放大速度也要和抽屉
      的打开动画同步」）：同时长（凝聚 v8.7.12 加快后 0.50s）同曲线
@@ -2110,7 +2119,7 @@ html.photo-mode .veil-hold-2xl {
   transition: transform 0.50s cubic-bezier(0.5, 0, 0.3, 1);
 }
 html.cs-drawer:not(.cs-drawer-closing).photo-mode .wallpaper-layer {
-  transform: scale(1.05);
+  transform: scale(1.08);
 }
 @media (prefers-reduced-motion: reduce) {
   .wallpaper-layer {
