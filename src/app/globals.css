@@ -1025,6 +1025,28 @@ html.cs-drawer-closing .cl-fade-leaf {
    opacity 常驻合成（旧律 visibility:hidden 重激活会丢合成层栅格缓存 =
    Chromium 旧层树白帧，那正是白罩曾经常开态的原因）——重激活零重栅格化，
    白帧结构性不存在，罩子只剩加载保护一个职责，互切弹簧全程内容可见（㊴） */
+/* ---------- dock 部件磨砂玻璃化（v8.7.11）----------
+   材质与内建 .glass-card 同款（浅 rgba(255,255,255,0.62)/暗 rgba(22,22,27,0.6)
+   + blur(20px) saturate(1.5) + 同源描边）。修复「其它面板切到音乐面板时背景
+   半透明又变回纯色」：互切揭示幕（旧玻璃卡 z-20 溶解 0.3s）中段透出的不再是
+   --boot-bg 纯色暗卡而是同款玻璃——玻璃溶于玻璃无材质跳变；卡体模糊聚拢期
+   （content-focus-solid）背板恒定不再透底。
+   cs-lite 流畅模式 0.94 实底 + backdrop:none 降级既有规则自动覆盖（
+   .cl-dockwidget 已在降级清单内，玻璃卡家族语义归位）。
+   ⚠ content-focus-solid 动画类同步移至 iframe 元素（filter/transform 动画若
+   挂本元素：①动画期 filter≠none 杀自身 backdrop 合成=聚拢中段玻璃失效露壁纸
+   ——半透明主犯之一；②成为 fixed 子内容包含块致弹层跳位，同 html.zen 警告）；
+   boot 罩 ::after 纯色垫底保留（加载保护职责，互切时已揭开不参与）。 */
+.cl-dockwidget {
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(24, 22, 36, 0.09);
+  backdrop-filter: blur(20px) saturate(1.5);
+}
+.dark .cl-dockwidget {
+  background: rgba(22, 22, 27, 0.6);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
 .cl-dockwidget::after {
   content: "";
   position: absolute;
@@ -2036,20 +2058,20 @@ html.photo-mode .veil-hold-2xl {
     transition-duration: 0s;
   }
 }
-/* ---------- 掠影开抽屉背景微放大（v8.7.6 ㊽-3 感知锚） ----------
-   掠影（photo-mode 挂 <html>）下开抽屉壁纸容器 scale 1→1.03：磨砂凝聚
-   承担「让位」，微放大承担「前景浮出」——一点纵深变化给用户「抽屉已开」
-   的体感反馈。挂壁纸容器而非 <img>：图库图自带 kenburns（transform 被
-   CSS 动画占用且动画优先于过渡），容器级缩放与 img 级 kenburns 双层
-   叠加零冲突；video/gif 容器级统一生效。根容器 overflow-hidden 裁掉
-   1.03 溢出边缘无露白。回缩时机 = closing 类挂上（放大态失配）走基态
-   transition 与散场 0.40s 精确同拍——开合背景动作与模糊同频。
-   cs-lite（流畅模式）保留：transform 缩放是合成层动画，无磨砂也流畅。 */
+/* ---------- 掠影开抽屉背景微放大（v8.7.6 ㊽-3 感知锚；v8.7.11 再大一点） ----------
+   掠影（photo-mode 挂 <html>）下开抽屉壁纸容器 scale 1→1.05（v8.7.6 起 1.03，
+   用户复测「放大动画再大一点」升 1.05）：磨砂凝聚承担「让位」，微放大承担
+   「前景浮出」——一点纵深变化给用户「抽屉已开」的体感反馈。挂壁纸容器而非
+   <img>：图库图自带 kenburns（transform 被 CSS 动画占用且动画优先于过渡），
+   容器级缩放与 img 级 kenburns 双层叠加零冲突；video/gif 容器级统一生效。
+   根容器 overflow-hidden 裁掉 1.05 溢出边缘无露白。回缩时机 = closing 类挂上
+   （放大态失配）走基态 transition 与散场 0.40s 精确同拍——开合背景动作与模糊
+   同频。cs-lite（流畅模式）保留：transform 缩放是合成层动画，无磨砂也流畅。 */
 .wallpaper-layer {
   transition: transform 0.40s cubic-bezier(0.45, 0, 0.55, 1);
 }
 html.cs-drawer:not(.cs-drawer-closing).photo-mode .wallpaper-layer {
-  transform: scale(1.03);
+  transform: scale(1.05);
 }
 @media (prefers-reduced-motion: reduce) {
   .wallpaper-layer {
