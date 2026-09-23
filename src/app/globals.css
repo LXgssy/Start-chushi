@@ -1016,7 +1016,9 @@ html.cs-drawer-closing .cl-fade-leaf {
   }
 }
 .content-focus-solid {
-  animation: content-focus-solid-kf calc(0.32s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  /* v8.7.13 聚拢同拍律：0.32s→0.3s 与内建 .cl-panel-content（panel-content-in
+     0.3s）/ .panel-rise 同参——开弹簧、玻璃凝入、内容聚拢三链同拍收口 */
+  animation: content-focus-solid-kf calc(0.3s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
 
 /* 部件 iframe 加载白帧罩（v8.7.1 语义收窄）：srcdoc 首次加载完成前 iframe
@@ -1082,9 +1084,17 @@ html.cs-drawer-closing .cl-fade-leaf {
 }
 .panel-sink .content-focus,
 .dialog-sink .content-focus,
-.palette-out .content-focus,
-.panel-sink .content-focus-solid {
+.palette-out .content-focus {
   animation: content-defocus 0.16s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+/* v8.7.13 散场同拍律：dock 部件（content-focus-solid 宿主=iframe）关闭散场
+   与内建 .cl-panel-content 散场完全同参（panel-content-out 0.18s 纯 opacity
+   加速曲线）——旧 content-defocus（0.16s blur 散场）与内建词汇不同拍，即
+   「关闭动画不同步」的收场半程。iframe 纯 opacity 散场对容器玻璃侧零影响
+   （后代 opacity 动画不触磨砂采样链）；对话框/指令面板视图（.view-exit 通道
+   的 content-focus）维持 content-defocus 不波及。 */
+.panel-sink .content-focus-solid {
+  animation: panel-content-out 0.18s cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 
 /* 视图交叉溶解退场：absolute 钉回内容盒原位 + 模糊散场（指令面板/预设弹窗
@@ -1136,7 +1146,8 @@ html.cs-drawer-closing .cl-fade-leaf {
     opacity: 0;
   }
   .panel-sink .content-focus,
-  .dialog-sink .content-focus {
+  .dialog-sink .content-focus,
+  .panel-sink .content-focus-solid {
     animation: none;
     opacity: 0;
   }
