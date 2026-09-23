@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.12/ChuShi-NewTab-v8.7.12.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.13/ChuShi-NewTab-v8.7.13.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -2509,13 +2509,49 @@ try {
         + " lite=" + scan41.filter((x) => /cl-dockwidget/.test(x) && /cs-lite/.test(x) && /backdrop/.test(x)).join(" @@ ").slice(0, 420));
   }
 
+  /* ---------- TL42 开合动画对齐（v8.7.13）：源码级 + CSSOM 双道 ----------
+     用户实测「音乐预设面板打开/关闭动画与其它面板不同步 + dock 点音乐选框无
+     选中动画」三根因：①Dock pillPop 只认 panel != null（部件路径 initial=false
+     瞬现）②PanelStage closed 相位 activeView 残留 → 重开部件被误判 builtin→
+     widget 互切挂伪 swapOut（旧卡溶解残影闪现，实测 M3 glass.anim=
+     cl-panel-swapout-kf）③部件容器玻璃无凝入（内建 panel-fade 渐显 vs 部件
+     首帧满值）。修复=四件套（pillPop 对齐 + 归属清零 + 容器 panel-rise 同拍
+     凝入 + 散场/聚拢时长对齐 0.18s/0.3s）。 */
+  {
+    const dockSrc42 = readFileSync(new URL("../src/components/startpage/Dock.tsx", import.meta.url), "utf8");
+    const stageSrc42 = readFileSync(new URL("../src/components/startpage/PanelStage.tsx", import.meta.url), "utf8");
+    const gsrc42 = readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8");
+    /* CSSOM 产物级：.panel-sink .content-focus-solid 散场规则（压缩器 shorthand
+       重排坑——锚「规则块含 panel-content-out + 含 0.18s」而非完整短语） */
+    const scan42 = await af.evaluate(() => {
+      const rules = [];
+      const walk = (list) => { for (const r of list) { if (r.cssText && r.selectorText) rules.push(r.cssText); if (r.cssRules) try { walk(r.cssRules); } catch { } } };
+      for (const sh of document.styleSheets) { try { walk(sh.cssRules); } catch { } }
+      return rules;
+    });
+    const sinkSolid = (scan42.find((x) => x.replace(/\s+/g, " ").startsWith(".panel-sink .content-focus-solid {")) || "").replace(/\s+/g, " ");
+    const t42 = {
+      pillAnyPath: /\(panel != null \|\| dockWidget != null\)/.test(dockSrc42),
+      viewResetOnClosed: /setPhase\("closed"\);\s*\n\s*setActiveView\(null\);/.test(stageSrc42),
+      containerRise: /el\.classList\.remove\("panel-rise"\);/.test(stageSrc42) && /el\.classList\.add\("panel-rise"\);/.test(stageSrc42),
+      frameRiseUntouched: /frame\.classList\.add\("content-focus-solid"\)/.test(stageSrc42),
+      sinkSolidCssom: /panel-content-out/.test(sinkSolid) && /0?\.18s/.test(sinkSolid),
+      sinkSolidSrc: /\.panel-sink \.content-focus-solid \{\s*\n[\s\S]{0,220}panel-content-out 0\.18s/.test(gsrc42),
+      focusSolid03: /content-focus-solid-kf calc\(0\.3s \* var\(--mo-speed, 1\)\)/.test(gsrc42),
+      reduceSolid: /\.panel-sink \.content-focus,\s*\n\s*\.dialog-sink \.content-focus,\s*\n\s*\.panel-sink \.content-focus-solid \{/.test(gsrc42),
+    };
+    gate("TL42 开合动画对齐静态门（v8.7.13）：选框 Q 弹认部件路径 + closed 归属清零(伪 swapOut 根修) + 容器 panel-rise 凝入对齐(iframe 聚拢接线不回归) + 散场同拍 panel-content-out 0.18s(CSSOM+源码) + 聚拢同拍 0.3s + reduce 兜底补齐",
+      t42.pillAnyPath && t42.viewResetOnClosed && t42.containerRise && t42.frameRiseUntouched && t42.sinkSolidCssom && t42.sinkSolidSrc && t42.focusSolid03 && t42.reduceSolid,
+      JSON.stringify(t42) + " rule=" + sinkSolid.slice(0, 140));
+  }
+
   /* ---------- T10 pageerror ---------- */
   gate("T10 pageerror=0", errors.length === 0, errors.join(" | ").slice(0, 120));
 } catch (e) {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.12 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.13 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);

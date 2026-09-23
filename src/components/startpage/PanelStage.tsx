@@ -208,10 +208,18 @@ const PanelStage = memo(function PanelStage({
     return () => window.clearTimeout(t);
   }, [swapOut]);
 
-  /* closing → closed：sink 播完清类（下次打开重播 rise）并复位内建测高 */
+  /* closing → closed：sink 播完清类（下次打开重播 rise）并复位内建测高。
+     v8.7.13 归属清零律：closed 相位结构性无激活视图——activeView 必须归 null。
+     残留的 activeView={builtin,…} 会让下一次「closed → 开部件」被误判为
+     builtin→widget 互切而挂伪 swapOut（旧内建卡溶解残影闪现于部件首开弹簧窗，
+     实测 M3 t=39 glass.anim=cl-panel-swapout-kf 实证）——closing 期归属冻结
+     语义不变（散场收场仍由冻结值回答），仅 closed 终态清零。 */
   useEffect(() => {
     if (phase !== "closing") return;
-    const t = window.setTimeout(() => setPhase("closed"), SINK_MS);
+    const t = window.setTimeout(() => {
+      setPhase("closed");
+      setActiveView(null);
+    }, SINK_MS);
     return () => window.clearTimeout(t);
   }, [phase]);
   useEffect(() => {
@@ -239,7 +247,18 @@ const PanelStage = memo(function PanelStage({
        （与内建 glass-card 同款），filter/transform 动画挂容器会在聚拢期杀自身
        backdrop 合成（玻璃失效露壁纸=半透明主犯）且成 fixed 子内容包含块。
        iframe 自身播 filter 动画不影响兄弟级玻璃背板；散场由既有
-       .panel-sink .content-focus-solid 级联规则对 iframe 同样生效（后代匹配）。 */
+       .panel-sink .content-focus-solid 级联规则对 iframe 同样生效（后代匹配）。
+       v8.7.13 凝入对齐律：容器同拍挂 .panel-rise（panel-fade：bg/border/shadow
+       透明→自然值，0.3s 与内建玻璃卡凝入同参）——内建首开玻璃渐显 vs 部件首开
+       玻璃瞬现满值的「打开动画不同步」观感主犯退役。panel-fade 只动纯绘制属性
+       （不动 opacity/filter/transform）不触玻璃×动画杀 backdrop 合成律；常驻
+       元素不重挂，摘类→reflow→挂类重启（同 iframe 模式）；播完自然回落
+       （backwards 无 forwards），关闭期玻璃原样收折=内建 .panel-sink .cl-panel
+       animation:none 材质冻结同语义；cs-lite !important 静态底色压制动画 =
+       流畅模式无装饰的降级语义不变；reduce 块 .panel-rise{animation:none} 既有。 */
+    el.classList.remove("panel-rise");
+    void el.offsetWidth;
+    el.classList.add("panel-rise");
     const frame = el.querySelector("iframe");
     if (!frame) return;
     frame.classList.remove("content-focus-solid");

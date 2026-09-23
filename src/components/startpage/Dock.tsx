@@ -76,13 +76,18 @@ function Dock() {
      纯滑移（基线 v1.1.x 手感）。渲染期同步 prevPanel（React 官方「渲染期间调整
      state」模式）。面板刚关闭（≤450ms 窗口）快速点开另一个功能，此刻应延续
      「切换」语言（从旧位置纯滑移），不重播 Q 弹出场；dock 部件开着时切到内建
-     面板也算「切换」。 */
+     面板也算「切换」。
+     v8.7.13 首开对齐律：pillPop 同时认内建面板与 dock 部件两条路径——旧条件
+     panel != null 让「null → 部件」首次打开恒走 initial=false 瞬现（实测 M3：
+     选框首帧 matrix(1) 满值，与内建 Q 弹 scale 0.6→1 起跳不同拍）=用户实测
+     「dock 点击音乐时选框没有选中动画」根因。互切不受影响：互切帧 prev 非
+     null（pillPop=false）且选框元素不重挂，x/width 弹簧滑移照常。 */
   const prevPanelRef = useRef<PanelId>(null);
   const prevWidgetOpenRef = useRef<string | null>(dockWidget);
   /** 最近一次面板关闭时刻（switchTo(null) / closePanel / 部件关闭 统一记录） */
   const lastCloseRef = useRef(0);
   const pillPop =
-    panel != null &&
+    (panel != null || dockWidget != null) &&
     prevPanelRef.current == null &&
     prevWidgetOpenRef.current == null &&
     Date.now() - lastCloseRef.current > PILL_SWITCH_WINDOW_MS;
