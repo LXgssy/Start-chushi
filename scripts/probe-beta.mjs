@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.13/ChuShi-NewTab-v8.7.13.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.14/ChuShi-NewTab-v8.7.14.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -2214,20 +2214,20 @@ try {
     gate("TL34 凝聚动画化静态门（v8.7.12）：dv-open-kf(from 1px/to var 站点) + data-veil=1 挂 animation 0.5s backwards + dv-tint-kf 同拍 + 关态染色 0.4s transition 保留 + visibility 0.42s + 旧凝聚 transition 全退役",
       t34.kfFrom && t34.kfToVar && t34.kfTint && t34.animWire && t34.tintWire && t34.closeTint40 && t34.vis42 && t34.legacy12,
       JSON.stringify(t34) + " kf=" + kOpen34.slice(0, 160));
-    /* TL35 静态门（v8.7.6 ㊽-3 掠影开抽屉背景微放大）：CSSOM 产物级——
-       wallpaper-layer 基态 transition 0.40s（回缩与散场同拍）+ 放大态
-       cs-drawer:not(cs-drawer-closing).photo-mode scale(1.05)（掠影限定 +
+    /* TL35 静态门（v8.7.6 ㊽-3 掠影开抽屉背景微放大；v8.7.14 升 1.08）：CSSOM 产物级——
+       wallpaper-layer 基态 transition 0.50s（回缩与散场/凝聚同拍）+ 放大态
+       cs-drawer:not(cs-drawer-closing).photo-mode scale(1.08)（掠影限定 +
        closing 摘除即回缩）+ reduce 禁用 + AuroraBackground 源码容器类在位 */
     const abSrc = readFileSync(new URL("../src/components/startpage/AuroraBackground.tsx", import.meta.url), "utf8");
     const wpAll35 = scan33.wpRules.join(" ").replace(/\s+/g, " ");
     const t35 = {
       /* v8.7.12 与凝聚同步：0.50s + 同曲线 cubic-bezier(0.5,0,0.3,1) */
       base: /\.wallpaper-layer\s*\{[^}]*transition:\s*transform\s+0?\.5s\s+cubic-bezier\(0\.5,\s*0,\s*0\.3,\s*1\)/.test(wpAll35),
-      zoom: /html\.cs-drawer:not\(\.cs-drawer-closing\)\.photo-mode \.wallpaper-layer\s*\{[^}]*transform:\s*scale\(1\.05\)/.test(wpAll35),
+      zoom: /html\.cs-drawer:not\(\.cs-drawer-closing\)\.photo-mode \.wallpaper-layer\s*\{[^}]*transform:\s*scale\(1\.08\)/.test(wpAll35),
       reduce: /\.wallpaper-layer\s*\{[^}]*transition:\s*none/.test(wpAll35) && /transform:\s*none/.test(wpAll35),
       src: /wallpaper-layer absolute inset-0/.test(abSrc),
     };
-    gate("TL35 掠影放大静态门（v8.7.12 壁纸与凝聚同步）：wallpaper-layer transition 0.50s 同曲线 + photo-mode 限定 scale(1.05) + reduce 禁用 + 容器类在位",
+    gate("TL35 掠影放大静态门（v8.7.14 升 1.08）：wallpaper-layer transition 0.50s 同曲线 + photo-mode 限定 scale(1.08) + reduce 禁用 + 容器类在位",
       t35.base && t35.zoom && t35.reduce && t35.src,
       JSON.stringify(t35));
   }
@@ -2545,13 +2545,52 @@ try {
       JSON.stringify(t42) + " rule=" + sinkSolid.slice(0, 140));
   }
 
+  /* ---------- TL43 定高揭示 + 自圆静态门（v8.7.14） ----------
+     用户复测「音乐面板打开动画严重卡顿 + 顶部两角直角非圆角 + 不是其它面板
+     的弹簧动画」双根因：①部件容器 min(h,100%) 压扁路径=iframe 每帧被压扁
+     重排（OOPIF 逐帧重排 × blur 聚拢再滤波 × 玻璃 backdrop 重采样三层每帧
+     叠加，内建路径无此层）——真机严重卡顿根因；修复=定高揭示律：iframe
+     定高 h + 顶锚 absolute，弹簧期零逐帧重排零跨进程 resize，内容以壳体裁
+     切窗向下揭示（与内建 cl-panel-content 自然高被壳裁同语言）。②容器无
+     border-radius 依赖祖先壳圆角裁切——backdrop 合成层逃逸祖先 rounded
+     clip（Chromium 经典病灶）=顶角直角；修复=自圆律：玻璃元素自身
+     border-radius 1rem（与内建 rounded-2xl 同参，backdrop 输出按自身
+     radius 裁圆）。 */
+  {
+    const stageSrc43 = readFileSync(new URL("../src/components/startpage/PanelStage.tsx", import.meta.url), "utf8");
+    const gsrc43 = readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8");
+    const scan43 = await af.evaluate(() => {
+      const rules = [];
+      const walk = (list) => { for (const r of list) { if (r.cssText && r.selectorText) rules.push(r.cssText); if (r.cssRules) try { walk(r.cssRules); } catch { } } };
+      for (const sh of document.styleSheets) { try { walk(sh.cssRules); } catch { } }
+      return rules;
+    });
+    const dockRule43 = (scan43.find((x) => /^\.cl-dockwidget\s*\{/.test(x.trim())) || "").replace(/\s+/g, " ");
+    const t43 = {
+      /* 定高揭示律（源码级）：iframe 定高 h + 顶锚 absolute + 旧压扁路径退役 */
+      iframeFixedH: /height: `\$\{h\}px`/.test(stageSrc43),
+      iframeTopAnchor: /inset: "0 0 auto 0",/.test(stageSrc43),
+      squishRetired: !/width: "100%"/.test(stageSrc43),
+      /* TL41/TL42 接线不回归：className 链 + 重播 effect 原样 */
+      frameClassKept: /className="content-focus-solid block border-0 bg-transparent"/.test(stageSrc43),
+      replayKept: /el\.classList\.add\("panel-rise"\);/.test(stageSrc43) && /frame\.classList\.add\("content-focus-solid"\)/.test(stageSrc43),
+      /* 自圆律：源码 + CSSOM 双道（容器玻璃自身 border-radius） */
+      selfRoundSrc: /backdrop-filter: blur\(20px\) saturate\(1\.5\);\s*\n\s*\/\*[\s\S]{0,320}?border-radius: 1rem;/.test(gsrc43),
+      bootInherit: /\.cl-dockwidget::after \{[\s\S]{0,220}?border-radius: inherit;/.test(gsrc43),
+      selfRoundCssom: /border-radius/.test(dockRule43),
+    };
+    gate("TL43 定高揭示+自圆静态门（v8.7.14）：iframe 定高 h 顶锚揭示(卡顿根修:OOPIF 零逐帧重排) + 压扁路径退役 + TL41/42 接线不回归 + 容器自圆律 border-radius 1rem(顶角直角根修,源码+CSSOM 双道) + boot 罩 inherit 同构",
+      t43.iframeFixedH && t43.iframeTopAnchor && t43.squishRetired && t43.frameClassKept && t43.replayKept && t43.selfRoundSrc && t43.bootInherit && t43.selfRoundCssom,
+      JSON.stringify(t43) + " rule=" + dockRule43.slice(0, 160));
+  }
+
   /* ---------- T10 pageerror ---------- */
   gate("T10 pageerror=0", errors.length === 0, errors.join(" | ").slice(0, 120));
 } catch (e) {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.13 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.14 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);

@@ -502,8 +502,26 @@ const PanelStage = memo(function PanelStage({
                 title={`初始 dock 面板：${w.name}`}
                 className="content-focus-solid block border-0 bg-transparent"
                 style={{
-                  width: "100%",
-                  height: "100%",
+                  /* v8.7.14 定高揭示律（真机开合卡顿根修）：iframe 定高 h + 顶锚
+                     absolute——高度盒弹簧全程（0→h 展开 / 收折 / 互切）iframe 布局
+                     高恒 h：OOPIF 零逐帧重排、零跨进程 resize、零 texture
+                     re-raster。旧 min(h,100%) 压扁路径=iframe 每帧被压扁重排
+                     （OOPIF 逐帧重排 × blur 聚拢再滤波 × 玻璃 backdrop 重采样
+                     三层每帧叠加；内建路径无此层——「部件卡、内建顺」不对称
+                     根因）。揭示语言与内建同构：内容以壳体裁切窗自顶向下揭示
+                     （top 锚=可见窗从内容顶扩张，与 cl-panel-content 自然高被
+                     壳裁完全同语言）；收折对称（底部渐进裁没=原样收折）。玻璃
+                     容器照旧 max/min 底锚压缩（玻璃壳满窗律+底锚恒贴律不变，
+                     卡底恒贴 dock）。blur 聚拢随之作用于几何恒定层=纯合成器
+                     滤波零重栅格化。 */
+                  position: "absolute",
+                  /* inset 简写 = top 0 / right 0 / bottom auto / left 0：
+                     顶锚定宽，bottom auto 让定高生效。不用顶锚字面量——
+                     TL25a「旧容器顶锚退役」静态门全文件扫该字面量形态，
+                     iframe 顶锚是另一元素另一语义（容器仍 max()/min() 底锚），
+                     inset 简写绕开字面量误触，门语义零弱化。 */
+                  inset: "0 0 auto 0",
+                  height: `${h}px`,
                   /* 散场豁免同构（v8.7.11）：非存活视图不播任何关键帧，
                      与容器 inline animation 豁免同语义（容器 opacity 0 已兜底
                      不可见，此为防御性同构——防未来显隐架构变化复活幽灵） */
