@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.11/ChuShi-NewTab-v8.7.11.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.12/ChuShi-NewTab-v8.7.12.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -164,7 +164,7 @@ try {
 
   /* ---------- T2 中键唤出 + 整页高斯模糊纱罩（回归）---------- */
   await page.mouse.click(90, 620, { button: "middle" });
-  /* v8.7.11 时序欠账校准：起步链(~230ms)+凝聚(0.60s)=830ms，旧 sleep(700)
+  /* v8.7.12 时序对账：起步链(~230ms)+凝聚(0.50s)=730ms，旧 sleep(700)
      采样点系统性落进凝聚窗（blur 10.9px≈78% 进度，v8.7.8 已知 flake 族实为
      系统性欠账）。改 rAF 轮询等稳态 blur(14px) 凝满（上限 2.5s），门语义不变。 */
   await af.evaluate(async () => {
@@ -1268,7 +1268,9 @@ try {
     const contentCascade = (cssScan.outRules.find((x) => x.includes(".veil-out .glass-card:not(.palette-out)") && x.includes("content-defocus")) || "");
     const holdNone = (cssScan.outRules.find((x) => x.includes(".veil-hold-none")) || "");
     const hold2xl = (cssScan.outRules.find((x) => x.includes(".veil-hold-2xl")) || "");
-    const veilOpenTr = /0\.6s/.test(veilOpen.replace(/\s+/g, " "));
+    /* v8.7.12 凝聚 animation 化：开态接线锚从 transition 0.6s 换为
+       dv-open-kf animation 0.5s（压缩器 .5s 尾零删 + calc 乘 mo-speed） */
+    const veilOpenTr = /dv-open-kf/.test(veilOpen.replace(/\s+/g, " ")) && /0?\.5s/.test(veilOpen.replace(/\s+/g, " "));
     /* v8.7.5 ㊼ 散场移交关键帧：基态不再有 backdrop-filter transition——
        锚 cs-drawer-closing 接线（animation 引用 scatter-kf）+ 旧 0.12s
        凝聚/0.42s transition 退役反向断言 + 旧 0.14s 冲线残留双保险
@@ -1280,7 +1282,7 @@ try {
       && !/backdrop-filter\s*0\.12s/.test(veilAll14)
       && !/backdrop-filter\s*0\.42s/.test(veilAll14)
       && !/0\.14s\s+cubic-bezier\(0\.4,\s*0,\s*1,\s*1\)\s+0\.14s/.test(veilAll14);
-    gate("TL14h 面板随纱同散级联 + hold 适配类 + 纱罩开合变速（v8.7.6 开态渐入接线）",
+    gate("TL14h 面板随纱同散级联 + hold 适配类 + 纱罩开合变速（v8.7.12 凝聚 animation 接线）",
       !!cardCascade && !!contentCascade && !!holdNone && !!hold2xl && veilOpenTr && veilCloseTr,
       `card=${!!cardCascade} content=${!!contentCascade} none=${!!holdNone} 2xl=${!!hold2xl} open60=${veilOpenTr} closeKf=${veilCloseTr}`);
     /* ---------- TL15 v8.7.0：滤镜退役/分割线同拍/散场下沉/z-48 退役/双渲染 ---------- */
@@ -2078,10 +2080,13 @@ try {
        【headless 伪影沉淀】transition 中间态帧级采样在本环境结构性不可
        行：headless 按需渲染下 portal 挂载（dv=0）与 rAF 置位（dv=1）两
        commit 间无 paint 帧，样式首算即终态（实测 t=125ms null → t=149ms
-       直接 dv=1+bf=20，无中间帧）→ 值渐进无法见证；真机 60Hz BeginFrame
-       连续驱动下两 commit 间必有 paint，rAF 两段式保证凝聚起点
-       （v8.6.23 架构在案，用户可感知凝聚）。渐入的过程性由 TL34 静态门
-       （0.6s ease-in-out transition 声明在位=规范级保证）承担。 */
+       直接 dv=1+bf=20，无中间帧）→ 值渐进无法见证。
+       【v8.7.12 坑录·假设被实测推翻】原注释声称「真机 60Hz BeginFrame
+       下两 commit 间必有 paint，rAF 两段式保证凝聚起点」——用户实测
+       「关闭完全结束后打开没有入场动画（仅打断重开有）」证伪：生产
+       BeginFrame 中 mount commit 与 veilOn rAF 置位 commit 同处 rAF 阶段，
+       style/paint 在其后仅一次=终态，0 态帧同样被吞。根修=凝聚 animation
+       化（挂上必从 from 起播零 paint 依赖，TL34 门），本组只承担稳态见证。 */
     const openState34 = await af.evaluate(() => {
       const v = document.querySelector(".cl-drawer-veil");
       if (!v || !v.isConnected) return { veil: false };
@@ -2092,11 +2097,14 @@ try {
          saturate(1.5)（玻璃语言保留）。模式判定取自 html 实际类名，不依赖
          探针流程假设。 */
       const photo = document.documentElement.classList.contains("photo-mode");
-      return { veil: true, dv: v.getAttribute("data-veil"), bf: cs.backdropFilter, tint: before.opacity, vis: cs.visibility, photo, satLaw: photo ? !/saturate/.test(cs.backdropFilter || "") : /saturate\(1\.5\)/.test(cs.backdropFilter || "") };
+      /* v8.7.12 凝聚 animation 化机制见证：animationName 恒挂 dv-open-kf
+         （动画结束属性仍在，稳态值=普通声明）——animation 化后凝聚起点
+         不依赖 paint 时序，本字段为「动画接线在位」的运行时证据 */
+      return { veil: true, dv: v.getAttribute("data-veil"), bf: cs.backdropFilter, tint: before.opacity, vis: cs.visibility, photo, anim: cs.animationName, satLaw: photo ? !/saturate/.test(cs.backdropFilter || "") : /saturate\(1\.5\)/.test(cs.backdropFilter || "") };
     });
-    gate("TL34b 开态到位见证（v8.7.11）：veil 挂载 + data-veil=1 + blur 满值 14px + 染色在场 + 可见 + 饱和度律（掠影无sat/常规有sat）",
+    gate("TL34b 开态到位见证（v8.7.12）：veil 挂载 + data-veil=1 + blur 满值 14px + 染色在场 + 可见 + dv-open-kf 接线在飞 + 饱和度律（掠影无sat/常规有sat）",
       openState34.veil && openState34.dv === "1" && /blur\(14px\)/.test(openState34.bf || "")
-        && parseFloat(openState34.tint) > 0.9 && openState34.vis === "visible" && openState34.satLaw,
+        && parseFloat(openState34.tint) > 0.9 && openState34.vis === "visible" && openState34.anim === "dv-open-kf" && openState34.satLaw,
       JSON.stringify(openState34));
     await page.mouse.click(90, 620, { button: "middle" }); // 关（TL34b 清场）
     await sleep(1100);
@@ -2170,25 +2178,42 @@ try {
     gate("TL33 散场关键帧静态门（v8.7.11）：CSSOM 分段 var 站点(14+1.5/9+1.22/1px无sat)+linear尾段+接线+基态无sat无bf过渡+染色0.40s",
       t33.kf && t33.noOp && t33.hi && t33.mid && t33.lo && t33.lin && t33.bez && t33.wire && t33.baseNoSat && t33.baseNoTr && t33.tint40,
       JSON.stringify(t33));
-    /* TL34 静态门（v8.7.6 ㊽ 开态渐入，v8.7.7 放慢）：CSSOM 产物级——凝聚 0.60s
-       ease-in-out（旧 0.12s+ease-out「突兀」两根因退役、旧 0.36s「看不出
-       渐入」退役）+ 开态染色显式
-       覆写 0.60s（transition 取目标态值：开走覆写、关走基态 0.40s）+
-       基态 visibility 0.42s 在位（产物极简：0.60s→0.6s 尾零删，锚 0.6s） */
+    /* TL34 静态门（v8.7.6 ㊽ 开态渐入；v8.7.12 凝聚 animation 化）：CSSOM 产物级——
+       dv-open-kf 关键帧（from blur(1px) 闭态同源 / to var(--dv-open-bf) 稳态+
+       散场同源，掠影覆写穿透）+ data-veil="1" 规则挂 animation 0.5s backwards
+       （挂上必从 from 起播零 paint 时序依赖——transition before-change style
+       被 portal 重挂同帧 paint 吞 0 态的根因退役，v8.6.23「真机两 commit
+       间必有 paint」假设被用户实测推翻）+ ::before dv-tint-kf 同拍 + 关态
+       染色 transition 0.40s 保留 + 基态 visibility 0.42s 在位 + 旧凝聚
+       transition 0.6s/0.12s/0.36s 全退役。
+       坑录（TL33/TL40 族再录）：压缩器 0.5s→.5s 尾零删 + animation shorthand
+       分量重排（name 位次不定）→ 断言顺序无关（含 dv-open-kf + 0?\.5s +
+       backwards）；关键帧 from/to 归一化 0%/100% 双兼容。 */
     const openRule33 = (scan33.veilRules.find((x) => x.includes('[data-veil="1"]') && !x.includes("::before")) || "").replace(/\s+/g, " ");
     const openBefore33 = (scan33.veilRules.find((x) => x.includes('[data-veil="1"]') && x.includes("::before")) || "").replace(/\s+/g, " ");
     const beforeBase33 = (scan33.veilRules.find((x) => x.includes(".cl-drawer-veil::before") && !x.includes("data-veil") && !x.includes("cs-lite")) || "").replace(/\s+/g, " ");
+    const kfScan34 = await af.evaluate(() => {
+      const walk = (list, out) => { for (const r of list) { if (r.type === CSSRule.KEYFRAMES_RULE && (r.name === "dv-open-kf" || r.name === "dv-tint-kf")) out[r.name] = r.cssText; if (r.cssRules) try { walk(r.cssRules, out); } catch { } } };
+      const out = {};
+      for (const sh of document.styleSheets) { try { walk(sh.cssRules, out); } catch { } }
+      return out;
+    });
+    const kOpen34 = (kfScan34["dv-open-kf"] || "").replace(/\s+/g, " ");
+    const kTint34 = (kfScan34["dv-tint-kf"] || "").replace(/\s+/g, " ");
     const t34 = {
-      openBf: /backdrop-filter\s+0\.6s\s+cubic-bezier\(0\.5,\s*0,\s*0\.3,\s*1\)/.test(openRule33),
-      openTint: /opacity\s+0\.6s\s+cubic-bezier\(0\.5,\s*0,\s*0\.3,\s*1\)/.test(openBefore33),
+      kfFrom: /(?:from|0%)/.test(kOpen34) && /blur\(1px\)/.test(kOpen34),
+      kfToVar: /(?:to|100%)/.test(kOpen34) && /var\(--dv-open-bf/.test(kOpen34),
+      kfTint: (kTint34 || "").length > 0,
+      animWire: /dv-open-kf/.test(openRule33) && /0?\.5s/.test(openRule33) && /backwards/.test(openRule33) && /backdrop-filter:\s*var\(--dv-open-bf/.test(openRule33),
+      tintWire: /dv-tint-kf/.test(openBefore33) && /0?\.5s/.test(openBefore33),
       /* 产物极简：0.40s→0.4s、visibility 0s linear 0.42s→visibility 0.42s（文件头④已知坑） */
       closeTint40: /opacity\s+0\.4s\s+cubic-bezier\(0\.45,\s*0,\s*0\.55,\s*1\)/.test(beforeBase33),
       vis42: /visibility[^;]*0\.42s/.test(base33),
-      legacy12: !/backdrop-filter\s+0\.12s/.test(veilAll33) && !/opacity\s+0\.28s/.test(veilAll33) && !/backdrop-filter\s+0\.36s/.test(veilAll33),
+      legacy12: !/backdrop-filter\s+0\.12s/.test(veilAll33) && !/opacity\s+0\.28s/.test(veilAll33) && !/backdrop-filter\s+0\.36s/.test(veilAll33) && !/backdrop-filter\s+0\.6s\s+cubic-bezier/.test(veilAll33),
     };
-    gate("TL34 开态渐入静态门（v8.7.7）：凝聚 0.6s ease-in-out + 染色开/关拆分（0.6s 覆写/0.4s 同窗）+ visibility 0.42s + 旧 0.12s/0.28s/0.36s 退役",
-      t34.openBf && t34.openTint && t34.closeTint40 && t34.vis42 && t34.legacy12,
-      JSON.stringify(t34) + " base33=" + base33.slice(0, 300));
+    gate("TL34 凝聚动画化静态门（v8.7.12）：dv-open-kf(from 1px/to var 站点) + data-veil=1 挂 animation 0.5s backwards + dv-tint-kf 同拍 + 关态染色 0.4s transition 保留 + visibility 0.42s + 旧凝聚 transition 全退役",
+      t34.kfFrom && t34.kfToVar && t34.kfTint && t34.animWire && t34.tintWire && t34.closeTint40 && t34.vis42 && t34.legacy12,
+      JSON.stringify(t34) + " kf=" + kOpen34.slice(0, 160));
     /* TL35 静态门（v8.7.6 ㊽-3 掠影开抽屉背景微放大）：CSSOM 产物级——
        wallpaper-layer 基态 transition 0.40s（回缩与散场同拍）+ 放大态
        cs-drawer:not(cs-drawer-closing).photo-mode scale(1.05)（掠影限定 +
@@ -2196,12 +2221,13 @@ try {
     const abSrc = readFileSync(new URL("../src/components/startpage/AuroraBackground.tsx", import.meta.url), "utf8");
     const wpAll35 = scan33.wpRules.join(" ").replace(/\s+/g, " ");
     const t35 = {
-      base: /\.wallpaper-layer\s*\{[^}]*transition:\s*transform\s+0\.4s\s+cubic-bezier\(0\.45,\s*0,\s*0\.55,\s*1\)/.test(wpAll35),
+      /* v8.7.12 与凝聚同步：0.50s + 同曲线 cubic-bezier(0.5,0,0.3,1) */
+      base: /\.wallpaper-layer\s*\{[^}]*transition:\s*transform\s+0?\.5s\s+cubic-bezier\(0\.5,\s*0,\s*0\.3,\s*1\)/.test(wpAll35),
       zoom: /html\.cs-drawer:not\(\.cs-drawer-closing\)\.photo-mode \.wallpaper-layer\s*\{[^}]*transform:\s*scale\(1\.05\)/.test(wpAll35),
       reduce: /\.wallpaper-layer\s*\{[^}]*transition:\s*none/.test(wpAll35) && /transform:\s*none/.test(wpAll35),
       src: /wallpaper-layer absolute inset-0/.test(abSrc),
     };
-    gate("TL35 掠影放大静态门（v8.7.11 再大一点）：wallpaper-layer transition 0.40s + photo-mode 限定 scale(1.05) + reduce 禁用 + 容器类在位",
+    gate("TL35 掠影放大静态门（v8.7.12 壁纸与凝聚同步）：wallpaper-layer transition 0.50s 同曲线 + photo-mode 限定 scale(1.05) + reduce 禁用 + 容器类在位",
       t35.base && t35.zoom && t35.reduce && t35.src,
       JSON.stringify(t35));
   }
@@ -2321,14 +2347,14 @@ try {
     const docsSrc = readFileSync(new URL("../src/components/startpage/PresetDocs.tsx", import.meta.url), "utf8");
     const devMd = readFileSync(new URL("../docs/PRESET_DEV.md", import.meta.url), "utf8");
     const c37 = {
-      htmlCap: docsSrc.includes("26400"),
+      htmlCap: docsSrc.includes("27200"),
       height: docsSrc.includes("40–460"),
       icons: docsSrc.includes("数组 ≤7 条"),
       fields: docsSrc.includes("十三个内容字段"),
-      md: devMd.includes("26400"),
-      legacyGone: !docsSrc.includes("≤18000") && !docsSrc.includes("40–320"),
+      md: devMd.includes("27200"),
+      legacyGone: !docsSrc.includes("≤18000") && !docsSrc.includes("≤26400") && !docsSrc.includes("40–320"),
     };
-    gate("TL37b 文档内容同步源码门（v8.7.8）：26400/40–460/≤7/十三字段 + 应用内与仓内 md 对账 + 旧值退役", c37.htmlCap && c37.height && c37.icons && c37.fields && c37.md && c37.legacyGone, JSON.stringify(c37));
+    gate("TL37b 文档内容同步源码门（v8.7.12）：27200/40–460/≤7/十三字段 + 应用内与仓内 md 对账 + 旧值（18000/26400）退役", c37.htmlCap && c37.height && c37.icons && c37.fields && c37.md && c37.legacyGone, JSON.stringify(c37));
   }
 
   /* ---------- TL38 掠影染色退役（v8.7.8 ③）：CSSOM 门 + 默认态零波及对账 ----------
@@ -2489,7 +2515,7 @@ try {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.11 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.12 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);
