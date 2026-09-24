@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.15/ChuShi-NewTab-v8.7.15.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.16/ChuShi-NewTab-v8.7.16.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -164,7 +164,7 @@ try {
 
   /* ---------- T2 中键唤出 + 整页高斯模糊纱罩（回归）---------- */
   await page.mouse.click(90, 620, { button: "middle" });
-  /* v8.7.12 时序对账：起步链(~230ms)+凝聚(0.50s)=730ms，旧 sleep(700)
+  /* v8.7.12 时序对账：起步链(~230ms)+凝聚(v8.7.16 加速后 0.40s)=630ms，旧 sleep(700)
      采样点系统性落进凝聚窗（blur 10.9px≈78% 进度，v8.7.8 已知 flake 族实为
      系统性欠账）。改 rAF 轮询等稳态 blur(14px) 凝满（上限 2.5s），门语义不变。 */
   await af.evaluate(async () => {
@@ -1269,8 +1269,9 @@ try {
     const holdNone = (cssScan.outRules.find((x) => x.includes(".veil-hold-none")) || "");
     const hold2xl = (cssScan.outRules.find((x) => x.includes(".veil-hold-2xl")) || "");
     /* v8.7.12 凝聚 animation 化：开态接线锚从 transition 0.6s 换为
-       dv-open-kf animation 0.5s（压缩器 .5s 尾零删 + calc 乘 mo-speed） */
-    const veilOpenTr = /dv-open-kf/.test(veilOpen.replace(/\s+/g, " ")) && /0?\.5s/.test(veilOpen.replace(/\s+/g, " "));
+       dv-open-kf animation（压缩器尾零删 + calc 乘 mo-speed）；
+       v8.7.16：0.5s→0.4s（用户「打开速度再快一点点」） */
+    const veilOpenTr = /dv-open-kf/.test(veilOpen.replace(/\s+/g, " ")) && /0?\.4s/.test(veilOpen.replace(/\s+/g, " "));
     /* v8.7.5 ㊼ 散场移交关键帧：基态不再有 backdrop-filter transition——
        锚 cs-drawer-closing 接线（animation 引用 scatter-kf）+ 旧 0.12s
        凝聚/0.42s transition 退役反向断言 + 旧 0.14s 冲线残留双保险
@@ -2207,30 +2208,30 @@ try {
       kfFrom: /(?:from|0%)/.test(kOpen34) && /blur\(1px\)/.test(kOpen34),
       kfToVar: /(?:to|100%)/.test(kOpen34) && /var\(--dv-open-bf/.test(kOpen34),
       kfTint: (kTint34 || "").length > 0,
-      animWire: /dv-open-kf/.test(openRule33) && /0?\.5s/.test(openRule33) && /backwards/.test(openRule33) && /backdrop-filter:\s*var\(--dv-open-bf/.test(openRule33),
-      tintWire: /dv-tint-kf/.test(openBefore33) && /0?\.5s/.test(openBefore33),
+      animWire: /dv-open-kf/.test(openRule33) && /0?\.4s/.test(openRule33) && /backwards/.test(openRule33) && /backdrop-filter:\s*var\(--dv-open-bf/.test(openRule33),
+      tintWire: /dv-tint-kf/.test(openBefore33) && /0?\.4s/.test(openBefore33),
       /* 产物极简：0.40s→0.4s、visibility 0s linear 0.42s→visibility 0.42s（文件头④已知坑） */
       closeTint40: /opacity\s+0\.4s\s+cubic-bezier\(0\.45,\s*0,\s*0\.55,\s*1\)/.test(beforeBase33),
       vis42: /visibility[^;]*0\.42s/.test(base33),
       legacy12: !/backdrop-filter\s+0\.12s/.test(veilAll33) && !/opacity\s+0\.28s/.test(veilAll33) && !/backdrop-filter\s+0\.36s/.test(veilAll33) && !/backdrop-filter\s+0\.6s\s+cubic-bezier/.test(veilAll33),
     };
-    gate("TL34 凝聚动画化静态门（v8.7.12）：dv-open-kf(from 1px/to var 站点) + data-veil=1 挂 animation 0.5s backwards + dv-tint-kf 同拍 + 关态染色 0.4s transition 保留 + visibility 0.42s + 旧凝聚 transition 全退役",
+    gate("TL34 凝聚动画化静态门（v8.7.16 升 0.4s）：dv-open-kf(from 1px/to var 站点) + data-veil=1 挂 animation 0.4s backwards + dv-tint-kf 同拍 + 关态染色 0.4s transition 保留 + visibility 0.42s + 旧凝聚 transition 全退役",
       t34.kfFrom && t34.kfToVar && t34.kfTint && t34.animWire && t34.tintWire && t34.closeTint40 && t34.vis42 && t34.legacy12,
       JSON.stringify(t34) + " kf=" + kOpen34.slice(0, 160));
     /* TL35 静态门（v8.7.6 ㊽-3 掠影开抽屉背景微放大；v8.7.14 升 1.08）：CSSOM 产物级——
-       wallpaper-layer 基态 transition 0.50s（回缩与散场/凝聚同拍）+ 放大态
+       wallpaper-layer 基态 transition 0.40s（回缩与散场/凝聚同拍，v8.7.16 同步加速）+ 放大态
        cs-drawer:not(cs-drawer-closing).photo-mode scale(1.08)（掠影限定 +
        closing 摘除即回缩）+ reduce 禁用 + AuroraBackground 源码容器类在位 */
     const abSrc = readFileSync(new URL("../src/components/startpage/AuroraBackground.tsx", import.meta.url), "utf8");
     const wpAll35 = scan33.wpRules.join(" ").replace(/\s+/g, " ");
     const t35 = {
-      /* v8.7.12 与凝聚同步：0.50s + 同曲线 cubic-bezier(0.5,0,0.3,1) */
-      base: /\.wallpaper-layer\s*\{[^}]*transition:\s*transform\s+0?\.5s\s+cubic-bezier\(0\.5,\s*0,\s*0\.3,\s*1\)/.test(wpAll35),
+      /* v8.7.12 与凝聚同步 + v8.7.16 同步加速：0.40s + 同曲线 cubic-bezier(0.5,0,0.3,1) */
+      base: /\.wallpaper-layer\s*\{[^}]*transition:\s*transform\s+0?\.4s\s+cubic-bezier\(0\.5,\s*0,\s*0\.3,\s*1\)/.test(wpAll35),
       zoom: /html\.cs-drawer:not\(\.cs-drawer-closing\)\.photo-mode \.wallpaper-layer\s*\{[^}]*transform:\s*scale\(1\.08\)/.test(wpAll35),
       reduce: /\.wallpaper-layer\s*\{[^}]*transition:\s*none/.test(wpAll35) && /transform:\s*none/.test(wpAll35),
       src: /wallpaper-layer absolute inset-0/.test(abSrc),
     };
-    gate("TL35 掠影放大静态门（v8.7.14 升 1.08）：wallpaper-layer transition 0.50s 同曲线 + photo-mode 限定 scale(1.08) + reduce 禁用 + 容器类在位",
+    gate("TL35 掠影放大静态门（v8.7.16 同步 0.40s）：wallpaper-layer transition 0.40s 同曲线 + photo-mode 限定 scale(1.08) + reduce 禁用 + 容器类在位",
       t35.base && t35.zoom && t35.reduce && t35.src,
       JSON.stringify(t35));
   }
@@ -2350,14 +2351,15 @@ try {
     const docsSrc = readFileSync(new URL("../src/components/startpage/PresetDocs.tsx", import.meta.url), "utf8");
     const devMd = readFileSync(new URL("../docs/PRESET_DEV.md", import.meta.url), "utf8");
     const c37 = {
-      htmlCap: docsSrc.includes("27200"),
+      /* v8.7.16：27600（全局歌词开关+图标+接线余量，五处联动同步） */
+      htmlCap: docsSrc.includes("27600"),
       height: docsSrc.includes("40–460"),
       icons: docsSrc.includes("数组 ≤7 条"),
       fields: docsSrc.includes("十三个内容字段"),
-      md: devMd.includes("27200"),
+      md: devMd.includes("27600"),
       legacyGone: !docsSrc.includes("≤18000") && !docsSrc.includes("≤26400") && !docsSrc.includes("40–320"),
     };
-    gate("TL37b 文档内容同步源码门（v8.7.12）：27200/40–460/≤7/十三字段 + 应用内与仓内 md 对账 + 旧值（18000/26400）退役", c37.htmlCap && c37.height && c37.icons && c37.fields && c37.md && c37.legacyGone, JSON.stringify(c37));
+    gate("TL37b 文档内容同步源码门（v8.7.16 升 27600）：27600/40–460/≤7/十三字段 + 应用内与仓内 md 对账 + 旧值（18000/26400）退役", c37.htmlCap && c37.height && c37.icons && c37.fields && c37.md && c37.legacyGone, JSON.stringify(c37));
   }
 
   /* ---------- TL38 掠影染色退役（v8.7.8 ③）：CSSOM 门 + 默认态零波及对账 ----------
@@ -2622,13 +2624,49 @@ try {
       JSON.stringify(t44));
   }
 
+  /* ---------- TL45 全局歌词链路静态门（v8.7.16） ----------
+     桌面歌词同款全局歌词浮层：四源对账——①ext-card.js 浮层本体（同 Port
+     双表面/独立 closed shadow/位置持久化/× 反向写回）②PresetWidgets.tsx
+     镜像链（EXT_KV_MAP 第四键 + mirrorExtCard 四参 + storageSet 分支）
+     ③音乐面板开关（csWordBtn 按钮在官方预设构建产物内，csDlyric 三向接线：
+     onclick 写/get 启动读/patch 反转）④抽屉提速 0.4s 源码锚（与 CSSOM
+     TL34/TL35 双道互证）。 */
+  {
+    const cardSrc45 = readFileSync(new URL("../extension-src/ext-card.js", import.meta.url), "utf8");
+    const pwSrc45 = readFileSync(new URL("../src/components/startpage/PresetWidgets.tsx", import.meta.url), "utf8");
+    const official45 = JSON.parse(readFileSync(new URL("../src/lib/startpage/official-presets.json", import.meta.url), "utf8"));
+    const musPreset45 = (official45.presets || []).find((p) => p && p.name && /SMTC/.test(p.name));
+    const musHtml45 = musPreset45 ? JSON.stringify(musPreset45.manifest) : "";
+    const globalsSrc45 = readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8");
+    const t45 = {
+      /* ① 浮层本体：开关读取+热跟随 / Port 双表面门控 / 渲染帧钩子 */
+      dlRead: /chrome\.storage\.local\.get\(\["cardDlyric"\]/.test(cardSrc45) && /ch\.cardDlyric\.newValue === true \|\| ch\.cardDlyric\.newValue === "true"/.test(cardSrc45),
+      dlPortShared: /if \(!cardEnabled && !dlOn\) \{/.test(cardSrc45) && /if \(!cardEnabled && !dlOn\) return;/.test(cardSrc45) && /if \(dlOn && track\.playing\) return true;/.test(cardSrc45),
+      dlSurface: /chushi-dlyric-host/.test(cardSrc45) && /attachShadow\(\{ mode: "closed" \}\)/.test(cardSrc45) && /function dlFrame\(\)/.test(cardSrc45) && /dlApplyVis/.test(cardSrc45),
+      dlPosPersist: /cardDlyricPos/.test(cardSrc45) && /dlSavePos/.test(cardSrc45),
+      dlXWriteBack: /cardDlyric: false/.test(cardSrc45),
+      dlSweepLaw: /clip-path:inset\(-8% calc\(100% - var\(--p,0%\)\) -8% 0\)/.test(cardSrc45) && /Math\.round\(pp \* 400\) \/ 400/.test(cardSrc45),
+      /* ② 宿主镜像链：EXT_KV_MAP 第四键 + 四参镜像 + storageSet 分支 */
+      pwMap: /cardDlyric: ":csDlyric"/.test(pwSrc45),
+      pwMirror: /dl !== undefined\) patch\.cardDlyric = dl === "true";/.test(pwSrc45),
+      pwSet: /k\.endsWith\(":csDlyric"\)\) mirrorExtCard\(undefined, undefined, undefined, v\)/.test(pwSrc45),
+      /* ③ 面板开关（构建产物内）：按钮 + 自绘图标 + csDlyric 三向接线 */
+      btn: musHtml45.includes("csWordBtn") && musHtml45.includes("cs-i-word") && musHtml45.includes("csDlyric"),
+      /* ④ 抽屉提速源码锚（globals.css） */
+      drawerFast: /calc\(0\.4s \* var\(--mo-speed, 1\)\) cubic-bezier\(0\.5, 0, 0\.3, 1\) backwards/.test(globalsSrc45) && /transition: transform 0\.40s cubic-bezier\(0\.5, 0, 0\.3, 1\)/.test(globalsSrc45),
+    };
+    gate("TL45 全局歌词链路静态门（v8.7.16）：浮层本体（cardDlyric 读取+Port 双表面+closed shadow+位置持久化+× 反向写回+扫光同律）+ 宿主镜像链（EXT_KV_MAP/四参镜像/storageSet）+ 面板开关按钮（构建产物 csWordBtn/cs-i-word/csDlyric）+ 抽屉 0.4s 源码锚",
+      t45.dlRead && t45.dlPortShared && t45.dlSurface && t45.dlPosPersist && t45.dlXWriteBack && t45.dlSweepLaw && t45.pwMap && t45.pwMirror && t45.pwSet && t45.btn && t45.drawerFast,
+      JSON.stringify(t45));
+  }
+
   /* ---------- T10 pageerror ---------- */
   gate("T10 pageerror=0", errors.length === 0, errors.join(" | ").slice(0, 120));
 } catch (e) {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.15 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.16 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);

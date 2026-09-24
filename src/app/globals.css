@@ -1965,7 +1965,9 @@ html.cs-drawer-closing .cl-drawer-veil {
    transition 无起点瞬跳满值 =「关闭动画完全结束后打开没有入场动画」；
    打断重开（元素常驻已 paint 过 0 态）才有凝聚 = 症状另一面。animation
    挂上必从 from 起播、零 paint 时序依赖——首挂/完整重开/打断重开三
-   路径统一必现凝聚。0.60s→0.50s（用户「入场速度加快一点点」）。
+   路径统一必现凝聚。0.60s→0.50s（用户「入场速度加快一点点」）；
+   v8.7.16：0.50→0.40s（用户「打开速度再快一点点」，壁纸放大同拍同步——
+   见下方 wallpaper-layer 0.40s）。
    染色 ::before 同步 animation 化（同根因同修，关闭渐隐仍走基态
    transition 0.40s 与散场同拍不变）。to 站点 var(--dv-open-bf) 与开态
    稳态/散场 0% 站点同源——掠影变量覆写穿透动画窗（v8.7.9/10 不提亮律
@@ -1991,12 +1993,14 @@ html.cs-drawer-closing .cl-drawer-veil {
 .cl-drawer-veil[data-veil="1"] {
   backdrop-filter: var(--dv-open-bf, blur(14px) saturate(1.5));
   visibility: visible;
-  animation: dv-open-kf calc(0.5s * var(--mo-speed, 1)) cubic-bezier(0.5, 0, 0.3, 1) backwards;
+  /* v8.7.16：0.5s→0.4s（用户「打开速度再快一点点」）；曲线零改动 */
+  animation: dv-open-kf calc(0.4s * var(--mo-speed, 1)) cubic-bezier(0.5, 0, 0.3, 1) backwards;
   transition: visibility 0s;
 }
 .cl-drawer-veil[data-veil="1"]::before {
   opacity: 1;
-  animation: dv-tint-kf calc(0.5s * var(--mo-speed, 1)) cubic-bezier(0.5, 0, 0.3, 1) backwards;
+  /* v8.7.16：与凝聚同拍 0.4s（染色同步加速） */
+  animation: dv-tint-kf calc(0.4s * var(--mo-speed, 1)) cubic-bezier(0.5, 0, 0.3, 1) backwards;
 }
 .dark .cl-drawer-veil::before {
   /* 深色态：zinc-900 轻纱替代旧 zinc-950 厚涂（「纯黑遮罩」差评），
@@ -2113,10 +2117,10 @@ html.photo-mode .veil-hold-2xl {
    缩放是合成层动画，无磨砂也流畅。 */
 .wallpaper-layer {
   /* v8.7.12 与抽屉凝聚动画严格同步（用户指令「壁纸的放大速度也要和抽屉
-     的打开动画同步」）：同时长（凝聚 v8.7.12 加快后 0.50s）同曲线
-     cubic-bezier(0.5,0,0.3,1)——模糊让位与壁纸浮出同拍起步同拍落座。
+     的打开动画同步」）：同时长同曲线 cubic-bezier(0.5,0,0.3,1)——模糊让位
+     与壁纸浮出同拍起步同拍落座（凝聚 v8.7.16 加快后同步 0.50s→0.40s）。
      回缩（closing 摘除放大态失配）同走本条与散场同窗。 */
-  transition: transform 0.50s cubic-bezier(0.5, 0, 0.3, 1);
+  transition: transform 0.40s cubic-bezier(0.5, 0, 0.3, 1);
 }
 html.cs-drawer:not(.cs-drawer-closing).photo-mode .wallpaper-layer {
   transform: scale(1.08);

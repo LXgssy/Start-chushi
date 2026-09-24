@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.16",
+    date: "2026-09-24",
+    title: "全局歌词浮层与抽屉提速",
+    channel: "shell",
+    highlights: [
+      "新增全局歌词：音乐面板底部新「歌词」开关，开启后所有网页顶部显示歌词浮层，逐字扫光与面板/浮窗同语言，随时可拖动、位置会被记住",
+      "歌词浮层右上角可临时隐藏，隐藏状态实时同步回面板开关",
+      "抽屉打开动画提速：纱幕凝聚与壁纸放大同步加快（0.50s→0.40s），开抽屉更跟手",
+    ],
+  },
+  {
     version: "8.7.15",
     date: "2026-09-24",
     title: "音乐面板动画二次重写：弹簧全程可见与居中根修",
