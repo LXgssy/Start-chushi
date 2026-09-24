@@ -1,10 +1,14 @@
 /* ============================================================================
- * 「初始」ext-card v8.7.16 —— 内容脚本：悬浮音乐卡（置顶所有网页，三态）
+ * 「初始」ext-card v8.7.17 —— 内容脚本：悬浮音乐卡（置顶所有网页，三态）
  *                          + 全局歌词浮层（桌面歌词同款，v8.7.16 新增）
  *
+ * v8.7.17 反馈修订（全局歌词浮层）：①下一句预览退役——第二行改为翻译行
+ *   （仅当前句带翻译即外语歌词时显示，灰淡同位，面板 cs-sub 同语言）；
+ *   ②中心锚律——行宽变化以歌词中心对称伸缩（dlRecenter 按实测宽差回移
+ *   左缘），拖动/持久化语义不变（cardDlyricPos 仍存左缘）。
  * v8.7.16 全局歌词浮层（用户指令：做一个其它音乐播放器同款的全局歌词显示，
- *   像音乐浮窗一样置顶在所有网页上；开关按钮放音乐面板底部开关行，自绘
- *   歌词行+音符图标）：
+ *   像音乐浮窗一样置顶在所有网页上；开关按钮放音乐面板播放控制行
+ *   cs-ctl——网易云「词」同位，自绘词徽章图标）：
  *   · 同 Port 双表面：浮层与卡共用 state/tick/lyric 数据面（SW 零改动）；
  *     dlOn=true 时 Port 常开（cardEnabled=false 不断流），applyEnabled/
  *     wake/needFrame/schedule 四处门控放宽为 cardEnabled||dlOn。
@@ -934,9 +938,14 @@
      玻璃×动画杀合成律（v8.7.11 遗产）：backdrop-filter 元素自身只允许
      opacity 动画（dlin 入场仅 opacity；暂停淡出走 transition opacity），
      零 transform/filter 动画挂玻璃壳。
-     位置持久化 cardDlyricPos；首用无存档时视口底部居中（桌面歌词惯例位），
-     首次显示按实测宽度再居中一次。拖动=pointer 全家桶（卡同族），× 钮
-     写 cardDlyric=false → onChanged 双向链（浮层隐 + 面板按钮回写）。 */
+     位置持久化 cardDlyricPos；首用无存档时视口底部居中（桌面歌词惯例位）。
+     v8.7.17 中心锚律：行宽变化（切行/翻译行有无）以药丸中心对称伸缩——
+     dlRecenter 在内容重建后实测新宽，把左缘回移宽度差之半，视觉=固定
+     中心向两边长缩（修复「长度变化后像位移了」）；cardDlyricPos 仍存
+     左缘（旧存档零迁移），拖动语义不变。基线 dlLastW 首测只记录不回移
+     （有存档用户首帧不跳位），dlHide 归零重臂（下次显示重新基线）。
+     拖动=pointer 全家桶（卡同族），× 钮写 cardDlyric=false → onChanged
+     双向链（浮层隐 + 面板按钮回写）。 */
   var dlHost = document.createElement("div");
   dlHost.id = "chushi-dlyric-host";
   dlHost.style.cssText = "all:initial;position:fixed;z-index:2147483647;left:0;top:0;width:0;height:0;display:none";
@@ -988,6 +997,7 @@
   var dlPos = null, dlPosSaved = false, dlBooted = false;
   var dlLineIdx = -2, dlWant = "", dlWordMode = false, dlNoLyr = false;
   var dlPrevPlaying = null, dlWords = [], dlLast1 = "", dlLast2 = "";
+  var dlLastW = 0; /* v8.7.17 中心锚基线：0=未基线（首测只记录不回移） */
   function dlClamp() {
     var w = window.innerWidth || 1200, h = window.innerHeight || 800;
     var pw = dlPill.offsetWidth || 420, ph = dlPill.offsetHeight || 76;
@@ -995,9 +1005,23 @@
     dlPos.y = Math.min(Math.max(8, dlPos.y), Math.max(8, h - ph - 8));
   }
   function dlApplyPos() {
+    if (!dlPos) return; /* v8.7.17 竞态护栏：dlLoadPos 存储回调落地前 state 真值
+      可能先到（v8.7.16 潜伏竞态，dlClamp dlPos.x 崩=浮层失去定位；诊断
+      diag-dlpage 实锤）。回调落地后 dlLoadPos 会补一次 dlApplyPos 定位。 */
     dlClamp();
     dlPill.style.left = dlPos.x + "px";
     dlPill.style.top = dlPos.y + "px";
+  }
+  /* v8.7.17 中心锚律：内容重建（切行/翻译行有无）后调用——实测新宽，
+     左缘回移宽度差之半 = 中心不动；越界钳制仍由 dlApplyPos 兑底。 */
+  function dlRecenter() {
+    if (!dlPos) return;
+    var nw = dlPill.offsetWidth || 0;
+    if (dlLastW && nw && nw !== dlLastW) {
+      dlPos.x -= Math.round((nw - dlLastW) / 2);
+    }
+    if (nw) dlLastW = nw;
+    dlApplyPos();
   }
   function dlLoadPos() {
     try {
@@ -1028,6 +1052,7 @@
   function dlHide() {
     if (dlBooted) dlSavePos();
     dlBooted = false;
+    dlLastW = 0; /* 中心锚基线归零：下次显示重新基线（v8.7.17） */
     dlPill.classList.remove("boot");
     dlHost.style.display = "none";
   }
@@ -1036,7 +1061,13 @@
     /* 无真值不空挂（诚实边界：hub 不在场就隐没，绝不伪造内容） */
     dlHost.style.display = track ? "block" : "none";
     if (track) {
-      if (!dlPosSaved && dlPos) { dlPos.x = Math.round(((window.innerWidth || 1200) - dlPill.offsetWidth) / 2); }
+      /* 首用无存档：按实测宽底部居中一次（桌面歌词惯例位）；只做一次
+         （dlLastW=0 时），此后中心锚归 dlRecenter 所有——state 轮询
+         反复进入本函数不再重摆（避免与中心锚互相打架）。 */
+      if (!dlPosSaved && dlPos && !dlLastW) {
+        dlPos.x = Math.round(((window.innerWidth || 1200) - dlPill.offsetWidth) / 2);
+        dlLastW = dlPill.offsetWidth || 0; /* 空药丸基线：首句展开仍围绕视口中心 */
+      }
       dlApplyPos();
     }
   }
@@ -1044,19 +1075,15 @@
     if (dlOn) { dlBoot(); if (!port) connect(); if (track) dlApplyVis(); wake(); }
     else dlHide();
   }
-  /* ---------- 浮层渲染（行切换重建 + 词扫光 + 暂停淡出） ---------- */
-  function dlSetNext(t) {
+  /* ---------- 浮层渲染（行切换重建 + 词扫光 + 暂停淡出） ----------
+     v8.7.17：第二行=翻译行（dlSetSub）——仅当前句带 ln.tr（外语歌词
+     才有翻译吸附，ext-lyric joinTranslation 已合入）时显示；下一句
+     预览（dlNextText）退役（用户指令：不用下一句预览灰淡）。 */
+  function dlSetSub(t) {
     var s = t || "";
     if (s !== dlLast2) { dlLast2 = s; dlL2.textContent = s; }
   }
-  /* 下一句预览：跳过空行（间奏 gap 行），窗 3 行 */
-  function dlNextText(lines, from) {
-    for (var i = from + 1; i < lines.length && i <= from + 3; i++) {
-      if (lines[i] && lines[i].t) return lines[i].t;
-    }
-    return "";
-  }
-  function dlBuildLine(ln, nextT) {
+  function dlBuildLine(ln) {
     dlWords = [];
     dlL1.innerHTML = "";
     dlLast1 = "";
@@ -1075,7 +1102,7 @@
     } else {
       dlL1.textContent = (ln && ln.t) || "·";
     }
-    dlSetNext(nextT);
+    dlSetSub(ln && ln.tr);
   }
   function dlSweep(n) {
     for (var j = 0; j < dlWords.length; j++) {
@@ -1102,8 +1129,8 @@
       if (t1s !== dlLast1 || t2s !== dlLast2) {
         dlNoLyr = true; dlWordMode = false; dlLineIdx = -2; dlWords = [];
         dlL1.innerHTML = ""; dlLast1 = t1s; dlL1.textContent = t1s;
-        dlSetNext(t2s);
-        dlApplyPos();
+        dlSetSub(t2s);
+        dlRecenter(); /* 行宽变化 → 中心锚重排（v8.7.17） */
       }
       return;
     }
@@ -1117,15 +1144,14 @@
     /* 行级时钟分离（卡同律）：词模式 -100ms 唱声补偿，行模式原始时基 */
     var n = ChuShiLyric.align(p, posNow() * 1000, !dlWordMode);
     if (n.lineIndex === -1) {
-      /* 间奏：保持上一句不动（高光保持律同源），只跟进下一句预览 */
-      var ref = typeof n.lastLine === "number" && n.lastLine >= 0 ? n.lastLine : -1;
-      if (ref >= 0 && ref + 1 < p.lines.length) dlSetNext(dlNextText(p.lines, ref));
+      /* 间奏：保持上一句不动（高光保持律同源；v8.7.17 预览退役，
+         翻译行随上一句自然驻留，不主动换内容） */
       return;
     }
     if (n.lineIndex !== dlLineIdx) {
       dlLineIdx = n.lineIndex;
-      dlBuildLine(p.lines[n.lineIndex], dlNextText(p.lines, n.lineIndex));
-      dlApplyPos(); /* 行宽变化 → 钳制重排（长行不越界） */
+      dlBuildLine(p.lines[n.lineIndex]);
+      dlRecenter(); /* 行宽变化 → 中心锚重排（长行不越界，v8.7.17） */
     } else if (dlWordMode) {
       dlSweep(n);
     }

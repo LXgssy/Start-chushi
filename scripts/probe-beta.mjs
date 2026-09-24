@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.16/ChuShi-NewTab-v8.7.16.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.17/ChuShi-NewTab-v8.7.17.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -2652,11 +2652,25 @@ try {
       pwSet: /k\.endsWith\(":csDlyric"\)\) mirrorExtCard\(undefined, undefined, undefined, v\)/.test(pwSrc45),
       /* ③ 面板开关（构建产物内）：按钮 + 自绘图标 + csDlyric 三向接线 */
       btn: musHtml45.includes("csWordBtn") && musHtml45.includes("cs-i-word") && musHtml45.includes("csDlyric"),
+      /* ⑤ v8.7.17 翻译行律：dlSetSub 替代 dlSetNext（.dl2=ln.tr 翻译吸附，
+         仅外语歌词显示）；dlNextText 预览链全退役（函数+两处调用） */
+      trLine: /function dlSetSub\(t\)/.test(cardSrc45) && /dlSetSub\(ln && ln\.tr\)/.test(cardSrc45) && /dlSetSub\(t2s\)/.test(cardSrc45),
+      /* previewGone：定义+调用全退役；注释里的函数名提及属合法残留
+         （Task 138 坑录④：断言精确到出现形态而非 in/not-in） */
+      previewGone: !/function dlNextText|function dlSetNext/.test(cardSrc45) && !/dlNextText\(|dlSetNext\(/.test(cardSrc45),
+      /* ⑥ v8.7.17 中心锚律：dlRecenter 实测新宽回移左缘半差 + 基线 dlLastW
+         （首测只记录不回移 + dlHide 归零重臂） */
+      centerAnchor: /function dlRecenter\(\)/.test(cardSrc45) && /dlPos\.x -= Math\.round\(\(nw - dlLastW\) \/ 2\)/.test(cardSrc45) && /var dlLastW = 0;/.test(cardSrc45) && /dlLastW = 0; \/.+ 中心锚基线归零/.test(cardSrc45) && /!dlPosSaved && dlPos && !dlLastW/.test(cardSrc45),
+      /* ⑦ v8.7.17 按钮归位：csWordBtn 在 cs-ctl 播放控制行（csNext 之后）
+         且 cs-foot 行内无歌词钮（图三红圈位）+ on 点亮态
+         （musHtml45 是 JSON.stringify 产物：引号带反斜杠转义，正则用 \\?" 兼容） */
+      btnCtl: /id=\\?"csNext\\?"[\s\S]{0,400}?id=\\?"csWordBtn\\?"/.test(musHtml45) && /\.cs-b\.on\{color:var\(--acc\)\}/.test(musHtml45),
+      btnFootGone: !( /<div class=\\?"cs-foot\\?">[\s\S]{0,800}?<\/div>/.exec(musHtml45) || ["", ""] )[0].includes("csWordBtn"),
       /* ④ 抽屉提速源码锚（globals.css） */
       drawerFast: /calc\(0\.4s \* var\(--mo-speed, 1\)\) cubic-bezier\(0\.5, 0, 0\.3, 1\) backwards/.test(globalsSrc45) && /transition: transform 0\.40s cubic-bezier\(0\.5, 0, 0\.3, 1\)/.test(globalsSrc45),
     };
-    gate("TL45 全局歌词链路静态门（v8.7.16）：浮层本体（cardDlyric 读取+Port 双表面+closed shadow+位置持久化+× 反向写回+扫光同律）+ 宿主镜像链（EXT_KV_MAP/四参镜像/storageSet）+ 面板开关按钮（构建产物 csWordBtn/cs-i-word/csDlyric）+ 抽屉 0.4s 源码锚",
-      t45.dlRead && t45.dlPortShared && t45.dlSurface && t45.dlPosPersist && t45.dlXWriteBack && t45.dlSweepLaw && t45.pwMap && t45.pwMirror && t45.pwSet && t45.btn && t45.drawerFast,
+    gate("TL45 全局歌词链路静态门（v8.7.17 扩）：浮层本体（cardDlyric 读取+Port 双表面+closed shadow+位置持久化+× 反向写回+扫光同律）+ 翻译行律（dlSetSub=ln.tr+预览退役）+ 中心锚律（dlRecenter 半差回移+dlLastW 基线）+ 宿主镜像链（EXT_KV_MAP/四参镜像/storageSet）+ 面板开关按钮（cs-ctl 归位 cs-foot 退役+on 点亮+构建产物三源）+ 抽屉 0.4s 源码锚",
+      t45.dlRead && t45.dlPortShared && t45.dlSurface && t45.dlPosPersist && t45.dlXWriteBack && t45.dlSweepLaw && t45.trLine && t45.previewGone && t45.centerAnchor && t45.pwMap && t45.pwMirror && t45.pwSet && t45.btn && t45.btnCtl && t45.btnFootGone && t45.drawerFast,
       JSON.stringify(t45));
   }
 
@@ -2666,7 +2680,7 @@ try {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.16 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.17 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);
