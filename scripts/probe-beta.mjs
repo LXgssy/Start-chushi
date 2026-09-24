@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.14/ChuShi-NewTab-v8.7.14.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.15/ChuShi-NewTab-v8.7.15.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -1332,7 +1332,7 @@ try {
         && /phase !== "closed"\s*\n\s*\? activeView\?\.kind === "builtin"\s*\n\s*\? panel \?\? activeView\.panel\s*\n\s*: swapOut\s*\n\s*: null;/.test(stageSrc)
         && /phase === "closing" &&\s*\n\s*activeView\?\.kind === "widget" &&\s*\n\s*activeView\.key === w\.key/.test(stageSrc)
         && !/top: 0,/.test(stageSrc)
-        && /top: `max\(0px, calc\(100% - \$\{h\}px\)\)`/.test(stageSrc),
+        && /top: geomFresh \? "0px" : `max\(0px, calc\(100% - \$\{h\}px\)\)`/.test(stageSrc),
       `dp=${/phase !== "closed"\s*\n\s*\? activeView\?\.kind === "builtin"[\s\S]*?: swapOut/.test(stageSrc)} vis=${/activeView\?\.kind === "widget"/.test(stageSrc)} topMax=${/max\(0px, calc\(100% - \$\{h\}px\)\)/.test(stageSrc)} oldTop0=${/top: 0,/.test(stageSrc)}`);
     /* 产物门：打包 chunk 结构签名（minified 名不定，锚 minified 语法形状） */
     const chunk39 = execSync(`grep -rlo "max(0px" ${ROOT}/next/static/chunks/*.js 2>/dev/null | head -1`).toString().trim();
@@ -1340,7 +1340,8 @@ try {
     if (chunk39) {
       const cs39 = readFileSync(chunk39, "utf8");
       chunkSig39 = {
-        topMax: /top:`max\(0px, calc\(100% - \$\{[\w$]+\}px\)\)`/.test(cs39),
+        /* v8.7.15：容器几何分律三元（fresh="0px"/互切=max 联立）——锚三元完整形态 */
+        topMax: /top:[\w$]+\?"0px":`max\(0px, calc\(100% - \$\{[\w$]+\}px\)\)`/.test(cs39),
         visTriple: /"closing"===[\w$]+&&[\w$]+\?\.kind==="widget"&&[\w$]+\.key===/.test(cs39),
       };
     }
@@ -1521,10 +1522,12 @@ try {
       requestAnimationFrame(poll2);
       await new Promise((r) => setTimeout(r, 1400));
       /* v8.7.2 ㊷ 底锚恒贴律：部件视图 height=min(h,100%)——增长段（s<声明高 h）
-         卡随壳同步生长（offsetHeight==sh），顶锚 gapT==0 且满盒贴合；声明高从
-         内联 style 解析（min(Hpx, 100%)），不再用会被压缩的实测 offsetHeight */
+         卡随壳同步生长（offsetHeight==sh），顶锚 gapT==0 且满盒贴合；声明高
+         v8.7.15 起从 iframe 定高内联样式解析（fresh 几何容器 height:100%
+         无 min() 可解析，iframe height:h 恒定是声明高的唯一内联源） */
       const wvNow = document.querySelector('.cl-dockwidget[data-widget$=":w-t39"]');
-      const mh = wvNow ? /min\((\d+)px/.exec((wvNow.style || {}).height || '') : null;
+      const frNow = wvNow ? wvNow.querySelector("iframe") : null;
+      const mh = frNow ? /(\d+)px/.exec(frNow.style.height || "") : null;
       const declared = mh ? parseInt(mh[1], 10) : 0;
       /* sh≤8 起步帧排除：容器 border-box 下 height:0 被 1px 描边撑出 2px
          （offsetHeight=min 高=border 总和），壳 overflow-hidden 裁剪零视觉
@@ -1682,13 +1685,13 @@ try {
         && /setSwapOut\(null\);/.test(stage872)
         && /setTimeout\(\(\) => setSwapOut\(null\), SWAP_OUT_MS\)/.test(stage872)
         && /swapOut != null \? "cl-panel-swapout" : ""/.test(stage872)
-        && /height: `min\(\$\{h\}px, 100%\)`/.test(stage872)
+        && /height: geomFresh \? "100%" : `min\(\$\{h\}px, 100%\)`/.test(stage872)
         && !/height: h,/.test(stage872)
         && /@keyframes cl-panel-swapout-kf/.test(css872)
         && /\.cl-panel-swapout \{/.test(css872)
         && /export const SWAP_OUT_MS = 320;/.test(motion872)
         && /swapOut != null \? "z-20" : ""/.test(stage872),
-      `swapOut=${/const \[swapOut/.test(stage872)} minH=${/height: `min/.test(stage872)} oldH=${/height: h,/.test(stage872)} kf=${/@keyframes cl-panel-swapout-kf/.test(css872)} z20=${/swapOut != null \? "z-20" : ""/.test(stage872)}`);
+      `swapOut=${/const \[swapOut/.test(stage872)} minH=${/height: geomFresh \? "100%" : `min/.test(stage872)} oldH=${/height: h,/.test(stage872)} kf=${/@keyframes cl-panel-swapout-kf/.test(css872)} z20=${/swapOut != null \? "z-20" : ""/.test(stage872)}`);
     /* 产物签名门：swapout 类 + min() 底锚真实入包 */
     const chunk872 = execSync(`grep -rlo "cl-panel-swapout" ${ROOT}/next/static/chunks/*.js 2>/dev/null | head -1`).toString().trim();
     let chunkSig872 = null;
@@ -2570,7 +2573,11 @@ try {
       /* 定高揭示律（源码级）：iframe 定高 h + 顶锚 absolute + 旧压扁路径退役 */
       iframeFixedH: /height: `\$\{h\}px`/.test(stageSrc43),
       iframeTopAnchor: /inset: "0 0 auto 0",/.test(stageSrc43),
-      squishRetired: !/width: "100%"/.test(stageSrc43),
+      /* v8.7.15 语义收窄：压扁退役 = width+height【对】退役——width:100%
+         单独恢复为横向满宽律（replaced element 固有宽度 300px 左移根修），
+         与定高揭示（height:h）各自独立不冲突 */
+      squishRetired: !/width: "100%",\s*\n\s*height: "100%"/.test(stageSrc43),
+      widthFill: /width: "100%"/.test(stageSrc43),
       /* TL41/TL42 接线不回归：className 链 + 重播 effect 原样 */
       frameClassKept: /className="content-focus-solid block border-0 bg-transparent"/.test(stageSrc43),
       replayKept: /el\.classList\.add\("panel-rise"\);/.test(stageSrc43) && /frame\.classList\.add\("content-focus-solid"\)/.test(stageSrc43),
@@ -2579,9 +2586,40 @@ try {
       bootInherit: /\.cl-dockwidget::after \{[\s\S]{0,220}?border-radius: inherit;/.test(gsrc43),
       selfRoundCssom: /border-radius/.test(dockRule43),
     };
-    gate("TL43 定高揭示+自圆静态门（v8.7.14）：iframe 定高 h 顶锚揭示(卡顿根修:OOPIF 零逐帧重排) + 压扁路径退役 + TL41/42 接线不回归 + 容器自圆律 border-radius 1rem(顶角直角根修,源码+CSSOM 双道) + boot 罩 inherit 同构",
-      t43.iframeFixedH && t43.iframeTopAnchor && t43.squishRetired && t43.frameClassKept && t43.replayKept && t43.selfRoundSrc && t43.bootInherit && t43.selfRoundCssom,
+    gate("TL43 定高揭示+自圆静态门（v8.7.14/v8.7.15）：iframe 定高 h 顶锚揭示(卡顿根修:OOPIF 零逐帧重排) + 压扁对退役+横向满宽在位 + TL41/42 接线不回归 + 容器自圆律 border-radius 1rem(顶角直角根修,源码+CSSOM 双道) + boot 罩 inherit 同构",
+      t43.iframeFixedH && t43.iframeTopAnchor && t43.squishRetired && t43.widthFill && t43.frameClassKept && t43.replayKept && t43.selfRoundSrc && t43.bootInherit && t43.selfRoundCssom,
       JSON.stringify(t43) + " rule=" + dockRule43.slice(0, 160));
+  }
+
+  /* ---------- TL44 首开 h-full 同构 + 宽度语言静态门（v8.7.15） ----------
+     用户复测「音乐面板整体往左位移 + 还是没有弹簧动效」双根因：
+     ①iframe replaced element 固有宽度 300px（inset 顶锚不带显式宽，
+       CSS 2.1 §10.3.8）→ 内容左锚玻璃卡=整体左移；修复=横向满宽律。
+     ②容器 max/min 联立在 s>h 段把弹簧过冲钮进透明壳隐形空间（卡片本身
+       静止）=「没有弹簧」结构性根因；修复=首开 fresh 律：fresh 会话容器
+       top 0 × height 100% 与内建 h-full 逐帧同构（过冲/回弹全程可见），
+       互切保持联立底锚（互切底锚律不变）。
+     ③宽度语言：closed 保持上一会话宽 + 首开帧 duration:0 静默快照（开合
+       零横向运动）+ 互切 motionSpring 拉伸——旧代码每次开合夹带 340↔360
+       横向弹簧噪声。 */
+  {
+    const stageSrc44 = readFileSync(new URL("../src/components/startpage/PanelStage.tsx", import.meta.url), "utf8");
+    const t44 = {
+      freshState: /const \[freshOpen, setFreshOpen\] = useState\(false\);/.test(stageSrc44),
+      freshMachine: /setFreshOpen\(anyActive\);/.test(stageSrc44),
+      freshSwapClear: /if \(activeView != null\) setFreshOpen\(false\);/.test(stageSrc44),
+      geomFresh: /const geomFresh = freshOpen && isActive;/.test(stageSrc44),
+      freshGeomStyle: /top: geomFresh \? "0px" : `max\(0px, calc\(100% - \$\{h\}px\)\)`,/.test(stageSrc44)
+        && /height: geomFresh \? "100%" : `min\(\$\{h\}px, 100%\)`,/.test(stageSrc44),
+      lastWRef: /const lastStageWRef = useRef\(360\);/.test(stageSrc44),
+      shellWKeep: /: lastStageWRef\.current;/.test(stageSrc44),
+      widthSnap: /freshOpen\s*\n\s*\? \{ duration: 0 \}/.test(stageSrc44),
+      oldShellWRetired: !/const shellWidth = activeWidget \? activeWidget\.width : 360;/.test(stageSrc44),
+      top0LiteralAbsent: !/top: 0,/.test(stageSrc44),
+    };
+    gate("TL44 首开h-full同构+宽度语言静态门（v8.7.15）：freshOpen 状态机（首开置位/真互切清除/首开赋值不碰）+ 容器几何分律（fresh=top0×100% 同构/互切=联立底锚）+ 宽度语言（closed 保持会话宽+首开快照 duration0+旧 shellWidth 三元退役+TL25a 字面量律不回归）",
+      t44.freshState && t44.freshMachine && t44.freshSwapClear && t44.geomFresh && t44.freshGeomStyle && t44.lastWRef && t44.shellWKeep && t44.widthSnap && t44.oldShellWRetired && t44.top0LiteralAbsent,
+      JSON.stringify(t44));
   }
 
   /* ---------- T10 pageerror ---------- */
@@ -2590,7 +2628,7 @@ try {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.14 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.15 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);
