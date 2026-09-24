@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.18",
+    date: "2026-09-24",
+    title: "「词」开关再精修：真字形·总时长正下方·悬停直亮",
+    channel: "shell",
+    highlights: [
+      "「词」字按真字形重新描画（思源黑体轮廓逐点描取），在方框正中居中，更像网易云的词按钮",
+      "「词」开关移到右侧歌曲总时长正下方：播放/上一首/下一首三键回到原位不再让路",
+      "悬停「词」按钮不再有圆形底色高亮，改为图标本身直接点亮",
+    ],
+  },
+  {
     version: "8.7.17",
     date: "2026-09-24",
     title: "全局歌词体验修订：翻译行·中心锚·「词」开关归位",
