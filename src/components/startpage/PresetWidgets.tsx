@@ -96,13 +96,20 @@ function pushSmtcSnapshot(wkey: string, reqId?: unknown) {
 }
 
 /* v8.2.9 面板开关 → 扩展浮窗镜像（cardAcc/cardForceWord 同律）：
-   律动 → cardGlow；浮窗 → cardEnabled。默认 true（与面板默认一致）。
+   律动 → cardGlow；浮窗 → cardEnabled；强行逐字 → cardForceWord；
+   v8.7.16：全局歌词 → cardDlyric。浮窗/律动默认 true（与面板默认一致），
+   强行逐字/全局歌词默认 false（true 字面量才置真）。
    v8.4.4 壳桥律：云端壳内页面没有 chrome API——manifest 已注入 MAIN world
    shim（shim-page.js）把 chrome.storage.local 伪造为 postMessage 桥 →
    壳桥（shell-bridge.js/cs-bridge.js）校验 origin 后代写真 chrome.storage；
    本函数零改动（真 API 与 shim 伪造 API 同签名），镜像在三种运行面统一：
    扩展内页（真 API）/ 壳内云端页（shim→壳桥）/ 纯网页（无 chrome，静默）。 */
-function mirrorExtCard(fw: string | undefined, glow: string | undefined, flt: string | undefined) {
+function mirrorExtCard(
+  fw: string | undefined,
+  glow: string | undefined,
+  flt: string | undefined,
+  dl: string | undefined,
+) {
   try {
     const ext = (window as unknown as {
       chrome?: { storage?: { local?: { set?: (o: Record<string, unknown>) => void } } };
@@ -112,6 +119,7 @@ function mirrorExtCard(fw: string | undefined, glow: string | undefined, flt: st
     if (fw !== undefined) patch.cardForceWord = fw === "true";
     if (glow !== undefined) patch.cardGlow = glow !== "false";
     if (flt !== undefined) patch.cardEnabled = flt !== "false";
+    if (dl !== undefined) patch.cardDlyric = dl === "true";
     if (Object.keys(patch).length) ext.storage.local.set(patch);
   } catch {
     /* 非 extension 环境（gh-pages 预览） */
@@ -120,14 +128,16 @@ function mirrorExtCard(fw: string | undefined, glow: string | undefined, flt: st
 
 /* v8.4.4 反向实时同步：chrome.storage.local 变化 → 面板 kv 回写 +
    widgetStoragePatch 下发（面板开关 UI 实时翻转）。
-   变化来源：浮窗（未来全局开关/其他镜像方）、其他「初始」标签页（扩展内
-   或壳内）、顶层直访 Pages 的 cs-bridge——任一处写键，所有表面跟随。
+   变化来源：浮窗（全局开关/其他镜像方）、全局歌词浮层（× 钮反向写）、
+   其他「初始」标签页（扩展内或壳内）、顶层直访 Pages 的 cs-bridge——
+   任一处写键，所有表面跟随。
    回环律：本页面自己 mirrorExtCard 写入触发的 onChanged 回声与新值恒等，
    被下方「同值 no-op」守卫吸收（值不再变化即链断，无震荡）。 */
 const EXT_KV_MAP: Record<string, string> = {
   cardEnabled: ":csFloat",
   cardGlow: ":csGlow",
   cardForceWord: ":csForceWord",
+  cardDlyric: ":csDlyric", /* v8.7.16 全局歌词（桌面歌词浮层全局显隐） */
 };
 
 function PresetWidgets(props: {
@@ -165,12 +175,14 @@ function PresetWidgets(props: {
   useEffect(() => {
     kvRef.current = readKv();
     /* v8.2.8 初始镜像：已有开关值同步给浮窗（否则浮窗要等用户
-       下一次切换开关才知道面板状态）；v8.2.9 扩至三开关 */
+       下一次切换开关才知道面板状态）；v8.2.9 扩至三开关；
+       v8.7.16 扩至四开关（全局歌词 cardDlyric） */
     const kv = kvRef.current;
     const fw = Object.entries(kv).find(([k]) => k.endsWith(":csForceWord"));
     const glow = Object.entries(kv).find(([k]) => k.endsWith(":csGlow"));
     const flt = Object.entries(kv).find(([k]) => k.endsWith(":csFloat"));
-    mirrorExtCard(fw ? fw[1] : undefined, glow ? glow[1] : undefined, flt ? flt[1] : undefined);
+    const dl = Object.entries(kv).find(([k]) => k.endsWith(":csDlyric"));
+    mirrorExtCard(fw ? fw[1] : undefined, glow ? glow[1] : undefined, flt ? flt[1] : undefined, dl ? dl[1] : undefined);
   }, []);
 
   /* v8.4.4 反向实时：chrome.storage.onChanged（扩展内真事件 / 壳内 shim
@@ -345,10 +357,12 @@ function PresetWidgets(props: {
         writeKv(kvRef.current);
         /* v8.2.8/9 面板开关镜像到 chrome.storage.local：csForceWord →
            cardForceWord；csGlow → cardGlow（律动总开关）；csFloat →
-           cardEnabled（浮窗全局显隐）——悬浮卡任意网页读取 + onChanged */
-        if (k.endsWith(":csForceWord")) mirrorExtCard(v, undefined, undefined);
-        else if (k.endsWith(":csGlow")) mirrorExtCard(undefined, v, undefined);
-        else if (k.endsWith(":csFloat")) mirrorExtCard(undefined, undefined, v);
+           cardEnabled（浮窗全局显隐）；v8.7.16：csDlyric → cardDlyric
+           （全局歌词浮层全局显隐）——悬浮卡/歌词浮层任意网页读取 + onChanged */
+        if (k.endsWith(":csForceWord")) mirrorExtCard(v, undefined, undefined, undefined);
+        else if (k.endsWith(":csGlow")) mirrorExtCard(undefined, v, undefined, undefined);
+        else if (k.endsWith(":csFloat")) mirrorExtCard(undefined, undefined, v, undefined);
+        else if (k.endsWith(":csDlyric")) mirrorExtCard(undefined, undefined, undefined, v);
         postToWidget(wkey, { type: "widgetStorage", widgetKey: wkey, reqId: m.reqId, op: "storageSet", ok: true });
         break;
       }

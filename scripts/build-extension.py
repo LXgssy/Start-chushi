@@ -62,7 +62,7 @@ OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
 EXT_SRC = ROOT / "extension-src"    # v8.2.0 SW/内容脚本源
-VERSION = "8.7.15"
+VERSION = "8.7.16"
 DEST = ROOT / f"download/v{VERSION}/ChuShi-NewTab-v{VERSION}.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():
@@ -364,7 +364,13 @@ for feat in ("ChuShiLyric", "parseWordText", "unitizeLine",  # 歌词引擎特�
              ".meta{flex:1;min-width:0;position:relative;z-index:1}",  # v8.3.5 内容件提层（辉光之上）
              ".rail{position:relative;z-index:1",
              "seekGuard.to) <= 0.8", "seekGuard.at > 3000",     # v8.3.5 收窗 0.8s + 护航窗 3s
-             "updateTiming"):                                   # v8.3.1 壳/封面统一形变时长
+             "updateTiming",                                    # v8.3.1 壳/封面统一形变时长
+             # v8.7.16 全局歌词浮层（桌面歌词同款：同 Port 双表面+closed shadow 浮层）
+             "cardDlyric", "cardDlyricPos", "chushi-dlyric-host",  # 开关链+位置持久化+浮层宿主
+             "applyDlyric", "dlFrame", "dlWordMode",           # 开关应用面/渲染帧/词模式判定
+             "dlHost.style.display",                            # 浮层显隐面在位
+             "cardDlyric: false",                               # × 钮反向写回（面板按钮回写链）
+    ):
     if feat not in _card_js:
         sys.exit(f"ext-card.js 缺特征 {feat} —— 拼接/源码不完整")
 for gone in ("flyCoverClone", "animsRemoveClones", "siteHidden", "saveHide",

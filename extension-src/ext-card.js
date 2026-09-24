@@ -1,5 +1,18 @@
 /* ============================================================================
- * 「初始」ext-card v8.3.5 —— 内容脚本：悬浮音乐卡（置顶所有网页，三态）
+ * 「初始」ext-card v8.7.16 —— 内容脚本：悬浮音乐卡（置顶所有网页，三态）
+ *                          + 全局歌词浮层（桌面歌词同款，v8.7.16 新增）
+ *
+ * v8.7.16 全局歌词浮层（用户指令：做一个其它音乐播放器同款的全局歌词显示，
+ *   像音乐浮窗一样置顶在所有网页上；开关按钮放音乐面板底部开关行，自绘
+ *   歌词行+音符图标）：
+ *   · 同 Port 双表面：浮层与卡共用 state/tick/lyric 数据面（SW 零改动）；
+ *     dlOn=true 时 Port 常开（cardEnabled=false 不断流），applyEnabled/
+ *     wake/needFrame/schedule 四处门控放宽为 cardEnabled||dlOn。
+ *   · 开关链：面板 kv csDlyric → PresetWidgets 镜像 storage.local.cardDlyric
+ *     → onChanged 热跟随；浮层 × 钮反向写 storage → 面板按钮回写。
+ *   · 渲染律与完全体歌词同语言（行级时钟分离/--p 扫光/暂停淡出/间奏保持/
+ *     无歌词显歌名）；玻璃壳仅 opacity 动画（v8.7.11 杀合成律）。
+ *   · 位置持久化 cardDlyricPos，拖动 + resize 钳制，首用底部居中。
  *
  * v8.3.5 用户实机反馈四连（浮窗侧）：
  *   ① 中文歌逐字歌词「重影」——根因：.fw 词壳是 inline 相对定位，
@@ -235,16 +248,25 @@
     }
     wake();
   }
+  /* v8.7.16 门控放宽：Port 是双表面（卡+全局歌词）共用的唯一数据面——
+     任一表面在位就保持连接；双关才断流回收（sleepNow+断 Port）。 */
   function applyEnabled() {
-    if (!cardEnabled) {
+    if (!cardEnabled && !dlOn) {
       sleepNow();
       host.style.display = "none";
+      dlHide();
       if (port) { try { port.disconnect(); } catch (e0) { /* 已断 */ } port = null; }
-    } else {
-      if (!cardBooted) { initCard(); return; }
-      connect();
-      if (track) { host.style.display = "block"; applyVis(); wake(); }
+      return;
     }
+    if (!port) connect();
+    if (!cardEnabled) {
+      host.style.display = "none";
+    } else if (!cardBooted) {
+      initCard();
+    } else if (track) {
+      host.style.display = "block"; applyVis(); wake();
+    }
+    if (dlOn) { dlBoot(); if (track) dlApplyVis(); }
   }
   /* ---------- v8.2.9 律动总开关（面板「律动」开关镜像） ----------
      cardGlow=false → 三轴包络清零 + 辉光归还样式表 + 频谱订阅撤
@@ -296,6 +318,7 @@
   function applyAcc(v) {
     if (typeof v !== "string" || !/^#[0-9a-fA-F]{3,8}$/.test(v)) return;
     host.style.setProperty("--acc", v);
+    dlHost.style.setProperty("--acc", v); /* v8.7.16：全局歌词扫光色同跟随 */
   }
   try {
     chrome.storage.local.get(["cardAcc"], function (o) { if (o) applyAcc(o.cardAcc); });
@@ -329,6 +352,37 @@
       });
     }
   } catch (e) { /* 无存储上下文：跟随面板默认（关） */ }
+
+  /* ---------- v8.7.16 全局歌词浮层（桌面歌词同款·置顶所有网页） ----------
+     用户指令：做一个其它音乐播放器同款的全局歌词显示（像音乐浮窗一样
+     置顶在所有网页上），开关按钮放音乐面板底部开关行（「歌词」，自绘
+     歌词行+音符图标）。
+     开关链与浮窗/律动同族：面板 kv csDlyric → 宿主 PresetWidgets 镜像
+     chrome.storage.local.cardDlyric → onChanged 热跟随；浮层右上角 × 钮
+     反向写 storage → EXT_KV_MAP 回写面板按钮实时翻转（双向同一条链）。
+     数据面零新增：与悬浮卡同一 Port（state/tick/lyric 全复用，SW 零
+     改动）——dlOn=true 时 Port 常开（cardEnabled=false 也不断流），
+     applyEnabled/wake/needFrame 三处门控放宽为 cardEnabled||dlOn。
+     渲染律与完全体歌词同语言：ChuShiLyric.align 行级时钟分离（逐行
+     原始时基/逐字 -100ms 补偿）、--p clip-path 扫光、暂停整体淡出
+     （.pause opacity .38 与 flyrIn 同参）、间奏保持上一句（高光保持律
+     同源）、无歌词态显歌名+歌手（桌面歌词同款兜底）。
+     逐字扫光可用性与卡同律（dlWordMode = yrc 真逐字 || lrc+强行逐字）。
+     默认关（桌面歌词是主动选择的形态）。 */
+  var dlOn = false;
+  try {
+    chrome.storage.local.get(["cardDlyric"], function (o) {
+      var v = !!(o && (o.cardDlyric === true || o.cardDlyric === "true"));
+      if (v !== dlOn) { dlOn = v; applyDlyric(); }
+    });
+    if (chrome.storage.onChanged && chrome.storage.onChanged.addListener) {
+      chrome.storage.onChanged.addListener(function (ch, area) {
+        if (area !== "local" || !ch || !ch.cardDlyric) return;
+        var v = ch.cardDlyric.newValue === true || ch.cardDlyric.newValue === "true";
+        if (v !== dlOn) { dlOn = v; applyDlyric(); }
+      });
+    }
+  } catch (e) { /* 无存储上下文：默认关 */ }
 
   var track = null;      /* 最近真值 {title,artist,album,playing,position,duration,rate,pic,songId,fetchedAt} */
   var lastSpec = { on: false, bass: 0, bands: null, t: 0 };
@@ -876,6 +930,235 @@
   coverEl.addEventListener("pointercancel", function () { drag.on = 0; });
   /* v8.2.2 用户律：浮窗任何位置点击都不跳转「初始」——主体点击无操作 */
 
+  /* ---------- v8.7.16 全局歌词浮层 UI（独立 closed shadow，与卡共数据面） ----------
+     玻璃×动画杀合成律（v8.7.11 遗产）：backdrop-filter 元素自身只允许
+     opacity 动画（dlin 入场仅 opacity；暂停淡出走 transition opacity），
+     零 transform/filter 动画挂玻璃壳。
+     位置持久化 cardDlyricPos；首用无存档时视口底部居中（桌面歌词惯例位），
+     首次显示按实测宽度再居中一次。拖动=pointer 全家桶（卡同族），× 钮
+     写 cardDlyric=false → onChanged 双向链（浮层隐 + 面板按钮回写）。 */
+  var dlHost = document.createElement("div");
+  dlHost.id = "chushi-dlyric-host";
+  dlHost.style.cssText = "all:initial;position:fixed;z-index:2147483647;left:0;top:0;width:0;height:0;display:none";
+  var dlShadow = dlHost.attachShadow({ mode: "closed" });
+  dlShadow.innerHTML =
+    '<style>' +
+    ':host{all:initial}' +
+    '*{margin:0;padding:0;box-sizing:border-box;font-family:ui-sans-serif,system-ui,"PingFang SC","Microsoft YaHei",sans-serif}' +
+    '@keyframes dlin{from{opacity:0}to{opacity:1}}' +
+    /* 显隐唯一开关律：药丸本体不带 display:none（v8.7.16 visual 实测坑：
+       宿主 block 而药丸 display:none = 文本在 DOM 但零绘制）——宿主
+       dlHost.style.display 是唯一显隐面，药丸随宿主现隐。 */
+    '.dl{position:fixed;max-width:min(720px,94vw);padding:9px 20px 10px;border-radius:16px;' +
+    'text-align:center;cursor:grab;user-select:none;touch-action:none;' +
+    'background:rgba(22,22,28,.78);border:1px solid rgba(255,255,255,.12);' +
+    'box-shadow:0 10px 34px rgba(0,0,0,.4);backdrop-filter:blur(18px) saturate(1.35);' +
+    '-webkit-backdrop-filter:blur(18px) saturate(1.35);transition:opacity .3s ease}' +
+    '.dl:active{cursor:grabbing}' +
+    '.dl.boot{animation:dlin .26s ease}' +
+    '.dl.pause{opacity:.38}' +
+    '.dl1{font-size:21px;font-weight:650;line-height:1.45;color:#fff;white-space:nowrap;overflow:hidden;' +
+    'text-overflow:ellipsis;text-shadow:0 1px 7px rgba(0,0,0,.38)}' +
+    '.dl1 .dw{position:relative;display:inline-block}' +
+    '.dl1 .dw .ov{position:absolute;left:0;top:0;pointer-events:none;white-space:nowrap;color:var(--acc,#8b5cf6);' +
+    'clip-path:inset(-8% calc(100% - var(--p,0%)) -8% 0)}' +
+    '.dl2{margin-top:1px;font-size:12.5px;font-weight:450;line-height:1.5;color:rgba(255,255,255,.55);' +
+    'white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
+    '.dlx{appearance:none;position:absolute;top:-9px;right:-9px;width:22px;height:22px;border-radius:999px;' +
+    'border:1px solid rgba(255,255,255,.16);background:rgba(45,45,52,.95);color:#e4e4e7;display:none;' +
+    'align-items:center;justify-content:center;cursor:pointer;padding:0}' +
+    '.dl:hover .dlx{display:flex}' +
+    '.dlx:hover{background:#52525b;color:#fff}' +
+    '.dlx svg{width:10px;height:10px;stroke:currentColor;fill:none;stroke-width:2.6;stroke-linecap:round}' +
+    '@media (prefers-reduced-motion:reduce){.dl.boot{animation:none}.dl{transition:none}}' +
+    '</style>' +
+    '<div class="dl" id="dlPill">' +
+    '<button class="dlx" id="dlX" title="隐藏全局歌词（可在「初始」音乐面板重新开启）">' +
+    '<svg viewBox="0 0 24 24"><path d="M5 5l14 14M19 5L5 19"/></svg></button>' +
+    '<div class="dl1" id="dlL1"></div>' +
+    '<div class="dl2" id="dlL2"></div>' +
+    '</div>';
+  (document.body || document.documentElement).appendChild(dlHost);
+  dlHost.addEventListener("dragstart", function (e) { e.preventDefault(); });
+  var dlPill = dlShadow.getElementById("dlPill");
+  var dlL1 = dlShadow.getElementById("dlL1");
+  var dlL2 = dlShadow.getElementById("dlL2");
+  swallowWheel(dlPill); /* 悬停浮层不滚走底页（卡同律 v8.4.11） */
+
+  var dlPos = null, dlPosSaved = false, dlBooted = false;
+  var dlLineIdx = -2, dlWant = "", dlWordMode = false, dlNoLyr = false;
+  var dlPrevPlaying = null, dlWords = [], dlLast1 = "", dlLast2 = "";
+  function dlClamp() {
+    var w = window.innerWidth || 1200, h = window.innerHeight || 800;
+    var pw = dlPill.offsetWidth || 420, ph = dlPill.offsetHeight || 76;
+    dlPos.x = Math.min(Math.max(8, dlPos.x), Math.max(8, w - pw - 8));
+    dlPos.y = Math.min(Math.max(8, dlPos.y), Math.max(8, h - ph - 8));
+  }
+  function dlApplyPos() {
+    dlClamp();
+    dlPill.style.left = dlPos.x + "px";
+    dlPill.style.top = dlPos.y + "px";
+  }
+  function dlLoadPos() {
+    try {
+      chrome.storage.local.get(["cardDlyricPos"], function (o) {
+        if (o && o.cardDlyricPos && typeof o.cardDlyricPos.x === "number") {
+          dlPos = { x: o.cardDlyricPos.x, y: o.cardDlyricPos.y };
+          dlPosSaved = true;
+        } else {
+          /* 首用默认位：底部居中（显示时按实测宽再精调一次） */
+          var w = window.innerWidth || 1200, h = window.innerHeight || 800;
+          dlPos = { x: Math.round((w - 460) / 2), y: Math.max(8, h - 176) };
+          dlPosSaved = false;
+        }
+        if (dlBooted) dlApplyPos();
+      });
+    } catch (e) { dlPos = { x: 360, y: 600 }; if (dlBooted) dlApplyPos(); }
+  }
+  function dlSavePos() {
+    try { chrome.storage.local.set({ cardDlyricPos: dlPos }); } catch (e) { /* 隐私模式等 */ }
+  }
+  function dlBoot() {
+    if (dlBooted || !dlOn) return;
+    dlBooted = true;
+    dlLoadPos();
+    dlPill.classList.add("boot");
+    setTimeout(function () { dlPill.classList.remove("boot"); }, 320);
+  }
+  function dlHide() {
+    if (dlBooted) dlSavePos();
+    dlBooted = false;
+    dlPill.classList.remove("boot");
+    dlHost.style.display = "none";
+  }
+  function dlApplyVis() {
+    if (!dlOn) return;
+    /* 无真值不空挂（诚实边界：hub 不在场就隐没，绝不伪造内容） */
+    dlHost.style.display = track ? "block" : "none";
+    if (track) {
+      if (!dlPosSaved && dlPos) { dlPos.x = Math.round(((window.innerWidth || 1200) - dlPill.offsetWidth) / 2); }
+      dlApplyPos();
+    }
+  }
+  function applyDlyric() {
+    if (dlOn) { dlBoot(); if (!port) connect(); if (track) dlApplyVis(); wake(); }
+    else dlHide();
+  }
+  /* ---------- 浮层渲染（行切换重建 + 词扫光 + 暂停淡出） ---------- */
+  function dlSetNext(t) {
+    var s = t || "";
+    if (s !== dlLast2) { dlLast2 = s; dlL2.textContent = s; }
+  }
+  /* 下一句预览：跳过空行（间奏 gap 行），窗 3 行 */
+  function dlNextText(lines, from) {
+    for (var i = from + 1; i < lines.length && i <= from + 3; i++) {
+      if (lines[i] && lines[i].t) return lines[i].t;
+    }
+    return "";
+  }
+  function dlBuildLine(ln, nextT) {
+    dlWords = [];
+    dlL1.innerHTML = "";
+    dlLast1 = "";
+    if (dlWordMode && ln && ln.w && ln.w.length) {
+      for (var i = 0; i < ln.w.length; i++) {
+        var sp = document.createElement("span");
+        sp.className = "dw";
+        sp.appendChild(document.createTextNode(ln.w[i].t));
+        var ov = document.createElement("span");
+        ov.className = "ov";
+        ov.appendChild(document.createTextNode(ln.w[i].t));
+        sp.appendChild(ov);
+        dlL1.appendChild(sp);
+        dlWords.push({ ov: ov, p: -1 });
+      }
+    } else {
+      dlL1.textContent = (ln && ln.t) || "·";
+    }
+    dlSetNext(nextT);
+  }
+  function dlSweep(n) {
+    for (var j = 0; j < dlWords.length; j++) {
+      var pp = j < n.wordIndex ? 1 : j > n.wordIndex ? 0 : (n.wordIndex >= 0 ? n.wordProgress : 0);
+      var q = Math.round(pp * 400) / 400; /* 0.25% 量化：不变不写（卡同律） */
+      if (dlWords[j].p !== q) {
+        dlWords[j].p = q;
+        dlWords[j].ov.style.setProperty("--p", (q * 100).toFixed(2) + "%");
+      }
+    }
+  }
+  function dlFrame() {
+    if (!dlOn) return;
+    var playing = effPlaying();
+    if (playing !== dlPrevPlaying) {
+      dlPrevPlaying = playing;
+      dlPill.classList.toggle("pause", !playing && !!track);
+    }
+    if (!track) return;
+    var p = ly.parsed;
+    if (!p || !p.lines || !p.lines.length) {
+      /* 无歌词态：歌名 + 歌手（桌面歌词同款兜底），切歌跟随 */
+      var t1s = "♪ " + (track.title || "未知曲目"), t2s = track.artist || "";
+      if (t1s !== dlLast1 || t2s !== dlLast2) {
+        dlNoLyr = true; dlWordMode = false; dlLineIdx = -2; dlWords = [];
+        dlL1.innerHTML = ""; dlLast1 = t1s; dlL1.textContent = t1s;
+        dlSetNext(t2s);
+        dlApplyPos();
+      }
+      return;
+    }
+    if (dlNoLyr) { dlNoLyr = false; dlLineIdx = -2; dlLast1 = ""; }
+    /* 歌词键跟踪：切歌/强行逐字重建（buildLyricDom 重判）后行号重置 */
+    if (dlWant !== ly.want) {
+      dlWant = ly.want;
+      dlLineIdx = -2; dlLast1 = "";
+      dlWordMode = p.src === "yrc" || (p.src === "lrc" && forceWord);
+    }
+    /* 行级时钟分离（卡同律）：词模式 -100ms 唱声补偿，行模式原始时基 */
+    var n = ChuShiLyric.align(p, posNow() * 1000, !dlWordMode);
+    if (n.lineIndex === -1) {
+      /* 间奏：保持上一句不动（高光保持律同源），只跟进下一句预览 */
+      var ref = typeof n.lastLine === "number" && n.lastLine >= 0 ? n.lastLine : -1;
+      if (ref >= 0 && ref + 1 < p.lines.length) dlSetNext(dlNextText(p.lines, ref));
+      return;
+    }
+    if (n.lineIndex !== dlLineIdx) {
+      dlLineIdx = n.lineIndex;
+      dlBuildLine(p.lines[n.lineIndex], dlNextText(p.lines, n.lineIndex));
+      dlApplyPos(); /* 行宽变化 → 钳制重排（长行不越界） */
+    } else if (dlWordMode) {
+      dlSweep(n);
+    }
+  }
+  /* ---------- 浮层拖动 + × 隐藏 ---------- */
+  var dlDrag = { on: 0, moved: 0, px: 0, py: 0, ox: 0, oy: 0 };
+  dlPill.addEventListener("pointerdown", function (e) {
+    if (e.button !== undefined && e.button !== 0) return;
+    if (e.target && e.target.closest && e.target.closest(".dlx")) return;
+    dlDrag.on = 1; dlDrag.moved = 0;
+    dlDrag.px = e.clientX; dlDrag.py = e.clientY;
+    dlDrag.ox = dlPos ? dlPos.x : 0; dlDrag.oy = dlPos ? dlPos.y : 0;
+    try { dlPill.setPointerCapture(e.pointerId); } catch (e1) { /* 已释放 */ }
+  });
+  dlPill.addEventListener("pointermove", function (e) {
+    if (!dlDrag.on || !dlPos) return;
+    var dx = e.clientX - dlDrag.px, dy = e.clientY - dlDrag.py;
+    if (Math.abs(dx) + Math.abs(dy) > 4) dlDrag.moved = 1;
+    if (dlDrag.moved) { dlPos.x = dlDrag.ox + dx; dlPos.y = dlDrag.oy + dy; dlApplyPos(); }
+  });
+  dlPill.addEventListener("pointerup", function () {
+    if (dlDrag.on && dlDrag.moved) { dlPosSaved = true; dlSavePos(); }
+    dlDrag.on = 0;
+  });
+  dlPill.addEventListener("pointercancel", function () { dlDrag.on = 0; });
+  window.addEventListener("resize", function () { if (dlOn && dlPos && dlBooted) dlApplyPos(); });
+  dlShadow.getElementById("dlX").addEventListener("click", function () {
+    dlOn = false;
+    dlHide();
+    try { chrome.storage.local.set({ cardDlyric: false }); } catch (e) { /* 无存储 */ }
+    /* onChanged 链接管面板按钮回写（PresetWidgets EXT_KV_MAP 反向同步） */
+  });
+
   /* ---------- SW 通道（断线重连 + 保活） ---------- */
   var port = null;
   var cmdSeq = 0;
@@ -945,8 +1228,10 @@
       if (nt && !(nt.fetchedAt > 0)) nt.fetchedAt = m.at || Date.now();
       ingestTrack(nt);
       renderStatic();
-      host.style.display = "block";
+      /* v8.7.16：全局歌词会话（cardEnabled=false）下不得点亮卡片壳 */
+      if (cardEnabled) host.style.display = "block";
       applyVis();
+      if (dlOn) dlApplyVis(); /* v8.7.16：真值到达驱动浮层显隐（首装会话路径） */
       lyricTick(); /* 切歌检测（want 变化时内部自重建） */
       wake(); /* v8.2.6 真值到达：循环若在睡（无曲目期）此处唤醒 */
     } else if (m.type === "spec") {
@@ -1004,7 +1289,9 @@
     icPause.style.display = effPlaying() ? "block" : "none";
     ficPlay.style.display = effPlaying() ? "none" : "block";
     ficPause.style.display = effPlaying() ? "block" : "none";
-    if (has && host.style.display !== "block") host.style.display = "block";
+    /* v8.7.16：cardEnabled=false 时 host 恒隐（全局歌词会话Port仍在，
+       state 真值照达——不能让关了浮窗的卡被真值到达重新点亮） */
+    if (has && cardEnabled && host.style.display !== "block") host.style.display = "block";
   }
 
   /* ---------- 位置插值：锚点轨迹 + 软重锚（sandbox.js 同族语义） ----------
@@ -1524,6 +1811,7 @@
     }
     stepEnv();
     paintGlow();
+    if (dlOn) dlFrame(); /* v8.7.16：全局歌词逐帧/逐拍渲染（needFrame 保底供拍） */
     /* 播放态图标真值回收：真值到达路径 = onState→applyVis→effPlaying 内对齐
        即清窗；此处只兜底硬上限到期那一刻的重绘 */
     if (optAt && Date.now() - optAt >= OPT_MAX) { applyVis(); }
@@ -1533,13 +1821,15 @@
     if (lastSpec.on && effPlaying()) return true;   /* 辉光律动中 */
     if (envB > 0.012 || envM > 0.02 || envH > 0.02) return true; /* 衰减尾（三轴） */
     if (!track) return false;
+    if (dlOn && track.playing) return true; /* v8.7.16：全局歌词走针/扫光需求（行界 200ms 拍兜底） */
     if (mode === "full") return true;               /* 歌词逐字 + 走针 */
     if (mode === "mini") return !!track.playing || !!optAt; /* 走针/乐观窗 */
     return !!optAt;                                 /* cover：仅乐观窗 */
   }
   function schedule() {
-    /* 完全体逐字/辉光活动/衰减尾 → rAF（60fps 顺滑）；纯走针 → 200ms 节拍 */
-    if (mode === "full" || (lastSpec.on && effPlaying()) || envB > 0.012 || envM > 0.02 || envH > 0.02) {
+    /* 完全体逐字/辉光活动/衰减尾 → rAF（60fps 顺滑）；纯走针 → 200ms 节拍
+       v8.7.16：全局歌词词模式播放中同享 rAF（扫光逐帧），行模式走 200ms 拍 */
+    if (mode === "full" || (dlOn && dlWordMode && effPlaying()) || (lastSpec.on && effPlaying()) || envB > 0.012 || envM > 0.02 || envH > 0.02) {
       rafId = requestAnimationFrame(frame);
     } else {
       tickTimer = setTimeout(tick, 200);
@@ -1552,7 +1842,7 @@
     if (tickTimer) { clearTimeout(tickTimer); tickTimer = 0; }
   }
   function wake() {
-    if (!cardEnabled) return;
+    if (!cardEnabled && !dlOn) return; /* v8.7.16：全局歌词会话同样可唤醒 */
     if (document.visibilityState !== "visible") return;
     if (rafId || tickTimer) return; /* 已醒：下一拍自会按 needFrame 重估 */
     if (needFrame()) schedule();

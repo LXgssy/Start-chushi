@@ -237,7 +237,7 @@ export const PRESET_LIMITS = {
      v8.2.7：22000 → 24000 —— 律动变亮律+细节环+三轴 beatFrame 余量（minified 实测 23299）；旧宿主导入 8.2.7 预设会被拒，需配套升级
      v8.2.9：24000 → 25600 —— 面板「律动/浮窗」双开关 + 128 段自适应余量；与 build-smtc-preset.py 同步改（两道数字门禁止漂移，Task 100 律）；旧宿主导入 8.2.9 预设会被拒，需配套升级
      v8.7.12：26400 → 27200 —— v8.7.11 音乐卡注入「玻璃协作」CSS（[data-panel] panelMode 透明协作，+123 字符）顶破官方自家上限=「音乐预设面板导入后提示超出字符上限」——官方包改动必须对账上限（本条即对账），+800 余量供后续迭代；五处联动：preset.ts/build-smtc-preset.py/PresetDocs/PRESET_DEV.md/探针 TL37b */
-  widgetHtmlLen: 27200,
+  widgetHtmlLen: 27600,
   icons: 7,
   iconLen: 8192,
   tokenValLen: 120,
