@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.17",
+    date: "2026-09-24",
+    title: "全局歌词体验修订：翻译行·中心锚·「词」开关归位",
+    channel: "shell",
+    highlights: [
+      "全局歌词去掉下一句预览：外语歌词才在下方显示灰淡翻译，中文歌词更干净",
+      "歌词长短变化时改为以歌词中心对称伸缩，不再像左右位移",
+      "「词」开关移到音乐面板播放控制行（上一首/播放/下一首旁），自绘词徽章图标，开启即点亮",
+    ],
+  },
+  {
     version: "8.7.16",
     date: "2026-09-24",
     title: "全局歌词浮层与抽屉提速",
