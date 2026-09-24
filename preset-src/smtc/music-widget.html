@@ -91,7 +91,10 @@ img{-webkit-user-drag:none;user-select:none}
 .cs-seek:hover .cs-rail{transform:scaleY(1)}
 .cs-rail i{position:absolute;left:0;top:0;height:100%;width:0%;border-radius:4px;background:var(--acc)}
 .cs-tm{display:flex;justify-content:space-between;margin-top:2px;font-size:10.5px;
-  color:var(--ink3);font-variant-numeric:tabular-nums;position:relative;z-index:1}
+  color:var(--ink3);font-variant-numeric:tabular-nums;position:relative;z-index:2}
+  /* v8.7.18：z 1→2——词钮 absolute 悬垂到 ctl 行上方，cs-ctl 同 z 且 DOM 靠后
+     会盖住悬垂区截获点击（visual 实测 intercepts pointer events）；
+     tm 仅词钮悬垂越界，整行提层对可见布局零影响（chip z4 仍在其上） */
 .cs-b{appearance:none;border:0;background:transparent;color:var(--ink2);width:38px;height:38px;
   border-radius:var(--r9);flex:none;display:flex;align-items:center;justify-content:center;
   cursor:pointer}
@@ -204,11 +207,17 @@ img{-webkit-user-drag:none;user-select:none}
 .cs-wbw{margin-left:auto}
 .cs-wbw:hover,.cs-tg:hover{color:var(--ink)}
 .cs-wbw.on,.cs-tg.on{color:#fff;background:var(--acc);border-color:var(--acc)}
-/* v8.7.17 全局歌词开关迁 cs-ctl 播放控制行（网易云「词」同位，用户
-   反馈：开关按钮没放图三红圈位置 + 图标要网易云式「词」徽章——自绘
-   词徽章 symbol 已重绘）。图标钮 on 态 = 词徽章点亮（accent 色）；
-   级联序在 .cs-b:hover 之后（同特异性后者胜，hover 不抢 on 态颜色）。 */
+/* v8.7.18 词钮迁时长行右下（用户反馈：播放/上一首/下一首三键不让位 +
+   位置=右侧歌曲总时长正下方 + 悬停去圆形高亮改图标本身点亮 + 「词」字
+   按真字形描取居中方框正中）。绝对定位锚 .cs-tm（position:relative 现成）：
+   零流入=控制行三键/歌词区/底行几何零影响；.cs-b:hover 圆底+scale
+   对此钮退役，悬停仅图标本体点亮（accent）。on 态点亮级联序在
+   .cs-b:hover 之后（同特异性后者胜，hover 不抢 on 态颜色）。 */
 .cs-b.on{color:var(--acc)}
+#csWordBtn{position:absolute;right:-4px;top:100%;margin-top:3px;width:26px;height:26px;
+  z-index:2}
+#csWordBtn svg{width:20px;height:20px}
+#csWordBtn:hover{background:transparent;color:var(--acc);transform:none}
 /* ---------- 提示芯片 ---------- */
 .cs-chip{position:absolute;left:50%;transform:translateX(-50%);z-index:4;display:none;
   align-items:center;gap:5px;padding:4px 10px;border-radius:var(--r9);
@@ -242,7 +251,7 @@ img{-webkit-user-drag:none;user-select:none}
     <symbol id="cs-i-chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
     <symbol id="cs-i-warn" viewBox="0 0 24 24"><path d="M12 4L2.6 20h18.8L12 4z"/><path d="M12 10.5v4"/><path d="M12 17.4v.2"/></symbol>
     <symbol id="cs-i-note" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.4"/><path d="M10 16V8.6l5.4 3"/></symbol>
-    <symbol id="cs-i-word" viewBox="0 0 24 24"><rect x="2.9" y="2.9" width="18.2" height="18.2" rx="5.2" stroke-width="1.7"/><path d="M7.2 6.9l1.5 1.4" stroke-width="1.55"/><path d="M5.9 11.4h3.2v5.3l1.7-1.6" stroke-width="1.55"/><path d="M11.8 6.9h6.7v10.4l-1.4-.8" stroke-width="1.55"/><path d="M13.3 10.5h3.7" stroke-width="1.55"/><path d="M13.2 13h3.3v4h-3.3z" stroke-width="1.55"/></symbol>
+    <symbol id="cs-i-word" viewBox="0 0 24 24"><rect x="2.9" y="2.9" width="18.2" height="18.2" rx="5.2" stroke-width="1.7"/><path fill="currentColor" stroke="none" d="m7.2 6.9 0.6 -0.6 1.2 1.1 0.8 0.8 -0.7 0.7 -0.7 -0.9zm3.6 2.6 0 -0.8 5 0 0 0.8zm-4.4 0.4 2.8 0 0 5.5 1.3 -1 0.3 0.8 -2.1 1.7 -0.6 0.4 -0.5 -0.6 0.5 -0.6 0.2 -0.5 0 -4.8 -1.9 0zm4.1 -3.4 7.1 0 0 10.1 -0.1 0.6 -0.3 0.3 -0.7 0.2 -1.6 0 -0.3 -1 1.8 0.1 0.2 -0.1 0.1 -0.1 0 -9.2 -6.2 0zm4.7 4.3 0 4.2 -3 0 0 0.8 -0.9 0 0 -5zm-0.9 3.3 0 -2.4 -2.1 0 0 2.4z"/></symbol><!-- v8.7.18「词」=真字形描取（Sarasa/思源黑体 U+8BCD 轮廓 DP 简化 45 点，bbox 居中方框 12,12） -->
   </defs>
 </svg>
 
@@ -266,7 +275,7 @@ img{-webkit-user-drag:none;user-select:none}
       <div class="cs-chip" id="csNote"><svg><use href="#cs-i-warn"/></svg><span id="csNoteTxt"></span></div>
     </div>
     <div class="cs-chip warn" id="csUpd" style="top:8px"><svg><use href="#cs-i-warn"/></svg><span id="csUpdTxt"></span></div>
-    <div class="cs-tm"><span id="csTCur">0:00</span><span id="csTDur">--:--</span></div>
+    <div class="cs-tm"><span id="csTCur">0:00</span><span id="csTDur">--:--</span><button class="cs-b" id="csWordBtn" type="button" title="全局歌词：在所有网页顶部显示可拖动的歌词浮层（逐字扫光与面板同语言）；开启后图标点亮，浮层右上角 × 可临时隐藏"><svg><use href="#cs-i-word"/></svg></button></div>
     <div class="cs-ctl">
       <button class="cs-b" id="csPrev" title="上一首"><svg><use href="#cs-i-prev"/></svg></button>
       <button class="cs-b cs-bmain" id="csPlay" title="播放 / 暂停">
@@ -274,7 +283,6 @@ img{-webkit-user-drag:none;user-select:none}
         <svg class="fi off" id="csIcPause"><use href="#cs-i-pause"/></svg>
       </button>
       <button class="cs-b" id="csNext" title="下一首"><svg><use href="#cs-i-next"/></svg></button>
-      <button class="cs-b" id="csWordBtn" type="button" title="全局歌词：在所有网页顶部显示可拖动的歌词浮层（逐字扫光与面板同语言）；开启后图标点亮，浮层右上角 × 可临时隐藏"><svg><use href="#cs-i-word"/></svg></button>
     </div>
     <div class="cs-lyr cs-hide" id="csLyr"><div class="cs-lyr-in" id="csLyrIn"></div></div>
     <div class="cs-foot"><span class="cs-led" id="csLed"></span><span id="csFootTxt">未连接</span><button class="cs-wbw" id="csWbw" type="button" title="强行逐字歌词：为没有逐字时间轴的歌词按估算添加逐字效果，准确率低；关闭时使用逐行歌词">强行逐字</button><button class="cs-tg on" id="csGlowBtn" type="button" title="高光律动：封面亮度/光晕随音乐高低频呼吸（本面板与悬浮卡同步）">律动</button><button class="cs-tg on" id="csFloatBtn" type="button" title="悬浮音乐卡：开启后在所有网页顶部显示">浮窗</button></div>
@@ -290,6 +298,8 @@ img{-webkit-user-drag:none;user-select:none}
 (function () {
   "use strict";
   /* ================= ChuShi music widget v8.2.9（纯渲染层）=================
+     v8.7.18：词钮迁时长行右下（三键不让位+总时长正下+hover 图标点亮）
+     +「词」真字形描取居中（思源黑体轮廓 DP 简化）
      v8.2.9：① 面板「律动」「浮窗」双开关（右键隐藏退役，浮窗全局显隐）
      ② 逐行行级时钟（mus.now(true)——行界不受逐字 -100ms 补偿拖累）
      ③ 频段细化 128 段自适应（中/高轴区间随 bands.length 切换）
@@ -755,7 +765,7 @@ img{-webkit-user-drag:none;user-select:none}
     applyToggles();
     if (window.chushi && chushi.storage) chushi.storage.set("csFloat", floatOn);
   };
-  /* v8.7.17 全局歌词开关迁 cs-ctl 播放控制行（网易云「词」同位图标钮）：
+  /* v8.7.18 全局歌词开关驻时长行右下（右侧总时长正下方，绝对定位零让位）：
      csDlyric 持久化（宿主 PresetWidgets 镜像
      cardDlyric 给扩展侧浮层）；默认关（桌面歌词是主动选择的形态）。
      浮层 × 钮反向写 storage 时经 widgetStoragePatch 回写实时翻转本按钮。 */

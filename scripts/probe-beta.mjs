@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.17/ChuShi-NewTab-v8.7.17.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.18/ChuShi-NewTab-v8.7.18.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -2351,15 +2351,15 @@ try {
     const docsSrc = readFileSync(new URL("../src/components/startpage/PresetDocs.tsx", import.meta.url), "utf8");
     const devMd = readFileSync(new URL("../docs/PRESET_DEV.md", import.meta.url), "utf8");
     const c37 = {
-      /* v8.7.16：27600（全局歌词开关+图标+接线余量，五处联动同步） */
-      htmlCap: docsSrc.includes("27600"),
+      /* v8.7.18：28800（词钮迁时长行右下+真字形描取，五处联动同步） */
+      htmlCap: docsSrc.includes("28800"),
       height: docsSrc.includes("40–460"),
       icons: docsSrc.includes("数组 ≤7 条"),
       fields: docsSrc.includes("十三个内容字段"),
-      md: devMd.includes("27600"),
-      legacyGone: !docsSrc.includes("≤18000") && !docsSrc.includes("≤26400") && !docsSrc.includes("40–320"),
+      md: devMd.includes("28800"),
+      legacyGone: !docsSrc.includes("≤18000") && !docsSrc.includes("≤26400") && !docsSrc.includes("≤27600") && !docsSrc.includes("40–320"),
     };
-    gate("TL37b 文档内容同步源码门（v8.7.16 升 27600）：27600/40–460/≤7/十三字段 + 应用内与仓内 md 对账 + 旧值（18000/26400）退役", c37.htmlCap && c37.height && c37.icons && c37.fields && c37.md && c37.legacyGone, JSON.stringify(c37));
+    gate("TL37b 文档内容同步源码门（v8.7.18 升 28800）：28800/40–460/≤7/十三字段 + 应用内与仓内 md 对账 + 旧值（18000/26400/27600）退役", c37.htmlCap && c37.height && c37.icons && c37.fields && c37.md && c37.legacyGone, JSON.stringify(c37));
   }
 
   /* ---------- TL38 掠影染色退役（v8.7.8 ③）：CSSOM 门 + 默认态零波及对账 ----------
@@ -2661,16 +2661,21 @@ try {
       /* ⑥ v8.7.17 中心锚律：dlRecenter 实测新宽回移左缘半差 + 基线 dlLastW
          （首测只记录不回移 + dlHide 归零重臂） */
       centerAnchor: /function dlRecenter\(\)/.test(cardSrc45) && /dlPos\.x -= Math\.round\(\(nw - dlLastW\) \/ 2\)/.test(cardSrc45) && /var dlLastW = 0;/.test(cardSrc45) && /dlLastW = 0; \/.+ 中心锚基线归零/.test(cardSrc45) && /!dlPosSaved && dlPos && !dlLastW/.test(cardSrc45),
-      /* ⑦ v8.7.17 按钮归位：csWordBtn 在 cs-ctl 播放控制行（csNext 之后）
-         且 cs-foot 行内无歌词钮（图三红圈位）+ on 点亮态
+      /* ⑦ v8.7.18 按钮迁时长行右下：csWordBtn 在 cs-tm 内 csTDur 之后
+         （用户：三键不让位+总时长正下方）；cs-ctl 与 cs-foot 行内均无歌词钮；
+         悬停去圆底律（#csWordBtn 绝对定位+hover 三件套：透明底+accent+无 scale）+
+         on 点亮态 +「词」真字形描取（fill 路径 45 点，注释形态锚）
          （musHtml45 是 JSON.stringify 产物：引号带反斜杠转义，正则用 \\?" 兼容） */
-      btnCtl: /id=\\?"csNext\\?"[\s\S]{0,400}?id=\\?"csWordBtn\\?"/.test(musHtml45) && /\.cs-b\.on\{color:var\(--acc\)\}/.test(musHtml45),
+      btnTm: /id=\\?"csTDur\\?"[\s\S]{0,300}?id=\\?"csWordBtn\\?"/.test(musHtml45) && /\.cs-b\.on\{color:var\(--acc\)\}/.test(musHtml45),
+      btnCtlGone: !( /<div class=\\?"cs-ctl\\?">[\s\S]{0,600}?<\/div>/.exec(musHtml45) || ["", ""] )[0].includes("csWordBtn"),
       btnFootGone: !( /<div class=\\?"cs-foot\\?">[\s\S]{0,800}?<\/div>/.exec(musHtml45) || ["", ""] )[0].includes("csWordBtn"),
+      btnHoverLaw: /#csWordBtn\{position:absolute;right:-4px;top:100%/.test(musHtml45) && /#csWordBtn:hover\{background:transparent;color:var\(--acc\);transform:none\}/.test(musHtml45) && /tabular-nums;position:relative;z-index:2\}/.test(musHtml45),
+      btnGlyph: /id=\\?"cs-i-word\\?"[\s\S]{0,160}?<rect /.test(musHtml45) && /<path fill=\\?"currentColor\\?" stroke=\\?"none\\?" d=\\?"m7\.2 6\.9[^"]{100,}z\\?"\/><\/symbol>/.test(musHtml45),
       /* ④ 抽屉提速源码锚（globals.css） */
       drawerFast: /calc\(0\.4s \* var\(--mo-speed, 1\)\) cubic-bezier\(0\.5, 0, 0\.3, 1\) backwards/.test(globalsSrc45) && /transition: transform 0\.40s cubic-bezier\(0\.5, 0, 0\.3, 1\)/.test(globalsSrc45),
     };
-    gate("TL45 全局歌词链路静态门（v8.7.17 扩）：浮层本体（cardDlyric 读取+Port 双表面+closed shadow+位置持久化+× 反向写回+扫光同律）+ 翻译行律（dlSetSub=ln.tr+预览退役）+ 中心锚律（dlRecenter 半差回移+dlLastW 基线）+ 宿主镜像链（EXT_KV_MAP/四参镜像/storageSet）+ 面板开关按钮（cs-ctl 归位 cs-foot 退役+on 点亮+构建产物三源）+ 抽屉 0.4s 源码锚",
-      t45.dlRead && t45.dlPortShared && t45.dlSurface && t45.dlPosPersist && t45.dlXWriteBack && t45.dlSweepLaw && t45.trLine && t45.previewGone && t45.centerAnchor && t45.pwMap && t45.pwMirror && t45.pwSet && t45.btn && t45.btnCtl && t45.btnFootGone && t45.drawerFast,
+    gate("TL45 全局歌词链路静态门（v8.7.18 扩）：浮层本体（cardDlyric 读取+Port 双表面+closed shadow+位置持久化+× 反向写回+扫光同律）+ 翻译行律（dlSetSub=ln.tr+预览退役）+ 中心锚律（dlRecenter 半差回移+dlLastW 基线）+ 宿主镜像链（EXT_KV_MAP/四参镜像/storageSet）+ 面板开关按钮（时长行右下 cs-ctl/cs-foot 双退役+hover 图标点亮+真字形+构建产物三源）+ 抽屉 0.4s 源码锚",
+      t45.dlRead && t45.dlPortShared && t45.dlSurface && t45.dlPosPersist && t45.dlXWriteBack && t45.dlSweepLaw && t45.trLine && t45.previewGone && t45.centerAnchor && t45.pwMap && t45.pwMirror && t45.pwSet && t45.btn && t45.btnTm && t45.btnCtlGone && t45.btnFootGone && t45.btnHoverLaw && t45.btnGlyph && t45.drawerFast,
       JSON.stringify(t45));
   }
 
@@ -2680,7 +2685,7 @@ try {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.17 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.18 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);
