@@ -185,9 +185,20 @@ const PanelStage = memo(function PanelStage({
   /** 相位迁移用 React 官方「渲染期间调整 state」模式（同步 setState 在 effect
       里会级联渲染；对比键入 prev state，仅在真变化时派生新相位） */
   const [prevAnyActive, setPrevAnyActive] = useState(anyActive);
+  /* v8.7.15 首开 fresh 律：closed→open 的会话（内建/部件皆然）=「首开」，
+     互切换装 =「换装」。首开的部件容器走 h-full 同构几何（弹簧过冲/回弹
+     全程可见，与内建玻璃卡逐帧同构——旧 max/min 联立在 s>h 段把过冲钳进
+     透明壳的隐形空间，卡片本身静止=「没有弹簧动效」的结构性根因）；宽度
+     以 duration:0 静默快照到会话宽（开合零横向运动=内建宽度语言）。换装：
+     容器回 max/min 底锚联立（互切底锚律不变）、宽度随高度盒弹簧拉伸
+     （v1.0.8 拉伸语言）。渲染期派生与 activeView 同源同帧原子提交；
+     首开赋值（activeView null→view）不算换装——v8.7.13 归属清零后每次
+     首开都走 null→view 路径，不得清除 fresh 位。 */
+  const [freshOpen, setFreshOpen] = useState(false);
   if (prevAnyActive !== anyActive) {
     setPrevAnyActive(anyActive);
     if (anyActive) setSession((s) => s + 1);
+    setFreshOpen(anyActive);
     setPhase(anyActive ? "open" : (p) => (p === "closed" ? "closed" : "closing"));
   }
   if (view != null && !sameView(activeView, view)) {
@@ -197,6 +208,10 @@ const PanelStage = memo(function PanelStage({
     } else if (view.kind === "builtin") {
       setSwapOut(null);
     }
+    /* 真互切换装才清除 fresh 位；首开赋值（activeView=null→view）不碰——
+       同帧渲染顺序：相位机先 setFreshOpen(true)，此处若无条件清除会把
+       首开误降级为换装（几何/宽度语言双回归） */
+    if (activeView != null) setFreshOpen(false);
     setActiveView(view); /* 首开赋值 + 互切换装 */
   }
 
@@ -279,7 +294,19 @@ const PanelStage = memo(function PanelStage({
     : contentH == null
       ? ("auto" as const)
       : contentH + PANEL_CARD_BORDER;
-  const shellWidth = activeWidget ? activeWidget.width : 360;
+  /* v8.7.15 宽度语言：宽度只在互切拉伸时弹簧（内建语言=开合零横向运动）。
+     closed 相位保持上一会话宽度——旧代码回落 360，每次部件开合都夹带一次
+     340↔360 横向弹簧噪声；首开帧宽度以 duration:0 静默快照到会话宽（此刻
+     高度盒≈0 完全不可见）；互切换装宽度目标随高度盒同拍弹簧。 */
+  const lastStageWRef = useRef(360);
+  const shellWidth = anyActive
+    ? activeWidget
+      ? activeWidget.width
+      : 360
+    : lastStageWRef.current;
+  useEffect(() => {
+    if (anyActive) lastStageWRef.current = activeWidget ? activeWidget.width : 360;
+  }, [anyActive, activeWidget]);
   /* 壳体类：透明壳上入场类无视觉（panel-fade 只动 bg/border/shadow），open 相位
      恒无类；closing 恒 .panel-sink（散场级联宿主）。reduceMotion 下同样挂
      panel-sink——瞬时性由 globals.css prefers-reduced-motion 块兜底 */
@@ -313,7 +340,13 @@ const PanelStage = memo(function PanelStage({
         data-widget={activeWidget?.key}
         initial={false}
         animate={{ width: shellWidth }}
-        transition={reduceMotion ? { duration: 0 } : motionSpring}
+        transition={
+          reduceMotion
+            ? { duration: 0 }
+            : freshOpen
+              ? { duration: 0 } /* 首开：宽度静默快照（高度≈0 不可见），开合零横向运动 */
+              : motionSpring /* 互切：宽度随高度盒弹簧拉伸（v1.0.8 拉伸语言） */
+        }
         className={`cl-stage pointer-events-auto relative overflow-hidden rounded-[18px] ${shellAnim}`}
         style={{
           transformOrigin: "bottom center",
@@ -424,6 +457,11 @@ const PanelStage = memo(function PanelStage({
          * .panel-sink 级联散场——与内建同语言。 */}
         {dockWidgets.map((w) => {
           const isActive = phase !== "closed" && dockWidgetOpen === w.key;
+          /* v8.7.15 首开 h-full 同构律：fresh 会话的激活部件容器 = top 0 ×
+             height 100%——玻璃卡每帧恒等于高度盒当前值，弹簧过冲段玻璃随
+             弹簧拉伸、回弹段随壳收折，与内建 h-full 逐帧同构（弹簧动效真正
+             可见）；互切/非激活 = max/min 底锚联立（互切底锚律不变）。 */
+          const geomFresh = freshOpen && isActive;
           const h = Math.max(WIDGET_H_MIN, Math.round(widgetHeights[w.key] ?? w.height));
           /* 视图存活判定（显隐与散场豁免共用）：active / 部件会话收场可见，
              其余（内建会话收场 / closed / 非激活部件）硬藏 */
@@ -449,15 +487,18 @@ const PanelStage = memo(function PanelStage({
                 position: "absolute",
                 left: 0,
                 right: 0,
-                /* 底锚恒贴律（v8.7.2 ㊷，互切底锚律的完备形态）：top=max(0,100%-h)
-                   × height=min(h,100%) 联立 → 卡底边 top+height 每帧恒等于壳体
-                   当前高度 s：s>h 段满高底贴锚（互切收折卡静止贴 dock）、s≤h 段
-                   卡随壳同步压缩（首开自零展开/关闭原样收折/回弹段随壳回弹）——
-                   欠阻尼弹簧收缩到 s 短暂低于 h 时卡底不再被 overflow-hidden
-                   裁切（v8.7.1 前「回弹断层」根因），四路几何与内建 h-full
-                   完全同构。max()/min() 纯 CSS 逐帧解析，零 JS 同步 */
-                top: `max(0px, calc(100% - ${h}px))`,
-                height: `min(${h}px, 100%)`,
+                /* 几何分律（v8.7.15）：
+                   · 首开 fresh = top 0 × height 100%：玻璃卡每帧恒等于高度盒
+                     当前值 s，过冲/回弹全程可见（与内建 h-full 逐帧同构）——
+                     旧联立在 s>h 段钳死过冲（卡片静止于透明壳的隐形伸缩中）
+                     =「没有弹簧动效」结构性根因；
+                   · 互切/非激活 = 底锚恒贴联立（v8.7.2 ㊷）：top=max(0,100%-h)
+                     × height=min(h,100%) → 卡底边每帧恒等于壳体当前高度 s，
+                     s>h 段满高底贴锚（互切收折卡静止贴 dock）、s≤h 段卡随壳
+                     同步压缩，欠阻尼回弹段卡底不再被 overflow-hidden 裁切
+                     （「回弹断层」根因）。max()/min() 纯 CSS 逐帧解析零 JS。 */
+                top: geomFresh ? "0px" : `max(0px, calc(100% - ${h}px))`,
+                height: geomFresh ? "100%" : `min(${h}px, 100%)`,
                 /* v8.7.1 显隐换构：visibility → opacity——visibility:hidden 会在
                    重激活时丢合成层栅格缓存（Chromium 旧层树白帧，白罩常开态的
                    成因）；opacity 常驻合成树，重激活零重栅格化 = 白帧结构性
@@ -511,16 +552,25 @@ const PanelStage = memo(function PanelStage({
                      根因）。揭示语言与内建同构：内容以壳体裁切窗自顶向下揭示
                      （top 锚=可见窗从内容顶扩张，与 cl-panel-content 自然高被
                      壳裁完全同语言）；收折对称（底部渐进裁没=原样收折）。玻璃
-                     容器照旧 max/min 底锚压缩（玻璃壳满窗律+底锚恒贴律不变，
-                     卡底恒贴 dock）。blur 聚拢随之作用于几何恒定层=纯合成器
-                     滤波零重栅格化。 */
+                     容器几何分律：首开 fresh = h-full 同构（过冲/回弹全程可见），
+                     互切 = max/min 底锚联立（卡底恒贴 dock）。blur 聚拢随之
+                     作用于几何恒定层=纯合成器滤波零重栅格化。 */
                   position: "absolute",
                   /* inset 简写 = top 0 / right 0 / bottom auto / left 0：
-                     顶锚定宽，bottom auto 让定高生效。不用顶锚字面量——
+                     顶锚定高，bottom auto 让定高生效。不用顶锚字面量——
                      TL25a「旧容器顶锚退役」静态门全文件扫该字面量形态，
-                     iframe 顶锚是另一元素另一语义（容器仍 max()/min() 底锚），
-                     inset 简写绕开字面量误触，门语义零弱化。 */
+                     iframe 顶锚是另一元素另一语义（容器首开 h-full 同构/
+                     互切 max()/min() 底锚），inset 简写绕开字面量误触，
+                     门语义零弱化。 */
                   inset: "0 0 auto 0",
+                  /* v8.7.15 横向满宽律（用户实测「面板整体往左位移」根修）：
+                     iframe 是 replaced element——绝对定位且 width auto 时按
+                     CSS 2.1 §10.3.8 取固有宽度（浏览器默认 300px），left:0
+                     锚定、right:0 被过约束忽略 → 音乐内容 300px 左锚在
+                     340px 玻璃卡内=整体左移+右侧空玻璃带。显式 width:100%
+                     恢复满宽拉伸；TL43 压扁退役语义=width+height【对】退役
+                     （v8.7.15 起宽度与定高各自独立，高度揭示律不变）。 */
+                  width: "100%",
                   height: `${h}px`,
                   /* 散场豁免同构（v8.7.11）：非存活视图不播任何关键帧，
                      与容器 inline animation 豁免同语义（容器 opacity 0 已兜底
