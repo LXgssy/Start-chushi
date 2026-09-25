@@ -70,6 +70,11 @@ export function useStartZen({
       if (!t || typeof t.closest !== "function") return;
       if (
         t.closest("button, a, nav, [role='dialog'], [role='tablist'], [role='radiogroup']") ||
+        /* v8.7.21 抽屉磁贴墙守卫：链接抽屉（中键唤出的全屏磁贴墙）开着时，
+           墙面空白处双击不进禅——墙内空白区不是交互元素，closest 链拦不住；
+           html.cs-drawer 由 QuickLinks 挂载态同步 effect 维护（挂载即挂类），
+           是最可靠的归属面。禅与抽屉本互斥：进禅收浮层，抽屉开着不进禅。 */
+        document.documentElement.classList.contains("cs-drawer") ||
         panelOpen ||
         editorOpen ||
         paletteOpen ||

@@ -955,6 +955,11 @@
     ':host{all:initial}' +
     '*{margin:0;padding:0;box-sizing:border-box;font-family:ui-sans-serif,system-ui,"PingFang SC","Microsoft YaHei",sans-serif}' +
     '@keyframes dlin{from{opacity:0}to{opacity:1}}' +
+    /* v8.7.21 切行模糊过渡：行内容重建即重播（remove+reflow+add，wpulse
+       同律）——blur(7px)→0 + 淡入；挂在 .dl1/.dl2 子元素（玻璃律只禁
+       玻璃壳自身 transform/filter，子元素动画不碰磨砂采样链）。 */
+    '@keyframes dlswap{0%{opacity:0;filter:blur(7px)}100%{opacity:1;filter:blur(0)}}' +
+    '.dl1.lin,.dl2.lin{animation:dlswap .42s ease}' +
     /* 显隐唯一开关律：药丸本体不带 display:none（v8.7.16 visual 实测坑：
        宿主 block 而药丸 display:none = 文本在 DOM 但零绘制）——宿主
        dlHost.style.display 是唯一显隐面，药丸随宿主现隐。 */
@@ -962,7 +967,15 @@
     'text-align:center;cursor:grab;user-select:none;touch-action:none;' +
     'background:rgba(22,22,28,.78);border:1px solid rgba(255,255,255,.12);' +
     'box-shadow:0 10px 34px rgba(0,0,0,.4);backdrop-filter:blur(18px) saturate(1.35);' +
-    '-webkit-backdrop-filter:blur(18px) saturate(1.35);transition:opacity .3s ease}' +
+    '-webkit-backdrop-filter:blur(18px) saturate(1.35);' +
+    /* v8.7.21 玻璃拉伸律：width/left 双过渡同曲线同拍——行宽变化时磨砂
+       玻璃拉伸/收缩、左缘同拍回移=视觉中心逐帧恒定（center=left+width/2
+       的 e(t) 系数相消可证）。布局动画不在「玻璃×动画杀合成律」禁域
+       （该律只禁 transform/filter；高度盒同族先例=PanelStage 玻璃卡满窗）。
+       .dl.drag 拖动态只留 opacity 过渡（跟手不果冻）。 */
+    'transition:opacity .3s ease,width .45s cubic-bezier(.22,1,.36,1),' +
+    'left .45s cubic-bezier(.22,1,.36,1)}' +
+    '.dl.drag{transition:opacity .3s ease}' +
     '.dl:active{cursor:grabbing}' +
     '.dl.boot{animation:dlin .26s ease}' +
     '.dl.pause{opacity:.38}' +
@@ -986,7 +999,8 @@
     '.dl:hover .dlx{display:flex}' +
     '.dlx:hover{background:#52525b;color:#fff}' +
     '.dlx svg{width:10px;height:10px;stroke:currentColor;fill:none;stroke-width:2.6;stroke-linecap:round}' +
-    '@media (prefers-reduced-motion:reduce){.dl.boot{animation:none}.dl{transition:none}}' +
+    '@media (prefers-reduced-motion:reduce){.dl.boot{animation:none}.dl{transition:none}' +
+    '.dl1.lin,.dl2.lin{animation:none}}' +
     '</style>' +
     '<div class="dl" id="dlPill">' +
     '<button class="dlx" id="dlX" title="隐藏全局歌词（可在「初始」音乐面板重新开启）">' +
@@ -1007,7 +1021,10 @@
   var dlLastW = 0; /* v8.7.17 中心锚基线：0=未基线（首测只记录不回移） */
   function dlClamp() {
     var w = window.innerWidth || 1200, h = window.innerHeight || 800;
-    var pw = dlPill.offsetWidth || 420, ph = dlPill.offsetHeight || 76;
+    /* v8.7.21 显式宽度优先：width 过渡飞行中 offsetWidth 是中间值，
+       钳制按目标宽算（style.width 恒为目标 px），未显式化老态兜底旧路 */
+    var pw = parseFloat(dlPill.style.width) || dlPill.offsetWidth || 420,
+        ph = dlPill.offsetHeight || 76;
     dlPos.x = Math.min(Math.max(8, dlPos.x), Math.max(8, w - pw - 8));
     dlPos.y = Math.min(Math.max(8, dlPos.y), Math.max(8, h - ph - 8));
   }
@@ -1021,13 +1038,39 @@
   }
   /* v8.7.17 中心锚律：内容重建（切行/翻译行有无）后调用——实测新宽，
      左缘回移宽度差之半 = 中心不动；越界钳制仍由 dlApplyPos 兑底。 */
+  /* v8.7.21 玻璃拉伸律：内容重建后实测自然宽（Range 取文本布局宽——
+     overflow/ellipsis 是绘制期裁剪不改布局，过渡飞行中读数不受污染；
+     scrollWidth≥clientWidth 读不出收缩目标故弃用），显式写 width=拉伸/
+     收缩动画源；左缘同拍回移差半=中心锚（已存档用户）。
+     首用未存档（!dlPosSaved，用户没拖过）改真居中：x=(视口-新宽)/2，
+     修复「无歌词药丸态不居中」——旧律 dlLoadPos 异步回调晚到时首用居中
+     被 dlLastW 记账吞掉（首测只记录不回移），x 停在假设宽位=视觉偏侧。 */
+  function dlMeasure() {
+    function natW(el) {
+      try {
+        var r = document.createRange();
+        r.selectNodeContents(el);
+        return r.getBoundingClientRect().width || 0;
+      } catch (eM) { return 0; }
+    }
+    /* 左右 padding 40 + 边框 2（box-sizing:border-box） */
+    var raw = Math.max(natW(dlL1), natW(dlL2)) + 42;
+    var vw = window.innerWidth || 1200;
+    return Math.max(60, Math.min(Math.round(raw), Math.min(720, Math.round(vw * 0.94))));
+  }
   function dlRecenter() {
     if (!dlPos) return;
-    var nw = dlPill.offsetWidth || 0;
-    if (dlLastW && nw && nw !== dlLastW) {
-      dlPos.x -= Math.round((nw - dlLastW) / 2);
+    var nw = dlMeasure();
+    if (nw) {
+      dlPill.style.width = nw + "px";
+      if (!dlPosSaved) {
+        /* 首用真居中：内容宽度变化始终对齐视口中心（拖走后 dlPosSaved=true 转中心锚） */
+        dlPos.x = Math.round(((window.innerWidth || 1200) - nw) / 2);
+      } else if (dlLastW && nw !== dlLastW) {
+        dlPos.x -= Math.round((nw - dlLastW) / 2);
+      }
+      dlLastW = nw;
     }
-    if (nw) dlLastW = nw;
     dlApplyPos();
   }
   function dlLoadPos() {
@@ -1039,7 +1082,9 @@
         } else {
           /* 首用默认位：底部居中（显示时按实测宽再精调一次） */
           var w = window.innerWidth || 1200, h = window.innerHeight || 800;
-          dlPos = { x: Math.round((w - 460) / 2), y: Math.max(8, h - 176) };
+          /* v8.7.21 默认位假设宽 460→42（空药丸实宽）：dlRecenter 首用真
+             居中接手前，空药丸首帧即居中，消除内容到达前的偏侧闪帧 */
+          dlPos = { x: Math.round((w - 42) / 2), y: Math.max(8, h - 176) };
           dlPosSaved = false;
         }
         if (dlBooted) dlApplyPos();
@@ -1090,6 +1135,14 @@
     var s = t || "";
     if (s !== dlLast2) { dlLast2 = s; dlL2.textContent = s; }
   }
+  /* v8.7.21 切行模糊过渡重播口：remove+reflow+add（连行必重播，wpulse 同律） */
+  function dlSwapFx() {
+    dlL1.classList.remove("lin");
+    dlL2.classList.remove("lin");
+    void dlL1.offsetWidth;
+    dlL1.classList.add("lin");
+    dlL2.classList.add("lin");
+  }
   function dlBuildLine(ln) {
     dlWords = [];
     dlL1.innerHTML = "";
@@ -1110,6 +1163,7 @@
       dlL1.textContent = (ln && ln.t) || "·";
     }
     dlSetSub(ln && ln.tr);
+    dlSwapFx();
   }
   function dlSweep(n) {
     for (var j = 0; j < dlWords.length; j++) {
@@ -1137,7 +1191,8 @@
         dlNoLyr = true; dlWordMode = false; dlLineIdx = -2; dlWords = [];
         dlL1.innerHTML = ""; dlLast1 = t1s; dlL1.textContent = t1s;
         dlSetSub(t2s);
-        dlRecenter(); /* 行宽变化 → 中心锚重排（v8.7.17） */
+        dlSwapFx();
+        dlRecenter(); /* 行宽变化 → 拉伸动画+中心重排（v8.7.21） */
       }
       return;
     }
@@ -1158,7 +1213,7 @@
     if (n.lineIndex !== dlLineIdx) {
       dlLineIdx = n.lineIndex;
       dlBuildLine(p.lines[n.lineIndex]);
-      dlRecenter(); /* 行宽变化 → 中心锚重排（长行不越界，v8.7.17） */
+      dlRecenter(); /* 行宽变化 → 拉伸动画+中心重排（长行不越界，v8.7.21） */
     } else if (dlWordMode) {
       dlSweep(n);
     }
@@ -1169,6 +1224,7 @@
     if (e.button !== undefined && e.button !== 0) return;
     if (e.target && e.target.closest && e.target.closest(".dlx")) return;
     dlDrag.on = 1; dlDrag.moved = 0;
+    dlPill.classList.add("drag"); /* v8.7.21 拖动期过渡归零（跟手不果冻） */
     dlDrag.px = e.clientX; dlDrag.py = e.clientY;
     dlDrag.ox = dlPos ? dlPos.x : 0; dlDrag.oy = dlPos ? dlPos.y : 0;
     try { dlPill.setPointerCapture(e.pointerId); } catch (e1) { /* 已释放 */ }
@@ -1182,8 +1238,9 @@
   dlPill.addEventListener("pointerup", function () {
     if (dlDrag.on && dlDrag.moved) { dlPosSaved = true; dlSavePos(); }
     dlDrag.on = 0;
+    dlPill.classList.remove("drag");
   });
-  dlPill.addEventListener("pointercancel", function () { dlDrag.on = 0; });
+  dlPill.addEventListener("pointercancel", function () { dlDrag.on = 0; dlPill.classList.remove("drag"); });
   window.addEventListener("resize", function () { if (dlOn && dlPos && dlBooted) dlApplyPos(); });
   dlShadow.getElementById("dlX").addEventListener("click", function () {
     dlOn = false;
