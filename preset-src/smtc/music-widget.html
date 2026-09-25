@@ -228,11 +228,14 @@ img{-webkit-user-drag:none;user-select:none}
    hover 透明底律原样保留，零圆底回归。
    v8.7.20 轻量化+角标（用户：回弹感没必要这么强+加开启状态图标）：
    ④按压缩深 .82→.88、脉冲峰 1.22→1.1、时长 .32s→.28s（回弹轻一点）
-   ⑤on-badge ✓ 角标（accent 圆+白勾）锚「词」字右下角（right/bottom:-1px，
-   10px 徽标中心≈字形盒右下角 (22,22)），off 隐 on 显，与辉光并用=状态双保险。 */
+   ⑤on-badge ✓ 角标（accent 圆+白勾），off 隐 on 显，与辉光并用=状态双保险。
+   v8.7.22 角标入框（用户：✓放到词钮的方框里面，也就是「词」字的右下角）：
+   ⑥徽标 9px 收进图标圆角方框内、中心落在「词」字形右下角上（旧外悬位退役），
+   圆加白描边环与点亮后的 accent 字形分离（同色相融则勾形不可辨）。 */
 #csWordBtn:active{transform:scale(.88);color:var(--acc)}
 #csWordBtn.on{filter:drop-shadow(0 0 5px var(--acc32))}
-#csWordBtn .on-badge{position:absolute;right:-1px;bottom:-1px;width:10px;height:10px;display:none;fill:var(--acc);stroke:none}
+#csWordBtn .on-badge{position:absolute;right:4.5px;bottom:4.5px;width:9px;height:9px;display:none;fill:var(--acc);stroke:none}
+#csWordBtn .on-badge circle{stroke:#fff;stroke-width:1.5}
 #csWordBtn .on-badge path{fill:none;stroke:#fff;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 #csWordBtn.on .on-badge{display:block}
 @keyframes cs-wpulse-kf{0%{transform:scale(.88)}45%{transform:scale(1.1)}100%{transform:scale(1)}}
@@ -294,7 +297,7 @@ img{-webkit-user-drag:none;user-select:none}
       <div class="cs-chip" id="csNote"><svg><use href="#cs-i-warn"/></svg><span id="csNoteTxt"></span></div>
     </div>
     <div class="cs-chip warn" id="csUpd" style="top:8px"><svg><use href="#cs-i-warn"/></svg><span id="csUpdTxt"></span></div>
-    <div class="cs-tm"><span id="csTCur">0:00</span><span id="csTDur">--:--</span><button class="cs-b" id="csWordBtn" type="button" title="全局歌词：在所有网页顶部显示可拖动的歌词浮层（逐字扫光与面板同语言）；开启后图标点亮并带 ✓ 角标，浮层右上角 × 可临时隐藏"><svg><use href="#cs-i-word"/></svg><svg class="on-badge" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="6"/><path d="m3.5 6.3 1.7 1.7 3.3-3.7"/></svg></button></div>
+    <div class="cs-tm"><span id="csTCur">0:00</span><span id="csTDur">--:--</span><button class="cs-b" id="csWordBtn" type="button" title="全局歌词：在所有网页顶部显示可拖动的歌词浮层（逐字扫光与面板同语言）；开启后图标点亮并带 ✓ 角标，浮层右上角 × 可临时隐藏"><svg><use href="#cs-i-word"/></svg><svg class="on-badge" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5.25"/><path d="m3.5 6.3 1.7 1.7 3.3-3.7"/></svg></button></div>
     <div class="cs-ctl">
       <button class="cs-b" id="csPrev" title="上一首"><svg><use href="#cs-i-prev"/></svg></button>
       <button class="cs-b cs-bmain" id="csPlay" title="播放 / 暂停">

@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.21/ChuShi-NewTab-v8.7.21.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.22/ChuShi-NewTab-v8.7.22.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -2682,8 +2682,9 @@ try {
   /* ---------- TL46 反馈轻量化+on 角标+dl 白描边根修静态门（v8.7.20） ----------
      ①词钮回弹轻量化（用户：回弹感没必要这么强）：:active .82→.88 +
      脉冲峰 1.22→1.1 + .32s→.28s（旧键帧/旧时长退役，注释提及不计数）
-     ②on 态 ✓ 角标（用户：加开启状态图标）：on-badge svg（accent 圆 r6+
-     白勾 m3.5 6.3…）在按钮内 use 之后 + off 隐/on 显/白勾/accent 圆 CSS 对
+     ②on 态 ✓ 角标（用户：加开启状态图标；v8.7.22 入框=收进方框内
+     「词」字右下角+白描边环分离）：on-badge svg（accent 圆白环+白勾
+     m3.5 6.3…）在按钮内 use 之后 + off 隐/on 显/白环/白勾/accent 圆 CSS 对
      ③dl 逐字白描边根修（用户：播放过的高亮字有白色描边）：层角色对调——
      .dw 底层恒 accent（已唱色）+ .ov 面层白字裁未唱区（clip 左缘=--p），
      已唱字形直接坐在深色药丸上零白晕；旧 accent 面层/右缘裁剪在 dl 块内
@@ -2697,14 +2698,14 @@ try {
     const t46 = {
       softPress: /#csWordBtn:active\{transform:scale\(\.88\);color:var\(--acc\)\}/.test(wSrc46),
       softPulse: /@keyframes cs-wpulse-kf\{0%\{transform:scale\(\.88\)\}45%\{transform:scale\(1\.1\)\}100%\{transform:scale\(1\)\}\}/.test(wSrc46) && /animation:cs-wpulse-kf \.28s var\(--ez\)/.test(wSrc46) && !/scale\(1\.22\)/.test(wSrc46) && !/\.32s var\(--ez\)/.test(wSrc46),
-      badgeEl: /<svg class="on-badge" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="6"\/><path d="m3\.5 6\.3 1\.7 1\.7 3\.3-3\.7"\/><\/svg><\/button>/.test(wSrc46),
-      badgeCss: /#csWordBtn \.on-badge\{position:absolute;right:-1px;bottom:-1px;width:10px;height:10px;display:none;fill:var\(--acc\);stroke:none\}/.test(wSrc46) && /#csWordBtn \.on-badge path\{fill:none;stroke:#fff;stroke-width:1\.9/.test(wSrc46) && /#csWordBtn\.on \.on-badge\{display:block\}/.test(wSrc46),
+      badgeEl: /<svg class="on-badge" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5\.25"\/><path d="m3\.5 6\.3 1\.7 1\.7 3\.3-3\.7"\/><\/svg><\/button>/.test(wSrc46),
+      badgeCss: /#csWordBtn \.on-badge\{position:absolute;right:4\.5px;bottom:4\.5px;width:9px;height:9px;display:none;fill:var\(--acc\);stroke:none\}/.test(wSrc46) && /#csWordBtn \.on-badge circle\{stroke:#fff;stroke-width:1\.5\}/.test(wSrc46) && /#csWordBtn \.on-badge path\{fill:none;stroke:#fff;stroke-width:1\.9/.test(wSrc46) && /#csWordBtn\.on \.on-badge\{display:block\}/.test(wSrc46),
       dlDwAcc: /\.dl1 \.dw\{position:relative;display:inline-block;color:var\(--acc,#8b5cf6\)\}/.test(dlCss46),
       dlOvWhite: /\.dl1 \.dw \.ov\{position:absolute;left:0;top:0;pointer-events:none;white-space:nowrap;color:#fff;clip-path:inset\(-8% -8% -8% var\(--p,0%\)\)\}/.test(dlCss46),
       dlOldGone: dlCss46.length > 400 && !/inset\(-8% calc\(100% - var\(--p,0%\)\)/.test(dlCss46) && !/nowrap;color:var\(--acc,#8b5cf6\)/.test(dlCss46),
       cardUntouched: /\.fw \.ov\{[\s\S]{0,150}?calc\(100% - var\(--p,0%\)\) -8% 0\)\}/.test(cardSrc46),
     };
-    gate("TL46 反馈轻量化+on 角标+dl 白描边根修静态门（v8.7.20）：按压 .88/脉冲 1.1/.28s（旧值退役）+ on-badge 元素/CSS 三件 + dl 层对调（.dw accent 底+.ov 白面层 clip 左缘 --p+dl 块内旧律退役）+ 悬浮卡旧律零波及",
+    gate("TL46 反馈轻量化+on 角标+dl 白描边根修静态门（v8.7.20）：按压 .88/脉冲 1.1/.28s（旧值退役）+ on-badge 元素/CSS 四件（入框+白环）+ dl 层对调（.dw accent 底+.ov 白面层 clip 左缘 --p+dl 块内旧律退役）+ 悬浮卡旧律零波及",
       t46.softPress && t46.softPulse && t46.badgeEl && t46.badgeCss && t46.dlDwAcc && t46.dlOvWhite && t46.dlOldGone && t46.cardUntouched,
       JSON.stringify(t46));
   }
@@ -2748,7 +2749,7 @@ try {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.21 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.22 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);

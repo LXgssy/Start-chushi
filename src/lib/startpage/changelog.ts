@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.22",
+    date: "2026-09-25",
+    title: "「词」✓ 角标入框，贴在「词」字右下角",
+    channel: "shell",
+    highlights: [
+      "「词」开关的 ✓ 角标从框外沿收进图标圆角方框内，锚定「词」字右下角，开启即点亮",
+      "角标新增白色描边环，与点亮后的字形清晰分离，小尺寸下勾形依然可辨",
+    ],
+  },
+  {
     version: "8.7.21",
     date: "2026-09-25",
     title: "音乐桥抗休眠终局 + 全局歌词玻璃拉伸/切行模糊",
