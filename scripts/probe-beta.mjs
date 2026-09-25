@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.22/ChuShi-NewTab-v8.7.22.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.23/ChuShi-NewTab-v8.7.23.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -2351,15 +2351,15 @@ try {
     const docsSrc = readFileSync(new URL("../src/components/startpage/PresetDocs.tsx", import.meta.url), "utf8");
     const devMd = readFileSync(new URL("../docs/PRESET_DEV.md", import.meta.url), "utf8");
     const c37 = {
-      /* v8.7.18：28800（词钮迁时长行右下+真字形描取，五处联动同步） */
-      htmlCap: docsSrc.includes("28800"),
+      /* v8.7.23：30400（网易云播放器预设加入，五处联动同步） */
+      htmlCap: docsSrc.includes("30400"),
       height: docsSrc.includes("40–460"),
       icons: docsSrc.includes("数组 ≤7 条"),
       fields: docsSrc.includes("十三个内容字段"),
-      md: devMd.includes("28800"),
-      legacyGone: !docsSrc.includes("≤18000") && !docsSrc.includes("≤26400") && !docsSrc.includes("≤27600") && !docsSrc.includes("40–320"),
+      md: devMd.includes("30400"),
+      legacyGone: !docsSrc.includes("≤18000") && !docsSrc.includes("≤26400") && !docsSrc.includes("≤27600") && !docsSrc.includes("≤28800") && !docsSrc.includes("40–320"),
     };
-    gate("TL37b 文档内容同步源码门（v8.7.18 升 28800）：28800/40–460/≤7/十三字段 + 应用内与仓内 md 对账 + 旧值（18000/26400/27600）退役", c37.htmlCap && c37.height && c37.icons && c37.fields && c37.md && c37.legacyGone, JSON.stringify(c37));
+    gate("TL37b 文档内容同步源码门（v8.7.23 升 30400）：30400/40–460/≤7/十三字段 + 应用内与仓内 md 对账 + 旧值（18000/26400/27600/28800）退役", c37.htmlCap && c37.height && c37.icons && c37.fields && c37.md && c37.legacyGone, JSON.stringify(c37));
   }
 
   /* ---------- TL38 掠影染色退役（v8.7.8 ③）：CSSOM 门 + 默认态零波及对账 ----------
@@ -2743,13 +2743,43 @@ try {
       JSON.stringify(t47));
   }
 
+  /* ---------- TL48 v8.7.23 网易云直链播放静态门 ----------
+     ①宿主数据层 netease.ts：weapi 双层 AES+RSA、端点白名单（search/get 老端点
+       避 cloudsearch 反爬 50000005）、宿主 <audio> 单例 + MediaSession；
+     ②widget 桥三层：PresetWidgets neApi/neAudio/neSub case + sandbox.js
+       chushi.ne shim + widgetMode 中继/透传 + sandbox v=125 冲缓存；
+     ③官方预设：build-netease-preset.py 特征门 + official-presets.json 内嵌。 */
+  {
+    const neSrc = readFileSync(new URL("../src/lib/startpage/netease.ts", import.meta.url), "utf8");
+    const pwSrc48 = readFileSync(new URL("../src/components/startpage/PresetWidgets.tsx", import.meta.url), "utf8");
+    const sbSrc48 = readFileSync(new URL("../public/sandbox.js", import.meta.url), "utf8");
+    const sbTs48 = readFileSync(new URL("../src/lib/startpage/sandbox.ts", import.meta.url), "utf8");
+    const opSrc48 = readFileSync(new URL("../scripts/build-official-presets.py", import.meta.url), "utf8");
+    let opJson48 = "";
+    try { opJson48 = readFileSync(new URL("../src/lib/startpage/official-presets.json", import.meta.url), "utf8"); } catch { }
+    const t48 = {
+      hostCrypto: /0CoJUm6Qyw8W8jud/.test(neSrc) && /0102030405060708/.test(neSrc) && /RSA_E = 0x10001n/.test(neSrc) && /credentials: "include"/.test(neSrc),
+      nePaths: /\/weapi\/search\/get/.test(neSrc) && /\/weapi\/song\/enhance\/player\/url\/v1/.test(neSrc) && /\/weapi\/v3\/song\/detail/.test(neSrc) && /\/weapi\/login\/qrcode\/unikey/.test(neSrc),
+      hostAudio: /case "load":/.test(neSrc) && /case "meta":/.test(neSrc) && /navigator.mediaSession.metadata = new MediaMetadata/.test(neSrc) && /setActionHandler\("nexttrack"/.test(neSrc),
+      pwBridge: /case "neApi":/.test(pwSrc48) && /case "neAudio":/.test(pwSrc48) && /case "neSub":/.test(pwSrc48) && /widgetNeResult/.test(pwSrc48) && /widgetNeAudio/.test(pwSrc48) && /NE_PATHS/.test(pwSrc48),
+      sbShim: /ne:\{api:function\(p,d\)/.test(sbSrc48) && /op:'neApi'/.test(sbSrc48) && /op:'neAudio'/.test(sbSrc48) && /op:'neSub'/.test(sbSrc48),
+      sbRelay: /path: str\(d\.path, 64\)/.test(sbSrc48) && /widgetNeResult" \|\| m\.type === "widgetNeAudio/.test(sbSrc48),
+      sbCache: /sandbox\.html\?v=125/.test(sbTs48) && /mode=widget&v=125/.test(sbTs48) && /mode=page&v=125/.test(sbTs48),
+      opEntry: /初始网易云播放器预设\.cshz/.test(opSrc48) && /"netease"/.test(opSrc48),
+      opJson: opJson48.includes("初始 · 网易云播放器") && opJson48.includes("chushi.ne.api"),
+    };
+    gate("TL48 网易云直链播放五源静态门（v8.7.23）",
+      t48.hostCrypto && t48.nePaths && t48.hostAudio && t48.pwBridge && t48.sbShim && t48.sbRelay && t48.sbCache && t48.opEntry && t48.opJson,
+      JSON.stringify(t48));
+  }
+
   /* ---------- T10 pageerror ---------- */
   gate("T10 pageerror=0", errors.length === 0, errors.join(" | ").slice(0, 120));
 } catch (e) {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.22 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.23 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);

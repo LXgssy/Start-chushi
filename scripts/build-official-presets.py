@@ -1,5 +1,6 @@
 # build-official-presets.py — 生成 ⌘K「官方预设」内嵌数据（v8.4.11）
 # 源：examples/焕新示例预设.json + examples/初始SMTC音乐预设.cshz（build-smtc-preset.py 产物）
+#      + examples/初始网易云播放器预设.cshz（build-netease-preset.py 产物，v8.7.23）
 # 出：src/lib/startpage/official-presets.json（official-presets.ts 导入）
 # 形态：{ generatedAt, presets: [{id,name,label,tagline,manifest,assets}] }
 #   · manifest 原样保留 asset: 引用（页面侧 parsePreset 先按内联前长度过校验，与
@@ -89,8 +90,14 @@ with zipfile.ZipFile(ROOT / "examples" / "初始SMTC音乐预设.cshz") as z:
     assets = pack_assets(z)
 check_refs(music, assets)
 
+# ③ 网易云播放器预设（v8.7.23：.cshz 包 manifest，无资产）
+with zipfile.ZipFile(ROOT / "examples" / "初始网易云播放器预设.cshz") as z:
+    netease = json.loads(z.read("manifest.json"))
+    netease_assets = pack_assets(z)
+check_refs(netease, netease_assets)
+
 data = {
-    "generatedAt": "2026-09-15",
+    "generatedAt": "2026-09-25",
     "presets": [
         {
             "id": "refresh",
@@ -107,6 +114,14 @@ data = {
             "tagline": "SMTC 桥接 · 含媒体控制插件",
             "manifest": music,
             "assets": assets,
+        },
+        {
+            "id": "netease",
+            "name": netease["name"],
+            "label": "网易云播放器预设",
+            "tagline": "方案二 · 直链播放 · 扫码登录",
+            "manifest": netease,
+            "assets": netease_assets,
         },
     ],
 }
