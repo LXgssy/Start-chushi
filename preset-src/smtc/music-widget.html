@@ -215,9 +215,21 @@ img{-webkit-user-drag:none;user-select:none}
    .cs-b:hover 之后（同特异性后者胜，hover 不抢 on 态颜色）。 */
 .cs-b.on{color:var(--acc)}
 #csWordBtn{position:absolute;right:-4px;top:100%;margin-top:3px;width:26px;height:26px;
-  z-index:2}
+  z-index:2;transition:transform .12s ease,color .25s,background-color .3s,filter .3s}
 #csWordBtn svg{width:20px;height:20px}
 #csWordBtn:hover{background:transparent;color:var(--acc);transform:none}
+/* v8.7.19 点击反馈律（用户：不知道自己是否点击了按钮）：
+   根因=hover 点亮与 on 点亮同为 accent，悬停态下点击前后颜色零变化。
+   ①按下 :active 图标本体缩小（scale .82，.12s 快过渡=按下即陷，松手即弹）
+   ②点击落定 wpulse 脉冲弹跳（.32s，起点对齐 .82 按下态续接不跳变，
+   连点经 remove+reflow+add 重触发必重播）
+   ③on 态 accent 辉光（drop-shadow 图标本体，非圆底）——on 在悬停下仍可分辨
+   级联序：:active 在 :hover 后（同特异性后者胜，按下压过 transform:none）；
+   hover 透明底律原样保留，零圆底回归。 */
+#csWordBtn:active{transform:scale(.82);color:var(--acc)}
+#csWordBtn.on{filter:drop-shadow(0 0 5px var(--acc32))}
+@keyframes cs-wpulse-kf{0%{transform:scale(.82)}45%{transform:scale(1.22)}100%{transform:scale(1)}}
+#csWordBtn.wpulse{animation:cs-wpulse-kf .32s var(--ez)}
 /* ---------- 提示芯片 ---------- */
 .cs-chip{position:absolute;left:50%;transform:translateX(-50%);z-index:4;display:none;
   align-items:center;gap:5px;padding:4px 10px;border-radius:var(--r9);
@@ -774,6 +786,10 @@ img{-webkit-user-drag:none;user-select:none}
   wordBtn.onclick = function () {
     wordOn = !wordOn;
     wordBtn.classList.toggle("on", wordOn);
+    /* v8.7.19 点击反馈：脉冲弹跳重触发（remove+reflow+add，连点必重播） */
+    wordBtn.classList.remove("wpulse");
+    void wordBtn.offsetWidth;
+    wordBtn.classList.add("wpulse");
     if (window.chushi && chushi.storage) chushi.storage.set("csDlyric", wordOn);
   };
   /* v8.4.4 反向实时同步：浮窗/他页改 chrome.storage → 宿主回写 kv 并下发

@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.19",
+    date: "2026-09-25",
+    title: "「词」开关点击反馈：按下回弹·脉冲确认·点亮辉光",
+    channel: "shell",
+    highlights: [
+      "按下「词」按钮图标立即缩小、松手回弹，点击落定有一记脉冲弹跳，不用再猜有没有点中",
+      "开启状态下「词」图标带同色微光，悬停时也能一眼分辨开与关",
+    ],
+  },
+  {
     version: "8.7.18",
     date: "2026-09-24",
     title: "「词」开关再精修：真字形·总时长正下方·悬停直亮",
