@@ -968,9 +968,16 @@
     '.dl.pause{opacity:.38}' +
     '.dl1{font-size:21px;font-weight:650;line-height:1.45;color:#fff;white-space:nowrap;overflow:hidden;' +
     'text-overflow:ellipsis;text-shadow:0 1px 7px rgba(0,0,0,.38)}' +
-    '.dl1 .dw{position:relative;display:inline-block}' +
-    '.dl1 .dw .ov{position:absolute;left:0;top:0;pointer-events:none;white-space:nowrap;color:var(--acc,#8b5cf6);' +
-    'clip-path:inset(-8% calc(100% - var(--p,0%)) -8% 0)}' +
+    /* v8.7.20 逐字白描边根修（用户：播放过的高亮字有白色描边）：
+       旧律=白底字上叠 accent 扫光层——accent 字形抗锯齿边缘混入底下纯白，
+       已唱字四周白晕读作「描边」（悬浮卡/面板无此病：其底色是灰阶，白晕对比弱）。
+       根修=层角色对调：底层恒 accent（已唱色）、面层白字裁「未唱区」
+       （clip 左缘=--p，右半显白）——已唱字形直接坐在深色药丸上零白晕；
+       未唱白字边缘的 accent 混色在人眼跟踪焦点（已唱区）之外不可察。
+       视觉语义不变：未唱白 / 已唱 accent；--p 量化/行级时钟零改动。 */
+    '.dl1 .dw{position:relative;display:inline-block;color:var(--acc,#8b5cf6)}' +
+    '.dl1 .dw .ov{position:absolute;left:0;top:0;pointer-events:none;white-space:nowrap;color:#fff;' +
+    'clip-path:inset(-8% -8% -8% var(--p,0%))}' +
     '.dl2{margin-top:1px;font-size:12.5px;font-weight:450;line-height:1.5;color:rgba(255,255,255,.55);' +
     'white-space:nowrap;overflow:hidden;text-overflow:ellipsis}' +
     '.dlx{appearance:none;position:absolute;top:-9px;right:-9px;width:22px;height:22px;border-radius:999px;' +

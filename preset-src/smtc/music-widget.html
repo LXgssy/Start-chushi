@@ -220,16 +220,23 @@ img{-webkit-user-drag:none;user-select:none}
 #csWordBtn:hover{background:transparent;color:var(--acc);transform:none}
 /* v8.7.19 点击反馈律（用户：不知道自己是否点击了按钮）：
    根因=hover 点亮与 on 点亮同为 accent，悬停态下点击前后颜色零变化。
-   ①按下 :active 图标本体缩小（scale .82，.12s 快过渡=按下即陷，松手即弹）
-   ②点击落定 wpulse 脉冲弹跳（.32s，起点对齐 .82 按下态续接不跳变，
+   ①按下 :active 图标本体缩小（.12s 快过渡=按下即陷，松手即弹）
+   ②点击落定 wpulse 脉冲弹跳（起点对齐按下态续接不跳变，
    连点经 remove+reflow+add 重触发必重播）
    ③on 态 accent 辉光（drop-shadow 图标本体，非圆底）——on 在悬停下仍可分辨
    级联序：:active 在 :hover 后（同特异性后者胜，按下压过 transform:none）；
-   hover 透明底律原样保留，零圆底回归。 */
-#csWordBtn:active{transform:scale(.82);color:var(--acc)}
+   hover 透明底律原样保留，零圆底回归。
+   v8.7.20 轻量化+角标（用户：回弹感没必要这么强+加开启状态图标）：
+   ④按压缩深 .82→.88、脉冲峰 1.22→1.1、时长 .32s→.28s（回弹轻一点）
+   ⑤on-badge ✓ 角标（accent 圆+白勾）锚「词」字右下角（right/bottom:-1px，
+   10px 徽标中心≈字形盒右下角 (22,22)），off 隐 on 显，与辉光并用=状态双保险。 */
+#csWordBtn:active{transform:scale(.88);color:var(--acc)}
 #csWordBtn.on{filter:drop-shadow(0 0 5px var(--acc32))}
-@keyframes cs-wpulse-kf{0%{transform:scale(.82)}45%{transform:scale(1.22)}100%{transform:scale(1)}}
-#csWordBtn.wpulse{animation:cs-wpulse-kf .32s var(--ez)}
+#csWordBtn .on-badge{position:absolute;right:-1px;bottom:-1px;width:10px;height:10px;display:none;fill:var(--acc);stroke:none}
+#csWordBtn .on-badge path{fill:none;stroke:#fff;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+#csWordBtn.on .on-badge{display:block}
+@keyframes cs-wpulse-kf{0%{transform:scale(.88)}45%{transform:scale(1.1)}100%{transform:scale(1)}}
+#csWordBtn.wpulse{animation:cs-wpulse-kf .28s var(--ez)}
 /* ---------- 提示芯片 ---------- */
 .cs-chip{position:absolute;left:50%;transform:translateX(-50%);z-index:4;display:none;
   align-items:center;gap:5px;padding:4px 10px;border-radius:var(--r9);
@@ -287,7 +294,7 @@ img{-webkit-user-drag:none;user-select:none}
       <div class="cs-chip" id="csNote"><svg><use href="#cs-i-warn"/></svg><span id="csNoteTxt"></span></div>
     </div>
     <div class="cs-chip warn" id="csUpd" style="top:8px"><svg><use href="#cs-i-warn"/></svg><span id="csUpdTxt"></span></div>
-    <div class="cs-tm"><span id="csTCur">0:00</span><span id="csTDur">--:--</span><button class="cs-b" id="csWordBtn" type="button" title="全局歌词：在所有网页顶部显示可拖动的歌词浮层（逐字扫光与面板同语言）；开启后图标点亮，浮层右上角 × 可临时隐藏"><svg><use href="#cs-i-word"/></svg></button></div>
+    <div class="cs-tm"><span id="csTCur">0:00</span><span id="csTDur">--:--</span><button class="cs-b" id="csWordBtn" type="button" title="全局歌词：在所有网页顶部显示可拖动的歌词浮层（逐字扫光与面板同语言）；开启后图标点亮并带 ✓ 角标，浮层右上角 × 可临时隐藏"><svg><use href="#cs-i-word"/></svg><svg class="on-badge" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="6"/><path d="m3.5 6.3 1.7 1.7 3.3-3.7"/></svg></button></div>
     <div class="cs-ctl">
       <button class="cs-b" id="csPrev" title="上一首"><svg><use href="#cs-i-prev"/></svg></button>
       <button class="cs-b cs-bmain" id="csPlay" title="播放 / 暂停">
