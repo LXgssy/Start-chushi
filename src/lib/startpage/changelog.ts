@@ -22,6 +22,19 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.23",
+    date: "2026-09-25",
+    title: "内置网易云播放器：dock 一键弹出，直链播放",
+    channel: "shell",
+    highlights: [
+      "新增官方预设「网易云播放器」：dock 按钮弹出初始风格播放面板，方案二数据层落地",
+      "扫码登录（cookie jar 持凭据）/ 搜索 / 每日推荐 / 我的歌单，免登录即可搜歌与听免费歌",
+      "直链播放走宿主 <audio> + MediaSession：系统媒体会话与现有 SMTC 桥/音乐面板天然互通",
+      "面板内歌词：LRC 逐行 + 翻译 + 网易云 YRC 逐字卡拉OK，点行跳播",
+      "新增 chushi.ne 受控 API（api/audio/sub）：weapi 端点白名单由宿主复核代理，widget 沙箱零跨域面",
+    ],
+  },
+  {
     version: "8.7.22",
     date: "2026-09-25",
     title: "「词」✓ 角标入框，贴在「词」字右下角",

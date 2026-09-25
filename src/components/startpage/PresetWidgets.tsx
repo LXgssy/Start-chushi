@@ -4,7 +4,7 @@
  *
  * 结构：应用层 fixed 定位盒 → sandbox.html?mode=widget（唯一源宿主，见 sandbox.js
  * widgetMode）→ 嵌套 srcdoc iframe（sandbox="allow-scripts"，不透明源，用户 HTML）。
- * 部件内极简 chushi API（notify/open/storage/resize/close/music/smtc）经两级
+ * 部件内极简 chushi API（notify/open/storage/resize/close/music/smtc/ne）经两级
  * postMessage 中继回这里，白名单复核后执行：open 仅 https、storage 键值限长并
  * 持久化到本地 localStorage（start:widget-kv，命名空间 = 部件复合键，数据不离开设备）。
  *
@@ -20,6 +20,7 @@
 import { memo, useEffect, useRef } from "react";
 import { sandboxWidgetSrc } from "@/lib/startpage/sandbox";
 import { smtc, SMTC_COMMANDS } from "@/lib/startpage/smtc";
+import { NE_PATHS, neCall, neAudioAct, neAudioState, onNeAudio, type NeAudioAct } from "@/lib/startpage/netease";
 import { postToWidget, widgetFrameGet, widgetFrameSet, widgetThemeBroadcast } from "@/lib/startpage/widget-frames";
 import { smtcSpectrum, type SmtcSpectrum } from "@/lib/startpage/smtc";
 
@@ -66,6 +67,13 @@ type WidgetApiMsg = {
   /** SMTC 通道（v1.8.0）：控制命令与 seek 位置 */
   cmd?: unknown;
   position?: unknown;
+  /** 网易云直链播放通道（v8.7.23）：neApi 端点+参数 / neAudio 动作载荷 */
+  path?: unknown;
+  params?: unknown;
+  act?: unknown;
+  url?: unknown;
+  meta?: unknown;
+  volume?: unknown;
 };
 
 const s = (v: unknown, max: number): string => (typeof v === "string" ? v.slice(0, max) : "");
@@ -159,6 +167,8 @@ function PresetWidgets(props: {
   const smtcSubsRef = useRef<Set<string>>(new Set());
   /** v8.2.0 频谱转发句柄（首个媒体订阅部件出现即挂，卸载/清零即卸） */
   const specUnsubRef = useRef<(() => void) | null>(null);
+  /** v8.7.23 网易云播放通道：订阅宿主音频状态的部件 key 集合（chushi.ne.sub） */
+  const neSubsRef = useRef<Set<string>>(new Set());
   /* 消息监听器只挂一次 → 经 ref 读取最新值；ref 写入放 effect（React Compiler 律：
      渲染期不可触 ref，与 page.tsx contentHRef 镜像同模式） */
   const widgetsRef = useRef(props.widgets);
@@ -265,6 +275,16 @@ function PresetWidgets(props: {
     };
   }, []);
 
+  /* v8.7.23 网易云宿主音频状态 → 订阅部件帧广播（timeupdate ≈4Hz 原生节流） */
+  useEffect(() => {
+    const off = onNeAudio((st) => {
+      for (const wkey of neSubsRef.current) {
+        postToWidget(wkey, { type: "widgetNeAudio", widgetKey: wkey, state: st });
+      }
+    });
+    return off;
+  }, []);
+
   /** v8.2.0 频谱帧 → 部件帧（30Hz 已包络，{on,bass,bands,t}） */
   const sendSpectrum = (sp: SmtcSpectrum) => {
     for (const wkey of smtcSubsRef.current) {
@@ -364,6 +384,66 @@ function PresetWidgets(props: {
         else if (k.endsWith(":csFloat")) mirrorExtCard(undefined, undefined, v, undefined);
         else if (k.endsWith(":csDlyric")) mirrorExtCard(undefined, undefined, undefined, v);
         postToWidget(wkey, { type: "widgetStorage", widgetKey: wkey, reqId: m.reqId, op: "storageSet", ok: true });
+        break;
+      }
+      /* ---------- 网易云直链播放通道（v8.7.23）----------
+         neApi：端点白名单复核 → 宿主 weapi 加密直连（cookie jar 携带登录态）
+         → 回执 widgetNeResult；neAudio：宿主 <audio> 单例动作 → 回执 +
+         状态推送；neSub：登记后立即回推当前状态（后续广播承接）。 */
+      case "neApi": {
+        const path = s(m.path, 64);
+        let params: Record<string, string> = {};
+        try {
+          const parsed = JSON.parse(s(m.params, 2000));
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+              params[k.slice(0, 40)] = String(v).slice(0, 600);
+            }
+          }
+        } catch {
+          /* 参数非 JSON → 空参数继续（部分端点本就无参） */
+        }
+        neCall(path, params).then(
+          (data) => postToWidget(wkey, { type: "widgetNeResult", widgetKey: wkey, reqId: m.reqId, ok: true, data }),
+          (err) =>
+            postToWidget(wkey, {
+              type: "widgetNeResult",
+              widgetKey: wkey,
+              reqId: m.reqId,
+              ok: false,
+              err: String((err as Error)?.message ?? err).slice(0, 120),
+            })
+        );
+        break;
+      }
+      case "neAudio": {
+        const act = s(m.act, 8) as NeAudioAct;
+        let payload: { url?: string; meta?: Record<string, unknown>; position?: number; volume?: number } = {};
+        try {
+          const parsed = JSON.parse(s(m.meta, 1000));
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) payload.meta = parsed;
+        } catch {
+          /* meta 可缺省 */
+        }
+        if (typeof m.url === "string" && m.url) payload.url = s(m.url, 600);
+        if (typeof m.position === "number" && Number.isFinite(m.position)) payload.position = m.position;
+        if (typeof m.volume === "number" && Number.isFinite(m.volume)) payload.volume = m.volume;
+        neAudioAct(act, payload).then(
+          (st) => postToWidget(wkey, { type: "widgetNeResult", widgetKey: wkey, reqId: m.reqId, ok: true, data: st }),
+          (err) =>
+            postToWidget(wkey, {
+              type: "widgetNeResult",
+              widgetKey: wkey,
+              reqId: m.reqId,
+              ok: false,
+              err: String((err as Error)?.message ?? err).slice(0, 120),
+            })
+        );
+        break;
+      }
+      case "neSub": {
+        neSubsRef.current.add(wkey);
+        postToWidget(wkey, { type: "widgetNeAudio", widgetKey: wkey, state: neAudioState() });
         break;
       }
       default:

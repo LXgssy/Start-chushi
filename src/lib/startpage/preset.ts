@@ -238,8 +238,12 @@ export const PRESET_LIMITS = {
      v8.2.9：24000 → 25600 —— 面板「律动/浮窗」双开关 + 128 段自适应余量；与 build-smtc-preset.py 同步改（两道数字门禁止漂移，Task 100 律）；旧宿主导入 8.2.9 预设会被拒，需配套升级
      v8.7.12：26400 → 27200 —— v8.7.11 音乐卡注入「玻璃协作」CSS（[data-panel] panelMode 透明协作，+123 字符）顶破官方自家上限=「音乐预设面板导入后提示超出字符上限」——官方包改动必须对账上限（本条即对账），+800 余量供后续迭代；五处联动：preset.ts/build-smtc-preset.py/PresetDocs/PRESET_DEV.md/探针 TL37b
      v8.7.18：27600 → 28800 —— 词钮迁时长行右下（绝对定位+hover 律）+「词」真字形
-     描取（思源黑体轮廓 DP 简化 45 点）+净增 ~180 字符（minified 实测 27780）；+1000 余量 */
-  widgetHtmlLen: 28800,
+     描取（思源黑体轮廓 DP 简化 45 点）+净增 ~180 字符（minified 实测 27780）；+1000 余量
+     v8.7.23：28800 → 30400 —— 网易云播放器预设（dock 弹出面板：扫码 QR 编码器
+     + 搜索/每日/歌单三面 + LRC/YRC 逐字渲染）minified 实测 29506；官方预设随
+     扩展同包交付（宿主与预设同步升级）；五处联动对账：
+     preset.ts/build-smtc-preset.py/build-netease-preset.py/PresetDocs/PRESET_DEV.md */
+  widgetHtmlLen: 30400,
   icons: 7,
   iconLen: 8192,
   tokenValLen: 120,
