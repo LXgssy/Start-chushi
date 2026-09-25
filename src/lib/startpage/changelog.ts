@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.20",
+    date: "2026-09-25",
+    title: "「词」角标与手感轻量化 + 全局歌词白描边根修",
+    channel: "shell",
+    highlights: [
+      "「词」按钮回弹放轻：按下与弹跳幅度收敛，确认感保留、不再夸张",
+      "开启状态新增 ✓ 角标：钉在「词」字右下角，一眼看清开与关",
+      "全局歌词逐字模式白描边根治：已唱字直接落在深底上，边缘不再泛白晕",
+    ],
+  },
+  {
     version: "8.7.19",
     date: "2026-09-25",
     title: "「词」开关点击反馈：按下回弹·脉冲确认·点亮辉光",
