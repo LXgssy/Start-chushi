@@ -1,0 +1,208 @@
+<!doctype html>
+<!-- 「初始」扩展弹窗快捷面板（v8.5.0）。
+     点击浏览器工具栏「初始」图标弹出的轻量设置面板（青柠起始页同款交互）。
+     v1 收录两项高频开关 + 完整设置直达：
+       · 流畅模式（低配电脑优化）—— settings.perfLite
+       · 新标签页不聚焦地址栏 —— settings.noOmniboxFocus
+     与新标签页共享同一 localStorage 键（start:settings，同扩展 origin），
+     开关即时写入、已开标签页经 storage 事件热跟随（page.tsx 消费）。
+     样式零依赖（内联 CSS）：zinc 刻度 + 强调紫，深浅色跟随
+     settings.themeMode（system 回退 prefers-color-scheme）。
+     CSP 律：MV3 扩展页禁内联 script，逻辑全部走外链 popup.js。 -->
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>初始 · 快捷面板</title>
+    <style>
+      :root {
+        --acc: #8b5cf6;
+        --bg: #fafafa;
+        --fg: #27272a;
+        --fg2: #52525b;
+        --fg3: #a1a1aa;
+        --line: rgba(24, 24, 27, 0.08);
+        --track: rgba(24, 24, 27, 0.06);
+      }
+      html.dark {
+        --bg: #18181b;
+        --fg: #f4f4f5;
+        --fg2: #d4d4d8;
+        --fg3: #71717a;
+        --line: rgba(255, 255, 255, 0.09);
+        --track: rgba(255, 255, 255, 0.08);
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        width: 336px;
+        padding: 16px 16px 12px;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei",
+          system-ui, -apple-system, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding-bottom: 12px;
+        border-bottom: 1px solid var(--line);
+      }
+      header img {
+        width: 22px;
+        height: 22px;
+        display: block;
+      }
+      header .t {
+        font-size: 13px;
+        font-weight: 500;
+        letter-spacing: 0.22em;
+      }
+      header .v {
+        margin-left: auto;
+        font-size: 10px;
+        font-weight: 300;
+        letter-spacing: 0.08em;
+        color: var(--fg3);
+        font-variant-numeric: tabular-nums;
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 13px 0;
+        border-bottom: 1px solid var(--line);
+      }
+      .row-text {
+        min-width: 0;
+      }
+      .row-title {
+        font-size: 12px;
+        font-weight: 300;
+        letter-spacing: 0.05em;
+      }
+      .row-desc {
+        margin-top: 3px;
+        font-size: 10.5px;
+        font-weight: 300;
+        line-height: 1.55;
+        letter-spacing: 0.03em;
+        color: var(--fg3);
+      }
+      /* 迷你开关：与设置面板 Switch 同构（38x22 胶囊 + 16px 旋钮） */
+      .sw {
+        position: relative;
+        flex-shrink: 0;
+        width: 38px;
+        height: 22px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: var(--track);
+        cursor: pointer;
+        outline: none;
+        transition: background-color 0.25s ease, border-color 0.25s ease;
+      }
+      .sw:focus-visible {
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--acc) 45%, transparent);
+      }
+      .sw[aria-checked="true"] {
+        background: var(--acc);
+        border-color: transparent;
+      }
+      .sw .knob {
+        position: absolute;
+        left: 3px;
+        top: 50%;
+        width: 16px;
+        height: 16px;
+        border-radius: 999px;
+        background: #fff;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+        transform: translateY(-50%);
+        transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      .sw[aria-checked="true"] .knob {
+        transform: translate(16px, -50%);
+      }
+      .more {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        width: 100%;
+        margin-top: 13px;
+        padding: 8px 0;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: transparent;
+        color: var(--fg2);
+        font-size: 11px;
+        font-weight: 300;
+        letter-spacing: 0.2em;
+        cursor: pointer;
+        transition: background-color 0.25s ease, color 0.25s ease;
+      }
+      .more:hover {
+        background: color-mix(in srgb, var(--fg) 6%, transparent);
+        color: var(--fg);
+      }
+      footer {
+        margin-top: 11px;
+        text-align: center;
+        font-size: 9px;
+        font-weight: 300;
+        letter-spacing: 0.24em;
+        color: var(--fg3);
+        opacity: 0.75;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <img src="start.svg" alt="" aria-hidden="true" />
+      <div class="t">初始</div>
+      <span class="v" id="ver"></span>
+    </header>
+
+    <main>
+      <section class="row">
+        <div class="row-text">
+          <div class="row-title">流畅模式</div>
+          <div class="row-desc">低配电脑优化：停用磨砂玻璃与装饰动画，优先帧率。</div>
+        </div>
+        <button class="sw" id="sw-lite" role="switch" aria-checked="false" aria-label="流畅模式">
+          <span class="knob"></span>
+        </button>
+      </section>
+
+      <section class="row">
+        <div class="row-text">
+          <div class="row-title">新标签页不聚焦地址栏</div>
+          <div class="row-desc">
+            开启：打开新标签页时光标聚焦页面，敲键直接搜索，地址栏会显示「初始」的扩展地址，属正常现象；关闭（默认）：恢复浏览器默认，光标停在地址栏、不显示扩展地址。
+          </div>
+        </div>
+        <button
+          class="sw"
+          id="sw-nofocus"
+          role="switch"
+          aria-checked="false"
+          aria-label="新标签页不聚焦地址栏"
+        >
+          <span class="knob"></span>
+        </button>
+      </section>
+
+      <button class="more" id="open-settings">打开完整设置</button>
+    </main>
+
+    <footer>初始 · 新标签页</footer>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

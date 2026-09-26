@@ -50,7 +50,7 @@ def minify_html(s: str) -> str:
 
 html = minify_html((SRC / "player.html").read_text(encoding="utf-8"))
 
-assert len(html) <= 30400, f"widget html 超限: {len(html)} > 30400"  # v8.7.23 与宿主 widgetHtmlLen 同步（两道数字门律）
+assert len(html) <= 36800, f"widget html 超限: {len(html)} > 36800"  # v8.7.24：30400→36800 与宿主 widgetHtmlLen 同步（两道数字门律）
 # 特征门（核心链路防回归）
 for feat in (
     "chushi.ne.api",           # 宿主代理 API
@@ -62,6 +62,11 @@ for feat in (
     "/weapi/login/qrcode/unikey",  # 扫码登录
     "parseYrc",                # 逐字歌词
     "qrMatrix",                # QR 编码器
+    "chushi.ne.pub(",          # v8.7.24 歌词外送
+    "csDlyric",                # v8.7.24 词钮=全局歌词开关
+    "/weapi/logout",           # v8.7.24 退出登录
+    "lyReconcile",             # v8.7.24 歌词动效 v2（行态机）
+    "setPointerCapture",       # v8.7.24 音量滑块拖拽
     'replace(/^http:/,"https:")',  # 直链 https 升级
 ):
     assert feat in html, f"cshz 缺特征 {feat!r}"

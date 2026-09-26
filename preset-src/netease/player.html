@@ -11,7 +11,7 @@ body{
   font-family:ui-sans-serif,system-ui,"PingFang SC","Microsoft YaHei",sans-serif;
   user-select:none;
   --ink:#27272a;--ink2:#71717a;--ink3:#a1a1aa;--line:rgba(0,0,0,.08);
-  --pr:rgba(0,0,0,.10);--card2:rgba(255,255,255,.55);
+  --pr:rgba(0,0,0,.10);--card2:rgba(255,255,255,.55);--lybg:rgba(255,255,255,.88);
   --acc:var(--w-accent,#8b5cf6);
   --acc12:color-mix(in oklab,var(--acc) 12%,transparent);
   --acc20:color-mix(in oklab,var(--acc) 20%,transparent);
@@ -20,7 +20,7 @@ body{
 }
 [data-theme=dark] body{
   --ink:#f4f4f5;--ink2:#a1a1aa;--ink3:#71717a;--line:rgba(255,255,255,.09);
-  --pr:rgba(255,255,255,.12);--card2:rgba(39,39,44,.55);
+  --pr:rgba(255,255,255,.12);--card2:rgba(39,39,44,.55);--lybg:rgba(24,24,28,.86);
 }
 img{-webkit-user-drag:none;user-select:none}
 .np{position:relative;width:100%;height:100%;display:flex;flex-direction:column;
@@ -97,9 +97,11 @@ img{-webkit-user-drag:none;user-select:none}
 .bar{flex:none;display:none;flex-direction:column;gap:2px;padding-top:2px}
 .bar.on{display:flex}
 .brow{display:flex;align-items:center;gap:9px}
-.cov{width:42px;height:42px;border-radius:10px;flex:none;object-fit:cover;
-  background:linear-gradient(135deg,var(--acc32),var(--acc12));opacity:0;transition:opacity .5s var(--ez)}
+.cov{width:42px;height:42px;border-radius:10px;flex:none;object-fit:cover;cursor:pointer;
+  background:linear-gradient(135deg,var(--acc32),var(--acc12));opacity:0;
+  transition:opacity .5s var(--ez),transform .22s var(--ez)}
 .cov.on{opacity:1}
+.cov.on:hover{transform:scale(1.07)}
 .nm{flex:1;min-width:0}
 .tt{font-size:12.5px;font-weight:560;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ar{font-size:10.5px;color:var(--ink2);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -111,6 +113,16 @@ img{-webkit-user-drag:none;user-select:none}
 .nb:hover{background:var(--card2);color:var(--acc);transform:scale(1.06)}
 .nb svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .nb svg.fi{fill:currentColor;stroke:none}
+#bw.on{color:#fff;background:var(--acc)}
+#chip{cursor:pointer}
+#chip.warn{color:#d97706;border-color:rgba(217,119,6,.4)}
+.vol{display:flex;align-items:center;gap:1px;flex:none}
+.vrail{position:relative;width:52px;height:16px;cursor:pointer;touch-action:none}
+.vrail .vr{position:absolute;left:0;top:50%;width:100%;height:5px;margin-top:-2.5px;border-radius:3px;background:var(--pr)}
+.vrail i{position:absolute;left:0;top:50%;height:5px;margin-top:-2.5px;border-radius:3px;background:var(--acc);width:70%}
+.vrail b{position:absolute;top:50%;width:11px;height:11px;border-radius:var(--r9);background:var(--acc);
+  transform:translate(-50%,-50%);left:70%;box-shadow:0 1px 4px rgba(0,0,0,.28);transition:transform .2s var(--ez)}
+.vrail.drag b,.vrail:hover b{transform:translate(-50%,-50%) scale(1.18)}
 .seek{height:14px;display:flex;align-items:center;cursor:pointer;touch-action:none;position:relative}
 .rail{position:relative;width:100%;height:6px;border-radius:4px;background:var(--pr);overflow:hidden;
   transform:scaleY(.667);transform-origin:50% 50%;transition:transform .2s var(--ez);will-change:transform}
@@ -135,7 +147,7 @@ img{-webkit-user-drag:none;user-select:none}
 .md{font-size:9px;letter-spacing:.05em}
 /* ---------- 歌词浮层 ---------- */
 .lyr{position:absolute;left:10px;right:10px;top:52px;bottom:128px;z-index:3;border-radius:14px;
-  background:var(--card2);backdrop-filter:blur(22px) saturate(1.5);border:1px solid var(--line);
+  background:var(--lybg);backdrop-filter:blur(22px) saturate(1.5);border:1px solid var(--line);
   display:none;flex-direction:column;overflow:hidden;
   box-shadow:0 10px 34px rgba(0,0,0,.16)}
 .lyr.on{display:flex}
@@ -144,16 +156,30 @@ img{-webkit-user-drag:none;user-select:none}
 .lx{appearance:none;border:0;background:var(--card2);color:var(--ink2);width:22px;height:22px;
   border-radius:var(--r9);cursor:pointer;display:flex;align-items:center;justify-content:center;flex:none;margin-left:8px}
 .lx svg{width:10px;height:10px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round}
-.lsc{flex:1;min-height:0;overflow-y:auto;padding:0 14px 12px;scrollbar-width:none;
-  -webkit-mask-image:linear-gradient(transparent,#000 12%,#000 88%,transparent);
-  mask-image:linear-gradient(transparent,#000 12%,#000 88%,transparent)}
-.lsc::-webkit-scrollbar{display:none}
-.ln{padding:7px 0;cursor:pointer}
-.ln .lx1{font-size:13px;color:var(--ink2);line-height:1.5;transition:color .25s}
-.ln .lx2{font-size:10.5px;color:var(--ink3);margin-top:2px;line-height:1.5}
-.ln.on .lx1{color:var(--acc);font-weight:600}
-.ln .w{background-image:linear-gradient(90deg,var(--acc) 0%,var(--acc) var(--p,0%),var(--ink2) var(--p,0%));
-  -webkit-background-clip:text;background-clip:text;color:transparent}
+/* 歌词动效 v2（对标 SMTC 面板语言）：容器 transform 滚动（offsetTop 居中数学
+   .45s 同曲线）+ 呼吸缩放（当前 1.06/邻行 .94）+ 高斯景深（未唱 2px/已唱
+   1.1px/当前 0）+ 已唱行渐隐（扫光定格 100%、.ov opacity .6s 渐隐）+ 翻译行
+   height 0↔17px 平滑过渡（切行布局零跳变）+ 双层实体色 clip-path 扫色
+   （background-clip:text 在 transform 过场中会整词隐形闪动，故弃用） */
+.lsc{flex:1;min-height:0;position:relative;overflow:hidden;
+  -webkit-mask-image:linear-gradient(transparent,#000 16px,#000 calc(100% - 16px),transparent);
+  mask-image:linear-gradient(transparent,#000 16px,#000 calc(100% - 16px),transparent)}
+.lsi{position:absolute;left:14px;right:14px;top:0;transition:transform .45s var(--ez);will-change:transform}
+.ln{padding:7px 4px;text-align:center;font-size:13.5px;font-weight:560;line-height:1.45;overflow-wrap:anywhere;
+  color:var(--ink3);transform:scale(.94);transform-origin:50% 50%;filter:blur(2px);cursor:pointer;
+  transition:color .35s ease,transform .45s var(--ez),filter .45s var(--ez)}
+.ln.on{color:var(--ink);transform:scale(1.06);filter:blur(0)}
+.ln.done{color:var(--ink2);filter:blur(1.1px)}
+.w{position:relative;display:inline-block;color:inherit}
+.ln.on .w{color:color-mix(in oklab,var(--ink) 45%,var(--ink3))}
+.w .ov{position:absolute;left:0;top:0;color:var(--acc);pointer-events:none;white-space:nowrap;
+  clip-path:inset(-8% calc(100% - var(--p,0%)) -8% 0);transition:opacity .6s ease}
+.ln.done .w .ov{opacity:0}
+.trw{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:1fr;height:0;opacity:0;overflow:hidden;
+  transition:height .38s var(--ez),opacity .38s ease}
+.ln.on .trw{height:17px;opacity:1}
+.trw .tr{min-height:0;font-size:11px;font-weight:400;color:var(--ink2);line-height:1.5;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lhint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
   font-size:11.5px;color:var(--ink3)}
 .tst{position:absolute;left:50%;bottom:132px;transform:translateX(-50%) translateY(8px);z-index:4;
@@ -190,13 +216,13 @@ img{-webkit-user-drag:none;user-select:none}
   </div>
   <div class="bar" id="bar">
     <div class="brow">
-      <img class="cov" id="cov" alt="">
+      <img class="cov" id="cov" alt="" title="歌词">
       <div class="nm">
         <div class="tt"><span id="tt">未在播放</span><span class="tri" id="tri" style="display:none">试听</span></div>
         <div class="ar" id="ar">点列表里的歌开始播放</div>
       </div>
       <button class="nb md" id="md" title="播放模式">顺序</button>
-      <button class="nb" id="bw" title="歌词">词</button>
+      <button class="nb" id="bw" title="全局歌词">词</button>
     </div>
     <div class="seek" id="seek"><div class="rail"><i id="fill"></i></div></div>
     <div class="tmrow">
@@ -209,7 +235,7 @@ img{-webkit-user-drag:none;user-select:none}
         </button>
         <button class="pb" id="nx"><svg viewBox="0 0 24 24"><path d="M7 5v14l9-7z" class="fi"/><path d="M18 5v14" stroke-linecap="round"/></svg></button>
       </div>
-      <button class="nb" id="vv" title="音量"><svg viewBox="0 0 24 24"><path d="M4 9.5v5h3.5L12 19V5L7.5 9.5H4z" class="fi"/><path d="M15.5 8.5a5 5 0 0 1 0 7" id="vw1"/></svg></button>
+      <span class="vol"><button class="nb" id="vv" title="静音"><svg viewBox="0 0 24 24"><path d="M4 9.5v5h3.5L12 19V5L7.5 9.5H4z" class="fi"/><path d="M15.5 8.5a5 5 0 0 1 0 7" id="vw1"/></svg></button><span class="vrail" id="vrail"><span class="vr"></span><i id="vfill"></i><b id="vknob"></b></span></span>
       <span class="tm r" id="t2">0:00</span>
     </div>
   </div>
@@ -229,8 +255,10 @@ function note(m){var t=$("tst");t.textContent=m;t.classList.add("on");clearTimeo
 function api(p,d){return chushi.ne.api(p,d).then(function(r){if(!r.ok)throw new Error(r.err||"接口失败");return r.data})}
 function au(a,o){return chushi.ne.audio(a,o).then(function(r){if(!r.ok)throw new Error(r.err||"操作失败");return r.data})}
 /* ---------- 状态 ---------- */
-var S={tab:"d",rows:[],pls:null,q:-1,mode:0,ly:null,lyOn:false,lastSeq:0,curLy:-1,
-  logged:false,uid:null,qrKey:"",pollT:null,drag:false,vols:[1,.6,.25,0],vi:0,dur:0};
+var S={tab:"d",rows:[],pls:null,q:-1,mode:0,ly:null,lyOn:false,lastSeq:0,curLy:-2,
+  logged:false,uid:null,qrKey:"",pollT:null,drag:false,vol:.7,lastVol:.7,dur:0,
+  anc:{posMs:0,playing:false,at:0},lyEls:[],lyTarget:null,lyScrollUntil:0,lyScrollIdx:-1,
+  lyRaf:0,lyPaused:null};
 function norm(o){return{id:o.id,name:o.name||"",
   ar:(o.ar||o.artists||[]).map(function(a){return a.name||""}).join(" / "),
   al:(o.al||o.album||{}).name||"",
@@ -238,6 +266,8 @@ function norm(o){return{id:o.id,name:o.name||"",
 /* ---------- 音频状态帧（timeupdate ≈4Hz） ---------- */
 function onAudio(s){
   if(!s||s.seq<=S.lastSeq)return;S.lastSeq=s.seq;S.dur=s.duration||0;
+  /* v8.7.24 rAF 插值锚点：音频帧（≈4Hz）为真值，歌词引擎帧间按播放态外推 */
+  S.anc.posMs=(s.position||0)*1000;S.anc.playing=!!s.playing;S.anc.at=Date.now();
   $("fill").style.width=(s.duration?Math.min(100,s.position/s.duration*100):0)+"%";
   $("t1").textContent=fmt(s.position*1000);
   $("t2").textContent="-"+fmt((s.duration-s.position)*1000);
@@ -246,6 +276,7 @@ function onAudio(s){
   if(s.name){$("tt").textContent=s.name;$("ar").textContent=s.artist||"";
     $("tri").style.display=s.trial?"":"none"}
   if(s.cover&&$("cov").getAttribute("src")!==s.cover){$("cov").src=s.cover;$("cov").classList.add("on")}
+  if(typeof s.volume==="number"&&Math.abs(s.volume-S.vol)>.004){S.vol=s.volume;volUI()}
   if(s.ended)next();
   if(s.sysCmd==="next")next();
   if(s.sysCmd==="prev")prev();
@@ -371,13 +402,28 @@ $("q").addEventListener("keydown",function(e){if(e.key==="Enter")doSearch()});
 /* ---------- 登录态 ---------- */
 function chip(){var c=$("chip");
   c.textContent=S.logged?"已登录":"未登录";
-  c.classList[S.logged?"add":"remove"]("ok")}
+  c.classList[S.logged?"add":"remove"]("ok");c.classList.remove("warn")}
 function who(){
   api("/weapi/w/nuser/account/get",{}).then(function(d){
     var a=d.account&&d.account.id;
     S.logged=!!a;S.uid=a||null;chip();
   }).catch(function(){chip()});
 }
+/* ⑥ 退出登录（chip 两步确认；/weapi/logout 由服务端 Set-Cookie 清 MUSIC_U，
+   宿主零凭证落盘 → cookie jar 即登录态，清掉即退；未登录点击=引导扫码） */
+var loArm=null;
+$("chip").addEventListener("click",function(){
+  if(!S.logged){tab("p");return}
+  if(loArm){clearTimeout(loArm);loArm=null;$("chip").textContent="退出中";
+    api("/weapi/logout",{}).then(function(){
+      S.logged=false;S.uid=null;S.pls=null;S.qrKey="";stopPoll();
+      chip();note("已退出登录");if(S.tab==="p")qrView();
+    }).catch(function(e){chip();note("退出失败："+e.message)});
+    return}
+  $("chip").textContent="确认退出?";$("chip").classList.add("warn");
+  loArm=setTimeout(function(){loArm=null;chip()},3000);
+});
+
 /* ---------- 扫码登录（QR：byte 模式 · ECC L · v1-5 单块 · 掩码2） ---------- */
 function qrView(){
   $("list").style.display="none";$("qrbox").classList.add("on");
@@ -523,50 +569,116 @@ function getLyric(id){
       for(var k in tl)if(Math.abs(k-x.t)<=500)return{t:x.t,x:x.x,tr:tl[k]};
       return{t:x.t,x:x.x,tr:null}});
     S.ly={y:yrc?parseYrc(yrc):null,l:lines};
+    /* v8.7.24 歌词外送：原始体（同桥 /api/lyric 载荷形状）经 chushi.ne.pub →
+       宿主白名单校验 → SW ne 歌词缓存 → 悬浮卡/全局歌词浮层复用
+       ChuShiLyric.parse 零改动渲染（逐字/逐行/翻译全语义对齐） */
+    if((yrc||"").trim()||lrc.trim()){
+      try{chushi.ne.pub({songId:String(id),yrc:yrc||"",ytlrc:(d.ytlrc&&d.ytlrc.lyric)||"",
+        lrc:lrc,tlyric:tly,source:"chushi-ne",rev:"ne-"+id})}catch(e){}
+    }
     if(S.lyOn)lyRender();
   }).catch(function(){S.ly={y:null,l:[]};if(S.lyOn)lyRender()});
 }
+/* ---------- 歌词渲染引擎 v2（rAF 插值 + SMTC 面板动效语言）----------
+   行态机 on/done/未来与 reconcileLines 全语义对齐：唱过的行扫光定格 100%
+   渐隐（.ov opacity .6s）、间奏自然流入（当前句驻留）、seek 跳中段未唱行
+   直接灰、未来行还原未唱态（--p 残留归零）；滚动=容器 transform 居中数学
+   （翻译行 height 过渡期 560ms 追踪窗每帧重算 target）；词扫光 0.25% 量化
+   写值防抖，逐帧只写当前行。 */
 function lyRender(){
-  S.curLy=-1;
-  var y=S.ly&&S.ly.y,l=S.ly?S.ly.l:[],h="",i;
+  S.curLy=-2;S.lyTarget=null;S.lyScrollUntil=0;S.lyScrollIdx=-1;S.lyPaused=null;
+  var y=S.ly&&S.ly.y,l=S.ly?S.ly.l:[],h="",i,j;
   if(y&&y.length){
     for(i=0;i<y.length;i++){
       h+='<div class="ln" data-l="'+i+'"><div class="lx1">';
-      for(var j=0;j<y[i].w.length;j++)h+='<span class="w">'+esc(y[i].w[j].x)+"</span>";
+      for(j=0;j<y[i].w.length;j++)h+='<span class="w">'+esc(y[i].w[j].x)+'<span class="ov">'+esc(y[i].w[j].x)+"</span></span>";
       h+="</div></div>";
     }
   }else if(l.length){
     for(i=0;i<l.length;i++)
       h+='<div class="ln" data-l="'+i+'"><div class="lx1">'+esc(l[i].x)+"</div>"+
-        (l[i].tr?'<div class="lx2">'+esc(l[i].tr)+"</div>":"")+"</div>";
+        (l[i].tr?'<div class="trw"><div class="tr">'+esc(l[i].tr)+"</div></div>":"")+"</div>";
   }
   $("lhint").style.display=h?"none":"";
-  $("lsc").innerHTML=h;
-}
-function lyTick(pos){
-  if(!S.ly)return;
-  var y=S.ly.y,l=S.ly.l,i,ci=-1;
-  if(y&&y.length){
-    for(i=0;i<y.length;i++)if(y[i].t<=pos)ci=i;
-    if(ci!==S.curLy){S.curLy=ci;
-      var els=$("lsc").children;
-      for(i=0;i<els.length;i++)els[i].classList[i===ci?"add":"remove"]("on");
-      if(ci>=0&&els[ci])try{els[ci].scrollIntoView({block:"center",behavior:"smooth"})}catch(e){}}
-    if(ci>=0){var ws=$("lsc").children[ci].querySelectorAll(".w"),words=y[ci].w;
-      for(i=0;i<ws.length&&i<words.length;i++){
-        var w2=words[i],p=w2.d>0?Math.max(0,Math.min(1,(pos-w2.t)/w2.d))*100:0;
-        if(ws[i]._lp!==p){ws[i]._lp=p;ws[i].style.setProperty("--p",p+"%")}
-      }
-    }
-    return;
+  $("lsc").innerHTML=h?'<div class="lsi" id="lsi">'+h+"</div>":"";
+  var inner=$("lsc").firstChild;S.lyEls=[];
+  if(!inner)return;
+  var els=inner.children;
+  for(i=0;i<els.length;i++){
+    var ws=els[i].querySelectorAll(".w"),ovs=[];
+    for(j=0;j<ws.length;j++){var ov=ws[j].querySelector(".ov");if(ov){ov._p=-1;ovs.push(ov)}}
+    S.lyEls.push({el:els[i],ovs:ovs,sung:false,clean:true});
   }
-  if(!l.length)return;
-  for(i=0;i<l.length;i++)if(l[i].t<=pos)ci=i;
-  if(ci!==S.curLy){S.curLy=ci;
-    var els2=$("lsc").children;
-    for(i=0;i<els2.length;i++)els2[i].classList[i===ci?"add":"remove"]("on");
-    if(ci>=0&&els2[ci])try{els2[ci].scrollIntoView({block:"center",behavior:"smooth"})}catch(e){}}
 }
+function lyRestore(i){
+  var e=S.lyEls[i];if(!e)return;e.el.classList.remove("done");
+  for(var j=0;j<e.ovs.length;j++){e.ovs[j]._p=-1;e.ovs[j].style.removeProperty("--p")}
+  e.clean=true;e.sung=false;
+}
+function lyFinalize(i){
+  var e=S.lyEls[i];if(!e)return;
+  for(var j=0;j<e.ovs.length;j++)e.ovs[j].style.setProperty("--p","100%");
+}
+function lyReconcile(act,ref){
+  for(var i=0;i<S.lyEls.length;i++){
+    var on=i===act,was=S.lyEls[i].el.classList.contains("done"),done=ref>=0&&i<=ref&&!on;
+    S.lyEls[i].el.classList.toggle("on",on);
+    S.lyEls[i].el.classList.toggle("done",done);
+    if(on){S.lyEls[i].sung=true;S.lyEls[i].clean=false;continue}
+    if(done){
+      if(!was){
+        /* 唱过的行定格全亮渐隐；seek 跳中段的未唱行直接灰 */
+        if(S.lyEls[i].sung){lyFinalize(i);S.lyEls[i].clean=true}
+        else lyRestore(i);
+      }
+    }else{
+      if(was||!S.lyEls[i].clean)lyRestore(i);
+      S.lyEls[i].clean=true;S.lyEls[i].sung=false;
+    }
+  }
+}
+function lyScroll(idx,track){
+  var box=$("lsc"),el=S.lyEls[idx].el;
+  var t=(box.clientHeight-el.offsetHeight)/2-el.offsetTop;
+  if(t!==S.lyTarget){S.lyTarget=t;$("lsi").style.transform="translateY("+t+"px)"}
+  if(track){S.lyScrollUntil=Date.now()+560;S.lyScrollIdx=idx}
+}
+function lyFrame(){
+  S.lyRaf=0;
+  if(!S.lyOn||!S.ly||!S.lyEls||!S.lyEls.length)return;
+  var posMs=S.anc.posMs+(S.anc.playing?Date.now()-S.anc.at:0);
+  var src=S.ly.y&&S.ly.y.length?S.ly.y:S.ly.l,ci=-1,i;
+  for(i=0;i<src.length;i++)if(src[i].t<=posMs)ci=i;
+  if(ci!==S.curLy){
+    if(ci>=0){lyReconcile(ci,ci);lyScroll(ci,true)}
+    else lyReconcile(-1,-1);
+    S.curLy=ci;
+  }
+  /* 逐帧只写当前行词（其余行离场时一次性定稿）；间奏驻留不写=扫光挂 100% */
+  if(S.ly.y&&S.ly.y.length&&ci>=0&&S.lyEls[ci]){
+    var es=S.lyEls[ci],words=S.ly.y[ci].w;
+    for(i=0;i<es.ovs.length&&i<words.length;i++){
+      var w2=words[i],p=w2.d>0?Math.max(0,Math.min(1,(posMs-w2.t)/w2.d)):0;
+      var q=Math.round(p*400)/400;
+      if(es.ovs[i]._p!==q){es.ovs[i]._p=q;es.ovs[i].style.setProperty("--p",(q*100).toFixed(2)+"%")}
+    }
+  }
+  /* 翻译行 height 过渡追踪窗：每帧重算 target，transform 过渡平滑跟随收敛 */
+  if(S.lyScrollUntil){
+    if(Date.now()>=S.lyScrollUntil||S.lyScrollIdx<0||S.lyScrollIdx>=S.lyEls.length)S.lyScrollUntil=0;
+    else lyScroll(S.lyScrollIdx,false);
+  }
+  /* 播放态翻转：暂停淡出 / 恢复淡入（120-420ms clamp，同 SMTC 面板） */
+  var pl=!!S.anc.playing,lsi=$("lsi");
+  if(S.lyPaused!==pl&&lsi){
+    S.lyPaused=pl;
+    lsi.style.transition="transform .45s var(--ez), opacity 260ms ease";
+    lsi.style.opacity=pl?"1":"0.38";
+  }
+  if(S.lyOn)S.lyRaf=requestAnimationFrame(lyFrame);
+}
+function lyStart(){if(!S.lyRaf)S.lyRaf=requestAnimationFrame(lyFrame)}
+function lyStop(){if(S.lyRaf){cancelAnimationFrame(S.lyRaf);S.lyRaf=0}if(S.lyPaused===false){S.lyPaused=null;var lsi=$("lsi");if(lsi){lsi.style.opacity="1"}}}
 $("lsc").addEventListener("click",function(e){
   var el=e.target&&e.target.closest?e.target.closest(".ln"):null;if(!el)return;
   var i=+el.getAttribute("data-l"),t=null;
@@ -574,22 +686,63 @@ $("lsc").addEventListener("click",function(e){
   else if(S.ly&&S.ly.l[i])t=S.ly.l[i].t/1000;
   if(t!=null)au("seek",{position:t}).catch(function(){});
 });
-$("bw").addEventListener("click",function(){
+/* ① 封面点击开关歌词页（词钮退役为全局歌词开关，开歌词职责移交封面） */
+function openLyr(){
   S.lyOn=!S.lyOn;$("lyr").classList[S.lyOn?"add":"remove"]("on");
   if(S.lyOn){$("ltitle").textContent=$("tt").textContent||"歌词";
-    if(S.ly)lyRender();else{$("lhint").style.display="";$("lsc").innerHTML=""}}
+    if(S.ly)lyRender();else{$("lhint").style.display="";$("lsc").innerHTML=""}
+    lyStart()}
+  else lyStop();
+}
+$("cov").addEventListener("click",openLyr);
+$("lx").addEventListener("click",function(){S.lyOn=false;$("lyr").classList.remove("on");lyStop()});
+/* ⑤ 词钮 → 全局歌词浮层开关（csDlyric → 宿主 PresetWidgets 镜像 cardDlyric，
+   与 SMTC 面板词钮同通道；浮层 × 钮反向写入经 widgetStoragePatch 实时回翻） */
+var wordOn=false;
+$("bw").addEventListener("click",function(){
+  wordOn=!wordOn;$("bw").classList.toggle("on",wordOn);
+  if(chushi.storage)chushi.storage.set("csDlyric",wordOn).catch(function(){})
 });
-$("lx").addEventListener("click",function(){S.lyOn=false;$("lyr").classList.remove("on")});
+if(chushi.storage)chushi.storage.get("csDlyric").then(function(v){
+  wordOn=v===true||v==="true";$("bw").classList.toggle("on",wordOn)
+}).catch(function(){});
+window.addEventListener("message",function(ev){
+  var d=ev.data;if(!d||d.type!=="widgetStoragePatch"||ev.source!==window.parent)return;
+  if(d.key==="csDlyric"){var nw=d.value===true||d.value==="true";
+    if(nw!==wordOn){wordOn=nw;$("bw").classList.toggle("on",wordOn)}}
+});
 /* ---------- 控制键 ---------- */
 $("pp").addEventListener("click",function(){au("toggle").catch(function(){})});
 $("pv").addEventListener("click",prev);
 $("nx").addEventListener("click",next);
 $("md").addEventListener("click",function(){
   S.mode=(S.mode+1)%3;$("md").textContent=["顺序","单曲","随机"][S.mode]});
-$("vv").addEventListener("click",function(){
-  S.vi=(S.vi+1)%S.vols.length;au("vol",{volume:S.vols[S.vi]}).catch(function(){});
-  $("vw1").style.display=S.vols[S.vi]===0?"none":"";
-  if(chushi.storage)chushi.storage.set("vol",S.vols[S.vi]).catch(function(){})});
+/* ④ 音量滑块（无极调节 + 拖拽 PointerEvent 捕获 + 持久化 + 图标静音切换） */
+var vrail=$("vrail");
+function volUI(){
+  var p=Math.round(Math.max(0,Math.min(1,S.vol))*1000)/10;
+  $("vfill").style.width=p+"%";$("vknob").style.left=p+"%";
+  $("vw1").style.display=S.vol===0?"none":"";
+}
+function setVol(v,save){
+  v=Math.max(0,Math.min(1,+v||0));S.vol=v;
+  if(v>0)S.lastVol=v;
+  au("vol",{volume:v}).catch(function(){});
+  if(save&&chushi.storage)chushi.storage.set("vol",v).catch(function(){});
+  volUI();
+}
+vrail.addEventListener("pointerdown",function(e){
+  vrail.classList.add("drag");try{vrail.setPointerCapture(e.pointerId)}catch(x){}
+  var r=vrail.getBoundingClientRect();setVol((e.clientX-r.left)/r.width,false)});
+vrail.addEventListener("pointermove",function(e){
+  if(!vrail.classList.contains("drag"))return;
+  var r=vrail.getBoundingClientRect();setVol((e.clientX-r.left)/r.width,false)});
+vrail.addEventListener("pointerup",function(e){
+  if(!vrail.classList.contains("drag"))return;
+  vrail.classList.remove("drag");
+  var r=vrail.getBoundingClientRect();setVol((e.clientX-r.left)/r.width,true)});
+vrail.addEventListener("pointercancel",function(){vrail.classList.remove("drag")});
+$("vv").addEventListener("click",function(){setVol(S.vol===0?(S.lastVol||.7):0,true)});
 $("x").addEventListener("click",function(){chushi.close()});
 /* seek 拖动 */
 var seekEl=$("seek");
@@ -605,13 +758,10 @@ seekEl.addEventListener("pointerup",function(e){
 function seekMove(e){var r=seekEl.getBoundingClientRect();
   var p=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));
   $("fill").style.width=p*100+"%"}
-/* 音量恢复 */
+/* 音量恢复（旧四档值 1/.6/.25/0 天然兼容：即存即所得变滑块起点） */
+volUI();
 if(chushi.storage)chushi.storage.get("vol").then(function(v){
-  if(typeof v==="number"&&v>=0&&v<=1){
-    S.vi=v===0?3:v<=.3?2:v<=.7?1:0;
-    au("vol",{volume:S.vols[S.vi]}).catch(function(){});
-    $("vw1").style.display=S.vols[S.vi]===0?"none":"";
-  }
+  if(typeof v==="number"&&v>=0&&v<=1)setVol(v,false);
 }).catch(function(){});
 /* ---------- 启动 ---------- */
 who();tab("d");
