@@ -849,3 +849,24 @@ Work Log:
 Stage Summary:
 - v8.7.25 全链路闭环：网易云播放器传输键组（上一首/播放/下一首）恒定居中——「三键不让位」律全产品统一（SMTC 面板 v8.7.18 ↔ 网易云播放器 v8.7.25）；纯 CSS 三规则零 JS、两侧内容变化完全解耦
 - 新律沉淀：①flex 剩余空间居中≠容器居中——「恒定居中」必须绝对定位+translate 或等宽栅格，任何「左右内容不对称」的行都要用此律审 ②布局空间（offsetLeft）测量律的适用边界补全：对「静态 transform」失真，rect 与 layout 各有半区，断言前先问 transform 是否是被测机制本身 ③测试种子律：凡断言绑定主题/外观形态的光色值，必须种子化主题而非依赖应用默认（DEFAULT 深色）④有状态 mock 的「消费律」每轮起播前都要复核槽位状态，播放态判据必须绑定曲名而非 paused 布尔
+
+---
+Task ID: 163
+Agent: main (Super Z)
+Task: 用户四项反馈——①音质升级（exhigh/黑胶）②悬停放大变位移修复③逐行歌词高亮失效修复④网易云播放器浮窗频谱高光律动（v8.7.26）
+
+Work Log:
+- 【侦查定案】① 环境核实：beta HEAD=b7e5ae3（v8.7.25+Task162 已闭环，working tree clean）——前轮摘要再次滞后于真实进度（git log 为准律第三次验证）② ③根因实锤：ext-lyric.js parseWordLine 词 s 直接取绝对时间（全局浮层逐字正常=铁证），player.html parseYrc 写成 t:st+w[1]（行起始+词时间双重叠加）——YRC 词时间是全曲绝对毫秒，真实歌曲行头 st 8~30s→扫光起点整体错位 st→当前句扫色恒 0；mock 数据 st=1000 与词同量级掩盖（v8.7.24 visual 假绿根源）② hover 位移排查链：全库 hover 规则审计（源码/产物/minified 三层全 scale 无 translate）→headless DSF 1.0/1.25 双实测（H2 组 matrix(1.06) 中心恒定 dx=0）→最近三版本 hover 零 diff→真凶=QuickLinks.tsx whileHover {y:-4,scale:1.06}（v8.4.1 古老设计，y 位移 4px/56px≈7% 视觉主导压过 scale 6% 中心扩展=「位移动画」感知）④频谱架构：SMTC 依赖 chushi-spectrum.exe native loopback（跨进程系统音频专用）——网易云宿主 <audio> 直挂 WebAudio AnalyserNode 零依赖（播放在自己页面里）；crossOrigin=anonymous 需 CDN CORS——curl 实测 music.126.net 全局 access-control-allow-origin:* 在位（403 响应都带）
+- 【①音质升级】LVLS=[["standard","标准"],["exhigh","极高"],["lossless","无损"]] 三档轮换 chip（.nb.md 同构 28px 零布局增量）+S.lvl 状态+qLevel kv 持久化+play(list,i,keep) 热切换（keep=posMs/1000，load 后 au("seek") 回原进度——CDN Range 支持 v8.7.23 坑录律）+降级提示（响应 x.level≠请求 S.lvl 且请求非 standard→「账号无此音质权限，已回退 xx」toast——服务端降级行为 url 仍可播）
+- 【②hover 纯放大】whileHover {y:-4,scale:1.06}→{scale:1.07}（纯 scale 微提幅度补观感）+添加位 group-hover:-translate-y-1→scale-105（同律）；tailwind/磁贴/dock 全对账
+- 【③YRC 根修】t:st+w[1]→t:+w[1]+词正则第三参 0→\d+（对齐 ext-lyric 语义，背景和声词不漏）；visual mock 改真实大 st 形态（1s/8s/13s 行头）防回归
+- 【④频谱全链】netease.ts：ensureAudio 挂 crossOrigin=anonymous+ensureAnalyser（AudioContext+MediaElementSource→AnalyserNode fftSize 256→128 bins→connect destination 回接输出）；beatTick 30Hz（getByteFrequencyData+bass 1..8 bin 带权+128 段全量包络攻.62/放.16 SMTC 同参数族+actx suspended resume 兜底）；onNeBeat 订阅驱动启停（首位听众拉起/末位退订即停+收面板 iframe 销毁自然清零）；load CORS fallback（play 失败摘 crossOrigin 重载一次保播放——播放可用性>律动效果）；PresetWidgets：neBeatSub case 登记+onNeBeat 订阅广播 widgetNeBeat 30Hz；sandbox.js：neBeatCbs 池+chushi.ne.beat shim+widgetNeBeat 下行分发+下行白名单；sandbox.ts：v=126→127 冲 SW 缓存；widget player.html：.covw 包裹+.glow（DOM 前置画封面底下同 context 律，inset -7px blur 12px 基线 0）+beatFrame 合成（SMTC v8.2.8/8.3.3 同参数族：低音主推 opacity 0.30+pb*0.72+pow .85+scale 1+b*0.075——128 段映射 段k≈bin k+2 中 9..85/高 85..末端；写值防抖+静默清 inline 交还样式表+calmMotion 全程熄灯）+csGlow 开关（SMTC 面板「律动」同存储键统一入口：get 恢复+widgetStoragePatch 实时跟随）
+- 【探针】TL51 四件静态门新增（音质三档热切换源锚/YRC 绝对时间戳+旧双叠退役+正则放宽/频谱全链五源 widget+netease.ts+PresetWidgets+sandbox.js+sandbox.ts/磁贴纯放大+y:-4 退役）+TL37b 39600 五处联动（preset.ts/build-netease-preset.py/build-smtc-preset.py/PresetDocs/docs/PRESET_DEV.md——36800 退役入 legacyGone）+TL48 v=127 联动+ZIP 路径版本耦合；145 门全绿
+- 【verify-zip-v8726】34 串全绿（坑录：①swc minify 改名族——NE_SPEC_ATTACK/beatTick/onNeBeat 等模块符号被改写，行为锚必须用 DOM API 字面量（createMediaElementSource/getByteFrequencyData/fftSize=256 minify 后无空格形态实测）②v=127 在页面 chunk 不在 sandbox.js（sandbox.ts 编译面）③neBeatSub/widgetNeBeat 计数=shim 面与 chunk 面各 1，跨面双锚勿混 ④whileHover:{scale:1.07} minify 压紧形态对象冒号无空格）
+- 【visual-v8726】51 门端到端两轮全绿：v8.7.24 全量 42 门零回归+N4c 频谱双门（act 推亮 op=0.865 scale(1.0553)——mock 440Hz 正弦 bins 2-3 命中 bass；暂停清 inline→computed 0 熄灯）+N6g 自证式时间轴门（S.anc 锚原子读同帧读 posMs+ps 零时差→on 行每词 --p 与 clamp((posMs-t)/d) 数学一致 drift<=18%——headless rAF 帧合并族：800ms 词时长下 115ms rAF 间隔=14.4% 漂移实测；旧代码下 p 恒 0 漂 61%+必挂=回归证明力保持）+N18 音质五门（三档轮换/kv 持久化/热切换进度 20.55→22.61 保住+零误报 toast/降级 toast「已回退 标准」）+N0b 磁贴 hover 双通道（真鼠标 OOPIF 吞事件怪癖→合成 pointer 兜底：dy=0.00 a=1.07 ty=0 纯放大实证）
+- 【坑录】①kv 分桶实态：widget storage 键=official-netease-v1:netease:qLevel（widgetKey 前缀桶）值双引号转义 \"lossless\"——N18b 首跑 ':qLevel":"lossless"' 直查形态不命中（start:widget-kv 键内双层 JSON）②N6g 首版定行定词断言（onIdx==1+词2 中段）被 seek 落点漂移击穿（wseek 0.3 实落 ~15s）——自证式设计（数学一致断言）对落点免疫③合成 pointer 触发 framer-motion whileHover：pointerover(bubbles)+pointerenter 组合派发 root 委托链必中④headless rAF 帧合并族再录：过渡/逐帧写入类断言容差按「读值窗口内最慢帧间隔」放大而非固定值
+- 【发布】beta 分支 18 文件对账无夹带（player.html/QuickLinks/netease.ts/PresetWidgets/sandbox.js/sandbox.ts/preset.ts/changelog/build-extension.py/probe-beta/official-presets.json/PresetDocs/PRESET_DEV.md/双构建脚本/examples 双 cshz/visual-v8726.mjs）；widget 38514≤39600（余量 1086）；交付集 AllInOne 24.8MB 文叔叔（见交付记录）
+
+Stage Summary:
+- v8.7.26 全链路闭环：音质升级三档热切换+YRC 词时间戳根修（mock 假绿陷阱破除——mock 数据形态必须复刻真实分布）+磁贴 hover 纯放大+封面频谱高光律动全链（宿主 WebAudio 零 native 依赖路线，SMTC native loopback 路线对比定案）
+- 新律：①「同数据不同渲染面」的解析正确性仲裁：多消费面中取行为正常的面作基准对照（ext-lyric 正常↔widget 异常→锁定解析差异）②mock 数据必须复刻真实分布形态（st 与词时间同量级=时间戳 bug 假绿温床）③自证式行为门：断言输出与输入的数学一致性而非绝对落点（seek/时钟漂移免疫）④模块符号 minify 改名免疫：行为锚只取 DOM API/字符串字面量/无空格压缩形态 ⑤跨域音频频谱前提=CDN CORS 实测（curl 403 响应也带 ACAO 头可探明全局配置）
