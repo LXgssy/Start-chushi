@@ -809,3 +809,25 @@ Stage Summary:
 - v8.7.1 beta 全链路闭环：①内建面板↔预设音乐面板互切的拉伸/收缩弹簧全程内容可见（visibility→opacity 常驻合成根治白帧、白罩收窄为加载保护、散场豁免防幽灵回归——三层结构性换构，探针 106 门+诊断曲线+三帧目检三重实证）②dock 悬停提示从原生 title 换为 ⌘K 同款浮签（即时浮现/功能名解耦/无障碍保留）——第二十轮两点全清
 - 分发：beta 分支迭代版（8.7.0→8.7.1），不云推不并 main；「CSS 常驻+opacity 常驻合成」为条件渲染浮层白帧免疫的新定案形态（visibility 硬藏的合成层栅格丢失是白帧白罩存在的总根源）
 - 新律：①显隐换构 opacity 时必须同步审计「面板相位级联动画会覆盖 inline opacity」的散场通道——存活判定（viewLive）同时承担显隐与动画豁免，二者必须同源否则幽灵复活 ②「加载保护罩」与「重激活白帧免疫」是两个职责——前者事件驱动（onLoad 一次性揭幕），后者结构免疫（常驻合成），耦合在一起会让前者遮蔽几何动画 ③行为门断言从 visibility（稳态）迁到 opacity（动态散场曲线）时采样策略必须从「单点等值」升级为「双采样曲线」（早段/终态）
+
+---
+Task ID: 161
+Agent: main (Super Z)
+Task: 用户六项反馈——①封面点击开歌词（词钮退役）②歌词页动效对标 SMTC 面板+背景加实可读性 ③内置播放器歌词接入全局歌词浮层+悬浮浮窗 ④音量滑块无极调节 ⑤词钮改全局歌词开关 ⑥退出登录（v8.7.24）
+
+Work Log:
+- 【侦查】v8.7.23 播放器四层全摸清：widget（player.html 620 行，#bw 开 .lyr 词面板/音量四档 S.vols/QR 手写编码器）/桥（PresetWidgets neApi·neAudio·neSub 三 case+chushi.storage csDlyric→cardDlyric 镜像+EXT_KV_MAP 四开关）/SW（ext-bg.js hub 真值中继：cleanTrack→1Hz pollState broadcast，卡片 lyric 请求代理 hub /api/lyric，载荷={songId,yrc,ytlrc,lrc,tlyric,source,rev} 原始体）/卡片（ext-card.js ingestTrack 位置插值仲裁+ChuShiLyric.parse 归属强校验——零改动消费端）
+- 【①封面开歌词】cov click→openLyr（悬停 scale 1.07+title），#bw 开词面板逻辑退役
+- 【②动效 v2】SMTC 面板六件移植：.ln.on scale(1.06)/邻行 .94+blur 2px/1.1px/0 三档景深+.lsi 容器 transform 居中滚动（offsetTop 数学+560ms 翻译行 height 过渡追踪窗）+done 行 .ov 定格 100% 渐隐 .6s+双层实体色 clip-path 扫色（background-clip:text 在 transform 过场整词闪动故弃用——music-widget v8.3.5 同律）+rAF 插值引擎（onAudio 锚点{posMs,playing,at}+播放态外推+0.25% 量化防抖+暂停 opacity .38 淡出）；背景 --lybg 浅 rgba(255,255,255,.88)/深 rgba(24,24,28,.86) 替代 card2 55%
+- 【③歌词外送三跳】chushi.ne.pub（sandbox.js 新 pub+relay payload 240000 cap）→PresetWidgets nePub 白名单校验（数字 songId+yrc/lrc 非空）→SW neLyricPush→neLyrics LRU 4 首+storage.session（SW 重启存活）；SW ne 数据面：neFrame（sender 校验 chrome-extension://+发布方仲裁：播放中帧不被暂停帧抢/同标签自更例外）→cleanNeTrack→neWins 仲裁（新鲜窗播放 3s/暂停 10min，ne 播放中或 hub 未播→ne 胜出）→pollState 重构为赢家广播（无赢家发 null 根治幽灵锚点）；命令回程：卡片 cmd→neWins→sendNeCmd（tabs.sendMessage 发布帧标签页）→PresetWidgets neCmd 监听（play/pause/toggle/seek 直落 neAudioAct，next/prev→neAudioSys sysCmd 与 MediaSession 硬件键同通道）失败回退 hub；ext-card.js 零改动
+- 【④音量滑块】vrail 52px+i 填充+b 圆钮（hover/drag scale1.18）+PointerEvent 捕获拖拽+setVol 持久化 kv（旧四档值 1/.6/.25/0 天然兼容）+#vv 一键静音/恢复 lastVol+onAudio volume 帧回同步
+- 【⑤词钮全局开关】csDlyric set/get/widgetStoragePatch 反向回翻三件（music-widget 同构）+#bw.on accent 底
+- 【⑥退出登录】chip 两步确认（3s 回弹+warn 态）→/weapi/logout（服务端 Set-Cookie 清 MUSIC_U，cookie jar 零凭证落盘）→S.pls/uid/qrKey 清位+未登录点击=引导扫码（tab p→qrView）
+- 【验证】tsc 零新增错误（存量 examples/脚本报错与本轮无关）；探针 143 门全绿（TL49 十源静态门新增+TL37b 36800+TL48 v=126 联动）；verify-zip-v8724 34 串全绿；visual-v8724 42 门×2 全绿
+- 【交付】widgetHtmlLen 30400→36800 五处联动（minified 35907）；版本三位置 bump+changelog 头插；commit 3abef2f+b538b07 push origin beta；AllInOne 24.9MB 文叔叔 kyt190u7hgl VERIFY PASS
+- 【坑录】①verify-zip 锚串：minifier 把 `a.type!=="x"` 翻转成 `"x"!==e.type`（比较翻转形态）；ext-bg.js 与页面 chunk 是两个验证面勿混锚 ②TL49 官方预设 html 取数路径=opj.presets[i].manifest.widgets[0].html（assets 内嵌形态，p.widgets 不存在）③有状态 mock：二次搜索后首个 url 请求吃 VIP 槽——复播前须先点一行消费 ④YRC 逐字行在 DOMSnapshot 里是逐词分立字符串（.ov 双层），断言须按词不按整句 ⑤visual 主题双态：headless 浅/深色随环境抖动，--lybg 断言两值皆收 ⑥probe TL49 前版草稿把 pgNe 写成自指表达式——占位符+独立 t49fix 对象兜底（最终 t49fix.pgNe 生效）
+
+Stage Summary:
+- v8.7.24 全链路闭环：播放器六项迭代（封面开歌词+歌词动效 v2 对标 SMTC+背景加实+歌词外送接入全局面双表面+命令回程闭环+音量滑块+词钮全局歌词开关+两步退出登录）——ext-card.js/SMTC 面板零改动（消费端完全复用），SW 数据面从「hub 单源」升「ne/hub 仲裁双源」
+- 分发：扩展壳层改动（ext-bg/sandbox）+页面层（PresetWidgets/netease.ts）+预设包（player.html 重出 cshz）——需换扩展包（crx/zip），官方预设重装即得新版
+- 新律：①「同一 SW 数据面多源仲裁」三要素：新鲜窗+播放优先+发布方仲裁（防多发布者打架），赢家广播替代直传广播 ②歌词外送复用原始体形状=消费端零改动律（解析/归属校验/渲染全在卡侧既有管线）③verify-zip 锚必须按 minified 实态取形（比较翻转/面分离）④有状态 mock 的状态机在测试序列里是隐式前置条件（VIP 槽消费律）
