@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.25/ChuShi-NewTab-v8.7.25.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.26/ChuShi-NewTab-v8.7.26.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -2351,15 +2351,15 @@ try {
     const docsSrc = readFileSync(new URL("../src/components/startpage/PresetDocs.tsx", import.meta.url), "utf8");
     const devMd = readFileSync(new URL("../docs/PRESET_DEV.md", import.meta.url), "utf8");
     const c37 = {
-      /* v8.7.24：36800（播放器六项迭代，五处联动同步） */
-      htmlCap: docsSrc.includes("36800"),
+      /* v8.7.26：39600（音质/YRC 修复/频谱律动，五处联动同步） */
+      htmlCap: docsSrc.includes("39600"),
       height: docsSrc.includes("40–460"),
       icons: docsSrc.includes("数组 ≤7 条"),
       fields: docsSrc.includes("十三个内容字段"),
-      md: devMd.includes("36800"),
-      legacyGone: !docsSrc.includes("≤18000") && !docsSrc.includes("≤26400") && !docsSrc.includes("≤27600") && !docsSrc.includes("≤28800") && !docsSrc.includes("≤30400") && !docsSrc.includes("40–320"),
+      md: devMd.includes("39600"),
+      legacyGone: !docsSrc.includes("≤18000") && !docsSrc.includes("≤26400") && !docsSrc.includes("≤27600") && !docsSrc.includes("≤28800") && !docsSrc.includes("≤30400") && !docsSrc.includes("≤36800") && !docsSrc.includes("40–320"),
     };
-    gate("TL37b 文档内容同步源码门（v8.7.24 升 36800）：36800/40–460/≤7/十三字段 + 应用内与仓内 md 对账 + 旧值（18000/26400/27600/28800/30400）退役", c37.htmlCap && c37.height && c37.icons && c37.fields && c37.md && c37.legacyGone, JSON.stringify(c37));
+    gate("TL37b 文档内容同步源码门（v8.7.26 升 39600）：39600/40–460/≤7/十三字段 + 应用内与仓内 md 对账 + 旧值（18000/26400/27600/28800/30400/36800）退役", c37.htmlCap && c37.height && c37.icons && c37.fields && c37.md && c37.legacyGone, JSON.stringify(c37));
   }
 
   /* ---------- TL38 掠影染色退役（v8.7.8 ③）：CSSOM 门 + 默认态零波及对账 ----------
@@ -2764,7 +2764,7 @@ try {
       pwBridge: /case "neApi":/.test(pwSrc48) && /case "neAudio":/.test(pwSrc48) && /case "neSub":/.test(pwSrc48) && /widgetNeResult/.test(pwSrc48) && /widgetNeAudio/.test(pwSrc48) && /NE_PATHS/.test(pwSrc48),
       sbShim: /ne:\{api:function\(p,d\)/.test(sbSrc48) && /op:'neApi'/.test(sbSrc48) && /op:'neAudio'/.test(sbSrc48) && /op:'neSub'/.test(sbSrc48),
       sbRelay: /path: str\(d\.path, 64\)/.test(sbSrc48) && /widgetNeResult" \|\| m\.type === "widgetNeAudio/.test(sbSrc48),
-      sbCache: /sandbox\.html\?v=126/.test(sbTs48) && /mode=widget&v=126/.test(sbTs48) && /mode=page&v=126/.test(sbTs48),
+      sbCache: /sandbox\.html\?v=127/.test(sbTs48) && /mode=widget&v=127/.test(sbTs48) && /mode=page&v=127/.test(sbTs48),
       opEntry: /初始网易云播放器预设\.cshz/.test(opSrc48) && /"netease"/.test(opSrc48),
       opJson: opJson48.includes("初始 · 网易云播放器") && opJson48.includes("chushi.ne.api"),
     };
@@ -2875,13 +2875,60 @@ try {
       t50.absCenter && t50.flex1Gone && t50.rowRelative && t50.volAuto, JSON.stringify(t50));
   }
 
+  /* ---------- TL51 四件迭代静态门（v8.7.26） ----------
+     ① 音质升级（exhigh/黑胶）：LVLS 三档 + level:S.lvl + qLevel 持久化 +
+       播放中热切换（load 后 seek 保进度）+ 降级提示；
+     ③ YRC 词时间戳根修：词时间是全曲绝对毫秒（ext-lyric 同数据解析正常为
+       铁证）——旧 st+w[1] 双叠令扫光起点错位 st 毫秒=「当前句无高亮」；
+     ④ 封面频谱律动：宿主 WebAudio（createMediaElementSource+fftSize 256）
+       30Hz 包络 → 桥 neBeatSub/widgetNeBeat → shim chushi.ne.beat →
+       widget beatFrame 合成（.glow，SMTC v8.2.8 同参数族）+csGlow 开关；
+     ② 磁贴 hover 纯放大：whileHover scale:1.07（y:-4 位移退役）+
+       scale-105（-translate-y-1 退役）。 */
+  {
+    let widgetSrc51 = "", qlSrc51 = "", neTs51 = "", pwSrc51 = "", sbSrc51 = "", sbTs51 = "";
+    try {
+      const opj51 = JSON.parse(readFileSync(new URL("../src/lib/startpage/official-presets.json", import.meta.url), "utf8"));
+      widgetSrc51 = opj51.presets.find((p) => (p.name || "").includes("网易云")).manifest.widgets[0].html;
+      qlSrc51 = readFileSync(new URL("../src/components/startpage/QuickLinks.tsx", import.meta.url), "utf8");
+      neTs51 = readFileSync(new URL("../src/lib/startpage/netease.ts", import.meta.url), "utf8");
+      pwSrc51 = readFileSync(new URL("../src/components/startpage/PresetWidgets.tsx", import.meta.url), "utf8");
+      sbSrc51 = readFileSync(new URL("../public/sandbox.js", import.meta.url), "utf8");
+      sbTs51 = readFileSync(new URL("../src/lib/startpage/sandbox.ts", import.meta.url), "utf8");
+    } catch { }
+    const t51 = {
+      quality: widgetSrc51.includes('var LVLS=[["standard","标准"],["exhigh","极高"],["lossless","无损"]],lvi=0') &&
+        /level:S\.lvl/.test(widgetSrc51) && widgetSrc51.includes('chushi.storage.set("qLevel",S.lvl)') &&
+        widgetSrc51.includes("play(S.rows,S.q,S.anc.playing?S.anc.posMs/1000:0)") &&
+        widgetSrc51.includes("已回退"),
+      yrcAbs: widgetSrc51.includes("{t:+w[1],d:+w[2],x:w[3]}") &&
+        widgetSrc51.includes("{t:st+ +w[1]}") === false &&
+        widgetSrc51.includes("(\\d+),(\\d+),\\d+\\)"),
+      beat: /function beatFrame\(n\)/.test(widgetSrc51) && widgetSrc51.includes("chushi.ne.beat(beatFrame)") &&
+        widgetSrc51.includes('d.key==="csGlow"') && widgetSrc51.includes(".covw .glow{position:absolute") &&
+        /\.covw\{position:relative/.test(widgetSrc51) &&
+        neTs51.includes("createMediaElementSource") && neTs51.includes("analyser.fftSize = 256") &&
+        neTs51.includes("export function onNeBeat") && neTs51.includes('a.crossOrigin = "anonymous"') &&
+        pwSrc51.includes('case "neBeatSub":') && pwSrc51.includes('type: "widgetNeBeat"') &&
+        sbSrc51.includes("beat:function(cb)") && sbSrc51.includes("op:'neBeatSub'") &&
+        sbSrc51.includes("widgetNeBeat"),
+      tileScale: qlSrc51.includes("whileHover={jiggle ? undefined : { scale: 1.07 }}") &&
+        qlSrc51.includes("{ y: -4, scale: 1.06 }") === false &&
+        qlSrc51.includes("group-hover:scale-105") &&
+        qlSrc51.includes("group-hover:-translate-y-1") === false,
+      vBump: sbTs51.includes("v=127") && sbTs51.includes("v=126") === false,
+    };
+    gate("TL51 四件迭代静态门（v8.7.26）：音质三档热切换 + YRC 绝对时间戳根修 + 频谱全链五源 + 磁贴纯放大",
+      t51.quality && t51.yrcAbs && t51.beat && t51.tileScale && t51.vBump, JSON.stringify(t51));
+  }
+
   /* ---------- T10 pageerror ---------- */
   gate("T10 pageerror=0", errors.length === 0, errors.join(" | ").slice(0, 120));
 } catch (e) {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.25 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.26 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);

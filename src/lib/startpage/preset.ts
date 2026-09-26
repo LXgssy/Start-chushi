@@ -245,8 +245,11 @@ export const PRESET_LIMITS = {
      preset.ts/build-smtc-preset.py/build-netease-preset.py/PresetDocs/PRESET_DEV.md
      v8.7.24：30400 → 36800 —— 播放器六项迭代（封面开歌词 + 歌词动效 v2 对标
      SMTC 面板语言 + 歌词外送 ne.pub + 音量滑块 + 词钮全局歌词开关 + 退出登录）
-     minified 实测 35907；五处联动对账同上 */
-  widgetHtmlLen: 36800,
+     minified 实测 35907；五处联动对账同上
+     v8.7.26：36800 → 39600 —— 音质升级（exhigh/黑胶热切换）+ YRC 词时间戳
+     根修 + 封面频谱高光律动（beatFrame+glow）minified 实测 38514；五处联动
+     对账同上 */
+  widgetHtmlLen: 39600,
   icons: 7,
   iconLen: 8192,
   tokenValLen: 120,

@@ -97,7 +97,15 @@ img{-webkit-user-drag:none;user-select:none}
 .bar{flex:none;display:none;flex-direction:column;gap:2px;padding-top:2px}
 .bar.on{display:flex}
 .brow{display:flex;align-items:center;gap:9px}
-.cov{width:42px;height:42px;border-radius:10px;flex:none;object-fit:cover;cursor:pointer;
+/* v8.7.26 频谱高光律动（对标 SMTC .cs-glow v8.2.0/8.3.3）：.glow DOM 前置
+   画在封面底下（同 context 律），光环只从四周晕出、封面本体恒定不动；
+   宿主 WebAudio 128 段 30Hz 包络帧（攻 .62/放 .16 同参数族）驱动
+   opacity/scale——只写合成器友好属性；暂停/静默清 inline 交还样式表
+   （基线 0，42px 小封面不做常亮微光）；reduced-motion 全程熄灯 */
+.covw{position:relative;flex:none;display:block}
+.covw .glow{position:absolute;inset:-7px;border-radius:16px;background:var(--acc);opacity:0;
+  filter:blur(12px);pointer-events:none}
+.cov{position:relative;z-index:1;display:block;width:42px;height:42px;border-radius:10px;object-fit:cover;cursor:pointer;
   background:linear-gradient(135deg,var(--acc32),var(--acc12));opacity:0;
   transition:opacity .5s var(--ez),transform .22s var(--ez)}
 .cov.on{opacity:1}
@@ -219,12 +227,12 @@ img{-webkit-user-drag:none;user-select:none}
   </div>
   <div class="bar" id="bar">
     <div class="brow">
-      <img class="cov" id="cov" alt="" title="歌词">
+      <span class="covw"><span class="glow" id="glow"></span><img class="cov" id="cov" alt="" title="歌词"></span>
       <div class="nm">
         <div class="tt"><span id="tt">未在播放</span><span class="tri" id="tri" style="display:none">试听</span></div>
         <div class="ar" id="ar">点列表里的歌开始播放</div>
       </div>
-      <button class="nb md" id="md" title="播放模式">顺序</button>
+      <button class="nb md" id="sq" title="音质">标准</button><button class="nb md" id="md" title="播放模式">顺序</button>
       <button class="nb" id="bw" title="全局歌词">词</button>
     </div>
     <div class="seek" id="seek"><div class="rail"><i id="fill"></i></div></div>
@@ -259,7 +267,7 @@ function api(p,d){return chushi.ne.api(p,d).then(function(r){if(!r.ok)throw new 
 function au(a,o){return chushi.ne.audio(a,o).then(function(r){if(!r.ok)throw new Error(r.err||"操作失败");return r.data})}
 /* ---------- 状态 ---------- */
 var S={tab:"d",rows:[],pls:null,q:-1,mode:0,ly:null,lyOn:false,lastSeq:0,curLy:-2,
-  logged:false,uid:null,qrKey:"",pollT:null,drag:false,vol:.7,lastVol:.7,dur:0,
+  logged:false,uid:null,qrKey:"",pollT:null,drag:false,vol:.7,lastVol:.7,dur:0,lvl:"standard",
   anc:{posMs:0,playing:false,at:0},lyEls:[],lyTarget:null,lyScrollUntil:0,lyScrollIdx:-1,
   lyRaf:0,lyPaused:null};
 function norm(o){return{id:o.id,name:o.name||"",
@@ -287,16 +295,24 @@ function onAudio(s){
 }
 chushi.ne.sub(onAudio);
 /* ---------- 队列 ---------- */
-function play(list,i){
+function play(list,i,keep){
   if(!list||!list[i])return;S.q=i;var r=list[i];mark();
-  api("/weapi/song/enhance/player/url/v1",{ids:"["+r.id+"]",level:"standard",encodeType:"flac"})
+  api("/weapi/song/enhance/player/url/v1",{ids:"["+r.id+"]",level:S.lvl,encodeType:"flac"})
   .then(function(d){var x=(d.data||[])[0];
     if(!x||!x.url){note((r.fee===1?"VIP 歌曲":r.name)+" 暂无法播放（版权或登录限制）");return}
+    /* ① 音质升级（exhigh/黑胶无损）：按账号权限自动降级——响应 level 与请求
+       不符即提示（网易云服务端行为：无权限回退较低音质，url 仍可播） */
+    if(x.level&&x.level!==S.lvl&&S.lvl!=="standard"){
+      var LN={standard:"标准",higher:"较高",exhigh:"极高",lossless:"无损",hires:"Hi-Res",jymaster:"超清母带"};
+      note("账号无此音质权限，已回退 "+(LN[x.level]||x.level))}
     $("tt").textContent=r.name;$("ar").textContent=r.ar;$("cov").classList.remove("on");
     $("bar").classList.add("on");
     au("load",{url:x.url.replace(/^http:/,"https:"),
       meta:{id:String(r.id),name:r.name,artist:r.ar,album:r.al,cover:"",trial:!!x.freeTrialInfo}})
-    .then(function(){getPic(r);getLyric(r.id)})
+    .then(function(){
+      /* 音质热切换：load 后 seek 回原进度（CDN Range 支持，v8.7.23 坑录律） */
+      if(keep>0&&isFinite(keep))au("seek",{position:keep}).catch(function(){});
+      getPic(r);getLyric(r.id)})
     .catch(function(e){note("播放失败："+e.message)});
   }).catch(function(e){note(e.message)});
 }
@@ -560,8 +576,8 @@ function parseTly(t){var m={};(t||"").replace(/\r/g,"").split("\n").forEach(func
   var p=ts[1].split(":");m[Math.round((+p[0]*60+ +p[1])*1000)]=x});return m}
 function parseYrc(t){var m=[];(t||"").split("\n").forEach(function(l){
   if(l.charAt(0)!=="[")return;var h=l.match(/^\[(\d+),(\d+)\](.*)$/);if(!h)return;
-  var st=+h[1],ws=[],w,re=/\((\d+),(\d+),0\)([^(]*)/g;
-  while((w=re.exec(h[3])))if(w[3])ws.push({t:st+ +w[1],d:+w[2],x:w[3]});
+  var st=+h[1],ws=[],w,re=/\((\d+),(\d+),\d+\)([^(]*)/g;
+  while((w=re.exec(h[3])))if(w[3])ws.push({t:+w[1],d:+w[2],x:w[3]});
   if(ws.length)m.push({t:st,w:ws})});return m}
 function getLyric(id){
   S.ly=null;S.curLy=-1;$("lhint").style.display="none";$("lsc").innerHTML="";
@@ -713,11 +729,28 @@ window.addEventListener("message",function(ev){
   var d=ev.data;if(!d||d.type!=="widgetStoragePatch"||ev.source!==window.parent)return;
   if(d.key==="csDlyric"){var nw=d.value===true||d.value==="true";
     if(nw!==wordOn){wordOn=nw;$("bw").classList.toggle("on",wordOn)}}
+  if(d.key==="csGlow"){var ng=!(d.value===false||d.value==="false");
+    if(ng!==glowOn){glowOn=ng;if(!glowOn)beatFrame(null)}}
 });
 /* ---------- 控制键 ---------- */
 $("pp").addEventListener("click",function(){au("toggle").catch(function(){})});
 $("pv").addEventListener("click",prev);
 $("nx").addEventListener("click",next);
+/* ① 音质升级（exhigh/黑胶）：标准→极高(320K)→无损(FLAC·黑胶) 三档轮换；
+   切档持久化 qLevel；播放中热切换=同曲重取直链+seek 保进度（传输键
+   .ctls 绝对居中律不受 .brow 增减影响，v8.7.25） */
+var LVLS=[["standard","标准"],["exhigh","极高"],["lossless","无损"]],lvi=0;
+function lvlApply(){S.lvl=LVLS[lvi][0];$("sq").textContent=LVLS[lvi][1]}
+$("sq").addEventListener("click",function(){
+  lvi=(lvi+1)%LVLS.length;lvlApply();
+  if(chushi.storage)chushi.storage.set("qLevel",S.lvl).catch(function(){});
+  if(S.lastSeq&&S.q>=0&&S.rows[S.q]){
+    play(S.rows,S.q,S.anc.playing?S.anc.posMs/1000:0);
+    note("音质："+LVLS[lvi][1])}
+});
+if(chushi.storage)chushi.storage.get("qLevel").then(function(v){
+  for(var i=0;i<LVLS.length;i++)if(LVLS[i][0]===v){lvi=i;lvlApply()}
+}).catch(function(){});
 $("md").addEventListener("click",function(){
   S.mode=(S.mode+1)%3;$("md").textContent=["顺序","单曲","随机"][S.mode]});
 /* ④ 音量滑块（无极调节 + 拖拽 PointerEvent 捕获 + 持久化 + 图标静音切换） */
@@ -761,6 +794,35 @@ seekEl.addEventListener("pointerup",function(e){
 function seekMove(e){var r=seekEl.getBoundingClientRect();
   var p=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));
   $("fill").style.width=p*100+"%"}
+/* ④ 频谱高光律动：chushi.ne.beat 订阅（宿主 WebAudio 128 段 30Hz 包络帧，
+   攻 .62/放 .16）→ .glow 合成。低音=提亮+辉光主推；中/高频=亮度微调+
+   尺寸点缀；pow .85 提升小信号可见度——参数族与 SMTC 面板 v8.2.8/8.3.3
+   同源（128 段映射 段k≈bin k+2：中 9..85 ≈ 250Hz~2kHz / 高 85..末端）。
+   写值防抖（不变不写）；静默/暂停清 inline 交还样式表；面板「律动」开关
+   与 SMTC 同存储键 csGlow（统一入口，get 恢复+patch 实时跟随） */
+var glowEl=$("glow"),glowOn=true,go2=0,gLo="",gLt="";
+var calmMotion=!!(window.matchMedia&&matchMedia("(prefers-reduced-motion: reduce)").matches);
+function bandAvg(b,a,z){var s=0,i;for(i=a;i<z&&i<b.length;i++)s+=Number(b[i])||0;return z>a?s/(z-a):0}
+function beatFrame(n){
+  if(!glowEl)return;
+  if(!glowOn||calmMotion)n=null;
+  var b=n&&typeof n.bass==="number"?n.bass:0,m=0,h=0;
+  if(n&&n.bands&&n.bands.length){
+    if(n.bands.length>=100){m=bandAvg(n.bands,9,85);h=bandAvg(n.bands,85,n.bands.length)}
+    else{m=bandAvg(n.bands,3,10);h=bandAvg(n.bands,10,16)}}
+  var act=n&&n.on&&(b>0.012||m>0.02||h>0.02);
+  if(act){
+    var pb=Math.pow(b,0.85),pm=Math.pow(m,0.85),ph=Math.pow(h,0.85);
+    var go=Math.min(1,0.30+pb*0.72+pm*0.30+ph*0.15).toFixed(3);
+    var gs="scale("+(1+b*0.075+m*0.036+h*0.018).toFixed(4)+")";
+    if(go!==gLo){if(!go2)glowEl.style.transition="none";gLo=go;glowEl.style.opacity=go}
+    if(gs!==gLt){gLt=gs;glowEl.style.transform=gs}
+    go2=1;
+  }else if(go2){go2=0;gLo=gLt="";glowEl.style.transition="";glowEl.style.opacity="";glowEl.style.transform=""}
+}
+try{chushi.ne.beat(beatFrame)}catch(e){}
+if(chushi.storage)chushi.storage.get("csGlow").then(function(v){
+  glowOn=!(v===false||v==="false");if(!glowOn)beatFrame(null)}).catch(function(){});
 /* 音量恢复（旧四档值 1/.6/.25/0 天然兼容：即存即所得变滑块起点） */
 volUI();
 if(chushi.storage)chushi.storage.get("vol").then(function(v){
