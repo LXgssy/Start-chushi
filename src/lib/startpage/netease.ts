@@ -182,6 +182,11 @@ function ensureAudio(): HTMLAudioElement {
   if (audio) return audio;
   const a = new Audio();
   a.preload = "auto";
+  /* v8.7.26 频谱前提：crossOrigin=anonymous（CDN 全局 ACAO:* 实测在位），
+     MediaElementSource 才能读到非污染频谱；直链加载失败时由 neAudioAct
+     load 的 catch 摘除重载保播放（频谱降级熄灯） */
+  a.crossOrigin = "anonymous";
+  ensureAnalyser(a);
   /* 挂入 DOM：游离媒体元素有被 GC 中途回收的风险，且便于观测/测试 */
   a.setAttribute("data-ne-audio", "1");
   a.style.display = "none";
@@ -230,6 +235,98 @@ function wireMediaSession(a: HTMLAudioElement) {
   }
 }
 
+/* v8.7.26 频谱助手：宿主 <audio> 直挂 WebAudio AnalyserNode——播放在自己
+   页面里，零 native 依赖（SMTC 的 chushi-spectrum loopback 助手只服务于
+   跨进程系统音频）。128 段（fftSize 256）30Hz 包络（攻 .62/放 .16，SMTC
+   v8.2.8 同参数族）；订阅驱动启停（无听众零开销）；crossOrigin=anonymous
+   需 CDN CORS（music.126.net 全局 ACAO:* 实测在位，v8.7.26 curl 实证），
+   加载失败自动摘除重载保播放（频谱静默降级为熄灯）。 */
+const NE_SPEC_ATTACK = 0.62;
+const NE_SPEC_RELEASE = 0.16;
+export interface NeBeat {
+  /** 播放中（false=衰减尾/暂停熄灯） */
+  on: boolean;
+  /** 0..1 已包络（1..8 bin 低频带权，鼓点驱动源） */
+  bass: number;
+  /** 128 段 0..1 已包络 */
+  bands: number[];
+}
+let actx: AudioContext | null = null;
+let analyser: AnalyserNode | null = null;
+let freqBuf: Uint8Array | null = null;
+let envBass = 0;
+let envBands: number[] = [];
+let beatTimer: ReturnType<typeof setInterval> | null = null;
+const beatListeners = new Set<(b: NeBeat) => void>();
+const lastBeat: NeBeat = { on: false, bass: 0, bands: [] };
+
+function ensureAnalyser(a: HTMLAudioElement): void {
+  if (analyser) return;
+  try {
+    const AC = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AC) return;
+    actx = actx ?? new AC();
+    const src = actx.createMediaElementSource(a);
+    analyser = actx.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.55; /* 原生平滑+快攻慢放包络双稳 */
+    src.connect(analyser);
+    analyser.connect(actx.destination); /* 直链音频改道 WebAudio 图后必须回接输出 */
+    freqBuf = new Uint8Array(analyser.frequencyBinCount);
+  } catch {
+    /* 已连接/老内核不支持时静默——播放不受影响，频谱熄灯降级 */
+  }
+}
+
+function beatTick(): void {
+  if (!analyser || !freqBuf || !actx) return;
+  if (actx.state === "suspended") {
+    void actx.resume().catch(() => {});
+  }
+  analyser.getByteFrequencyData(freqBuf);
+  const n = freqBuf.length;
+  let bassRaw = 0;
+  for (let i = 1; i < 9; i++) bassRaw += freqBuf[i];
+  bassRaw = bassRaw / (8 * 255);
+  if (envBands.length !== n) envBands = new Array(n).fill(0);
+  for (let i = 0; i < n; i++) {
+    const t = freqBuf[i] / 255;
+    envBands[i] += (t - envBands[i]) * (t > envBands[i] ? NE_SPEC_ATTACK : NE_SPEC_RELEASE);
+  }
+  envBass += (bassRaw - envBass) * (bassRaw > envBass ? NE_SPEC_ATTACK : NE_SPEC_RELEASE);
+  lastBeat.on = audio ? !audio.paused && !audio.ended : false;
+  lastBeat.bass = envBass;
+  lastBeat.bands = envBands.slice();
+  for (const cb of beatListeners) {
+    try {
+      cb(lastBeat);
+    } catch {
+      /* 单个订阅者异常不断链 */
+    }
+  }
+}
+
+/* 30Hz 包络帧订阅：首位听众拉起循环，末位退订即停（面板关闭=iframe 销毁=
+   订阅自然清零，收面板零残留） */
+export function onNeBeat(cb: (b: NeBeat) => void): () => void {
+  beatListeners.add(cb);
+  if (beatListeners.size === 1) {
+    beatTimer = setInterval(beatTick, 33);
+  }
+  return () => {
+    beatListeners.delete(cb);
+    if (!beatListeners.size && beatTimer != null) {
+      clearInterval(beatTimer);
+      beatTimer = null;
+      envBass = 0;
+      envBands = [];
+      lastBeat.on = false;
+      lastBeat.bass = 0;
+      lastBeat.bands = [];
+    }
+  };
+}
+
 /* v8.7.24：队列指令注入——SW 反向控制回程（悬浮卡/全局浮窗命令）→ widget
    队列推进，与 MediaSession 硬件键 sysCmd 同通道同一次性语义（随 seq 发出
    后即刻清位）；队列逻辑在 widget，宿主保持哑播放器不越权 */
@@ -261,7 +358,21 @@ export async function neAudioAct(
       sysCmd = "";
       a.src = String(o.url ?? "").slice(0, 600);
       a.load();
-      await a.play(); /* user activation 已随 widget 点击传播到宿主 */
+      try {
+        await a.play(); /* user activation 已随 widget 点击传播到宿主 */
+      } catch (e) {
+        /* CORS 授权缺失的 CDN 分支兜底：摘 crossOrigin 重载一次保播放
+           （频谱熄灯降级——播放可用性 > 律动效果），错误仍上抛给 widget toast */
+        if (a.crossOrigin && String(o.url ?? "").startsWith("https://")) {
+          a.removeAttribute("crossorigin");
+          analyser = null;
+          a.src = String(o.url ?? "").slice(0, 600);
+          a.load();
+          await a.play();
+        } else {
+          throw e;
+        }
+      }
       if ("mediaSession" in navigator && meta.name) {
         try {
           navigator.mediaSession.metadata = new MediaMetadata({

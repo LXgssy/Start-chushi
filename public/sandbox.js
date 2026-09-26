@@ -1116,7 +1116,7 @@ function widgetShim(theme, accent, panelMode) {
     "document.documentElement.dataset.theme='" + (theme === "dark" ? "dark" : "light") + "';" +
     (panelMode ? "document.documentElement.dataset.panel='1';" : "") +
     accentSet +
-    "var smtcCbs=[];var lastSmtc=null;var neCbs=[];var neLast=null;" +
+    "var smtcCbs=[];var lastSmtc=null;var neCbs=[];var neLast=null;var neBeatCbs=[];" +
     musicSrc +
     "window.chushi={notify:function(o){o=o||{};post({type:'widgetApi',op:'notify'," +
     "title:String(o.title||'').slice(0,24),description:String(o.description||'').slice(0,60)})}," +
@@ -1146,6 +1146,10 @@ function widgetShim(theme, accent, panelMode) {
     "volume:(typeof o.volume==='number'&&isFinite(o.volume))?o.volume:null,reqId:id})})}," +
     "sub:function(cb){if(typeof cb!=='function')return function(){};neCbs.push(cb);" +
     "post({type:'widgetApi',op:'neSub'});return function(){var i=neCbs.indexOf(cb);if(i>=0)neCbs.splice(i,1)}}," +
+    /* v8.7.26 频谱帧订阅：宿主 WebAudio 30Hz 已包络帧（{on,bass,bands}），
+       参数族同 SMTC 频谱；面板关闭 iframe 销毁=订阅自然清零 */
+    "beat:function(cb){if(typeof cb!=='function')return function(){};neBeatCbs.push(cb);" +
+    "post({type:'widgetApi',op:'neBeatSub'});return function(){var i=neBeatCbs.indexOf(cb);if(i>=0)neBeatCbs.splice(i,1)}}," +
     /* v8.7.24 歌词外送：原始体 JSON → 宿主白名单校验 → SW ne 歌词缓存
        （悬浮卡/全局歌词浮层复用 ChuShiLyric.parse 零改动渲染） */
     "pub:function(o){var p2='';try{p2=JSON.stringify(o||{}).slice(0,240000)}catch(e){}" +
@@ -1176,7 +1180,9 @@ function widgetShim(theme, accent, panelMode) {
     "if(d.type==='widgetNeResult'){var pr=pending[d.reqId];if(!pr)return;delete pending[d.reqId];" +
     "pr.f({ok:d.ok===true,data:d.data,err:d.err||''})};" +
     "if(d.type==='widgetNeAudio'){var ns=d.state&&typeof d.state==='object'?d.state:null;neLast=ns;" +
-    "for(var i=neCbs.length-1;i>=0;i--){try{neCbs[i](ns)}catch(e){}}}});" +
+    "for(var i=neCbs.length-1;i>=0;i--){try{neCbs[i](ns)}catch(e){}}};" +
+    "if(d.type==='widgetNeBeat'){var nb=d.beat&&typeof d.beat==='object'?d.beat:null;" +
+    "for(var i=neBeatCbs.length-1;i>=0;i--){try{neBeatCbs[i](nb)}catch(e){}}}});" +
     "})();</script>"
   );
 }
@@ -1266,7 +1272,7 @@ function widgetMode() {
         /* noop */
       }
     }
-    if ((m.type === "widgetSmtc" || m.type === "widgetSmtcResult" || m.type === "widgetSmtcTick" || m.type === "widgetSmtcSpectrum" || m.type === "widgetNeResult" || m.type === "widgetNeAudio") && inner && inner.contentWindow) {
+    if ((m.type === "widgetSmtc" || m.type === "widgetSmtcResult" || m.type === "widgetSmtcTick" || m.type === "widgetSmtcSpectrum" || m.type === "widgetNeResult" || m.type === "widgetNeAudio" || m.type === "widgetNeBeat") && inner && inner.contentWindow) {
       /* SMTC 通道下行：快照推送/每拍锚点/控制回执/频谱帧原样透传进部件
          v8.2.7 根修：widgetSmtcSpectrum 此前漏在透传白名单外——宿主
          SpectrumClient 频谱帧永远到不了部件 iframe，now().bass 恒 0，

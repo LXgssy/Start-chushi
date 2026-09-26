@@ -20,7 +20,7 @@
 import { memo, useEffect, useRef } from "react";
 import { sandboxWidgetSrc } from "@/lib/startpage/sandbox";
 import { smtc, SMTC_COMMANDS } from "@/lib/startpage/smtc";
-import { NE_PATHS, neCall, neAudioAct, neAudioState, neAudioSys, onNeAudio, type NeAudioAct } from "@/lib/startpage/netease";
+import { NE_PATHS, neCall, neAudioAct, neAudioState, neAudioSys, onNeAudio, onNeBeat, type NeAudioAct } from "@/lib/startpage/netease";
 import { postToWidget, widgetFrameGet, widgetFrameSet, widgetThemeBroadcast } from "@/lib/startpage/widget-frames";
 import { smtcSpectrum, type SmtcSpectrum } from "@/lib/startpage/smtc";
 
@@ -190,6 +190,9 @@ function PresetWidgets(props: {
   const specUnsubRef = useRef<(() => void) | null>(null);
   /** v8.7.23 网易云播放通道：订阅宿主音频状态的部件 key 集合（chushi.ne.sub） */
   const neSubsRef = useRef<Set<string>>(new Set());
+  /* v8.7.26 频谱帧订阅（neBeatSub 登记 → widgetNeBeat 30Hz 推帧）；
+     onNeBeat 内部订阅驱动启停（末位退订即停循环，收面板零残留） */
+  const neBeatSubsRef = useRef<Set<string>>(new Set());
   /* 消息监听器只挂一次 → 经 ref 读取最新值；ref 写入放 effect（React Compiler 律：
      渲染期不可触 ref，与 page.tsx contentHRef 镜像同模式） */
   const widgetsRef = useRef(props.widgets);
@@ -330,6 +333,17 @@ function PresetWidgets(props: {
       }
     });
     return off;
+  }, []);
+
+  /* v8.7.26 网易云频谱帧 → 部件帧（宿主 WebAudio 30Hz 已包络 {on,bass,bands}），
+     参数族与 SMTC 频谱（v8.2.0 sendSpectrum）同语言；无订阅者时 onNeBeat
+     循环自停（订阅驱动，非轮询空转） */
+  useEffect(() => {
+    return onNeBeat((beat) => {
+      for (const wkey of neBeatSubsRef.current) {
+        postToWidget(wkey, { type: "widgetNeBeat", widgetKey: wkey, beat });
+      }
+    });
   }, []);
 
   /** v8.2.0 频谱帧 → 部件帧（30Hz 已包络，{on,bass,bands,t}） */
@@ -486,6 +500,11 @@ function PresetWidgets(props: {
               err: String((err as Error)?.message ?? err).slice(0, 120),
             })
         );
+        break;
+      }
+      case "neBeatSub": {
+        /* v8.7.26 频谱订阅登记：后续帧走 onNeBeat 广播（30Hz，包络已由宿主完成） */
+        neBeatSubsRef.current.add(wkey);
         break;
       }
       case "neSub": {

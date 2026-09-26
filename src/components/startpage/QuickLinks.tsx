@@ -259,7 +259,10 @@ function TileVisual({
       className={"flex w-full flex-col items-center gap-2.5" + (jiggle ? " jiggle" : "")}
     >
       <motion.span
-        whileHover={jiggle ? undefined : { y: -4, scale: 1.06 }}
+        /* v8.7.26 hover 纯放大律：y:-4 上浮位移主导视觉（4px/56px≈7% 位移量
+           压过 scale 1.06 的中心扩展）=用户「放大动画变成了位移动画」根因；
+           改纯 scale 1.07（幅度微提补观感），位移分量退役 */
+        whileHover={jiggle ? undefined : { scale: 1.07 }}
         transition={{ duration: 0.35, ease: EASE }}
         className="block cursor-grab active:cursor-grabbing"
         style={{ willChange: "transform" }}
@@ -820,7 +823,7 @@ function QuickLinks({
                   (sm ? "h-14 w-14 rounded-[18px] text-xl " : "h-16 w-16 rounded-[20px] text-2xl ") +
                   (editing
                     ? "border-zinc-400/70 text-zinc-500 dark:border-zinc-500 dark:text-zinc-400"
-                    : "border-zinc-300 text-zinc-400 group-hover:-translate-y-1 group-hover:border-zinc-400/70 group-hover:text-zinc-600 dark:border-zinc-700 dark:text-zinc-600 dark:group-hover:border-zinc-500 dark:group-hover:text-zinc-300")
+                    : "border-zinc-300 text-zinc-400 group-hover:scale-105 group-hover:border-zinc-400/70 group-hover:text-zinc-600 dark:border-zinc-700 dark:text-zinc-600 dark:group-hover:border-zinc-500 dark:group-hover:text-zinc-300")
                 }
               >
                 +
