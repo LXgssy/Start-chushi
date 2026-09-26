@@ -72,6 +72,7 @@ export const NE_PATHS: ReadonlySet<string> = new Set([
   "/weapi/v3/song/detail", // 封面/专辑补全（老搜索响应无 picUrl）
   "/weapi/song/enhance/player/url/v1", // 播放直链
   "/weapi/song/lyric", // 歌词（lv/tv/yv=-1 拉 LRC+翻译+YRC 逐字）
+  "/weapi/logout", // 退出登录（服务端 Set-Cookie 清 MUSIC_U，cookie jar 即登录态）
   "/weapi/w/nuser/account/get", // 登录态
   "/weapi/login/qrcode/unikey", // 扫码登录①
   "/weapi/login/qrcode/client/login", // 扫码登录②轮询
@@ -227,6 +228,14 @@ function wireMediaSession(a: HTMLAudioElement) {
   } catch {
     /* 老内核缺 handler 类型 */
   }
+}
+
+/* v8.7.24：队列指令注入——SW 反向控制回程（悬浮卡/全局浮窗命令）→ widget
+   队列推进，与 MediaSession 硬件键 sysCmd 同通道同一次性语义（随 seq 发出
+   后即刻清位）；队列逻辑在 widget，宿主保持哑播放器不越权 */
+export function neAudioSys(cmd: "next" | "prev"): void {
+  sysCmd = cmd;
+  notify();
 }
 
 export type NeAudioAct = "load" | "meta" | "play" | "pause" | "toggle" | "seek" | "vol" | "stop";

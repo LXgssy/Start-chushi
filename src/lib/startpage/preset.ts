@@ -242,8 +242,11 @@ export const PRESET_LIMITS = {
      v8.7.23：28800 → 30400 —— 网易云播放器预设（dock 弹出面板：扫码 QR 编码器
      + 搜索/每日/歌单三面 + LRC/YRC 逐字渲染）minified 实测 29506；官方预设随
      扩展同包交付（宿主与预设同步升级）；五处联动对账：
-     preset.ts/build-smtc-preset.py/build-netease-preset.py/PresetDocs/PRESET_DEV.md */
-  widgetHtmlLen: 30400,
+     preset.ts/build-smtc-preset.py/build-netease-preset.py/PresetDocs/PRESET_DEV.md
+     v8.7.24：30400 → 36800 —— 播放器六项迭代（封面开歌词 + 歌词动效 v2 对标
+     SMTC 面板语言 + 歌词外送 ne.pub + 音量滑块 + 词钮全局歌词开关 + 退出登录）
+     minified 实测 35907；五处联动对账同上 */
+  widgetHtmlLen: 36800,
   icons: 7,
   iconLen: 8192,
   tokenValLen: 120,

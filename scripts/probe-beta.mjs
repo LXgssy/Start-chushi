@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.23/ChuShi-NewTab-v8.7.23.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.24/ChuShi-NewTab-v8.7.24.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -2351,15 +2351,15 @@ try {
     const docsSrc = readFileSync(new URL("../src/components/startpage/PresetDocs.tsx", import.meta.url), "utf8");
     const devMd = readFileSync(new URL("../docs/PRESET_DEV.md", import.meta.url), "utf8");
     const c37 = {
-      /* v8.7.23：30400（网易云播放器预设加入，五处联动同步） */
-      htmlCap: docsSrc.includes("30400"),
+      /* v8.7.24：36800（播放器六项迭代，五处联动同步） */
+      htmlCap: docsSrc.includes("36800"),
       height: docsSrc.includes("40–460"),
       icons: docsSrc.includes("数组 ≤7 条"),
       fields: docsSrc.includes("十三个内容字段"),
-      md: devMd.includes("30400"),
-      legacyGone: !docsSrc.includes("≤18000") && !docsSrc.includes("≤26400") && !docsSrc.includes("≤27600") && !docsSrc.includes("≤28800") && !docsSrc.includes("40–320"),
+      md: devMd.includes("36800"),
+      legacyGone: !docsSrc.includes("≤18000") && !docsSrc.includes("≤26400") && !docsSrc.includes("≤27600") && !docsSrc.includes("≤28800") && !docsSrc.includes("≤30400") && !docsSrc.includes("40–320"),
     };
-    gate("TL37b 文档内容同步源码门（v8.7.23 升 30400）：30400/40–460/≤7/十三字段 + 应用内与仓内 md 对账 + 旧值（18000/26400/27600/28800）退役", c37.htmlCap && c37.height && c37.icons && c37.fields && c37.md && c37.legacyGone, JSON.stringify(c37));
+    gate("TL37b 文档内容同步源码门（v8.7.24 升 36800）：36800/40–460/≤7/十三字段 + 应用内与仓内 md 对账 + 旧值（18000/26400/27600/28800/30400）退役", c37.htmlCap && c37.height && c37.icons && c37.fields && c37.md && c37.legacyGone, JSON.stringify(c37));
   }
 
   /* ---------- TL38 掠影染色退役（v8.7.8 ③）：CSSOM 门 + 默认态零波及对账 ----------
@@ -2764,7 +2764,7 @@ try {
       pwBridge: /case "neApi":/.test(pwSrc48) && /case "neAudio":/.test(pwSrc48) && /case "neSub":/.test(pwSrc48) && /widgetNeResult/.test(pwSrc48) && /widgetNeAudio/.test(pwSrc48) && /NE_PATHS/.test(pwSrc48),
       sbShim: /ne:\{api:function\(p,d\)/.test(sbSrc48) && /op:'neApi'/.test(sbSrc48) && /op:'neAudio'/.test(sbSrc48) && /op:'neSub'/.test(sbSrc48),
       sbRelay: /path: str\(d\.path, 64\)/.test(sbSrc48) && /widgetNeResult" \|\| m\.type === "widgetNeAudio/.test(sbSrc48),
-      sbCache: /sandbox\.html\?v=125/.test(sbTs48) && /mode=widget&v=125/.test(sbTs48) && /mode=page&v=125/.test(sbTs48),
+      sbCache: /sandbox\.html\?v=126/.test(sbTs48) && /mode=widget&v=126/.test(sbTs48) && /mode=page&v=126/.test(sbTs48),
       opEntry: /初始网易云播放器预设\.cshz/.test(opSrc48) && /"netease"/.test(opSrc48),
       opJson: opJson48.includes("初始 · 网易云播放器") && opJson48.includes("chushi.ne.api"),
     };
@@ -2773,13 +2773,93 @@ try {
       JSON.stringify(t48));
   }
 
+  /* ---------- TL49 v8.7.24 播放器六项迭代静态门 ----------
+     ①封面开歌词 ②歌词动效 v2（SMTC 面板语言移植：呼吸缩放/景深/已唱渐隐/
+     容器 transform 滚动/翻译行 height 过渡/双层 clip-path 扫色） ③歌词外送
+     ne.pub 三跳（widget→PresetWidgets→SW 缓存→卡片 lyric 请求命中）
+     ④音量滑块 ⑤词钮=全局歌词开关（csDlyric 同通道） ⑥退出登录 */
+  {
+    const bgSrc49 = readFileSync(new URL("../extension-src/ext-bg.js", import.meta.url), "utf8");
+    const pwSrc49 = readFileSync(new URL("../src/components/startpage/PresetWidgets.tsx", import.meta.url), "utf8");
+    const neTs49 = readFileSync(new URL("../src/lib/startpage/netease.ts", import.meta.url), "utf8");
+    const sbSrc49 = readFileSync(new URL("../public/sandbox.js", import.meta.url), "utf8");
+    const cardSrc49 = readFileSync(new URL("../extension-src/ext-card.js", import.meta.url), "utf8");
+    let widgetSrc49 = "";
+    try {
+      const opj = JSON.parse(readFileSync(new URL("../src/lib/startpage/official-presets.json", import.meta.url), "utf8"));
+      widgetSrc49 = opj.presets.find((p) => (p.name || "").includes("网易云")).manifest.widgets[0].html;
+    } catch { }
+    const t49 = {
+      /* ② 歌词动效 v2：SMTC 面板动效语言六件在 widget 内嵌（官方预设产物） */
+      lyAnim: /\.ln\.on\{[^}]*scale\(1\.06\)/.test(widgetSrc49) &&
+        /\.ln\{[^}]*blur\(2px\)/.test(widgetSrc49) &&
+        /\.ln\.done\{[^}]*blur\(1\.1px\)/.test(widgetSrc49) &&
+        /\.lsi\{[^}]*transition:transform \.45s/.test(widgetSrc49) &&
+        /\.trw\{[^}]*transition:height \.38s/.test(widgetSrc49) &&
+        /\.w \.ov\{[^}]*clip-path:inset\(-8% calc\(100% - var\(--p/.test(widgetSrc49) &&
+        /background-clip:text/.test(widgetSrc49) === false,
+      lyEngine: /lyReconcile/.test(widgetSrc49) && /lyScrollUntil/.test(widgetSrc49) &&
+        /S\.anc\.posMs\+\(S\.anc\.playing\?Date\.now\(\)-S\.anc\.at:0\)/.test(widgetSrc49) &&
+        /Math\.round\(p\*400\)\/400/.test(widgetSrc49) &&
+        /requestAnimationFrame\(lyFrame\)/.test(widgetSrc49),
+      /* ② 背景加实：--lybg 专用变量（浅 .88/深 .86）替代 --card2 55% */
+      lyBg: /--lybg:rgba\(255,255,255,\.88\)/.test(widgetSrc49) &&
+        /--lybg:rgba\(24,24,28,\.86\)/.test(widgetSrc49) &&
+        /background:var\(--lybg\)/.test(widgetSrc49),
+      /* ① 封面开歌词（cov click → openLyr；词钮开歌词退役） */
+      covOpen: /\$\("cov"\)\.addEventListener\("click",openLyr\)/.test(widgetSrc49) &&
+        /function openLyr\(\)/.test(widgetSrc49),
+      /* ⑤ 词钮=全局歌词开关：csDlyric 三件（set/get/patch 回翻）+ on 态 */
+      wordDl: /\$\("bw"\)\.addEventListener\("click",function\(\)\{\s*wordOn=!wordOn/.test(widgetSrc49) &&
+        /chushi\.storage\.set\("csDlyric",wordOn\)/.test(widgetSrc49) &&
+        /chushi\.storage\.get\("csDlyric"\)/.test(widgetSrc49) &&
+        /d\.type!=="widgetStoragePatch"\|\|ev\.source!==window\.parent/.test(widgetSrc49) &&
+        /d\.key==="csDlyric"/.test(widgetSrc49),
+      /* ④ 音量滑块：vrail+pointer capture+持久化+静音切换 */
+      volSlider: /vrail\.addEventListener\("pointerdown"/.test(widgetSrc49) &&
+        /setPointerCapture\(e\.pointerId\)/.test(widgetSrc49) &&
+        /\$\("vknob"\)\.style\.left/.test(widgetSrc49) &&
+        /chushi\.storage\.set\("vol",v\)/.test(widgetSrc49),
+      /* ⑥ 退出登录：chip 两步确认 + logout 端点 */
+      logout: /\$\("chip"\)\.addEventListener\("click"/.test(widgetSrc49) &&
+        /api\("\/weapi\/logout",\{\}\)/.test(widgetSrc49) &&
+        /已退出登录/.test(widgetSrc49),
+      /* ③ 歌词外送三跳：widget pub → shim → relay → PresetWidgets 校验 → SW */
+      pubChain: /chushi\.ne\.pub\(\{songId:String\(id\)/.test(widgetSrc49) &&
+        /pub:function\(o\)/.test(sbSrc49) && /op:'nePub'/.test(sbSrc49) &&
+        /payload: str\(d\.payload, 240000\)/.test(sbSrc49) &&
+        /case "nePub":/.test(pwSrc49) && /neLyricPush/.test(pwSrc49),
+      /* ③ SW ne 数据面：仲裁广播 + 歌词缓存命中 + 命令回程 + session 存活 */
+      swNe: /function neWins\(\)/.test(bgSrc49) && /neTrack\.playing \|\| !\(state && state\.playing\)/.test(bgSrc49) &&
+        /const t = neWins\(\) \? neTrack : state;/.test(bgSrc49) &&
+        /const neLy = neLyrics\.get\(songId\);/.test(bgSrc49) &&
+        /type: "neCmd"/.test(bgSrc49) && /chrome\.storage\.session\.set/.test(bgSrc49) &&
+        /neSessLoad\(\);/.test(bgSrc49),
+      /* ③ 页面侧：neFrame 发布 + neCmd 落宿主（sysCmd 同通道）+ 队列指令注入 */
+      pgNePlaceholder: true,
+      /* ③ 卡片端零改动律：歌词归属校验/请求形态原样（防手滑改坏消费端） */
+      cardSame: /m\.lyric\.songId/.test(cardSrc49) && /type: "lyric", songId/.test(cardSrc49) &&
+        /ChuShiLyric\.parse\(m\.lyric\)/.test(cardSrc49),
+      logoutPath: /"\/weapi\/logout", \/\/ 退出登录/.test(neTs49),
+    };
+    const t49fix = {
+      pgNe: /type: "neFrame"/.test(pwSrc49) && /fetchedAt: Date\.now\(\)/.test(pwSrc49) &&
+        /type !== "neCmd"/.test(pwSrc49) && /neAudioSys\("next"\)/.test(pwSrc49) &&
+        /export function neAudioSys/.test(neTs49),
+    };
+    gate("TL49 播放器六项迭代十源静态门（v8.7.24）",
+      t49.lyAnim && t49.lyEngine && t49.lyBg && t49.covOpen && t49.wordDl && t49.volSlider &&
+      t49.logout && t49.pubChain && t49.swNe && t49fix.pgNe && t49.cardSame && t49.logoutPath,
+      JSON.stringify([t49, t49fix]));
+  }
+
   /* ---------- T10 pageerror ---------- */
   gate("T10 pageerror=0", errors.length === 0, errors.join(" | ").slice(0, 120));
 } catch (e) {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.23 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.24 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);

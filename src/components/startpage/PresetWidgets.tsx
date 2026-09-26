@@ -20,7 +20,7 @@
 import { memo, useEffect, useRef } from "react";
 import { sandboxWidgetSrc } from "@/lib/startpage/sandbox";
 import { smtc, SMTC_COMMANDS } from "@/lib/startpage/smtc";
-import { NE_PATHS, neCall, neAudioAct, neAudioState, onNeAudio, type NeAudioAct } from "@/lib/startpage/netease";
+import { NE_PATHS, neCall, neAudioAct, neAudioState, neAudioSys, onNeAudio, type NeAudioAct } from "@/lib/startpage/netease";
 import { postToWidget, widgetFrameGet, widgetFrameSet, widgetThemeBroadcast } from "@/lib/startpage/widget-frames";
 import { smtcSpectrum, type SmtcSpectrum } from "@/lib/startpage/smtc";
 
@@ -74,9 +74,30 @@ type WidgetApiMsg = {
   url?: unknown;
   meta?: unknown;
   volume?: unknown;
+  /** v8.7.24 内置播放器歌词推送载荷（JSON 字符串，chushi.ne.pub） */
+  payload?: unknown;
 };
 
 const s = (v: unknown, max: number): string => (typeof v === "string" ? v.slice(0, max) : "");
+
+/* v8.7.24 扩展 runtime 访问器（真扩展内页有 chrome.runtime；壳/纯网页静默降级，
+   与 mirrorExtCard 的 chrome.storage 访问模式同律） */
+type ChromeRuntimeLike = {
+  sendMessage?: (msg: Record<string, unknown>) => unknown;
+  onMessage?: {
+    addListener?: (
+      fn: (m: unknown, sender: unknown, sendResponse: (v?: unknown) => void) => boolean | void
+    ) => void;
+    removeListener?: (fn: unknown) => void;
+  };
+};
+function chromeRuntime(): ChromeRuntimeLike | undefined {
+  try {
+    return (window as unknown as { chrome?: { runtime?: ChromeRuntimeLike } }).chrome?.runtime;
+  } catch {
+    return undefined;
+  }
+}
 
 function readKv(): Record<string, string> {
   try {
@@ -275,11 +296,37 @@ function PresetWidgets(props: {
     };
   }, []);
 
-  /* v8.7.23 网易云宿主音频状态 → 订阅部件帧广播（timeupdate ≈4Hz 原生节流） */
+  /* v8.7.23 网易云宿主音频状态 → 订阅部件帧广播（timeupdate ≈4Hz 原生节流）
+     v8.7.24 兼职 SW ne 数据面发布器：真值帧（含 fetchedAt 锚点）推给后台，
+     悬浮卡/全局歌词浮层据此换源广播（SW 按 ne 优先窗与 hub 真值仲裁）；
+     发布面门控：有曲目（st.id）才发——面板未放歌不产生噪声帧 */
   useEffect(() => {
     const off = onNeAudio((st) => {
       for (const wkey of neSubsRef.current) {
         postToWidget(wkey, { type: "widgetNeAudio", widgetKey: wkey, state: st });
+      }
+      if (st.id) {
+        try {
+          void Promise.resolve(
+            chromeRuntime()?.sendMessage?.({
+              type: "neFrame",
+              track: {
+                songId: Number(st.id) || 0,
+                title: st.name,
+                artist: st.artist,
+                album: st.album,
+                playing: st.playing,
+                position: st.position,
+                duration: st.duration,
+                pic: st.cover,
+                rate: 1,
+                fetchedAt: Date.now(),
+              },
+            })
+          ).catch(() => {});
+        } catch {
+          /* 非 extension 环境（gh-pages 预览） */
+        }
       }
     });
     return off;
@@ -446,6 +493,45 @@ function PresetWidgets(props: {
         postToWidget(wkey, { type: "widgetNeAudio", widgetKey: wkey, state: neAudioState() });
         break;
       }
+      /* ---------- 歌词外送（v8.7.24）----------
+         nePub：widget 推原始歌词体（同桥 /api/lyric 载荷形状）→ 白名单校验
+         （数字 songId + yrc/lrc 至少一项非空）→ SW ne 歌词缓存，悬浮卡/
+         全局歌词浮层的 {type:"lyric"} 请求优先命中。 */
+      case "nePub": {
+        let ly: Record<string, unknown> | null = null;
+        try {
+          const parsed: unknown = JSON.parse(s(m.payload, 240000) || "null");
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            const o = parsed as Record<string, unknown>;
+            const songId = s(o.songId, 16);
+            const yrc = s(o.yrc, 240000);
+            const lrc = s(o.lrc, 240000);
+            if (/^\d+$/.test(songId) && (yrc.trim() || lrc.trim())) {
+              ly = {
+                songId,
+                yrc,
+                ytlrc: s(o.ytlrc, 240000),
+                lrc,
+                tlyric: s(o.tlyric, 240000),
+                source: "chushi-ne",
+                rev: "ne-" + songId,
+              };
+            }
+          }
+        } catch {
+          /* 载荷非 JSON：静默 */
+        }
+        if (ly) {
+          try {
+            void Promise.resolve(chromeRuntime()?.sendMessage?.({ type: "neLyricPush", lyric: ly })).catch(
+              () => {}
+            );
+          } catch {
+            /* 非 extension 环境 */
+          }
+        }
+        break;
+      }
       default:
         break;
     }
@@ -454,6 +540,51 @@ function PresetWidgets(props: {
   useEffect(() => {
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
+  }, []);
+
+  /* v8.7.24 反向控制回程：SW 在 ne 活跃期把浮窗卡片命令路由回发布帧的本页
+     （tabs.sendMessage {type:"neCmd"}）。play/pause/toggle/seek 直落宿主哑
+     播放器；next/prev 走 sysCmd 单次标志（队列逻辑在 widget，与 MediaSession
+     硬件键同通道）。多开初始页不打架：SW 只回发最后发布帧的标签页。 */
+  useEffect(() => {
+    const om = chromeRuntime()?.onMessage;
+    if (!om?.addListener) return;
+    const handler = (
+      m: unknown,
+      _sender: unknown,
+      sendResponse: (v?: unknown) => void
+    ): boolean | undefined => {
+      if (!m || typeof m !== "object" || (m as { type?: unknown }).type !== "neCmd") return undefined;
+      const cm = m as { cmd?: unknown; position?: unknown };
+      const cmd = s(cm.cmd, 8);
+      const pos = cm.position;
+      void (async () => {
+        try {
+          if (cmd === "next") neAudioSys("next");
+          else if (cmd === "prev") neAudioSys("prev");
+          else if (cmd === "seek")
+            await neAudioAct("seek", {
+              position: typeof pos === "number" && Number.isFinite(pos) ? Math.max(0, Math.min(86400, pos)) : 0,
+            });
+          else if (cmd === "play") await neAudioAct("play");
+          else if (cmd === "pause") await neAudioAct("pause");
+          else if (cmd === "toggle") await neAudioAct("toggle");
+          else throw new Error("bad cmd");
+          sendResponse({ ok: true });
+        } catch {
+          sendResponse({ ok: false });
+        }
+      })();
+      return true; /* 异步回执 */
+    };
+    om.addListener(handler);
+    return () => {
+      try {
+        if (om.removeListener) om.removeListener(handler);
+      } catch {
+        /* shim 场景移除失败不影响 */
+      }
+    };
   }, []);
 
   /* 主题/强调色变化 → 下发全部部件帧（角落 + 统一舞台里的 dock 部件） */
