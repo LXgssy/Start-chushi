@@ -831,3 +831,21 @@ Stage Summary:
 - v8.7.24 全链路闭环：播放器六项迭代（封面开歌词+歌词动效 v2 对标 SMTC+背景加实+歌词外送接入全局面双表面+命令回程闭环+音量滑块+词钮全局歌词开关+两步退出登录）——ext-card.js/SMTC 面板零改动（消费端完全复用），SW 数据面从「hub 单源」升「ne/hub 仲裁双源」
 - 分发：扩展壳层改动（ext-bg/sandbox）+页面层（PresetWidgets/netease.ts）+预设包（player.html 重出 cshz）——需换扩展包（crx/zip），官方预设重装即得新版
 - 新律：①「同一 SW 数据面多源仲裁」三要素：新鲜窗+播放优先+发布方仲裁（防多发布者打架），赢家广播替代直传广播 ②歌词外送复用原始体形状=消费端零改动律（解析/归属校验/渲染全在卡侧既有管线）③verify-zip 锚必须按 minified 实态取形（比较翻转/面分离）④有状态 mock 的状态机在测试序列里是隐式前置条件（VIP 槽消费律）
+
+---
+Task ID: 162
+Agent: main (Super Z)
+Task: 用户反馈「播放/暂停按钮以及上一首下一首的按钮不要让位，居中即可」（v8.7.25 三键不让位）
+
+Work Log:
+- 【根因】player.html 控制行 .tmrow=[t1 34px][.ctls flex:1 剩余空间居中][音量喇叭+52px 轨][t2 34px]——v8.7.24 音量滑块令右侧远宽于左侧，flex:1 的「居中」只是剩余空间内居中=传输键组被压离面板正中（「让位」）；SMTC 面板 v8.7.18 同名律「三键不让位」（词钮迁时长行）未同步到网易云播放器
+- 【修复（纯 CSS 三规则）】①.ctls 绝对居中 position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)（flex:1/justify-content:center 退役）②.tmrow position:relative+min-height:34px（ctls 摘出流后行高显式保底，流内元素垂直居中不变）③.vol margin-left:auto（流内=t1 左/音量+ t2 右靠，剩余空间全部让给左侧）——两侧内容任何增减，传输键组与面板中线解耦恒定不动；widget minified 35907→35994 ≤36800（余量 806）
+- 【探针】TL50 三键不让位静态门新增（ctls 绝对居中形态+flex:1 GONE+tmrow relative/minh+vol margin-left:auto，源=official-presets.json 网易云 widget html）+ZIP 路径 8.7.25 联动；144 门全绿（首跑 1 flake 二跑全绿，T6a 族）
+- 【verify-zip-v8725】31 串全绿（新锚：ctls 绝对居中/tmrow/vol 形态/flex:1 GONE/changelog 标题词「三键不让位」；存量 34→31 串收敛重组；坑录：ext-bg 锚按实态取形——neLyricPush 无空格形态 type:"neLyricPush" 与 m.type === "neLyricPush" 双锚，上轮空格形态锚系历史态）
+- 【visual-v8725】44 门端到端全绿（v8724 全量回归 42 门+N17 居中双门）：N17a rect 中心差 0px+left:50% 布局锚 0px；N17b 音量轨 inline 加宽 52→96px 传输键零位移（off=0，不让位行为实证）；首跑 4 存量门 FAIL 全部测试侧根因（见坑录），产品零改动后二跑全绿
+- 【坑录（测试侧四修，产品零改动）】①主题确定性：DEFAULT_SETTINGS.themeMode="dark"（应用默认深色）——visual 种子 start:settings themeMode=light 后光色形态断言（--lybg .88）确定性成立（N6d）②有状态 mock 二次搜索 VIP 槽：N16-pre 必须先点 row[0] 消费 VIP 槽再点 row[1]，否则「搜索结果二」从未起播、ne 真值仍是上一首「搜索结果三」（n=7 帧假阳之谜=搜索结果三的 ne 帧流），N16-pre 的 paused=false 判据被上一首续播污染（N16a/N16d）③N8d kv 实态：值经 sandbox JSON.stringify(0.3)="0.3" → 宿主 s() 字符串双跳后 localStorage 形态 "...:vol":"0.30000000000000043"（合成拖拽浮点漂移）——解析式断言+parseFloat 容差 ±0.005（同 N8a ±0.02 族）+3s 轮询，旧串 '"vol":0.3' 形态永不命中 ④N17 测量律：offsetLeft/offsetWidth 不含 CSS transform，而 translate(-50%,-50%) 正是居中机制本身（静态、无动画污染）——rect 才是视觉真值（首跑 off=59=w/2 即 left:50% 生效而 offsetLeft 数学误判），「rect 仅防动画污染」坑录的适用边界=动画中的 transform；静态居中 transform 必须用 rect
+- 【发布】beta 分支 6 文件对账无夹带（build-extension.py VERSION/changelog.ts/probe-beta.mjs/preset-src/netease/player.html/examples 网易云 cshz/official-presets.json）；交付集 AllInOne 24.9MB（NewTab+CloudSnapshot+双预设 cshz+桥 8.4.0+歌词源 7.3.0+焕新示例+说明+SHA256SUMS）文叔叔 kyxjj62wccz VERIFY PASS
+
+Stage Summary:
+- v8.7.25 全链路闭环：网易云播放器传输键组（上一首/播放/下一首）恒定居中——「三键不让位」律全产品统一（SMTC 面板 v8.7.18 ↔ 网易云播放器 v8.7.25）；纯 CSS 三规则零 JS、两侧内容变化完全解耦
+- 新律沉淀：①flex 剩余空间居中≠容器居中——「恒定居中」必须绝对定位+translate 或等宽栅格，任何「左右内容不对称」的行都要用此律审 ②布局空间（offsetLeft）测量律的适用边界补全：对「静态 transform」失真，rect 与 layout 各有半区，断言前先问 transform 是否是被测机制本身 ③测试种子律：凡断言绑定主题/外观形态的光色值，必须种子化主题而非依赖应用默认（DEFAULT 深色）④有状态 mock 的「消费律」每轮起播前都要复核槽位状态，播放态判据必须绑定曲名而非 paused 布尔
