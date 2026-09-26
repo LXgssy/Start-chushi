@@ -22,6 +22,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.25",
+    date: "2026-09-26",
+    title: "播放器传输键恒定居中（三键不让位）",
+    channel: "shell",
+    highlights: [
+      "上一首 / 播放 / 下一首恒定居于播放器正中：音量滑块与两侧内容变化不再挤动传输键（与音乐面板同律）",
+    ],
+  },
+  {
     version: "8.7.24",
     date: "2026-09-26",
     title: "播放器六项打磨：封面开歌词、全局歌词互通、音量滑块",

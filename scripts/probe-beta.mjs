@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.24/ChuShi-NewTab-v8.7.24.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.25/ChuShi-NewTab-v8.7.25.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -2853,13 +2853,35 @@ try {
       JSON.stringify([t49, t49fix]));
   }
 
+  /* ---------- TL50 三键不让位静态门（v8.7.25） ----------
+     用户：播放/暂停+上一首下一首不要让位，居中即可——.ctls 绝对居中于
+     .tmrow（left:50%+translate(-50%,-50%)），flex:1 剩余空间居中（=让位
+     根因，v8.7.24 音量滑块加宽右侧后压偏传输键）退役；.tmrow relative+
+     min-height:34px 撑行高，.vol margin-left:auto 右靠、剩余空间让给左侧。
+     同源律：SMTC 面板 v8.7.18「三键不让位」（词钮迁时长行）。 */
+  {
+    let widgetSrc50 = "";
+    try {
+      const opj50 = JSON.parse(readFileSync(new URL("../src/lib/startpage/official-presets.json", import.meta.url), "utf8"));
+      widgetSrc50 = opj50.presets.find((p) => (p.name || "").includes("网易云")).manifest.widgets[0].html;
+    } catch { }
+    const t50 = {
+      absCenter: /\.ctls\{position:absolute;left:50%;top:50%;transform:translate\(-50%,-50%\)/.test(widgetSrc50),
+      flex1Gone: /\.ctls\{flex:1/.test(widgetSrc50) === false,
+      rowRelative: /\.tmrow\{position:relative;display:flex;align-items:center;gap:4px;min-height:34px\}/.test(widgetSrc50),
+      volAuto: /\.vol\{display:flex;align-items:center;gap:1px;flex:none;margin-left:auto\}/.test(widgetSrc50),
+    };
+    gate("TL50 三键不让位静态门（v8.7.25）：ctls 绝对居中 + flex:1 退役 + tmrow relative/minh + vol margin-left:auto",
+      t50.absCenter && t50.flex1Gone && t50.rowRelative && t50.volAuto, JSON.stringify(t50));
+  }
+
   /* ---------- T10 pageerror ---------- */
   gate("T10 pageerror=0", errors.length === 0, errors.join(" | ").slice(0, 120));
 } catch (e) {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.24 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.25 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);
