@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.27/ChuShi-NewTab-v8.7.27.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.28/ChuShi-NewTab-v8.7.28.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -2962,7 +2962,7 @@ try {
         wpSrc52.includes("pointerEvents: open ?") && wpSrc52.includes("visibility: open ?") &&
         wpSrc52.includes("SPRING_CARD"),
       wDisp: dispJson52,
-      wFix: widgetSrc52.includes("S.gen++") && widgetSrc52.includes('S.rowsSrc!=="s"') &&
+      wFix: widgetSrc52.includes("S.gen++") && widgetSrc52.includes('k!==$("q").value.trim()') &&
         widgetSrc52.includes('cv.classList.add("on")') && widgetSrc52.includes("lyRender();lyStart()") &&
         widgetSrc52.includes("lyTick") === false &&
         widgetSrc52.includes("S.curRow=r") && widgetSrc52.includes('String(S.rows[S.q].id)!==String(S.curRow.id)'),
@@ -2970,17 +2970,49 @@ try {
         widgetSrc52.includes('data-q="lossless"') && widgetSrc52.includes('data-q="standard"') &&
         widgetSrc52.includes('class="qsr"'),
     };
-    gate("TL52 palette 弹窗+四修复静态门（v8.7.27）：display 展示面全链 + 世代令牌/来源对账/封面存活/歌词续跑 + 音质三选一弹窗",
+    gate("TL52 palette 弹窗+四修复静态门（v8.7.28 世代令牌+关键词双对账形态）：display 展示面全链 + 封面存活/歌词续跑 + 音质三选一弹窗",
       t52.dispField && t52.clampW && t52.clampH && t52.cap && t52.host && t52.map && t52.overlay && t52.wDisp && t52.wFix && t52.wQpop, JSON.stringify(t52));
   }
 
+
+  /* ---------- TL53 v8.7.28 整页重写静态门 ----------
+     ① 搜索页签退役：页签只剩 每日推荐(d)/我的歌单(p)，data-t="s" 全库退役；
+        顶部命令行为唯一搜索入口（#go/#q/doSearch），搜索视图不占页签
+        （S.tab="s" 时 segLite 全熄）；世代令牌+关键词双对账（S.gen 自增形态）。
+     ② hover 纯放大禁位移：全部 :hover 规则零 translate（音量旋钮负边距定位，
+        translate 不参与 hover）；.vrail b 基础规则不得再含 translate。
+     ③ 页面骨架：常驻命令行 qsr + 双页签 seg + 搜索结果 subh 形态在位。 */
+  {
+    let widgetSrc53 = "";
+    try {
+      const opj53 = JSON.parse(readFileSync(new URL("../src/lib/startpage/official-presets.json", import.meta.url), "utf8"));
+      widgetSrc53 = opj53.presets.find((p) => (p.name || "").includes("网易云")).manifest.widgets[0].html;
+    } catch { }
+    const hoverRules = widgetSrc53.match(/[^{}]*:hover[^{]*\{[^}]*\}/g) || [];
+    const t53 = {
+      tabPair: widgetSrc53.includes('<b data-t="d" class="on">每日推荐</b><b data-t="p">我的歌单</b>') &&
+        widgetSrc53.includes('data-t="s"') === false,
+      cmdlineOnly: widgetSrc53.includes('id="go"') && /doSearch/.test(widgetSrc53) &&
+        widgetSrc53.includes('k!==$("q").value.trim()') && widgetSrc53.includes("S.tab=\"s\"") &&
+        /function segLite/.test(widgetSrc53),
+      genToken: /\+\+S\.gen|S\.gen\+\+/.test(widgetSrc53),
+      hoverScaleOnly: hoverRules.length > 0 && hoverRules.every((r) => !r.includes("translate")),
+      knobNoTranslate: /\.vrail b\{[^}]*translate/.test(widgetSrc53) === false &&
+        /\.vrail:hover b,\.vrail\.drag b\{transform:scale\(1\.18\)\}/.test(widgetSrc53) &&
+        /margin:-6px 0 0 -6px/.test(widgetSrc53),
+      skeleton: widgetSrc53.includes('class="qsr"') && widgetSrc53.includes('id="tabs"') &&
+        widgetSrc53.includes("搜索「") && widgetSrc53.includes('class="subh"'),
+    };
+    gate("TL53 v8.7.28 整页重写静态门：搜索页签退役（双页签+命令行唯一入口+双对账）+ hover 纯放大零位移（含旋钮负边距定位）+ 页面骨架",
+      t53.tabPair && t53.cmdlineOnly && t53.genToken && t53.hoverScaleOnly && t53.knobNoTranslate && t53.skeleton, JSON.stringify(t53));
+  }
   /* ---------- T10 pageerror ---------- */
   gate("T10 pageerror=0", errors.length === 0, errors.join(" | ").slice(0, 120));
 } catch (e) {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.27 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.28 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);

@@ -73,9 +73,12 @@ for feat in (
     'id="qpop"',               # 音质三选一小弹窗
     "applyLvl",                # 音质选中应用（热切换走 playRow(S.curRow)）
     "S.gen++",                 # 页签世代令牌（异步回包对账）
-    'S.rowsSrc!=="s"',         # 搜索页只认搜索来源 rows（串扰根修）
+    'k!==$("q").value.trim()',  # v8.7.28 搜索双对账：关键词慢者不覆盖快者（搜索页签退役后世代令牌+关键词双保险）
     'cv.classList.add("on")',  # 封面 .on 无条件补回（同曲切音质封面消失根修）
     "lyRender();lyStart()",    # 歌词重取回包渲染后续跑 rAF（歌词消失根修）
+    # v8.7.28 整页重写：搜索页签退役（双页签）+ hover 纯放大禁位移
+    '<b data-t="d" class="on">每日推荐</b><b data-t="p">我的歌单</b>',  # 双页签（搜索页签退役锚）
+    'k!==$("q").value.trim',   # 关键词对账（无空格形态防漂移）
 ):
     assert feat in html, f"cshz 缺特征 {feat!r}"
 # widget html 不能含外链资源（iframe 不透明源加载不了；运行时 URL 字符串不算资源加载）
