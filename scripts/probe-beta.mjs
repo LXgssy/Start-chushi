@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.32/ChuShi-NewTab-v8.7.32.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.33/ChuShi-NewTab-v8.7.33.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -2996,13 +2996,16 @@ try {
       genToken: widgetSrc53.includes("S.tab=t;S.gen++"),
       hoverScaleOnly: hoverRules.length > 0 && hoverRules.every((r) =>
         !r.includes("translate") || /translate\(-50%,-50%\)\s*scale/.test(r)),
+      /* v8.7.33：.bk 退出 scale triad（文本钮药丸律），triad 收窄为 qsr button + pmain，
+         并断言 bk hover 零 scale（文本钮一律不 scale） */
       scaleTriad: /\.qsr button:hover\{[^}]*transform:scale\(1\.05\)/.test(widgetSrc53) &&
-        /\.bk:hover\{[^}]*transform:scale\(1\.06\)/.test(widgetSrc53) &&
-        /\.pmain:hover\{[^}]*transform:scale\(1\.06\)/.test(widgetSrc53),
+        /\.pmain:hover\{[^}]*transform:scale\(1\.06\)/.test(widgetSrc53) &&
+        /\.bk:hover\{color:var\(--ink\)\}/.test(widgetSrc53) &&
+        /\.bk:hover\{[^}]*transform:scale/.test(widgetSrc53) === false,
       skeleton: widgetSrc53.includes('class="qsr"') && widgetSrc53.includes('id="tabs"') &&
         widgetSrc53.includes('id="qpop"') && widgetSrc53.includes("搜索「"),
     };
-    gate("TL53 旧版播放器形态门（v8.7.30）：三页签回归 + hover 纯放大零位移（旋钮居中基底例外）+ 三按钮 scale 补齐 + 旧版骨架",
+    gate("TL53 旧版播放器形态门（v8.7.30/v8.7.33 翻转）：三页签回归 + hover 纯放大零位移（旋钮居中基底例外）+ scale 双钮 + bk 药丸律退役 + 旧版骨架",
       t53.tabs3 && t53.qsrGo && t53.genToken && t53.hoverScaleOnly && t53.scaleTriad && t53.skeleton, JSON.stringify(t53));
   }
   /* ---------- TL54 播放器六件迭代门（v8.7.31） ----------
@@ -3035,7 +3038,8 @@ try {
         widgetSrc54.includes("if(go!==gLo){gLo=go;glowEl.style.opacity=go}") &&
         widgetSrc54.includes('if(!go2)glowEl.style.transition="none"') === false,
       hoverSync: wcCount54 >= 9 &&
-        (widgetSrc54.match(/transition:transform \.22s var\(--ez\),background-color \.22s var\(--ez\),color \.22s var\(--ez\)/g) || []).length >= 2 &&
+        /* v8.7.33：nb 文本钮 transform 过渡退役（药丸 ::before 接管），统一过渡串仅剩 pb 一处 */
+        (widgetSrc54.match(/transition:transform \.22s var\(--ez\),background-color \.22s var\(--ez\),color \.22s var\(--ez\)/g) || []).length >= 1 &&
         widgetSrc54.includes("transition:transform .22s var(--ez),background-color .3s") === false,
     };
     gate("TL54 播放器六件迭代门（v8.7.31）：画布 460 + 搜索行页签化 + 滑块选框 + ov 描边 + glow 渐变 + hover 合成层/过渡统一",
@@ -3062,11 +3066,39 @@ try {
       tabCenter: widgetSrc55.includes(".tabs b{position:relative;z-index:1;flex:1;display:flex;align-items:center;justify-content:center;") &&
         widgetSrc55.includes("height:25px;padding:1px 0 0;"),
       empPgrid: widgetSrc55.includes('l.style.display="";l.classList.remove("pgrid")'),
-      tzBase: tzCount55 >= 6,
+      /* v8.7.33：文本钮 nb/bk 退出 translateZ 基态（raster 吸附载体移除）——六钮→四钮 */
+      tzBase: tzCount55 === 4,
       lenOk: widgetSrc55.length <= 44000,
     };
     gate("TL55 播放器四修门（v8.7.32）：indSnap resize 重对位 + 页签 flex 居中 + emp 摘 pgrid + 六钮 translateZ(0) 基态",
       t55.indSnapResize && t55.tabCenter && t55.empPgrid && t55.tzBase && t55.lenOk, JSON.stringify(t55));
+  }
+  /* ---------- TL56 文本钮悬停药丸根修门（v8.7.33） ----------
+     用户：音质/顺序/词三钮悬停仍位移+变模糊+不复位（v8.7.32 translateZ 基态对文本钮
+     无效——scale 动画结束重栅格化时字形原点吸附可见，raster scale 只升不降+bg 变更
+     重绘=模糊持久化；SVG 钮同参数无字形级吸附故用户未报）。根修=文本钮本体退出一切
+     transform：背景药丸改由 ::before 伪元素承担（纯色层缩放零字形栅格问题），文字恒
+     scale(1) 恒清晰；.bk（‹ 歌单列表）同为文本+scale 同律根除；#bw.on 高亮态药丸退役
+     防灰药丸盖紫底。 */
+  {
+    let widgetSrc56 = "";
+    try {
+      const opj56 = JSON.parse(readFileSync(new URL("../src/lib/startpage/official-presets.json", import.meta.url), "utf8"));
+      const ne56 = opj56.presets.find((p) => (p.name || "").includes("网易云"));
+      widgetSrc56 = ne56.manifest.widgets[0].html;
+    } catch { }
+    const t56 = {
+      pillBase: widgetSrc56.includes('.nb::before{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;background:var(--card2);opacity:0;transform:scale(.8);transition:opacity .22s var(--ez),transform .22s var(--ez);pointer-events:none}'),
+      pillHover: widgetSrc56.includes(".nb:hover::before{opacity:1;transform:scale(1)}") &&
+        widgetSrc56.includes(".nb:hover{color:var(--acc)}"),
+      bwGuard: widgetSrc56.includes("#bw.on::before{content:none}"),
+      oldGone: widgetSrc56.includes(".nb:hover{background:var(--card2);color:var(--acc);transform:scale(1.06)}") === false &&
+        widgetSrc56.includes(".bk:hover{color:var(--ink);transform:scale(1.06)}") === false,
+      bkFixed: widgetSrc56.includes(".bk:hover{color:var(--ink)}"),
+      lenOk: widgetSrc56.length <= 44000,
+    };
+    gate("TL56 文本钮悬停药丸根修门（v8.7.33）：nb 药丸 ::before + hover 本体零 transform + bk 同律 + bw.on 守卫",
+      t56.pillBase && t56.pillHover && t56.bwGuard && t56.oldGone && t56.bkFixed && t56.lenOk, JSON.stringify(t56));
   }
   /* ---------- T10 pageerror ---------- */
   gate("T10 pageerror=0", errors.length === 0, errors.join(" | ").slice(0, 120));
@@ -3074,7 +3106,7 @@ try {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.32 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.33 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);

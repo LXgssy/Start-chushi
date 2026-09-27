@@ -80,8 +80,8 @@ img{-webkit-user-drag:none;user-select:none}
 .subh{font-size:10.5px;color:var(--ink3);padding:2px 4px 6px;display:flex;align-items:center;gap:6px}
 .bk{appearance:none;border:1px solid var(--line);background:var(--card2);color:var(--ink2);
   border-radius:var(--r9);font-size:10px;padding:2px 9px;cursor:pointer;font-family:inherit;
-  transition:transform .22s var(--ez),color .22s var(--ez);will-change:transform;transform:translateZ(0)}
-.bk:hover{color:var(--ink);transform:scale(1.06)}
+  transition:color .22s var(--ez)}
+.bk:hover{color:var(--ink)}
 .row{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:10px;cursor:pointer;
   transition:background-color .2s}
 .row:hover{background:var(--pr)}
@@ -137,13 +137,15 @@ img{-webkit-user-drag:none;user-select:none}
 .tri{font-size:9px;color:#d97706;border:1px solid rgba(217,119,6,.4);border-radius:4px;padding:0 3px;margin-left:5px}
 .nb{appearance:none;border:0;background:transparent;color:var(--ink2);width:28px;height:28px;flex:none;
   border-radius:var(--r9);display:flex;align-items:center;justify-content:center;cursor:pointer;
+  position:relative;isolation:isolate;
   font-size:11px;font-family:inherit;
-  transition:transform .22s var(--ez),background-color .22s var(--ez),color .22s var(--ez);
-  will-change:transform;transform:translateZ(0)}
-.nb:hover{background:var(--card2);color:var(--acc);transform:scale(1.06)}
+  transition:background-color .22s var(--ez),color .22s var(--ez)}
+.nb::before{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;background:var(--card2);opacity:0;transform:scale(.8);transition:opacity .22s var(--ez),transform .22s var(--ez);pointer-events:none}
+.nb:hover{color:var(--acc)}
+.nb:hover::before{opacity:1;transform:scale(1)}
 .nb svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .nb svg.fi{fill:currentColor;stroke:none}
-#bw.on{color:#fff;background:var(--acc)}
+#bw.on{color:#fff;background:var(--acc)}#bw.on::before{content:none}
 #chip{cursor:pointer}
 #chip.warn{color:#d97706;border-color:rgba(217,119,6,.4)}
 .md{font-size:9px;letter-spacing:.05em}

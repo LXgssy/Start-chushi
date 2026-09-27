@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.33",
+    date: "2026-09-27",
+    title: "网易云播放器文本钮悬停根治",
+    channel: "shell",
+    highlights: [
+      "音质/顺序/词三个文字按钮悬停不再位移发虚：背景药丸改由伪元素缩放，文字恒定清晰不复位",
+      "‹ 歌单列表返回钮同为文字按钮，同律根治",
+      "喇叭钮与三个文字按钮悬停反馈统一为药丸轻放大",
+    ],
+  },
+  {
     version: "8.7.32",
     date: "2026-09-27",
     title: "网易云播放器首开与悬停四修",

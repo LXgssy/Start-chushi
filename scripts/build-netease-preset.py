@@ -80,7 +80,10 @@ for feat in (
     '<b data-t="d" class="on">每日推荐</b><b data-t="s">搜索</b><b data-t="p">我的歌单</b>',  # 三页签（旧版形态锚）
     'k!==$("q").value.trim',   # 关键词对账（无空格形态防漂移）
     '.qsr button:hover{filter:brightness(1.12);transform:scale(1.05)}',  # hover 纯放大（v8.7.30 补齐）
-    '.bk:hover{color:var(--ink);transform:scale(1.06)}',
+    '.bk:hover{color:var(--ink)}',  # v8.7.33 文本钮去 transform（药丸根修同律）
+    '.nb::before{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;background:var(--card2);opacity:0;transform:scale(.8);transition:opacity .22s var(--ez),transform .22s var(--ez);pointer-events:none}',  # v8.7.33 药丸 ::before
+    '.nb:hover::before{opacity:1;transform:scale(1)}',  # v8.7.33 药丸 hover 放大
+    '#bw.on::before{content:none}',  # v8.7.33 高亮态药丸退役
     '.pmain:hover{color:#fff;background:var(--acc);filter:brightness(1.12);transform:scale(1.06)}',
     # v8.7.31 六件：滑块选框/搜索行页签化/ov 描边/glow 渐变/will-change/画布 460
     '.tabs .ind{position:absolute;top:3px;bottom:3px;left:0;width:0;border-radius:var(--r9);',  # 滑块选框
