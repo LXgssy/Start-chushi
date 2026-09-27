@@ -31,6 +31,9 @@ export interface ActiveWidget {
   name: string;
   /** 表面（v1.8.2）：corner = 角落磁贴；dock = tab 栏按钮 + 弹出面板（v2.0.0 统一舞台） */
   surface: "corner" | "dock";
+  /** 展示面（v8.7.27，仅 dock 表面）：palette = 命令面板式居中弹窗（WidgetPalette
+   *  承载）；缺省 = dock 统一舞台（PanelStage 承载）。API 路由/主题广播两态共用 */
+  display?: "palette";
   /** dock 表面按钮图标（lucide 名 / data:image URL），缺省首字母圆形图标 */
   icon?: string;
   corner: "top-left" | "top-right" | "bottom-left" | "bottom-right";

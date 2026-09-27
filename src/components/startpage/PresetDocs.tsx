@@ -275,7 +275,7 @@ export default function PresetDocs({
                     [<K>scripts</K>, "数组 ≤3", "沙箱脚本，单段 code ≤16000 字符（见 §10）"],
                     [<K>animations</K>, "数组 ≤4", "CSS 注入，单段 ≤6000、合计 ≤12000 字符（见 §09）"],
                     [<K>pages</K>, "数组 ≤3", "沙箱整页，单页 html ≤24000 字符（见 §11）"],
-                    [<K>widgets</K>, "数组 ≤3", "小部件：角落磁贴 / dock 弹出面板，单块 html ≤39600 字符（见 §12）"],
+                    [<K>widgets</K>, "数组 ≤3", "小部件：角落磁贴 / dock 弹出面板 / palette 弹窗，单块 html ≤44000 字符（见 §12）"],
                     [<K>layout</K>, "对象", "声明式布局覆写（见 §07）"],
                   ]}
                 />
@@ -625,10 +625,11 @@ chushi.settings.onChange((values) => { /* 整组热更新 */ });`}</Code>
                   head={["字段 / API", "说明"]}
                   rows={[
                     [<K>surface</K>, <>表面：<K>corner</K>（缺省，角落磁贴）/ <K>dock</K>（tab 栏按钮 + 弹出面板）</>],
+                    [<K>display</K>, <>展示面（仅 dock 表面）：<K>palette</K> = 命令面板式居中弹窗（雾化遮罩+玻璃卡）；缺省 = dock 统一舞台弹出面板（v8.7.27）</>],
                     [<K>icon</K>, <>仅 dock 表面：按钮图标，内置图标名或 data:image base64 URL（≤8KB）</>],
                     [<K>corner</K>, <>仅 corner 表面：停靠角 <K>top-left / top-right / bottom-left / bottom-right</K></>],
-                    [<K>width</K>, "卡片/面板宽度 120–420 px（缺省 216）"],
-                    [<K>height</K>, "初始高度 40–460 px（缺省 88；dock 表面即面板初始高度）"],
+                    [<K>width</K>, "卡片/面板宽度 120–580 px（缺省 216）"],
+                    [<K>height</K>, "初始高度 40–560 px（缺省 88；dock 表面即面板初始高度）"],
                     [<K>chushi.resize(w, h)</K>, "小部件内调用，调整自身高度（宿主夹紧；dock 面板高度弹簧跟随）"],
                     [<K>chushi.close()</K>, "关闭本部件的 dock 弹出面板（仅 dock 表面有意义，v1.8.2）"],
                     [

@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.26/ChuShi-NewTab-v8.7.26.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.27/ChuShi-NewTab-v8.7.27.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -2351,15 +2351,15 @@ try {
     const docsSrc = readFileSync(new URL("../src/components/startpage/PresetDocs.tsx", import.meta.url), "utf8");
     const devMd = readFileSync(new URL("../docs/PRESET_DEV.md", import.meta.url), "utf8");
     const c37 = {
-      /* v8.7.26：39600（音质/YRC 修复/频谱律动，五处联动同步） */
-      htmlCap: docsSrc.includes("39600"),
-      height: docsSrc.includes("40–460"),
+      /* v8.7.27：44000（palette 弹窗重写+音质弹窗+修复，五处联动同步） */
+      htmlCap: docsSrc.includes("44000"),
+      height: docsSrc.includes("40–560"),
       icons: docsSrc.includes("数组 ≤7 条"),
       fields: docsSrc.includes("十三个内容字段"),
-      md: devMd.includes("39600"),
-      legacyGone: !docsSrc.includes("≤18000") && !docsSrc.includes("≤26400") && !docsSrc.includes("≤27600") && !docsSrc.includes("≤28800") && !docsSrc.includes("≤30400") && !docsSrc.includes("≤36800") && !docsSrc.includes("40–320"),
+      md: devMd.includes("44000"),
+      legacyGone: !docsSrc.includes("≤18000") && !docsSrc.includes("≤26400") && !docsSrc.includes("≤27600") && !docsSrc.includes("≤28800") && !docsSrc.includes("≤30400") && !docsSrc.includes("≤36800") && !docsSrc.includes("≤39600") && !docsSrc.includes("40–320"),
     };
-    gate("TL37b 文档内容同步源码门（v8.7.26 升 39600）：39600/40–460/≤7/十三字段 + 应用内与仓内 md 对账 + 旧值（18000/26400/27600/28800/30400/36800）退役", c37.htmlCap && c37.height && c37.icons && c37.fields && c37.md && c37.legacyGone, JSON.stringify(c37));
+    gate("TL37b 文档内容同步源码门（v8.7.27 升 44000）：44000/40–560/≤7/十三字段 + 应用内与仓内 md 对账 + 旧值（18000/26400/27600/28800/30400/36800/39600）退役", c37.htmlCap && c37.height && c37.icons && c37.fields && c37.md && c37.legacyGone, JSON.stringify(c37));
   }
 
   /* ---------- TL38 掠影染色退役（v8.7.8 ③）：CSSOM 门 + 默认态零波及对账 ----------
@@ -2897,9 +2897,12 @@ try {
       sbTs51 = readFileSync(new URL("../src/lib/startpage/sandbox.ts", import.meta.url), "utf8");
     } catch { }
     const t51 = {
-      quality: widgetSrc51.includes('var LVLS=[["standard","标准"],["exhigh","极高"],["lossless","无损"]],lvi=0') &&
+      /* v8.7.27 音质改三选一弹窗：数据三档+level 请求+kv 持久化不变；
+         热切换改 playRow(S.curRow) 直取当前曲；弹窗/应用函数为新锚 */
+      quality: widgetSrc51.includes('var LVLS=[["standard","标准"],["exhigh","极高"],["lossless","无损"]]') &&
         /level:S\.lvl/.test(widgetSrc51) && widgetSrc51.includes('chushi.storage.set("qLevel",S.lvl)') &&
-        widgetSrc51.includes("play(S.rows,S.q,S.anc.playing?S.anc.posMs/1000:0)") &&
+        widgetSrc51.includes("playRow(S.curRow,S.anc.playing?S.anc.posMs/1000:0)") &&
+        widgetSrc51.includes('id="qpop"') && widgetSrc51.includes("applyLvl") &&
         widgetSrc51.includes("已回退"),
       yrcAbs: widgetSrc51.includes("{t:+w[1],d:+w[2],x:w[3]}") &&
         widgetSrc51.includes("{t:st+ +w[1]}") === false &&
@@ -2918,8 +2921,57 @@ try {
         qlSrc51.includes("group-hover:-translate-y-1") === false,
       vBump: sbTs51.includes("v=127") && sbTs51.includes("v=126") === false,
     };
-    gate("TL51 四件迭代静态门（v8.7.26）：音质三档热切换 + YRC 绝对时间戳根修 + 频谱全链五源 + 磁贴纯放大",
+    gate("TL51 四件迭代静态门（v8.7.27 音质弹窗形态）：音质三档热切换 + YRC 绝对时间戳根修 + 频谱全链五源 + 磁贴纯放大",
       t51.quality && t51.yrcAbs && t51.beat && t51.tileScale && t51.vBump, JSON.stringify(t51));
+  }
+
+
+  /* ---------- TL52 palette 弹窗+四修复静态门（v8.7.27） ----------
+     ① 命令面板式弹窗：preset.ts display 字段+宽高钳制放宽+上限 44000；
+        WidgetPalette 居中玻璃卡（常驻预热/帧注册/panelMode）；Dock 过滤+挂载；
+        use-start-presets 透传；official-presets.json manifest display=palette；
+     ② 四修复源锚：页签世代令牌（S.gen++）+ 搜索页来源对账（S.rowsSrc）+
+        封面 .on 无条件补回（同曲切音质封面消失根修）+ 歌词 rAF 续跑
+        （lyRender();lyStart()）+ lyTick 死引用退役；
+     ③ 音质三选一弹窗三选项（qsr 常驻搜索行同门）。 */
+  {
+    let widgetSrc52 = "", pSrc52 = "", dSrc52 = "", upSrc52 = "", wpSrc52 = "";
+    let dispJson52 = false;
+    try {
+      const opj52 = JSON.parse(readFileSync(new URL("../src/lib/startpage/official-presets.json", import.meta.url), "utf8"));
+      const ne52 = opj52.presets.find((p) => (p.name || "").includes("网易云"));
+      widgetSrc52 = ne52.manifest.widgets[0].html;
+      dispJson52 = ne52.manifest.widgets[0].display === "palette" && ne52.manifest.widgets[0].width === 560 && ne52.manifest.widgets[0].height === 540;
+      pSrc52 = readFileSync(new URL("../src/lib/startpage/preset.ts", import.meta.url), "utf8");
+      dSrc52 = readFileSync(new URL("../src/components/startpage/Dock.tsx", import.meta.url), "utf8");
+      upSrc52 = readFileSync(new URL("../src/app/startpage/use-start-presets.ts", import.meta.url), "utf8");
+      wpSrc52 = readFileSync(new URL("../src/components/startpage/WidgetPalette.tsx", import.meta.url), "utf8");
+    } catch { }
+    const t52 = {
+      dispField: /display\?: "palette"/.test(pSrc52) && /const display = wo\.display === "palette"/.test(pSrc52) && /display,/.test(pSrc52),
+      clampW: /Math\.min\(580, Math\.max\(120, wo\.width\)\)/.test(pSrc52),
+      clampH: /Math\.min\(560, Math\.max\(40, wo\.height\)\)/.test(pSrc52),
+      cap: /widgetHtmlLen: 44000/.test(pSrc52),
+      host: /dockWidgets=\{sp\.presetDockWidgets\.filter\(\(w\) => w\.display !== "palette"\)\}/.test(dSrc52) &&
+        /<WidgetPalette/.test(dSrc52) && /display === "palette"/.test(dSrc52) &&
+        /openKey=\{dockWidget\}/.test(dSrc52) && /onClose=\{sp\.closeDockWidget\}/.test(dSrc52),
+      map: /display: w\.display,/.test(upSrc52),
+      overlay: wpSrc52.includes("glass-card") && wpSrc52.includes("max-w-[560px]") &&
+        wpSrc52.includes("widgetFrameSet(w.key, el)") && wpSrc52.includes("panelMode: true") &&
+        wpSrc52.includes('sandbox="allow-scripts"') && wpSrc52.includes("backdrop-blur-md") &&
+        wpSrc52.includes("pointerEvents: open ?") && wpSrc52.includes("visibility: open ?") &&
+        wpSrc52.includes("SPRING_CARD"),
+      wDisp: dispJson52,
+      wFix: widgetSrc52.includes("S.gen++") && widgetSrc52.includes('S.rowsSrc!=="s"') &&
+        widgetSrc52.includes('cv.classList.add("on")') && widgetSrc52.includes("lyRender();lyStart()") &&
+        widgetSrc52.includes("lyTick") === false &&
+        widgetSrc52.includes("S.curRow=r") && widgetSrc52.includes('String(S.rows[S.q].id)!==String(S.curRow.id)'),
+      wQpop: widgetSrc52.includes('id="qpop"') && widgetSrc52.includes('data-q="exhigh"') &&
+        widgetSrc52.includes('data-q="lossless"') && widgetSrc52.includes('data-q="standard"') &&
+        widgetSrc52.includes('class="qsr"'),
+    };
+    gate("TL52 palette 弹窗+四修复静态门（v8.7.27）：display 展示面全链 + 世代令牌/来源对账/封面存活/歌词续跑 + 音质三选一弹窗",
+      t52.dispField && t52.clampW && t52.clampH && t52.cap && t52.host && t52.map && t52.overlay && t52.wDisp && t52.wFix && t52.wQpop, JSON.stringify(t52));
   }
 
   /* ---------- T10 pageerror ---------- */
@@ -2928,7 +2980,7 @@ try {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.26 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.27 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);

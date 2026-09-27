@@ -106,14 +106,18 @@ export interface PresetWidget {
   name?: string;
   /** 表面（v1.8.2）：corner = 角落磁贴（缺省），dock = tab 栏按钮 + 弹出面板 */
   surface?: "corner" | "dock";
+  /** 展示面（v8.7.27，仅 dock 表面消费）：palette = 命令面板式居中弹窗
+   *  （雾化遮罩+居中玻璃卡，WidgetPalette 承载）；缺省 = dock 统一舞台
+   *  底锚弹出面板（PanelStage 承载）。按钮注册/互斥/关闭链路两态完全一致 */
+  display?: "palette";
   /** dock 表面的按钮图标：DOCK_ICONS 白名单 lucide 名或 data:image base64 URL
    *  （≤8KB，与 icons 覆写同规则）；corner 表面忽略此字段 */
   icon?: string;
   /** 停靠角（仅 corner 表面，缺省 top-left） */
   corner?: "top-left" | "top-right" | "bottom-left" | "bottom-right";
-  /** 卡片/面板宽度 px（120–420，缺省 216） */
+  /** 卡片/面板宽度 px（120–580，缺省 216；v8.7.27 上限放宽适配 palette 弹窗） */
   width?: number;
-  /** 卡片初始高度 px（40–460，缺省 88；可用 chushi.resize 在沙箱内调整；v1.9.0 上限放宽） */
+  /** 卡片初始高度 px（40–560，缺省 88；可用 chushi.resize 在沙箱内调整；v1.9.0 放宽 320→460，v8.7.27 放宽 460→560 适配 palette 弹窗） */
   height?: number;
   /** 文档片段（与 pages 同规则，可用 window.chushi 受控 API） */
   html: string;
@@ -248,8 +252,11 @@ export const PRESET_LIMITS = {
      minified 实测 35907；五处联动对账同上
      v8.7.26：36800 → 39600 —— 音质升级（exhigh/黑胶热切换）+ YRC 词时间戳
      根修 + 封面频谱高光律动（beatFrame+glow）minified 实测 38514；五处联动
-     对账同上 */
-  widgetHtmlLen: 39600,
+     对账同上
+     v8.7.27：39600 → 44000 —— 播放器整体重写为命令面板式弹窗（palette 展示面
+     + 常驻搜索行 + 音质三选一小弹窗 + 页签世代令牌串扰根修 + 封面/歌词存活
+     根修）minified 实测 41694；五处联动对账同上 */
+  widgetHtmlLen: 44000,
   icons: 7,
   iconLen: 8192,
   tokenValLen: 120,
@@ -593,19 +600,23 @@ export function parsePreset(raw: unknown): ParseResult {
         return;
       }
     }
+    /* display（v8.7.27）：palette = 命令面板式居中弹窗（dock 表面专属）；
+       其他值静默忽略按缺省舞台渲染（前向兼容，与 surface 白名单同宽严） */
+    const display = wo.display === "palette" ? ("palette" as const) : undefined;
     const width =
       typeof wo.width === "number" && Number.isFinite(wo.width)
-        ? Math.round(Math.min(420, Math.max(120, wo.width)))
+        ? Math.round(Math.min(580, Math.max(120, wo.width)))
         : undefined;
     const height =
       typeof wo.height === "number" && Number.isFinite(wo.height)
-        ? Math.round(Math.min(460, Math.max(40, wo.height)))
+        ? Math.round(Math.min(560, Math.max(40, wo.height)))
         : undefined;
     scriptIds.add(wid); // 共享 id 命名空间（脚本/动画/页面/小部件互不重名）
     widgets.push({
       id: wid,
       name: cleanStr(wo.name, PRESET_LIMITS.scriptNameLen) || wid,
       surface: surface as PresetWidget["surface"],
+      display,
       icon,
       corner: (corner as PresetWidget["corner"]) || "top-left",
       width,

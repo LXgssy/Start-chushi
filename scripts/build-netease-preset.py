@@ -50,7 +50,7 @@ def minify_html(s: str) -> str:
 
 html = minify_html((SRC / "player.html").read_text(encoding="utf-8"))
 
-assert len(html) <= 39600, f"widget html 超限: {len(html)} > 39600"  # v8.7.26：36800→39600（音质/YRC 修复/频谱律动）与宿主 widgetHtmlLen 同步（两道数字门律）
+assert len(html) <= 44000, f"widget html 超限: {len(html)} > 44000"  # v8.7.27：39600→44000（命令面板式弹窗重写+音质弹窗+串扰/封面根修）与宿主 widgetHtmlLen 同步（两道数字门律）
 # 特征门（核心链路防回归）
 for feat in (
     "chushi.ne.api",           # 宿主代理 API
@@ -68,6 +68,14 @@ for feat in (
     "lyReconcile",             # v8.7.24 歌词动效 v2（行态机）
     "setPointerCapture",       # v8.7.24 音量滑块拖拽
     'replace(/^http:/,"https:")',  # 直链 https 升级
+    # v8.7.27 四件：命令面板式弹窗布局 + 音质三选一弹窗 + 页签世代令牌 + 封面/歌词存活根修
+    'class="qsr"',             # 常驻搜索行（命令面板签名行）
+    'id="qpop"',               # 音质三选一小弹窗
+    "applyLvl",                # 音质选中应用（热切换走 playRow(S.curRow)）
+    "S.gen++",                 # 页签世代令牌（异步回包对账）
+    'S.rowsSrc!=="s"',         # 搜索页只认搜索来源 rows（串扰根修）
+    'cv.classList.add("on")',  # 封面 .on 无条件补回（同曲切音质封面消失根修）
+    "lyRender();lyStart()",    # 歌词重取回包渲染后续跑 rAF（歌词消失根修）
 ):
     assert feat in html, f"cshz 缺特征 {feat!r}"
 # widget html 不能含外链资源（iframe 不透明源加载不了；运行时 URL 字符串不算资源加载）
@@ -92,15 +100,16 @@ preset = {
     "chushi": 1,
     "name": "初始 · 网易云播放器",
     "author": "初始",
-    "description": "内置网易云直链播放器：dock 按钮弹出面板，扫码登录/搜索/歌单/逐字歌词",
+    "description": "内置网易云直链播放器：命令面板式居中弹窗，扫码登录/搜索/歌单/逐字歌词",
     "widgets": [
         {
             "id": "netease",
             "name": "网易云播放器",
             "surface": "dock",
+            "display": "palette",
             "icon": icon,
-            "width": 400,
-            "height": 460,
+            "width": 560,
+            "height": 540,
             "html": html,
         }
     ],
@@ -118,6 +127,6 @@ with zipfile.ZipFile(out) as z:
     assert names == {"manifest.json"}, f"包结构异常: {names}"
     m = json.loads(z.read("manifest.json"))
     assert m["chushi"] == 1 and m["widgets"] and m["widgets"][0]["html"] == html
-    assert m["widgets"][0]["surface"] == "dock" and m["widgets"][0]["width"] == 400
+    assert m["widgets"][0]["surface"] == "dock" and m["widgets"][0]["display"] == "palette" and m["widgets"][0]["width"] == 560 and m["widgets"][0]["height"] == 540
 
 print(f"OK widget={len(html)} chars, icon={len(icon)} chars -> {out} ({out.stat().st_size/1024:.1f} KB)")

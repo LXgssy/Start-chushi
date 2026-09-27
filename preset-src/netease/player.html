@@ -12,6 +12,7 @@ body{
   user-select:none;
   --ink:#27272a;--ink2:#71717a;--ink3:#a1a1aa;--line:rgba(0,0,0,.08);
   --pr:rgba(0,0,0,.10);--card2:rgba(255,255,255,.55);--lybg:rgba(255,255,255,.88);
+  --popsolid:rgba(255,255,255,.94);
   --acc:var(--w-accent,#8b5cf6);
   --acc12:color-mix(in oklab,var(--acc) 12%,transparent);
   --acc20:color-mix(in oklab,var(--acc) 20%,transparent);
@@ -21,10 +22,14 @@ body{
 [data-theme=dark] body{
   --ink:#f4f4f5;--ink2:#a1a1aa;--ink3:#71717a;--line:rgba(255,255,255,.09);
   --pr:rgba(255,255,255,.12);--card2:rgba(39,39,44,.55);--lybg:rgba(24,24,28,.86);
+  --popsolid:rgba(39,39,44,.96);
 }
 img{-webkit-user-drag:none;user-select:none}
+/* v8.7.27 命令面板式弹窗（palette 展示面，宿主 WidgetPalette 居中卡承载）：
+   画布 560×540 起步（旧 dock 弹出面板 400×460 退役），纵向三段——
+   常驻搜索行（命令面板签名行）+ 页签 + 列表 / 底部播放条 / 歌词浮层 */
 .np{position:relative;width:100%;height:100%;display:flex;flex-direction:column;
-  padding:12px 14px 10px;gap:8px}
+  padding:14px 16px 12px;gap:9px}
 /* ---------- 头部 ---------- */
 .nh{display:flex;align-items:center;gap:8px;flex:none}
 .nh .lg{width:20px;height:20px;flex:none;display:flex;align-items:center;justify-content:center;
@@ -39,27 +44,32 @@ img{-webkit-user-drag:none;user-select:none}
   color:var(--ink2);background:var(--card2);transition:transform .25s var(--ez),color .3s}
 .nx:hover{transform:scale(1.08);color:var(--ink)}
 .nx svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round}
-/* ---------- 页签 + 搜索 ---------- */
+/* ---------- 搜索行（命令面板签名行：常驻，任意页签可输入回车直达搜索） ---------- */
+.qsr{display:flex;align-items:center;gap:8px;flex:none;height:38px;padding:0 5px 0 12px;
+  border:1px solid var(--line);border-radius:12px;background:var(--card2);
+  transition:border-color .25s}
+.qsr:focus-within{border-color:var(--acc32)}
+.qsr>svg{width:15px;height:15px;flex:none;fill:none;stroke:var(--ink3);stroke-width:1.8;stroke-linecap:round}
+.qsr input{flex:1;min-width:0;background:transparent;border:0;outline:0;height:100%;
+  font-size:13px;color:var(--ink);font-family:inherit}
+.qsr input::placeholder{color:var(--ink3)}
+.qsr button{appearance:none;border:0;background:var(--acc);color:#fff;border-radius:9px;
+  padding:0 14px;height:28px;font-size:12px;cursor:pointer;font-family:inherit;flex:none;
+  transition:filter .25s,transform .2s var(--ez)}
+.qsr button:hover{filter:brightness(1.12)}
+.qsr button:active{transform:scale(.94)}
+/* ---------- 页签 ---------- */
 .tabs{display:flex;gap:4px;flex:none;background:var(--pr);border-radius:var(--r9);padding:3px}
 .tabs b{flex:1;text-align:center;font-size:11.5px;font-weight:500;color:var(--ink2);
   padding:5px 0;border-radius:var(--r9);cursor:pointer;transition:color .25s,background-color .25s}
 .tabs b.on{background:var(--card2);color:var(--acc);font-weight:600}
-.sr{display:flex;gap:6px;flex:none}
-.sr input{flex:1;min-width:0;appearance:none;border:1px solid var(--line);background:var(--card2);
-  border-radius:var(--r9);padding:7px 13px;font-size:12px;color:var(--ink);outline:none;
-  font-family:inherit;transition:border-color .25s}
-.sr input:focus{border-color:var(--acc32)}
-.sr input::placeholder{color:var(--ink3)}
-.sr button{appearance:none;border:0;background:var(--acc);color:#fff;border-radius:var(--r9);
-  padding:0 15px;font-size:12px;cursor:pointer;font-family:inherit;flex:none;
-  transition:filter .25s,transform .2s var(--ez)}
-.sr button:hover{filter:brightness(1.12)}
-.sr button:active{transform:scale(.94)}
 /* ---------- 列表 ---------- */
 .lst{flex:1;min-height:0;overflow-y:auto;border-radius:12px;scrollbar-width:thin;
-  scrollbar-color:var(--pr) transparent;position:relative}
+  scrollbar-color:var(--pr) transparent;position:relative;padding:2px}
 .lst::-webkit-scrollbar{width:4px}
 .lst::-webkit-scrollbar-thumb{background:var(--pr);border-radius:2px}
+.lst.pgrid{display:grid;grid-template-columns:1fr 1fr;gap:4px;align-content:start}
+.lst.pgrid .subh{grid-column:1/-1}
 .subh{font-size:10.5px;color:var(--ink3);padding:2px 4px 6px;display:flex;align-items:center;gap:6px}
 .bk{appearance:none;border:1px solid var(--line);background:var(--card2);color:var(--ink2);
   border-radius:var(--r9);font-size:10px;padding:2px 9px;cursor:pointer;font-family:inherit}
@@ -94,25 +104,25 @@ img{-webkit-user-drag:none;user-select:none}
 .qst{font-size:12px;color:var(--ink);font-weight:500}
 .qtip{font-size:10.5px;color:var(--ink3);text-align:center;line-height:1.6}
 /* ---------- 播放条 ---------- */
-.bar{flex:none;display:none;flex-direction:column;gap:2px;padding-top:2px}
+.bar{flex:none;display:none;flex-direction:column;gap:4px;padding-top:2px}
 .bar.on{display:flex}
-.brow{display:flex;align-items:center;gap:9px}
+.brow{display:flex;align-items:center;gap:10px}
 /* v8.7.26 频谱高光律动（对标 SMTC .cs-glow v8.2.0/8.3.3）：.glow DOM 前置
    画在封面底下（同 context 律），光环只从四周晕出、封面本体恒定不动；
    宿主 WebAudio 128 段 30Hz 包络帧（攻 .62/放 .16 同参数族）驱动
    opacity/scale——只写合成器友好属性；暂停/静默清 inline 交还样式表
-   （基线 0，42px 小封面不做常亮微光）；reduced-motion 全程熄灯 */
+   （基线 0，46px 小封面不做常亮微光）；reduced-motion 全程熄灯 */
 .covw{position:relative;flex:none;display:block}
 .covw .glow{position:absolute;inset:-7px;border-radius:16px;background:var(--acc);opacity:0;
   filter:blur(12px);pointer-events:none}
-.cov{position:relative;z-index:1;display:block;width:42px;height:42px;border-radius:10px;object-fit:cover;cursor:pointer;
+.cov{position:relative;z-index:1;display:block;width:46px;height:46px;border-radius:11px;object-fit:cover;cursor:pointer;
   background:linear-gradient(135deg,var(--acc32),var(--acc12));opacity:0;
   transition:opacity .5s var(--ez),transform .22s var(--ez)}
 .cov.on{opacity:1}
 .cov.on:hover{transform:scale(1.07)}
 .nm{flex:1;min-width:0}
-.tt{font-size:12.5px;font-weight:560;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ar{font-size:10.5px;color:var(--ink2);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tt{font-size:13px;font-weight:560;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ar{font-size:11px;color:var(--ink2);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tri{font-size:9px;color:#d97706;border:1px solid rgba(217,119,6,.4);border-radius:4px;padding:0 3px;margin-left:5px}
 .nb{appearance:none;border:0;background:transparent;color:var(--ink2);width:28px;height:28px;flex:none;
   border-radius:var(--r9);display:flex;align-items:center;justify-content:center;cursor:pointer;
@@ -124,11 +134,33 @@ img{-webkit-user-drag:none;user-select:none}
 #bw.on{color:#fff;background:var(--acc)}
 #chip{cursor:pointer}
 #chip.warn{color:#d97706;border-color:rgba(217,119,6,.4)}
+.md{font-size:9px;letter-spacing:.05em}
+/* ① 音质三选一小弹窗（v8.7.27，用户：把音质切换改成出现一个小弹窗出现三种
+   音质来切换）：sq chip 外包 .sqw 相对锚，.qpop 自其上方浮出（右下 origin），
+   三档单选（对勾跟随当前档），点选项/点外部/Esc 收起；选中即应用
+   （播放中热切换=同曲重取直链+seek 保进度）。 */
+.sqw{position:relative;flex:none}
+.qpop{position:absolute;right:0;bottom:calc(100% + 10px);z-index:6;min-width:150px;
+  background:var(--popsolid);backdrop-filter:blur(20px) saturate(1.5);
+  border:1px solid var(--line);border-radius:13px;padding:4px;
+  box-shadow:0 10px 30px rgba(0,0,0,.16);
+  opacity:0;transform:translateY(5px) scale(.95);transform-origin:100% 100%;
+  pointer-events:none;transition:opacity .18s var(--ez),transform .18s var(--ez)}
+.qpop.on{opacity:1;transform:none;pointer-events:auto}
+.qpop button{display:flex;width:100%;align-items:center;gap:7px;border:0;background:transparent;
+  border-radius:9px;padding:7px 9px;font-size:12px;color:var(--ink);cursor:pointer;
+  font-family:inherit;text-align:left;transition:background-color .2s}
+.qpop button:hover{background:var(--pr)}
+.qpop button i{font-style:normal;margin-left:auto;font-size:10px;color:var(--ink3)}
+.qpop button .ck{width:13px;height:13px;flex:none;fill:none;stroke:currentColor;stroke-width:2.2;
+  stroke-linecap:round;stroke-linejoin:round;visibility:hidden;color:var(--acc)}
+.qpop button.cur{color:var(--acc);font-weight:600}
+.qpop button.cur .ck{visibility:visible}
 /* v8.7.25 三键不让位律（同 SMTC 面板 v8.7.18）：tmrow 流内只留时间/音量，
    传输键组 .ctls 绝对居中于面板正中——音量滑块再宽、两侧内容增减，
    上一首/播放/下一首位置恒定（flex:1 剩余空间居中=「让位」根因，退役） */
 .vol{display:flex;align-items:center;gap:1px;flex:none;margin-left:auto}
-.vrail{position:relative;width:52px;height:16px;cursor:pointer;touch-action:none}
+.vrail{position:relative;width:64px;height:16px;cursor:pointer;touch-action:none}
 .vrail .vr{position:absolute;left:0;top:50%;width:100%;height:5px;margin-top:-2.5px;border-radius:3px;background:var(--pr)}
 .vrail i{position:absolute;left:0;top:50%;height:5px;margin-top:-2.5px;border-radius:3px;background:var(--acc);width:70%}
 .vrail b{position:absolute;top:50%;width:11px;height:11px;border-radius:var(--r9);background:var(--acc);
@@ -155,9 +187,8 @@ img{-webkit-user-drag:none;user-select:none}
 .pmain svg{position:absolute;left:50%;top:50%;width:16px;height:16px;margin:-8px 0 0 -8px;
   transition:opacity .16s ease,transform .16s var(--ez)}
 .pmain svg.off{opacity:0;transform:scale(.55)}
-.md{font-size:9px;letter-spacing:.05em}
 /* ---------- 歌词浮层 ---------- */
-.lyr{position:absolute;left:10px;right:10px;top:52px;bottom:128px;z-index:3;border-radius:14px;
+.lyr{position:absolute;left:12px;right:12px;top:118px;bottom:124px;z-index:3;border-radius:14px;
   background:var(--lybg);backdrop-filter:blur(22px) saturate(1.5);border:1px solid var(--line);
   display:none;flex-direction:column;overflow:hidden;
   box-shadow:0 10px 34px rgba(0,0,0,.16)}
@@ -193,7 +224,7 @@ img{-webkit-user-drag:none;user-select:none}
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lhint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
   font-size:11.5px;color:var(--ink3)}
-.tst{position:absolute;left:50%;bottom:132px;transform:translateX(-50%) translateY(8px);z-index:4;
+.tst{position:absolute;left:50%;bottom:128px;transform:translateX(-50%) translateY(8px);z-index:7;
   background:rgba(0,0,0,.78);color:#fff;font-size:11px;border-radius:var(--r9);padding:7px 15px;
   opacity:0;pointer-events:none;transition:opacity .3s,transform .3s var(--ez);white-space:nowrap;
   max-width:90%;overflow:hidden;text-overflow:ellipsis}
@@ -208,11 +239,13 @@ img{-webkit-user-drag:none;user-select:none}
     <span class="chip" id="chip">检测中</span>
     <button class="nx" id="x" title="收起"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
   </div>
+  <div class="qsr">
+    <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+    <input id="q" placeholder="搜索歌曲 / 歌手，回车直达" maxlength="40">
+    <button id="go">搜索</button>
+  </div>
   <div class="tabs" id="tabs">
     <b data-t="d" class="on">每日推荐</b><b data-t="s">搜索</b><b data-t="p">我的歌单</b>
-  </div>
-  <div class="sr" id="srw" style="display:none">
-    <input id="q" placeholder="歌曲 / 歌手" maxlength="40"><button id="go">搜索</button>
   </div>
   <div class="lst empty" id="list">
     <div class="emp">
@@ -232,8 +265,15 @@ img{-webkit-user-drag:none;user-select:none}
         <div class="tt"><span id="tt">未在播放</span><span class="tri" id="tri" style="display:none">试听</span></div>
         <div class="ar" id="ar">点列表里的歌开始播放</div>
       </div>
-      <button class="nb md" id="sq" title="音质">标准</button><button class="nb md" id="md" title="播放模式">顺序</button>
-      <button class="nb" id="bw" title="全局歌词">词</button>
+      <span class="sqw">
+        <button class="nb md" id="sq" title="音质">标准</button>
+        <span class="qpop" id="qpop">
+          <button data-q="standard"><svg class="ck" viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>标准<i>128K</i></button>
+          <button data-q="exhigh"><svg class="ck" viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>极高<i>320K</i></button>
+          <button data-q="lossless"><svg class="ck" viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></svg>无损<i>FLAC · 黑胶</i></button>
+        </span>
+      </span>
+      <button class="nb md" id="md" title="播放模式">顺序</button><button class="nb" id="bw" title="全局歌词">词</button>
     </div>
     <div class="seek" id="seek"><div class="rail"><i id="fill"></i></div></div>
     <div class="tmrow">
@@ -265,11 +305,14 @@ var noteT=null;
 function note(m){var t=$("tst");t.textContent=m;t.classList.add("on");clearTimeout(noteT);noteT=setTimeout(function(){t.classList.remove("on")},2200)}
 function api(p,d){return chushi.ne.api(p,d).then(function(r){if(!r.ok)throw new Error(r.err||"接口失败");return r.data})}
 function au(a,o){return chushi.ne.audio(a,o).then(function(r){if(!r.ok)throw new Error(r.err||"操作失败");return r.data})}
-/* ---------- 状态 ---------- */
-var S={tab:"d",rows:[],pls:null,q:-1,mode:0,ly:null,lyOn:false,lastSeq:0,curLy:-2,
+/* ---------- 状态 ----------
+   v8.7.27 新增：gen=页签世代令牌（异步回包对账，跨页签串扰根修①）、
+   rowsSrc=当前列表来源（d/s/p，搜索页只认 s 来源）、curRow=当前播放曲
+   行引用（音质热切换直取，换页后 S.rows[S.q] 可能指向别曲的隐患根除） */
+var S={tab:"d",rows:[],rowsSrc:"",pls:null,q:-1,mode:0,ly:null,lyOn:false,lastSeq:0,curLy:-2,
   logged:false,uid:null,qrKey:"",pollT:null,drag:false,vol:.7,lastVol:.7,dur:0,lvl:"standard",
   anc:{posMs:0,playing:false,at:0},lyEls:[],lyTarget:null,lyScrollUntil:0,lyScrollIdx:-1,
-  lyRaf:0,lyPaused:null};
+  lyRaf:0,lyPaused:null,gen:0,curRow:null};
 function norm(o){return{id:o.id,name:o.name||"",
   ar:(o.ar||o.artists||[]).map(function(a){return a.name||""}).join(" / "),
   al:(o.al||o.album||{}).name||"",
@@ -286,21 +329,30 @@ function onAudio(s){
   $("icPause").classList[s.playing?"remove":"add"]("off");
   if(s.name){$("tt").textContent=s.name;$("ar").textContent=s.artist||"";
     $("tri").style.display=s.trial?"":"none"}
-  if(s.cover&&$("cov").getAttribute("src")!==s.cover){$("cov").src=s.cover;$("cov").classList.add("on")}
+  /* v8.7.27 封面存活根修（用户：切换音质后歌词封面会消失）：同曲切音质时
+     playRow 摘下 .on 而封面 src 不变，旧守卫（src 不同才写）令 add("on")
+     永不再执行=封面恒隐。守卫语义收窄为「只跳过冗余 src 写」，.on 态
+     无条件补回；空 cover 帧不动作（load 期占位）。 */
+  if(s.cover){var cv=$("cov");if(cv.getAttribute("src")!==s.cover)cv.setAttribute("src",s.cover);
+    cv.classList.add("on")}
   if(typeof s.volume==="number"&&Math.abs(s.volume-S.vol)>.004){S.vol=s.volume;volUI()}
   if(s.ended)next();
   if(s.sysCmd==="next")next();
   if(s.sysCmd==="prev")prev();
-  if(S.lyOn)lyTick(s.position*1000);
 }
 chushi.ne.sub(onAudio);
 /* ---------- 队列 ---------- */
 function play(list,i,keep){
-  if(!list||!list[i])return;S.q=i;var r=list[i];mark();
+  if(!list||!list[i])return;S.rows=list;S.q=i;playRow(list[i],keep);
+}
+/* playRow：单曲执行体（列表点击/音质热切换共用）——热切换不再借道
+   S.rows[S.q]（换页后列表易主会错播别曲），直执 S.curRow 行引用 */
+function playRow(r,keep){
+  if(!r)return;S.curRow=r;mark();
   api("/weapi/song/enhance/player/url/v1",{ids:"["+r.id+"]",level:S.lvl,encodeType:"flac"})
   .then(function(d){var x=(d.data||[])[0];
     if(!x||!x.url){note((r.fee===1?"VIP 歌曲":r.name)+" 暂无法播放（版权或登录限制）");return}
-    /* ① 音质升级（exhigh/黑胶无损）：按账号权限自动降级——响应 level 与请求
+    /* 音质升级（exhigh/黑胶无损）：按账号权限自动降级——响应 level 与请求
        不符即提示（网易云服务端行为：无权限回退较低音质，url 仍可播） */
     if(x.level&&x.level!==S.lvl&&S.lvl!=="standard"){
       var LN={standard:"标准",higher:"较高",exhigh:"极高",lossless:"无损",hires:"Hi-Res",jymaster:"超清母带"};
@@ -328,7 +380,10 @@ function next(){if(!S.rows.length)return;var n=S.q+1;
   else if(n>=S.rows.length)n=0;
   play(S.rows,n)}
 function prev(){if(!S.rows.length)return;var n=S.q-1;if(n<0)n=S.rows.length-1;play(S.rows,n)}
-function mark(){var old=document.querySelector(".row.cur");if(old)old.classList.remove("cur");
+/* 高亮只有确认 DOM 行与当前曲同一首才落（换页后 S.q 残留防误亮） */
+function mark(){
+  var old=document.querySelector(".row.cur");if(old)old.classList.remove("cur");
+  if(!S.curRow||!S.rows||!S.rows[S.q]||String(S.rows[S.q].id)!==String(S.curRow.id))return;
   var el=document.querySelector('.row[data-i="'+S.q+'"]');if(el)el.classList.add("cur")}
 /* ---------- 列表渲染 ---------- */
 function emp(t){var l=$("list");l.style.display="";$("qrbox").classList.remove("on");
@@ -337,6 +392,7 @@ function emp(t){var l=$("list");l.style.display="";$("qrbox").classList.remove("
   l.classList.add("empty")}
 function rows(list,hint){
   S.rows=list;$("list").style.display="";$("qrbox").classList.remove("on");
+  $("list").classList.remove("pgrid");
   var h=hint||"";
   list.forEach(function(r,i){
     h+='<div class="row" data-i="'+i+'"><div class="ri"><div class="rt">'+esc(r.name)+
@@ -351,15 +407,20 @@ $("list").addEventListener("click",function(e){
   var el=e.target&&e.target.closest?e.target.closest(".row"):null;
   if(!el)return;play(S.rows,+el.getAttribute("data-i"));
 });
-/* ---------- 页签 ---------- */
-var busy=false;
+/* ---------- 页签 ----------
+   v8.7.27 串扰根修：世代令牌 gen 在每次切页自增，所有异步回包携出发时
+   世代对账、过期即弃——慢接口（每日推荐）的迟到回包不再渲染进切走后的
+   页签（旧 busy 布尔只挡新请求、不挡旧回包，是串扰的另一半根因）。 */
 function tab(t){
-  S.tab=t;stopPoll();
+  S.tab=t;S.gen++;stopPoll();qpopSet(false);
   var bs=$("tabs").querySelectorAll("b");
   for(var i=0;i<bs.length;i++)bs[i].classList.toggle("on",bs[i].getAttribute("data-t")===t);
-  $("srw").style.display=t==="s"?"":"none";
-  if(t==="s"){$("list").style.display="";$("qrbox").classList.remove("on");
-    if(!S.rows.length)emp("输入关键词搜索歌曲");
+  $("list").style.display="";$("qrbox").classList.remove("on");
+  $("list").classList.remove("pgrid");
+  if(t==="s"){
+    /* 搜索页只认搜索来源的 rows：每日/歌单残留一律让位空态提示
+       （旧「rows 非空即保留」把每日推荐原样带进搜索页=本 bug 现场） */
+    if(S.rowsSrc!=="s"){S.rows=[];emp("输入关键词搜索歌曲")}
     setTimeout(function(){try{$("q").focus()}catch(e){}},60);return}
   if(t==="d")loadDaily();
   if(t==="p")loadPl();
@@ -369,21 +430,21 @@ $("tabs").addEventListener("click",function(e){
   if(b)tab(b.getAttribute("data-t"));
 });
 function loadDaily(){
-  if(busy)return;busy=true;emp("加载每日推荐…");
+  var g=S.gen;emp("加载每日推荐…");
   api("/weapi/v3/discovery/recommend/songs",{}).then(function(d){
+    if(g!==S.gen)return;
     var ds=((d.data||{}).dailySongs||[]).map(norm),t=new Date();
+    S.rowsSrc="d";
     rows(ds,'<div class="subh">每日推荐 · '+(t.getMonth()+1)+"月"+t.getDate()+"日 · 免登录可播免费歌</div>");
-  }).catch(function(e){emp("加载失败");note(e.message)})
-  .then(function(){busy=false});
+  }).catch(function(e){if(g!==S.gen)return;emp("加载失败");note(e.message)});
 }
 function loadPl(){
   if(!S.logged){qrView();return}
   if(S.pls){plCards();return}
-  if(busy)return;busy=true;emp("加载歌单…");
+  var g=S.gen;emp("加载歌单…");
   api("/weapi/user/playlist",{uid:String(S.uid),limit:"30",offset:"0",includeVideo:"true"})
-  .then(function(d){S.pls=d.playlist||[];plCards()})
-  .catch(function(e){emp("加载失败");note(e.message)})
-  .then(function(){busy=false});
+  .then(function(d){if(g!==S.gen)return;S.pls=d.playlist||[];plCards()})
+  .catch(function(e){if(g!==S.gen)return;emp("加载失败");note(e.message)});
 }
 function plCards(){
   var h='<div class="subh">我的歌单 · '+(S.pls||[]).length+" 个</div>";
@@ -391,33 +452,73 @@ function plCards(){
     h+='<div class="plc" data-p="'+i+'"><span class="pli"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 11h16M4 16h9"/><circle cx="17.5" cy="17" r="2.5"/></svg></span>'+
       '<div class="ri"><div class="pn">'+esc(p.name)+'</div><div class="pc">'+p.trackCount+" 首</div></div></div>";
   });
-  S.rows=[];$("list").style.display="";$("qrbox").classList.remove("on");
-  $("list").innerHTML=h;$("list").classList.toggle("empty",!(S.pls||[]).length);
-  if(!(S.pls||[]).length)emp("歌单是空的");
+  S.rows=[];S.rowsSrc="p";
+  $("list").style.display="";$("qrbox").classList.remove("on");
+  $("list").classList.remove("empty");
+  if((S.pls||[]).length){
+    $("list").classList.add("pgrid");$("list").innerHTML=h;
+  }else{emp("歌单是空的")}
 }
 $("list").addEventListener("click",function(e){
   var el=e.target&&e.target.closest?e.target.closest(".plc"):null;if(!el)return;
-  var p=(S.pls||[])[+el.getAttribute("data-p")];if(!p||busy)return;
-  busy=true;emp("打开歌单…");
+  var p=(S.pls||[])[+el.getAttribute("data-p")];if(!p)return;
+  var g=S.gen;emp("打开歌单…");
   api("/weapi/v6/playlist/detail",{id:String(p.id),n:"1000",s:"8"})
   .then(function(d){
+    if(g!==S.gen)return;
     var ts=((d.playlist||{}).tracks||[]).map(norm);
+    S.rowsSrc="p";
     rows(ts,'<div class="subh"><button class="bk" id="bk">‹ 歌单列表</button><span>'+esc(p.name)+" · "+ts.length+" 首</span></div>");
     var bk=$("bk");if(bk)bk.addEventListener("click",function(ev){ev.stopPropagation();plCards()});
-  }).catch(function(e){emp("加载失败");note(e.message)})
-  .then(function(){busy=false});
+  }).catch(function(e){if(g!==S.gen)return;emp("加载失败");note(e.message)});
 });
-/* ---------- 搜索 ---------- */
+/* ---------- 搜索（常驻搜索行：任意页签回车直达，自动切到搜索页签） ---------- */
 function doSearch(){
   var k=$("q").value.trim();if(!k){note("先输入点关键词");return}
-  if(busy)return;busy=true;emp("搜索「"+k+"」…");
+  if(S.tab!=="s")tab("s");
+  var g=S.gen;
+  emp("搜索「"+k+"」…");
   api("/weapi/search/get",{s:k,type:"1",limit:"30",offset:"0"})
-  .then(function(d){rows(((d.result||{}).songs||[]).map(norm))})
-  .catch(function(e){emp("搜索失败");note(e.message)})
-  .then(function(){busy=false});
+  .then(function(d){
+    /* 过期回包/过期关键词双对账：连发两次搜索时慢者不覆盖快者 */
+    if(g!==S.gen||k!==$("q").value.trim())return;
+    S.rowsSrc="s";
+    rows(((d.result||{}).songs||[]).map(norm))
+  })
+  .catch(function(e){if(g!==S.gen)return;emp("搜索失败");note(e.message)});
 }
 $("go").addEventListener("click",doSearch);
 $("q").addEventListener("keydown",function(e){if(e.key==="Enter")doSearch()});
+/* ---------- 音质三选一弹窗（v8.7.27，替代三档轮换 chip）---------- */
+var LVLS=[["standard","标准"],["exhigh","极高"],["lossless","无损"]],
+    QNAMES={standard:"标准",exhigh:"极高",lossless:"无损"},qpopOn=false;
+function qLabel(){
+  var qi=-1,i;
+  for(i=0;i<LVLS.length;i++)if(LVLS[i][0]===S.lvl)qi=i;
+  $("sq").textContent=qi>=0?LVLS[qi][1]:"标准";
+  var bs=$("qpop").querySelectorAll("button[data-q]");
+  for(i=0;i<bs.length;i++)bs[i].classList.toggle("cur",bs[i].getAttribute("data-q")===S.lvl)}
+function qpopSet(on){if(on===qpopOn)return;qpopOn=on;$("qpop").classList[on?"add":"remove"]("on")}
+$("sq").addEventListener("click",function(){qpopSet(!qpopOn)});
+$("qpop").addEventListener("click",function(e){
+  var b=e.target&&e.target.closest?e.target.closest("button[data-q]"):null;if(!b)return;
+  applyLvl(b.getAttribute("data-q"))});
+document.addEventListener("click",function(e){
+  if(qpopOn&&!(e.target&&e.target.closest&&e.target.closest(".sqw")))qpopSet(false)});
+document.addEventListener("keydown",function(e){if(e.key==="Escape"&&qpopOn)qpopSet(false)});
+function applyLvl(lv){
+  qpopSet(false);if(!QNAMES[lv]||S.lvl===lv)return;
+  S.lvl=lv;qLabel();
+  if(chushi.storage)chushi.storage.set("qLevel",S.lvl).catch(function(){});
+  /* 播放中热切换：S.curRow 直取当前曲+seek 保进度（传输键 .ctls 绝对居中律
+     不受 .brow 增减影响，v8.7.25）；未播放仅记忆与换标 */
+  if(S.lastSeq&&S.curRow){
+    playRow(S.curRow,S.anc.playing?S.anc.posMs/1000:0);
+    note("音质："+QNAMES[lv])}
+}
+if(chushi.storage)chushi.storage.get("qLevel").then(function(v){
+  if(QNAMES[v]){S.lvl=v;qLabel()}
+}).catch(function(){});
 /* ---------- 登录态 ---------- */
 function chip(){var c=$("chip");
   c.textContent=S.logged?"已登录":"未登录";
@@ -428,7 +529,7 @@ function who(){
     S.logged=!!a;S.uid=a||null;chip();
   }).catch(function(){chip()});
 }
-/* ⑥ 退出登录（chip 两步确认；/weapi/logout 由服务端 Set-Cookie 清 MUSIC_U，
+/* 退出登录（chip 两步确认；/weapi/logout 由服务端 Set-Cookie 清 MUSIC_U，
    宿主零凭证落盘 → cookie jar 即登录态，清掉即退；未登录点击=引导扫码） */
 var loArm=null;
 $("chip").addEventListener("click",function(){
@@ -442,7 +543,6 @@ $("chip").addEventListener("click",function(){
   $("chip").textContent="确认退出?";$("chip").classList.add("warn");
   loArm=setTimeout(function(){loArm=null;chip()},3000);
 });
-
 /* ---------- 扫码登录（QR：byte 模式 · ECC L · v1-5 单块 · 掩码2） ---------- */
 function qrView(){
   $("list").style.display="none";$("qrbox").classList.add("on");
@@ -595,15 +695,19 @@ function getLyric(id){
       try{chushi.ne.pub({songId:String(id),yrc:yrc||"",ytlrc:(d.ytlrc&&d.ytlrc.lyric)||"",
         lrc:lrc,tlyric:tly,source:"chushi-ne",rev:"ne-"+id})}catch(e){}
     }
-    if(S.lyOn)lyRender();
-  }).catch(function(){S.ly={y:null,l:[]};if(S.lyOn)lyRender()});
+    /* v8.7.27 歌词存活根修（用户：切换音质后歌词会消失）：重取回包渲染后
+       显式续跑 rAF——旧实现只 lyRender 不 lyStart，而清空期（S.ly=null）
+       已令循环早退死亡=重渲染后引擎空转（无高亮/无滚动/无扫色） */
+    if(S.lyOn){lyRender();lyStart()}
+  }).catch(function(){S.ly={y:null,l:[]};if(S.lyOn){lyRender();lyStart()}});
 }
 /* ---------- 歌词渲染引擎 v2（rAF 插值 + SMTC 面板动效语言）----------
    行态机 on/done/未来与 reconcileLines 全语义对齐：唱过的行扫光定格 100%
    渐隐（.ov opacity .6s）、间奏自然流入（当前句驻留）、seek 跳中段未唱行
    直接灰、未来行还原未唱态（--p 残留归零）；滚动=容器 transform 居中数学
    （翻译行 height 过渡期 560ms 追踪窗每帧重算 target）；词扫光 0.25% 量化
-   写值防抖，逐帧只写当前行。 */
+   写值防抖，逐帧只写当前行。v8.7.27 韧性循环：数据空窗（S.ly=null 清空期）
+   不再退出循环——仅歌词页关闭才停 rAF，回包回填后续跑零缝。 */
 function lyRender(){
   S.curLy=-2;S.lyTarget=null;S.lyScrollUntil=0;S.lyScrollIdx=-1;S.lyPaused=null;
   var y=S.ly&&S.ly.y,l=S.ly?S.ly.l:[],h="",i,j;
@@ -663,8 +767,8 @@ function lyScroll(idx,track){
   if(track){S.lyScrollUntil=Date.now()+560;S.lyScrollIdx=idx}
 }
 function lyFrame(){
-  S.lyRaf=0;
-  if(!S.lyOn||!S.ly||!S.lyEls||!S.lyEls.length)return;
+  if(!S.lyOn){S.lyRaf=0;return}
+  if(!S.ly||!S.lyEls||!S.lyEls.length){S.lyRaf=requestAnimationFrame(lyFrame);return}
   var posMs=S.anc.posMs+(S.anc.playing?Date.now()-S.anc.at:0);
   var src=S.ly.y&&S.ly.y.length?S.ly.y:S.ly.l,ci=-1,i;
   for(i=0;i<src.length;i++)if(src[i].t<=posMs)ci=i;
@@ -694,7 +798,7 @@ function lyFrame(){
     lsi.style.transition="transform .45s var(--ez), opacity 260ms ease";
     lsi.style.opacity=pl?"1":"0.38";
   }
-  if(S.lyOn)S.lyRaf=requestAnimationFrame(lyFrame);
+  S.lyRaf=requestAnimationFrame(lyFrame);
 }
 function lyStart(){if(!S.lyRaf)S.lyRaf=requestAnimationFrame(lyFrame)}
 function lyStop(){if(S.lyRaf){cancelAnimationFrame(S.lyRaf);S.lyRaf=0}if(S.lyPaused===false){S.lyPaused=null;var lsi=$("lsi");if(lsi){lsi.style.opacity="1"}}}
@@ -705,7 +809,7 @@ $("lsc").addEventListener("click",function(e){
   else if(S.ly&&S.ly.l[i])t=S.ly.l[i].t/1000;
   if(t!=null)au("seek",{position:t}).catch(function(){});
 });
-/* ① 封面点击开关歌词页（词钮退役为全局歌词开关，开歌词职责移交封面） */
+/* 封面点击开关歌词页（词钮退役为全局歌词开关，开歌词职责移交封面） */
 function openLyr(){
   S.lyOn=!S.lyOn;$("lyr").classList[S.lyOn?"add":"remove"]("on");
   if(S.lyOn){$("ltitle").textContent=$("tt").textContent||"歌词";
@@ -715,11 +819,10 @@ function openLyr(){
 }
 $("cov").addEventListener("click",openLyr);
 $("lx").addEventListener("click",function(){S.lyOn=false;$("lyr").classList.remove("on");lyStop()});
-/* ⑤ 词钮 → 全局歌词浮层开关（csDlyric → 宿主 PresetWidgets 镜像 cardDlyric，
+/* 词钮 → 全局歌词浮层开关（csDlyric → 宿主 PresetWidgets 镜像 cardDlyric，
    与 SMTC 面板词钮同通道；浮层 × 钮反向写入经 widgetStoragePatch 实时回翻） */
 var wordOn=false;
-$("bw").addEventListener("click",function(){
-  wordOn=!wordOn;$("bw").classList.toggle("on",wordOn);
+$("bw").addEventListener("click",function(){wordOn=!wordOn;$("bw").classList.toggle("on",wordOn);
   if(chushi.storage)chushi.storage.set("csDlyric",wordOn).catch(function(){})
 });
 if(chushi.storage)chushi.storage.get("csDlyric").then(function(v){
@@ -736,24 +839,9 @@ window.addEventListener("message",function(ev){
 $("pp").addEventListener("click",function(){au("toggle").catch(function(){})});
 $("pv").addEventListener("click",prev);
 $("nx").addEventListener("click",next);
-/* ① 音质升级（exhigh/黑胶）：标准→极高(320K)→无损(FLAC·黑胶) 三档轮换；
-   切档持久化 qLevel；播放中热切换=同曲重取直链+seek 保进度（传输键
-   .ctls 绝对居中律不受 .brow 增减影响，v8.7.25） */
-var LVLS=[["standard","标准"],["exhigh","极高"],["lossless","无损"]],lvi=0;
-function lvlApply(){S.lvl=LVLS[lvi][0];$("sq").textContent=LVLS[lvi][1]}
-$("sq").addEventListener("click",function(){
-  lvi=(lvi+1)%LVLS.length;lvlApply();
-  if(chushi.storage)chushi.storage.set("qLevel",S.lvl).catch(function(){});
-  if(S.lastSeq&&S.q>=0&&S.rows[S.q]){
-    play(S.rows,S.q,S.anc.playing?S.anc.posMs/1000:0);
-    note("音质："+LVLS[lvi][1])}
-});
-if(chushi.storage)chushi.storage.get("qLevel").then(function(v){
-  for(var i=0;i<LVLS.length;i++)if(LVLS[i][0]===v){lvi=i;lvlApply()}
-}).catch(function(){});
 $("md").addEventListener("click",function(){
   S.mode=(S.mode+1)%3;$("md").textContent=["顺序","单曲","随机"][S.mode]});
-/* ④ 音量滑块（无极调节 + 拖拽 PointerEvent 捕获 + 持久化 + 图标静音切换） */
+/* 音量滑块（无极调节 + 拖拽 PointerEvent 捕获 + 持久化 + 图标静音切换） */
 var vrail=$("vrail");
 function volUI(){
   var p=Math.round(Math.max(0,Math.min(1,S.vol))*1000)/10;
@@ -794,7 +882,7 @@ seekEl.addEventListener("pointerup",function(e){
 function seekMove(e){var r=seekEl.getBoundingClientRect();
   var p=Math.max(0,Math.min(1,(e.clientX-r.left)/r.width));
   $("fill").style.width=p*100+"%"}
-/* ④ 频谱高光律动：chushi.ne.beat 订阅（宿主 WebAudio 128 段 30Hz 包络帧，
+/* 频谱高光律动：chushi.ne.beat 订阅（宿主 WebAudio 128 段 30Hz 包络帧，
    攻 .62/放 .16）→ .glow 合成。低音=提亮+辉光主推；中/高频=亮度微调+
    尺寸点缀；pow .85 提升小信号可见度——参数族与 SMTC 面板 v8.2.8/8.3.3
    同源（128 段映射 段k≈bin k+2：中 9..85 ≈ 250Hz~2kHz / 高 85..末端）。
@@ -824,7 +912,7 @@ try{chushi.ne.beat(beatFrame)}catch(e){}
 if(chushi.storage)chushi.storage.get("csGlow").then(function(v){
   glowOn=!(v===false||v==="false");if(!glowOn)beatFrame(null)}).catch(function(){});
 /* 音量恢复（旧四档值 1/.6/.25/0 天然兼容：即存即所得变滑块起点） */
-volUI();
+volUI();qLabel();
 if(chushi.storage)chushi.storage.get("vol").then(function(v){
   if(typeof v==="number"&&v>=0&&v<=1)setVol(v,false);
 }).catch(function(){});
