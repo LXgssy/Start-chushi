@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.29",
+    date: "2026-09-27",
+    title: "网易云播放器回归 dock 弹出",
+    channel: "shell",
+    highlights: [
+      "播放器从居中弹窗回归 dock 弹出：点击 dock 图标在栏上方弹出面板（底锚弹簧展开/收折）",
+      "能力与上一版完全一致：扫码登录 / 命令行搜索 / 每日推荐 / 我的歌单 / 逐字歌词 / 音质三选一弹窗 / 频谱律动 / 全局歌词互通",
+    ],
+  },
+  {
     version: "8.7.28",
     date: "2026-09-27",
     title: "网易云播放器整页重写：搜索页签退役",

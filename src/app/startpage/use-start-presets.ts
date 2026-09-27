@@ -281,7 +281,6 @@ export function useStartPresets({
           presetName: p.name,
           name: w.name ?? w.id,
           surface: w.surface ?? ("corner" as const),
-          display: w.display,
           icon: w.icon,
           corner: w.corner ?? ("top-left" as const),
           width: w.width ?? 216,

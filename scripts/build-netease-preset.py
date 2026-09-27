@@ -103,13 +103,12 @@ preset = {
     "chushi": 1,
     "name": "初始 · 网易云播放器",
     "author": "初始",
-    "description": "内置网易云直链播放器：命令面板式居中弹窗，扫码登录/搜索/歌单/逐字歌词",
+    "description": "内置网易云直链播放器：dock 弹出面板，扫码登录/搜索/歌单/逐字歌词",
     "widgets": [
         {
             "id": "netease",
             "name": "网易云播放器",
             "surface": "dock",
-            "display": "palette",
             "icon": icon,
             "width": 560,
             "height": 540,
@@ -130,6 +129,6 @@ with zipfile.ZipFile(out) as z:
     assert names == {"manifest.json"}, f"包结构异常: {names}"
     m = json.loads(z.read("manifest.json"))
     assert m["chushi"] == 1 and m["widgets"] and m["widgets"][0]["html"] == html
-    assert m["widgets"][0]["surface"] == "dock" and m["widgets"][0]["display"] == "palette" and m["widgets"][0]["width"] == 560 and m["widgets"][0]["height"] == 540
+    assert m["widgets"][0]["surface"] == "dock" and m["widgets"][0]["width"] == 560 and m["widgets"][0]["height"] == 540
 
 print(f"OK widget={len(html)} chars, icon={len(icon)} chars -> {out} ({out.stat().st_size/1024:.1f} KB)")

@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.28/ChuShi-NewTab-v8.7.28.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.29/ChuShi-NewTab-v8.7.29.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -2926,41 +2926,37 @@ try {
   }
 
 
-  /* ---------- TL52 palette 弹窗+四修复静态门（v8.7.27） ----------
-     ① 命令面板式弹窗：preset.ts display 字段+宽高钳制放宽+上限 44000；
-        WidgetPalette 居中玻璃卡（常驻预热/帧注册/panelMode）；Dock 过滤+挂载；
-        use-start-presets 透传；official-presets.json manifest display=palette；
-     ② 四修复源锚：页签世代令牌（S.gen++）+ 搜索页来源对账（S.rowsSrc）+
+  /* ---------- TL52 dock 弹出回退+四修复静态门（v8.7.29） ----------
+     ① dock 弹出回退：palette 展示面全链退役——preset.ts 无 display 字段/校验、
+        use-start-presets 无透传、Dock 无过滤+无 WidgetPalette 挂载（舞台收编
+        全部 dock 部件）；manifest 无 display 字段（宽高 560×540 保留，回
+        PanelStage 统一舞台底锚弹出）；宽高钳制 580/560 与上限 44000 保留；
+     ② 四修复源锚：页签世代令牌（S.gen++）+ 搜索页关键词双对账 +
         封面 .on 无条件补回（同曲切音质封面消失根修）+ 歌词 rAF 续跑
         （lyRender();lyStart()）+ lyTick 死引用退役；
      ③ 音质三选一弹窗三选项（qsr 常驻搜索行同门）。 */
   {
-    let widgetSrc52 = "", pSrc52 = "", dSrc52 = "", upSrc52 = "", wpSrc52 = "";
+    let widgetSrc52 = "", pSrc52 = "", dSrc52 = "", upSrc52 = "";
     let dispJson52 = false;
     try {
       const opj52 = JSON.parse(readFileSync(new URL("../src/lib/startpage/official-presets.json", import.meta.url), "utf8"));
       const ne52 = opj52.presets.find((p) => (p.name || "").includes("网易云"));
       widgetSrc52 = ne52.manifest.widgets[0].html;
-      dispJson52 = ne52.manifest.widgets[0].display === "palette" && ne52.manifest.widgets[0].width === 560 && ne52.manifest.widgets[0].height === 540;
+      dispJson52 = ne52.manifest.widgets[0].display === undefined && ne52.manifest.widgets[0].width === 560 && ne52.manifest.widgets[0].height === 540;
       pSrc52 = readFileSync(new URL("../src/lib/startpage/preset.ts", import.meta.url), "utf8");
       dSrc52 = readFileSync(new URL("../src/components/startpage/Dock.tsx", import.meta.url), "utf8");
       upSrc52 = readFileSync(new URL("../src/app/startpage/use-start-presets.ts", import.meta.url), "utf8");
-      wpSrc52 = readFileSync(new URL("../src/components/startpage/WidgetPalette.tsx", import.meta.url), "utf8");
     } catch { }
     const t52 = {
-      dispField: /display\?: "palette"/.test(pSrc52) && /const display = wo\.display === "palette"/.test(pSrc52) && /display,/.test(pSrc52),
+      dispGone: pSrc52.includes('display?: "palette"') === false && pSrc52.includes("wo.display") === false &&
+        pSrc52.includes("display,") === false,
       clampW: /Math\.min\(580, Math\.max\(120, wo\.width\)\)/.test(pSrc52),
       clampH: /Math\.min\(560, Math\.max\(40, wo\.height\)\)/.test(pSrc52),
       cap: /widgetHtmlLen: 44000/.test(pSrc52),
-      host: /dockWidgets=\{sp\.presetDockWidgets\.filter\(\(w\) => w\.display !== "palette"\)\}/.test(dSrc52) &&
-        /<WidgetPalette/.test(dSrc52) && /display === "palette"/.test(dSrc52) &&
-        /openKey=\{dockWidget\}/.test(dSrc52) && /onClose=\{sp\.closeDockWidget\}/.test(dSrc52),
-      map: /display: w\.display,/.test(upSrc52),
-      overlay: wpSrc52.includes("glass-card") && wpSrc52.includes("max-w-[560px]") &&
-        wpSrc52.includes("widgetFrameSet(w.key, el)") && wpSrc52.includes("panelMode: true") &&
-        wpSrc52.includes('sandbox="allow-scripts"') && wpSrc52.includes("backdrop-blur-md") &&
-        wpSrc52.includes("pointerEvents: open ?") && wpSrc52.includes("visibility: open ?") &&
-        wpSrc52.includes("SPRING_CARD"),
+      hostGone: dSrc52.includes("WidgetPalette") === false &&
+        dSrc52.includes('w.display !== "palette"') === false && dSrc52.includes('w.display === "palette"') === false &&
+        dSrc52.includes("dockWidgets={sp.presetDockWidgets}") && dSrc52.includes('className="fixed inset-0 z-30"'),
+      mapGone: upSrc52.includes("display: w.display,") === false,
       wDisp: dispJson52,
       wFix: widgetSrc52.includes("S.gen++") && widgetSrc52.includes('k!==$("q").value.trim()') &&
         widgetSrc52.includes('cv.classList.add("on")') && widgetSrc52.includes("lyRender();lyStart()") &&
@@ -2970,8 +2966,8 @@ try {
         widgetSrc52.includes('data-q="lossless"') && widgetSrc52.includes('data-q="standard"') &&
         widgetSrc52.includes('class="qsr"'),
     };
-    gate("TL52 palette 弹窗+四修复静态门（v8.7.28 世代令牌+关键词双对账形态）：display 展示面全链 + 封面存活/歌词续跑 + 音质三选一弹窗",
-      t52.dispField && t52.clampW && t52.clampH && t52.cap && t52.host && t52.map && t52.overlay && t52.wDisp && t52.wFix && t52.wQpop, JSON.stringify(t52));
+    gate("TL52 dock 弹出回退+四修复静态门（v8.7.29）：palette 全链退役回舞台 + 封面存活/歌词续跑 + 音质三选一弹窗",
+      t52.dispGone && t52.clampW && t52.clampH && t52.cap && t52.hostGone && t52.mapGone && t52.wDisp && t52.wFix && t52.wQpop, JSON.stringify(t52));
   }
 
 
@@ -3012,7 +3008,7 @@ try {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.28 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.29 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);

@@ -106,10 +106,6 @@ export interface PresetWidget {
   name?: string;
   /** 表面（v1.8.2）：corner = 角落磁贴（缺省），dock = tab 栏按钮 + 弹出面板 */
   surface?: "corner" | "dock";
-  /** 展示面（v8.7.27，仅 dock 表面消费）：palette = 命令面板式居中弹窗
-   *  （雾化遮罩+居中玻璃卡，WidgetPalette 承载）；缺省 = dock 统一舞台
-   *  底锚弹出面板（PanelStage 承载）。按钮注册/互斥/关闭链路两态完全一致 */
-  display?: "palette";
   /** dock 表面的按钮图标：DOCK_ICONS 白名单 lucide 名或 data:image base64 URL
    *  （≤8KB，与 icons 覆写同规则）；corner 表面忽略此字段 */
   icon?: string;
@@ -600,9 +596,6 @@ export function parsePreset(raw: unknown): ParseResult {
         return;
       }
     }
-    /* display（v8.7.27）：palette = 命令面板式居中弹窗（dock 表面专属）；
-       其他值静默忽略按缺省舞台渲染（前向兼容，与 surface 白名单同宽严） */
-    const display = wo.display === "palette" ? ("palette" as const) : undefined;
     const width =
       typeof wo.width === "number" && Number.isFinite(wo.width)
         ? Math.round(Math.min(580, Math.max(120, wo.width)))
@@ -616,7 +609,6 @@ export function parsePreset(raw: unknown): ParseResult {
       id: wid,
       name: cleanStr(wo.name, PRESET_LIMITS.scriptNameLen) || wid,
       surface: surface as PresetWidget["surface"],
-      display,
       icon,
       corner: (corner as PresetWidget["corner"]) || "top-left",
       width,

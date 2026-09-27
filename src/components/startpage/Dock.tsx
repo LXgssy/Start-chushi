@@ -27,7 +27,6 @@ import {
 } from "./cs-icons";
 import WeatherGlyph from "./WeatherGlyph";
 import PanelStage from "./PanelStage";
-import WidgetPalette from "./WidgetPalette";
 /* SettingsPanel 既有 import 面（PresetSettingSection 自 Dock 导入）保持稳定 */
 export type { PresetSettingSection } from "./PanelStage";
 import { readLS } from "@/hooks/use-start";
@@ -438,25 +437,13 @@ function Dock() {
         presetSettingSections={sp.presetSettingSections}
         onPresetSettingChange={sp.changePresetSetting}
         motionSpring={motionSpring}
-        /* v8.7.27：palette 展示面部件移出统一舞台（WidgetPalette 承载） */
-        dockWidgets={sp.presetDockWidgets.filter((w) => w.display !== "palette")}
+        dockWidgets={sp.presetDockWidgets}
         dockWidgetOpen={dockWidget}
         widgetHeights={sp.widgetHeights}
         isDark={sp.isDark}
         accent={sp.settings.accent}
       />
 
-      {/* v8.7.27 命令面板式弹窗部件（display:"palette"）：居中玻璃卡+雾化遮罩，
-          iframe 常驻预热与舞台同律；z-30 遮罩在 dock nav（z-40）之下，
-          弹窗开着仍可点 dock 换功能/再点按钮收起 */}
-      <WidgetPalette
-        widgets={sp.presetDockWidgets.filter((w) => w.display === "palette")}
-        openKey={dockWidget}
-        heights={sp.widgetHeights}
-        isDark={sp.isDark}
-        accent={sp.settings.accent}
-        onClose={sp.closeDockWidget}
-      />
     </>
   );
 }
