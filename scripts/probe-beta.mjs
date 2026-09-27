@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.30/ChuShi-NewTab-v8.7.30.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.31/ChuShi-NewTab-v8.7.31.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -2930,7 +2930,8 @@ try {
      ① dock 弹出回退：palette 展示面全链退役——preset.ts 无 display 字段/校验、
         use-start-presets 无透传、Dock 无过滤+无 WidgetPalette 挂载（舞台收编
         全部 dock 部件）；manifest 无 display 字段（宽高 560×540 保留，回
-        PanelStage 统一舞台底锚弹出）；宽高钳制 580/560 与上限 44000 保留；
+        PanelStage 统一舞台底锚弹出）；宽高钳制 580/560 与上限 44000 保留
+        （v8.7.31 画布收窄 460×540）；
      ② 四修复源锚：页签世代令牌（S.gen++）+ 搜索页关键词双对账 +
         封面 .on 无条件补回（同曲切音质封面消失根修）+ 歌词 rAF 续跑
         （lyRender();lyStart()）+ lyTick 死引用退役；
@@ -2942,7 +2943,7 @@ try {
       const opj52 = JSON.parse(readFileSync(new URL("../src/lib/startpage/official-presets.json", import.meta.url), "utf8"));
       const ne52 = opj52.presets.find((p) => (p.name || "").includes("网易云"));
       widgetSrc52 = ne52.manifest.widgets[0].html;
-      dispJson52 = ne52.manifest.widgets[0].display === undefined && ne52.manifest.widgets[0].width === 560 && ne52.manifest.widgets[0].height === 540;
+      dispJson52 = ne52.manifest.widgets[0].display === undefined && ne52.manifest.widgets[0].width === 460 && ne52.manifest.widgets[0].height === 540;
       pSrc52 = readFileSync(new URL("../src/lib/startpage/preset.ts", import.meta.url), "utf8");
       dSrc52 = readFileSync(new URL("../src/components/startpage/Dock.tsx", import.meta.url), "utf8");
       upSrc52 = readFileSync(new URL("../src/app/startpage/use-start-presets.ts", import.meta.url), "utf8");
@@ -3004,13 +3005,49 @@ try {
     gate("TL53 旧版播放器形态门（v8.7.30）：三页签回归 + hover 纯放大零位移（旋钮居中基底例外）+ 三按钮 scale 补齐 + 旧版骨架",
       t53.tabs3 && t53.qsrGo && t53.genToken && t53.hoverScaleOnly && t53.scaleTriad && t53.skeleton, JSON.stringify(t53));
   }
+  /* ---------- TL54 播放器六件迭代门（v8.7.31） ----------
+     用户六项：①画布收窄 460×540 ②全局搜索行退役入搜索页签（仅搜索页显示）
+     ③页签滑块选框切换动画（.ind transform 滑移+首定位免动画）④逐字已扫词
+     白描边根修（.ov 同色 text-stroke 填实抗锯齿边缘）⑤律动高光渐入渐出
+     （CSS 常驻 transition，推帧不再禁用）⑥hover 全量合成层 will-change +
+     transform/background/color 过渡统一 .22s（Windows DPI 重栅格化抖动与
+     异步错乱根修）。 */
+  {
+    let widgetSrc54 = "";
+    let dim54 = false;
+    try {
+      const opj54 = JSON.parse(readFileSync(new URL("../src/lib/startpage/official-presets.json", import.meta.url), "utf8"));
+      const ne54 = opj54.presets.find((p) => (p.name || "").includes("网易云"));
+      widgetSrc54 = ne54.manifest.widgets[0].html;
+      dim54 = ne54.manifest.widgets[0].width === 460 && ne54.manifest.widgets[0].height === 540;
+    } catch { }
+    const wcCount54 = (widgetSrc54.match(/will-change:transform/g) || []).length;
+    const t54 = {
+      narrow: dim54,
+      indSlide: widgetSrc54.includes(".tabs .ind{position:absolute;top:3px;bottom:3px;left:0;width:0;border-radius:var(--r9);") &&
+        widgetSrc54.includes('ind.style.transform="translateX("+tg.offsetLeft+"px)";') &&
+        widgetSrc54.includes('ind.style.width=tg.offsetWidth+"px";') &&
+        widgetSrc54.includes('ind.style.transition="none"'),
+      qsrInTab: widgetSrc54.includes('class="qsr" id="qsr" style="display:none"') &&
+        widgetSrc54.includes('$("qsr").style.display=t==="s"?"":"none";'),
+      ovStroke: widgetSrc54.includes("-webkit-text-stroke:.35px var(--acc)}"),
+      glowFade: widgetSrc54.includes("transition:opacity .26s ease,transform .3s ease}") &&
+        widgetSrc54.includes("if(go!==gLo){gLo=go;glowEl.style.opacity=go}") &&
+        widgetSrc54.includes('if(!go2)glowEl.style.transition="none"') === false,
+      hoverSync: wcCount54 >= 9 &&
+        (widgetSrc54.match(/transition:transform \.22s var\(--ez\),background-color \.22s var\(--ez\),color \.22s var\(--ez\)/g) || []).length >= 2 &&
+        widgetSrc54.includes("transition:transform .22s var(--ez),background-color .3s") === false,
+    };
+    gate("TL54 播放器六件迭代门（v8.7.31）：画布 460 + 搜索行页签化 + 滑块选框 + ov 描边 + glow 渐变 + hover 合成层/过渡统一",
+      t54.narrow && t54.indSlide && t54.qsrInTab && t54.ovStroke && t54.glowFade && t54.hoverSync, JSON.stringify(t54));
+  }
   /* ---------- T10 pageerror ---------- */
   gate("T10 pageerror=0", errors.length === 0, errors.join(" | ").slice(0, 120));
 } catch (e) {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.30 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.31 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);

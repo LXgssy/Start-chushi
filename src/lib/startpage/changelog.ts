@@ -22,6 +22,20 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.31",
+    date: "2026-09-27",
+    title: "网易云播放器收窄与六处打磨",
+    channel: "shell",
+    highlights: [
+      "播放器画布收窄（560→460），布局更紧凑",
+      "全局搜索栏移入搜索页签（不再常驻顶部）",
+      "顶部页签新增滑块选框切换动画",
+      "逐字歌词已播放高亮词的白边消除",
+      "封面律动高光起止更柔和（渐入渐出）",
+      "按钮悬停放大动画更顺滑（合成层渲染，杜绝图标抖动）",
+    ],
+  },
+  {
     version: "8.7.30",
     date: "2026-09-27",
     title: "网易云播放器恢复原版样式",

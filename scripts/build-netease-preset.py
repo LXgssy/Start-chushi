@@ -82,6 +82,13 @@ for feat in (
     '.qsr button:hover{filter:brightness(1.12);transform:scale(1.05)}',  # hover 纯放大（v8.7.30 补齐）
     '.bk:hover{color:var(--ink);transform:scale(1.06)}',
     '.pmain:hover{color:#fff;background:var(--acc);filter:brightness(1.12);transform:scale(1.06)}',
+    # v8.7.31 六件：滑块选框/搜索行页签化/ov 描边/glow 渐变/will-change/画布 460
+    '.tabs .ind{position:absolute;top:3px;bottom:3px;left:0;width:0;border-radius:var(--r9);',  # 滑块选框
+    'ind.style.transform="translateX("+tg.offsetLeft+"px)";',  # 滑块滑移
+    '$("qsr").style.display=t==="s"?"":"none";',  # 搜索行仅搜索页签显示
+    '-webkit-text-stroke:.35px var(--acc)}',  # 已扫词白描边根修
+    'transition:opacity .26s ease,transform .3s ease}',  # 律动高光渐入渐出
+    'will-change:transform}',  # hover 合成层（重栅格化抖动根修）
 ):
     assert feat in html, f"cshz 缺特征 {feat!r}"
 # widget html 不能含外链资源（iframe 不透明源加载不了；运行时 URL 字符串不算资源加载）
@@ -113,7 +120,7 @@ preset = {
             "name": "网易云播放器",
             "surface": "dock",
             "icon": icon,
-            "width": 560,
+            "width": 460,
             "height": 540,
             "html": html,
         }
@@ -132,6 +139,6 @@ with zipfile.ZipFile(out) as z:
     assert names == {"manifest.json"}, f"包结构异常: {names}"
     m = json.loads(z.read("manifest.json"))
     assert m["chushi"] == 1 and m["widgets"] and m["widgets"][0]["html"] == html
-    assert m["widgets"][0]["surface"] == "dock" and m["widgets"][0]["width"] == 560 and m["widgets"][0]["height"] == 540
+    assert m["widgets"][0]["surface"] == "dock" and m["widgets"][0]["width"] == 460 and m["widgets"][0]["height"] == 540
 
 print(f"OK widget={len(html)} chars, icon={len(icon)} chars -> {out} ({out.stat().st_size/1024:.1f} KB)")
