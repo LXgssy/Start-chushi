@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.30",
+    date: "2026-09-27",
+    title: "网易云播放器恢复原版样式",
+    channel: "shell",
+    highlights: [
+      "播放器恢复为此前的样式与交互布局（三页签：每日推荐 / 搜索 / 我的歌单）",
+      "保留全部修复：切音质不再丢失歌词与封面、每日推荐与搜索不再串页、音质三选一弹窗、频谱律动",
+      "按钮悬停统一为轻微放大，不再位移",
+    ],
+  },
+  {
     version: "8.7.29",
     date: "2026-09-27",
     title: "网易云播放器回归 dock 弹出",

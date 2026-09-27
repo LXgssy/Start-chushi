@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.29/ChuShi-NewTab-v8.7.29.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.30/ChuShi-NewTab-v8.7.30.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -2971,13 +2971,16 @@ try {
   }
 
 
-  /* ---------- TL53 v8.7.28 整页重写静态门 ----------
-     ① 搜索页签退役：页签只剩 每日推荐(d)/我的歌单(p)，data-t="s" 全库退役；
-        顶部命令行为唯一搜索入口（#go/#q/doSearch），搜索视图不占页签
-        （S.tab="s" 时 segLite 全熄）；世代令牌+关键词双对账（S.gen 自增形态）。
-     ② hover 纯放大禁位移：全部 :hover 规则零 translate（音量旋钮负边距定位，
-        translate 不参与 hover）；.vrail b 基础规则不得再含 translate。
-     ③ 页面骨架：常驻命令行 qsr + 双页签 seg + 搜索结果 subh 形态在位。 */
+  /* ---------- TL53 旧版播放器形态门（v8.7.30） ----------
+     用户：「恢复成之前的那种播放器样式，不是重写过的这版」——player.html 回退
+     v8.7.27 形态（旧 dock 样式三页签 + 双 Bug 根修 + 音质三选一弹窗全保留）：
+     ① 三页签回归：每日推荐(d)/搜索(s)/我的歌单(p)，data-t="s" 在位（搜索视图
+        占页签，qsr 命令行回车直达 tab("s")，doSearch 函数形态）；
+     ② hover 纯放大禁位移：全部 :hover 规则零位移分量——唯一例外 .vrail b
+        （translate(-50%,-50%) 为居中定位基底，hover 仅叠加 scale，零位移增量）；
+     ③ 三按钮 scale 反馈（v8.7.30 补齐）：.qsr button/.bk/.pmain hover 均含
+        transform:scale；
+     ④ 旧版骨架：qsr 命令行 + 三页签 tabs + 音质弹窗 qpop + 搜索空态文案。 */
   {
     let widgetSrc53 = "";
     try {
@@ -2986,21 +2989,20 @@ try {
     } catch { }
     const hoverRules = widgetSrc53.match(/[^{}]*:hover[^{]*\{[^}]*\}/g) || [];
     const t53 = {
-      tabPair: widgetSrc53.includes('<b data-t="d" class="on">每日推荐</b><b data-t="p">我的歌单</b>') &&
-        widgetSrc53.includes('data-t="s"') === false,
-      cmdlineOnly: widgetSrc53.includes('id="go"') && /doSearch/.test(widgetSrc53) &&
-        widgetSrc53.includes('k!==$("q").value.trim()') && widgetSrc53.includes("S.tab=\"s\"") &&
-        /function segLite/.test(widgetSrc53),
-      genToken: /\+\+S\.gen|S\.gen\+\+/.test(widgetSrc53),
-      hoverScaleOnly: hoverRules.length > 0 && hoverRules.every((r) => !r.includes("translate")),
-      knobNoTranslate: /\.vrail b\{[^}]*translate/.test(widgetSrc53) === false &&
-        /\.vrail:hover b,\.vrail\.drag b\{transform:scale\(1\.18\)\}/.test(widgetSrc53) &&
-        /margin:-6px 0 0 -6px/.test(widgetSrc53),
+      tabs3: widgetSrc53.includes('<b data-t="d" class="on">每日推荐</b><b data-t="s">搜索</b><b data-t="p">我的歌单</b>'),
+      qsrGo: widgetSrc53.includes('id="go"') && /function doSearch/.test(widgetSrc53) &&
+        widgetSrc53.includes('if(S.tab!=="s")tab("s")') && widgetSrc53.includes('maxlength="40"'),
+      genToken: widgetSrc53.includes("S.tab=t;S.gen++"),
+      hoverScaleOnly: hoverRules.length > 0 && hoverRules.every((r) =>
+        !r.includes("translate") || /translate\(-50%,-50%\)\s*scale/.test(r)),
+      scaleTriad: /\.qsr button:hover\{[^}]*transform:scale\(1\.05\)/.test(widgetSrc53) &&
+        /\.bk:hover\{[^}]*transform:scale\(1\.06\)/.test(widgetSrc53) &&
+        /\.pmain:hover\{[^}]*transform:scale\(1\.06\)/.test(widgetSrc53),
       skeleton: widgetSrc53.includes('class="qsr"') && widgetSrc53.includes('id="tabs"') &&
-        widgetSrc53.includes("搜索「") && widgetSrc53.includes('class="subh"'),
+        widgetSrc53.includes('id="qpop"') && widgetSrc53.includes("搜索「"),
     };
-    gate("TL53 v8.7.28 整页重写静态门：搜索页签退役（双页签+命令行唯一入口+双对账）+ hover 纯放大零位移（含旋钮负边距定位）+ 页面骨架",
-      t53.tabPair && t53.cmdlineOnly && t53.genToken && t53.hoverScaleOnly && t53.knobNoTranslate && t53.skeleton, JSON.stringify(t53));
+    gate("TL53 旧版播放器形态门（v8.7.30）：三页签回归 + hover 纯放大零位移（旋钮居中基底例外）+ 三按钮 scale 补齐 + 旧版骨架",
+      t53.tabs3 && t53.qsrGo && t53.genToken && t53.hoverScaleOnly && t53.scaleTriad && t53.skeleton, JSON.stringify(t53));
   }
   /* ---------- T10 pageerror ---------- */
   gate("T10 pageerror=0", errors.length === 0, errors.join(" | ").slice(0, 120));
@@ -3008,7 +3010,7 @@ try {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.29 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.30 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);
