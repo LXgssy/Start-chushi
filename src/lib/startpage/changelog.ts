@@ -22,6 +22,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.32",
+    date: "2026-09-27",
+    title: "网易云播放器首开与悬停四修",
+    channel: "shell",
+    highlights: [
+      "修复刷新后首次打开面板页签选框短一截（随面板展开自动对位）",
+      "顶部页签文字精准上下居中",
+      "打开歌单的加载提示回到列表正中",
+      "按钮首次悬停的一次性位移根除（合成层首帧就位，不再先跳一次）",
+    ],
+  },
+  {
     version: "8.7.31",
     date: "2026-09-27",
     title: "网易云播放器收窄与六处打磨",

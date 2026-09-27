@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.31/ChuShi-NewTab-v8.7.31.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.32/ChuShi-NewTab-v8.7.32.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -3041,13 +3041,40 @@ try {
     gate("TL54 播放器六件迭代门（v8.7.31）：画布 460 + 搜索行页签化 + 滑块选框 + ov 描边 + glow 渐变 + hover 合成层/过渡统一",
       t54.narrow && t54.indSlide && t54.qsrInTab && t54.ovStroke && t54.glowFade && t54.hoverSync, JSON.stringify(t54));
   }
+  /* ---------- TL55 播放器四修门（v8.7.32） ----------
+     用户四项：①刷新后首开页签选框短一截（预热视口 358 陈旧测量）→ indSnap+resize
+     重对位 ②页签文字上下居中（flex 居中+padding-top 抵消字体度量偏置）
+     ③打开歌单加载提示不居中（emp 未摘 .pgrid 困在网格首格）→ emp 摘 pgrid
+     ④首悬停一次性位移不复位（合成层惰性建立，首动画时 raster 原点吸附）→
+     六钮基态 translateZ(0) 首帧成层。 */
+  {
+    let widgetSrc55 = "";
+    try {
+      const opj55 = JSON.parse(readFileSync(new URL("../src/lib/startpage/official-presets.json", import.meta.url), "utf8"));
+      const ne55 = opj55.presets.find((p) => (p.name || "").includes("网易云"));
+      widgetSrc55 = ne55.manifest.widgets[0].html;
+    } catch { }
+    const tzCount55 = (widgetSrc55.match(/transform:translateZ\(0\)/g) || []).length;
+    const t55 = {
+      indSnapResize: widgetSrc55.includes("function indSnap(){") &&
+        widgetSrc55.includes('window.addEventListener("resize",indSnap)') &&
+        widgetSrc55.includes("indMove(S.tab||\"d\")"),
+      tabCenter: widgetSrc55.includes(".tabs b{position:relative;z-index:1;flex:1;display:flex;align-items:center;justify-content:center;") &&
+        widgetSrc55.includes("height:25px;padding:1px 0 0;"),
+      empPgrid: widgetSrc55.includes('l.style.display="";l.classList.remove("pgrid")'),
+      tzBase: tzCount55 >= 6,
+      lenOk: widgetSrc55.length <= 44000,
+    };
+    gate("TL55 播放器四修门（v8.7.32）：indSnap resize 重对位 + 页签 flex 居中 + emp 摘 pgrid + 六钮 translateZ(0) 基态",
+      t55.indSnapResize && t55.tabCenter && t55.empPgrid && t55.tzBase && t55.lenOk, JSON.stringify(t55));
+  }
   /* ---------- T10 pageerror ---------- */
   gate("T10 pageerror=0", errors.length === 0, errors.join(" | ").slice(0, 120));
 } catch (e) {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.31 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.32 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);

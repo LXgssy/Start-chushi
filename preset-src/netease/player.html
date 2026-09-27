@@ -42,7 +42,7 @@ img{-webkit-user-drag:none;user-select:none}
 .nx{margin-left:auto;appearance:none;border:0;cursor:pointer;width:24px;height:24px;
   display:flex;align-items:center;justify-content:center;border-radius:var(--r9);
   color:var(--ink2);background:var(--card2);transition:transform .22s var(--ez),color .22s var(--ez);
-  will-change:transform}
+  will-change:transform;transform:translateZ(0)}
 .nx:hover{transform:scale(1.08);color:var(--ink)}
 .nx svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round}
 /* ---------- 搜索行（v8.7.31 收进搜索页签内：仅搜索页显示，全局常驻行退役） ---------- */
@@ -56,7 +56,7 @@ img{-webkit-user-drag:none;user-select:none}
 .qsr input::placeholder{color:var(--ink3)}
 .qsr button{appearance:none;border:0;background:var(--acc);color:#fff;border-radius:9px;
   padding:0 14px;height:28px;font-size:12px;cursor:pointer;font-family:inherit;flex:none;
-  transition:filter .22s var(--ez),transform .22s var(--ez);will-change:transform}
+  transition:filter .22s var(--ez),transform .22s var(--ez);will-change:transform;transform:translateZ(0)}
 .qsr button:hover{filter:brightness(1.12);transform:scale(1.05)}
 .qsr button:active{transform:scale(.94)}
 /* ---------- 页签（v8.7.31 滑块选框：.ind 背景块 transform 滑移切换动画；
@@ -66,8 +66,9 @@ img{-webkit-user-drag:none;user-select:none}
 .tabs .ind{position:absolute;top:3px;bottom:3px;left:0;width:0;border-radius:var(--r9);
   background:var(--card2);pointer-events:none;will-change:transform;
   transition:transform .28s var(--ez),width .28s var(--ez)}
-.tabs b{position:relative;z-index:1;flex:1;text-align:center;font-size:11.5px;font-weight:500;color:var(--ink2);
-  padding:5px 0;border-radius:var(--r9);cursor:pointer;transition:color .25s}
+.tabs b{position:relative;z-index:1;flex:1;display:flex;align-items:center;justify-content:center;
+  font-size:11.5px;font-weight:500;color:var(--ink2);height:25px;padding:1px 0 0;
+  border-radius:var(--r9);cursor:pointer;transition:color .25s}
 .tabs b.on{color:var(--acc);font-weight:600}
 /* ---------- 列表 ---------- */
 .lst{flex:1;min-height:0;overflow-y:auto;border-radius:12px;scrollbar-width:thin;
@@ -79,7 +80,7 @@ img{-webkit-user-drag:none;user-select:none}
 .subh{font-size:10.5px;color:var(--ink3);padding:2px 4px 6px;display:flex;align-items:center;gap:6px}
 .bk{appearance:none;border:1px solid var(--line);background:var(--card2);color:var(--ink2);
   border-radius:var(--r9);font-size:10px;padding:2px 9px;cursor:pointer;font-family:inherit;
-  transition:transform .22s var(--ez),color .22s var(--ez);will-change:transform}
+  transition:transform .22s var(--ez),color .22s var(--ez);will-change:transform;transform:translateZ(0)}
 .bk:hover{color:var(--ink);transform:scale(1.06)}
 .row{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:10px;cursor:pointer;
   transition:background-color .2s}
@@ -127,7 +128,7 @@ img{-webkit-user-drag:none;user-select:none}
   transition:opacity .26s ease,transform .3s ease}
 .cov{position:relative;z-index:1;display:block;width:46px;height:46px;border-radius:11px;object-fit:cover;cursor:pointer;
   background:linear-gradient(135deg,var(--acc32),var(--acc12));opacity:0;
-  transition:opacity .5s var(--ez),transform .22s var(--ez);will-change:transform}
+  transition:opacity .5s var(--ez),transform .22s var(--ez);will-change:transform;transform:translateZ(0)}
 .cov.on{opacity:1}
 .cov.on:hover{transform:scale(1.07)}
 .nm{flex:1;min-width:0}
@@ -138,7 +139,7 @@ img{-webkit-user-drag:none;user-select:none}
   border-radius:var(--r9);display:flex;align-items:center;justify-content:center;cursor:pointer;
   font-size:11px;font-family:inherit;
   transition:transform .22s var(--ez),background-color .22s var(--ez),color .22s var(--ez);
-  will-change:transform}
+  will-change:transform;transform:translateZ(0)}
 .nb:hover{background:var(--card2);color:var(--acc);transform:scale(1.06)}
 .nb svg{width:15px;height:15px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
 .nb svg.fi{fill:currentColor;stroke:none}
@@ -190,7 +191,7 @@ img{-webkit-user-drag:none;user-select:none}
 .pb{width:34px;height:34px;border-radius:var(--r9);flex:none;display:flex;align-items:center;justify-content:center;cursor:pointer;
   appearance:none;border:0;background:transparent;color:var(--ink2);
   transition:transform .22s var(--ez),background-color .22s var(--ez),color .22s var(--ez);
-  will-change:transform}
+  will-change:transform;transform:translateZ(0)}
 .pb:hover{background:var(--card2);color:var(--ink);transform:scale(1.06)}
 .pb svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;stroke-linejoin:round}
 .pb svg.fi{fill:currentColor;stroke:none}
@@ -405,7 +406,7 @@ function mark(){
   if(!S.curRow||!S.rows||!S.rows[S.q]||String(S.rows[S.q].id)!==String(S.curRow.id))return;
   var el=document.querySelector('.row[data-i="'+S.q+'"]');if(el)el.classList.add("cur")}
 /* ---------- 列表渲染 ---------- */
-function emp(t){var l=$("list");l.style.display="";$("qrbox").classList.remove("on");
+function emp(t){var l=$("list");l.style.display="";l.classList.remove("pgrid");$("qrbox").classList.remove("on");
   /* 自重建式空态：rows() 重写 innerHTML 会销毁旧 .emp 节点，这里每次重建防 null */
   l.innerHTML='<div class="emp"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 17V8l7-1.5V15"/><circle cx="8.5" cy="17" r="1.6"/><circle cx="15.5" cy="15" r="1.6"/></svg><span>'+esc(t)+"</span></div>";
   l.classList.add("empty")}
@@ -949,8 +950,14 @@ if(chushi.storage)chushi.storage.get("vol").then(function(v){
   if(typeof v==="number"&&v>=0&&v<=1)setVol(v,false);
 }).catch(function(){});
 /* ---------- 启动 ---------- */
-/* 滑块首定位免动画：先断 transition 定位到默认页签，强制回流后恢复 */
-(function(){var ind=$("ind");if(!ind)return;ind.style.transition="none";indMove("d");void ind.offsetWidth;ind.style.transition=""})();
+/* 滑块首定位免动画：先断 transition 定位到默认页签，强制回流后恢复。
+   v8.7.32：沙箱 iframe 在面板未开时即预热注入（视口 358 宽），开面板变宽到
+   458——启动时量的 offsetWidth 是陈旧值，选框首开短一截；resize 重对位
+   （断 transition 瞬间落位，不随壳体变宽滑动画），开合/互切变宽一律归位 */
+function indSnap(){var ind=$("ind");if(!ind)return;ind.style.transition="none";
+  indMove(S.tab||"d");void ind.offsetWidth;ind.style.transition=""}
+window.addEventListener("resize",indSnap);
+indSnap();
 who();tab("d");
 </script>
 </body>
