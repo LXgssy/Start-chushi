@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.34",
+    date: "2026-09-27",
+    title: "右键菜单关闭闪蓝根治",
+    channel: "shell",
+    highlights: [
+      "右键呼出菜单后单击空白处退出，页面不再闪过一瞬全屏变色（关闭动画对整页的饱和度脉冲根除）",
+      "快捷服务磁贴保持零配置配色：色相由域名自动派生写入设计律，不设手动换色",
+    ],
+  },
+  {
     version: "8.7.33",
     date: "2026-09-27",
     title: "网易云播放器文本钮悬停根治",

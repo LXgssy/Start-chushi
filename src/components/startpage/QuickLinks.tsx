@@ -68,6 +68,10 @@ export function emitEditLink(link: StartLink | null) {
   window.dispatchEvent(new CustomEvent("start:edit-link", { detail: link }));
 }
 
+/* 设计律（v8.7.34 用户定调）：磁贴颜色不开放用户自定义——色相由域名稳定派生
+ * （同站恒同色、异站天然错开），饱和/明度锁在全局瓷釉/墨夜框架内，开箱即美；
+ * 手动配色徒增设置面复杂度，且自选色易与主题/壁纸冲突。样式个性由「图标风格」
+ * （字母磁贴/站点图标）承载，颜色一律系统派生、零配置。 */
 /** 由域名生成稳定色相 */
 function hueOf(s: string): number {
   let h = 0;

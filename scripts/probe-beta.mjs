@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.33/ChuShi-NewTab-v8.7.33.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.34/ChuShi-NewTab-v8.7.34.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -3100,13 +3100,29 @@ try {
     gate("TL56 文本钮悬停药丸根修门（v8.7.33）：nb 药丸 ::before + hover 本体零 transform + bk 同律 + bw.on 守卫",
       t56.pillBase && t56.pillHover && t56.bwGuard && t56.oldGone && t56.bkFixed && t56.lenOk, JSON.stringify(t56));
   }
+  /* ---------- TL57 右键捕获层退场无滤镜门（v8.7.34） ----------
+     用户实测：右键呼出菜单后单击空白处退出，全页面闪蓝一瞬间。根因=捕获层
+     veil-hold-none 自然态无任何 backdrop-filter，veil-fade 退场尾段默认
+     to=blur(1px) saturate(1.5)（--veil-to-bf 未注入）——固定全屏层在关闭最后
+     ~110ms 渐推整页饱和+微模糊、forwards 驻留一拍再随卸载瞬弹回。修复=注入
+     --veil-to-bf:none（to 与自然值同构，动画窗无提亮律 v8.7.10 同源延伸）。 */
+  {
+    const css57 = readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8");
+    const block57 = css57.match(/\.veil-hold-none\s*\{[^}]*\}/)?.[0] ?? "";
+    const t57 = {
+      holdNone: block57.includes("--veil-hold-bf: none"),
+      toNone: block57.includes("--veil-to-bf: none"),
+    };
+    gate("TL57 右键捕获层退场无滤镜门（v8.7.34）：veil-hold-none 注入 --veil-to-bf:none",
+      t57.holdNone && t57.toNone, JSON.stringify(t57));
+  }
   /* ---------- T10 pageerror ---------- */
   gate("T10 pageerror=0", errors.length === 0, errors.join(" | ").slice(0, 120));
 } catch (e) {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.33 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.34 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);

@@ -934,11 +934,17 @@ html.cs-drawer-closing .cl-fade-leaf {
   }
 }
 /* hold 逐元素适配：veil-in/veil-fade 的 blur 驻留值须与遮罩自然值同构。
-   veil-hold-none = 无磨砂遮罩（右键菜单捕获层：backdrop 自然值 none，
-   none↔blur(1px) 按列表替换律离散替换，1px 不可感）；
+   veil-hold-none = 无磨砂遮罩（右键菜单捕获层：backdrop 自然值 none）；
    veil-hold-2xl = 预设对话框背板（backdrop-blur-2xl = 40px） */
 .veil-hold-none {
   --veil-hold-bf: none;
+  /* v8.7.34 退场无滤镜律：捕获层自然态无任何 backdrop-filter，veil-fade 尾段
+     默认 to=blur(1px) saturate(1.5) 会在关闭最后 ~110ms 给固定全屏层渐推饱和
+     +微模糊、forwards 驻留一拍再随卸载瞬弹回——默认 mist-lake 蓝调壁纸上即
+     用户实测「单击空白处退出全页闪蓝一瞬间」。to 值必须与自然值同构（动画窗
+     无提亮律 v8.7.10 同源延伸）：none→none 全程零滤镜，捕获层退场回归视觉零
+     操作（菜单卡退场仍由 ctx-out 独立承担）。 */
+  --veil-to-bf: none;
 }
 .veil-hold-2xl {
   --veil-hold-bf: blur(40px) saturate(1.5);
