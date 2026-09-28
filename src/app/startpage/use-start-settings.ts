@@ -90,15 +90,32 @@ export function useStartSettings(mounted: boolean) {
     const onStorage = (e: StorageEvent) => {
       if (e.key !== KEYS.settings || e.newValue == null) return;
       try {
-        const next = JSON.parse(e.newValue) as { perfLite?: boolean };
+        const next = JSON.parse(e.newValue) as {
+          perfLite?: boolean;
+          photoDim?: number;
+          showDock?: boolean;
+        };
         root.classList.toggle("cs-lite", !!next.perfLite);
+        /* v8.7.36 弹窗快捷面板改的 photoDim/showDock 热跟随（popup 直写
+           同一键，storage 事件到达后并入本地状态；真不同才 patch——
+           回写同值不广播，双开页无事件环） */
+        setSettings((prev) => {
+          const p: Partial<Settings> = {};
+          if (typeof next.photoDim === "number" && next.photoDim !== prev.photoDim) {
+            p.photoDim = Math.min(200, Math.max(0, Math.round(next.photoDim)));
+          }
+          if (typeof next.showDock === "boolean" && next.showDock !== prev.showDock) {
+            p.showDock = next.showDock;
+          }
+          return Object.keys(p).length ? { ...prev, ...p } : prev;
+        });
       } catch {
         /* 残缺 JSON 忽略 */
       }
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, [mounted, settings.perfLite]);
+  }, [mounted, settings.perfLite, setSettings]);
 
   /* ---------- 新标签页焦点归位（settings.noOmniboxFocus 门控） ----------
      Chrome 打开新标签页时焦点在地址栏（omnibox）——开关打开时在挂载后

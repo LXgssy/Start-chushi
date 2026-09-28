@@ -1318,8 +1318,8 @@
       if (nt && !(nt.fetchedAt > 0)) nt.fetchedAt = m.at || Date.now();
       ingestTrack(nt);
       renderStatic();
-      /* v8.7.16：全局歌词会话（cardEnabled=false）下不得点亮卡片壳 */
-      if (cardEnabled) host.style.display = "block";
+      /* v8.7.36：点亮/隐没统一 applyVis 单口——旧无条件点亮行在 track:null
+         广播（v8.7.35 预设移除空帧链）到达时把卡壳重新拉起=尸体挂屏 */
       applyVis();
       if (dlOn) dlApplyVis(); /* v8.7.16：真值到达驱动浮层显隐（首装会话路径） */
       lyricTick(); /* 切歌检测（want 变化时内部自重建） */
@@ -1379,9 +1379,15 @@
     icPause.style.display = effPlaying() ? "block" : "none";
     ficPlay.style.display = effPlaying() ? "none" : "block";
     ficPause.style.display = effPlaying() ? "block" : "none";
-    /* v8.7.16：cardEnabled=false 时 host 恒隐（全局歌词会话Port仍在，
-       state 真值照达——不能让关了浮窗的卡被真值到达重新点亮） */
-    if (has && cardEnabled && host.style.display !== "block") host.style.display = "block";
+    /* v8.7.36 真值撤除→卡壳隐没（诚实边界与 dl 浮层同律）：v8.7.24 的
+       「卡侧 has=false 自然隐没」设计从未实现——track:null 广播到达时
+       卡壳停在最后一帧挂屏（用户实测：移除预设后浮窗永不退散）。
+       cardBooted 门：未挂载期 host 本就 display:none，无需动作。 */
+    if (has) {
+      if (cardEnabled && host.style.display !== "block") host.style.display = "block";
+    } else if (cardEnabled && cardBooted && host.style.display === "block") {
+      host.style.display = "none";
+    }
   }
 
   /* ---------- 位置插值：锚点轨迹 + 软重锚（sandbox.js 同族语义） ----------

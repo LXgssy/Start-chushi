@@ -51,7 +51,8 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { SortableContext, rectSortingStrategy, useSortable } from "@dnd-kit/sortable";
-import type { IconStyle, LinksForm, StartLink } from "@/lib/startpage/types";
+import type { CsBookmark, IconStyle, LinksForm, StartLink } from "@/lib/startpage/types";
+import { BOOKMARKS_KEY } from "@/app/startpage/keys";
 import { hostOf } from "@/lib/startpage/link-utils";
 import { inExtIframe, openExternalUrl } from "@/lib/startpage/nav";
 import { clearIconSource, orderedIconSources, saveIconSource } from "@/lib/startpage/favicon";
@@ -519,6 +520,50 @@ function QuickLinks({
   /* mount latch 声明置顶：cs-drawer 类同步 effect 依赖数组渲染期即求值，
      声明若留在下方 latch effect 旁会触发 TDZ（Cannot access before init） */
   const [mount, setMount] = useState(false);
+
+  /* ---------- v8.7.36 收藏书签区 ----------
+     数据面 = localStorage start:bookmarks（弹窗「收藏此页」写入，同扩展
+     origin 共享）；本侧只读+删，跨文档跟随走 storage 事件（popup 收藏后
+     已开页面即时出现，与 perfLite 热跟随同律）。意图消费 = 弹窗「书签」
+     按钮经 page.tsx 转发 start:bookmarks-open：抽屉开抽屉、常驻滚到书签区。 */
+  const [bookmarks, setBookmarks] = useState<CsBookmark[]>([]);
+  const bkmRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const read = () => {
+      try {
+        const raw = window.localStorage.getItem(BOOKMARKS_KEY);
+        const j = raw ? JSON.parse(raw) : [];
+        setBookmarks(Array.isArray(j) ? j.filter((b) => b && typeof b.url === "string") : []);
+      } catch {
+        setBookmarks([]);
+      }
+    };
+    const onOpen = () => {
+      if (drawer) setOpen(true);
+      else window.setTimeout(() => bkmRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 80);
+    };
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === BOOKMARKS_KEY || e.key === null) read();
+    };
+    read();
+    window.addEventListener("storage", onStorage);
+    window.addEventListener("start:bookmarks-open", onOpen);
+    return () => {
+      window.removeEventListener("storage", onStorage);
+      window.removeEventListener("start:bookmarks-open", onOpen);
+    };
+  }, [drawer]);
+  const removeBookmark = useCallback((id: string) => {
+    setBookmarks((prev) => {
+      const next = prev.filter((b) => b.id !== id);
+      try {
+        window.localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(next));
+      } catch {
+        /* 隐私模式静默：本地状态已删，重载后回读为准 */
+      }
+      return next;
+    });
+  }, []);
   useEffect(() => {
     setPortalReady(true);
   }, []);
@@ -753,6 +798,65 @@ function QuickLinks({
     setActiveId(null);
   }
 
+  /* 书签区渲染（两形态共用）：磁贴墙下方居中列，条目=首字徽+标题+域名，
+     hover 显删除。空收藏不渲染整区（诚实边界：无内容不空挂）。 */
+  const renderBookmarks = () => {
+    if (disabled || bookmarks.length === 0) return null;
+    return (
+      <div ref={bkmRef} className="mt-12 w-full" style={{ maxWidth: columns ? 6 * columns + 1 + "rem" : 680 + 16 }}>
+        <div className="mb-3 select-none text-center text-[11px] font-light tracking-[0.3em] text-zinc-500 dark:text-zinc-400">
+          书签
+        </div>
+        <div
+          className={
+            "mx-auto flex flex-col gap-1 overflow-y-auto rounded-2xl px-2 " +
+            (drawer ? "max-h-[30vh] py-1" : "")
+          }
+        >
+          {bookmarks.map((b) => {
+            const h = hostOf(b.url) || "";
+            const ch = (b.title || h || "?").trim().charAt(0).toUpperCase();
+            return (
+              <a
+                key={b.id}
+                href={b.url}
+                target="_blank"
+                rel="noreferrer"
+                className="bkm-item group flex items-center gap-3 rounded-xl px-3 py-2 transition-colors duration-200 hover:bg-zinc-900/5 dark:hover:bg-white/5"
+              >
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-900/5 text-sm font-light text-zinc-500 dark:bg-white/10 dark:text-zinc-300">
+                  {ch}
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[13px] font-light text-zinc-700 dark:text-zinc-200">
+                    {b.title || h}
+                  </span>
+                  {h ? (
+                    <span className="block truncate text-[10.5px] font-light tracking-wide text-zinc-400 dark:text-zinc-500">
+                      {h}
+                    </span>
+                  ) : null}
+                </span>
+                <button
+                  type="button"
+                  aria-label="删除书签"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    removeBookmark(b.id);
+                  }}
+                  className="bkm-del shrink-0 rounded-md p-1 text-zinc-300 opacity-0 transition-opacity duration-200 hover:text-zinc-600 focus-visible:opacity-100 group-hover:opacity-100 dark:text-zinc-600 dark:hover:text-zinc-300"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </a>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   const enterEdit = useCallback(() => setEditing(true), []);
   const removeLink = useCallback(
     (id: string) => {
@@ -863,6 +967,7 @@ function QuickLinks({
       {form === "docked" && (
         <div ref={rootRef} className="cl-links cl-links-docked flex w-full flex-col items-center">
           {renderGrid(true)}
+          {renderBookmarks()}
         </div>
       )}
 
@@ -907,6 +1012,7 @@ function QuickLinks({
                   >
                     <div ref={rootRef} className="cl-links cl-links-drawer pointer-events-auto flex flex-col items-center">
                       {renderGrid(false)}
+                      {renderBookmarks()}
                     </div>
                   </motion.div>
             </motion.div>,

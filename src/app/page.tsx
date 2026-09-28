@@ -64,7 +64,17 @@ function StartPageView() {
       localStorage.removeItem(INTENT_KEY);
       const j = JSON.parse(raw) as { panel?: string; ts?: number };
       if (j?.panel && Date.now() - (j.ts || 0) < 30000) {
-        sp.gotoPanel(j.panel as Parameters<typeof sp.gotoPanel>[0]);
+        if (j.panel === "bookmarks") {
+          /* v8.7.36 弹窗「书签」按钮意图：唤出快捷服务并带到书签区
+             （抽屉 = 开抽屉；常驻 = 平滑滚到书签区），消费方 QuickLinks */
+          try {
+            window.dispatchEvent(new CustomEvent("start:bookmarks-open"));
+          } catch {
+            /* 非常规环境静默 */
+          }
+        } else {
+          sp.gotoPanel(j.panel as Parameters<typeof sp.gotoPanel>[0]);
+        }
       }
     } catch {
       /* 残缺标志静默清理失败也无害 */
@@ -410,8 +420,10 @@ function StartPageView() {
           />
         )}
 
-        {/* 底部 Dock：入场上浮移至 nav.dock-intro 自身，禅雾化走 .zen-dock */}
-        <Dock />
+        {/* 底部 Dock：入场上浮移至 nav.dock-intro 自身，禅雾化走 .zen-dock。
+            v8.7.36 settings.showDock 门控（扩展弹窗开关；undefined=旧数据
+            迁移 effect 未跑时按显示处理，!mounted 期同律零闪烁） */}
+        {(sp.settings.showDock !== false || !mounted) && <Dock />}
       </div>
 
       {/* 禅模式迷你时钟覆盖层：常驻 DOM + .zen-overlay CSS 过渡（visibility 离散

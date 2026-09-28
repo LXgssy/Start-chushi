@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.35/ChuShi-NewTab-v8.7.35.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.36/ChuShi-NewTab-v8.7.36.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -3153,6 +3153,38 @@ try {
     };
     gate("TL58 浮窗退散+浮窗开关+页签居中根修+时钟日期/掠影压暗门（v8.7.35）",
       t58.fltBtn && t58.fltMirror && t58.tabCenter35 && t58.teardown && t58.swGuard && t58.showFlags && t58.dimUi && t58.dimCss && t58.lenOk58, JSON.stringify(t58));
+  }
+  /* ---------- TL59 弹窗扩容+书签+浮窗残影根治门（v8.7.36） ----------
+     用户四项：①插件弹窗首行加书签按钮+收藏此页，书签在快捷服务面板磁贴下方
+     滚轮进入（常驻/抽屉两样式）；②掠影压暗滑杆进弹窗；③Dock 栏显示开关进
+     弹窗；④移除预设后浮窗仍不退散=卡壳隐没分支从未实现（v8.7.24「自然隐没」
+     设计注释假空）——applyVis 补 has=false 隐没分支+onMsg 无条件点亮行退役。
+     图标常驻顶栏：Chrome 无 pin API（如实引导进弹窗 tip 行）。 */
+  {
+    const ph59 = readFileSync(new URL("../extension-src/popup.html", import.meta.url), "utf8");
+    const pj59 = readFileSync(new URL("../extension-src/popup.js", import.meta.url), "utf8");
+    const ck59 = readFileSync(new URL("../extension-src/ext-card.js", import.meta.url), "utf8");
+    const ty59 = readFileSync(new URL("../src/lib/startpage/types.ts", import.meta.url), "utf8");
+    const pg59 = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+    const st59 = readFileSync(new URL("../src/app/startpage/use-start-settings.ts", import.meta.url), "utf8");
+    const ql59 = readFileSync(new URL("../src/components/startpage/QuickLinks.tsx", import.meta.url), "utf8");
+    const ks59 = readFileSync(new URL("../src/app/startpage/keys.ts", import.meta.url), "utf8");
+    const t59 = {
+      phQuick: ph59.includes("btn-bkm") && ph59.includes("收藏此页") && ph59.includes("壁纸压暗程度") && ph59.includes("显示 Dock 栏"),
+      phTip: ph59.includes("常驻浏览器顶栏") && ph59.includes("图钉"),
+      pjBkm: pj59.includes("start:bookmarks") && pj59.includes("chrome.tabs.query") && pj59.includes("已收藏"),
+      pjDimDock: pj59.includes('photoDim: v') && pj59.includes("showDock: on"),
+      cardHide: ck59.includes("cardBooted && host.style.display === \"block\"") && ck59.includes('host.style.display = "none"'),
+      cardOldGone: !ck59.includes('if (cardEnabled) host.style.display = "block";'),
+      showDockType: ty59.includes("showDock: boolean") && ty59.includes("showDock: true"),
+      dockGate: pg59.includes("sp.settings.showDock !== false"),
+      intentBkm: pg59.includes('j.panel === "bookmarks"') && pg59.includes("start:bookmarks-open"),
+      hotFollow: st59.includes("p.photoDim") && st59.includes("p.showDock"),
+      qlBkm: ql59.includes("BOOKMARKS_KEY") && ql59.includes("start:bookmarks-open") && ql59.includes("removeBookmark") && ql59.includes("renderBookmarks()"),
+      key36: ks59.includes('BOOKMARKS_KEY = "start:bookmarks"'),
+    };
+    gate("TL59 弹窗扩容+书签+浮窗残影根治门（v8.7.36）",
+      t59.phQuick && t59.phTip && t59.pjBkm && t59.pjDimDock && t59.cardHide && t59.cardOldGone && t59.showDockType && t59.dockGate && t59.intentBkm && t59.hotFollow && t59.qlBkm && t59.key36, JSON.stringify(t59));
   }
   /* ---------- T10 pageerror ---------- */
   gate("T10 pageerror=0", errors.length === 0, errors.join(" | ").slice(0, 120));

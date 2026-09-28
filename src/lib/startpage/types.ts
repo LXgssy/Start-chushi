@@ -19,6 +19,15 @@ export type IconStyle = "letter" | "favicon";
 /** 快捷服务样式（v8.6.2）：常驻 / 抽屉（v8.5.x 曾以 linksStyle 短暂存在，见 Settings.linksForm） */
 export type LinksForm = "docked" | "drawer";
 
+/** v8.7.36 收藏书签：弹窗「收藏此页」与快捷服务面板书签区共享的数据面
+ *  （localStorage start:bookmarks；popup.js 与本侧各自实现同一 JSON 契约） */
+export interface CsBookmark {
+  id: string;
+  title: string;
+  url: string;
+  at: number;
+}
+
 export type PanelId = "weather" | "todo" | "note" | "pomodoro" | "settings" | null;
 
 /** 番茄钟时长设置（分钟） */
@@ -84,6 +93,9 @@ export interface Settings {
    *  若被直接恢复，会让 8.6.x 起一直用抽屉的用户升级后突變回常驻；新字段从零开始，
    *  缺省即抽屉，想要原样式去设置面板显式切换。 */
   linksForm: LinksForm;
+  /** v8.7.36 Dock 栏显隐（v8.5.0 起常驻底部）：false = 整条 Dock 不渲染。
+   *  入口：扩展弹窗快捷面板开关；跨文档热跟随走 settings storage 事件 */
+  showDock: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -107,6 +119,7 @@ export const DEFAULT_SETTINGS: Settings = {
   perfLite: false,
   noOmniboxFocus: false,
   linksForm: "drawer",
+  showDock: true,
 };
 
 export interface WeatherHour {

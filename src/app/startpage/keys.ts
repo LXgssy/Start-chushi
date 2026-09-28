@@ -21,5 +21,9 @@ export const KEYS = {
 /** 弹窗快捷面板「打开完整设置」意图（popup 写一次性标志后新开标签页） */
 export const INTENT_KEY = "start:ui-intent";
 
+/** v8.7.36 收藏书签（弹窗「收藏此页」写入 / 快捷服务面板书签区消费）：
+ *  JSON 数组 CsBookmark[]，弹窗与新标签页同扩展 origin 共享 */
+export const BOOKMARKS_KEY = "start:bookmarks";
+
 /** 首次访问提示标记 */
 export const SEEN_KEY = "start:seen";

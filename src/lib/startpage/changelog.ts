@@ -22,6 +22,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.36",
+    date: "2026-09-28",
+    title: "弹窗快捷面板扩容 · 收藏书签 · 浮窗残影根治",
+    channel: "shell",
+    highlights: [
+      "扩展弹窗新增：书签/收藏此页、壁纸压暗程度滑杆、Dock 栏显隐开关",
+      "收藏的网页在快捷服务面板磁贴下方滚动即达（常驻与抽屉两样式通用）",
+      "移除网易云播放器预设后悬浮音乐卡残影不退散的根治（卡片壳补上隐没分支）",
+      "弹窗内新增「固定到顶栏」引导（Chrome 安全策略要求首次手动图钉固定）",
+    ],
+  },
+  {
     version: "8.7.35",
     date: "2026-09-28",
     title: "浮窗随预设退散 · 页签文字居中 · 掠影压暗可调",
