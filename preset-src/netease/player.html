@@ -45,6 +45,7 @@ img{-webkit-user-drag:none;user-select:none}
   will-change:transform;transform:translateZ(0)}
 .nx:hover{transform:scale(1.08);color:var(--ink)}
 .nx svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round}
+.nx.on{color:var(--acc)}
 /* ---------- 搜索行（v8.7.31 收进搜索页签内：仅搜索页显示，全局常驻行退役） ---------- */
 .qsr{display:flex;align-items:center;gap:8px;flex:none;height:38px;padding:0 5px 0 12px;
   border:1px solid var(--line);border-radius:12px;background:var(--card2);
@@ -67,7 +68,7 @@ img{-webkit-user-drag:none;user-select:none}
   background:var(--card2);pointer-events:none;will-change:transform;
   transition:transform .28s var(--ez),width .28s var(--ez)}
 .tabs b{position:relative;z-index:1;flex:1;display:flex;align-items:center;justify-content:center;
-  font-size:11.5px;font-weight:500;color:var(--ink2);height:25px;padding:1px 0 0;
+  font-size:11.5px;font-weight:500;color:var(--ink2);height:25px;
   border-radius:var(--r9);cursor:pointer;transition:color .25s}
 .tabs b.on{color:var(--acc);font-weight:600}
 /* ---------- 列表 ---------- */
@@ -259,6 +260,7 @@ img{-webkit-user-drag:none;user-select:none}
     <span class="lg"><svg viewBox="0 0 24 24"><path d="M9 3v10.55A4 4 0 1 0 11 17V7h8V3H9z"/></svg></span>
     <b>网易云播放</b>
     <span class="chip" id="chip">检测中</span>
+    <button class="nx" id="flt" title="全局音乐浮窗"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="13" rx="2.5"/><rect x="12" y="11.5" width="6" height="4.5" rx="1"/></svg></button>
     <button class="nx" id="x" title="收起"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
   </div>
   <div class="tabs" id="tabs">
@@ -863,10 +865,22 @@ $("bw").addEventListener("click",function(){wordOn=!wordOn;$("bw").classList.tog
 if(chushi.storage)chushi.storage.get("csDlyric").then(function(v){
   wordOn=v===true||v==="true";$("bw").classList.toggle("on",wordOn)
 }).catch(function(){});
+/* 浮窗钮 → 扩展悬浮音乐卡全局显隐（csFloat → 宿主 PresetWidgets 镜像
+   cardEnabled，与 SMTC 面板浮窗开关同通道；浮窗端/其他面板反向写入经
+   widgetStoragePatch 实时回翻）（v8.7.35） */
+var fltOn=true;
+$("flt").addEventListener("click",function(){fltOn=!fltOn;$("flt").classList.toggle("on",fltOn);
+  if(chushi.storage)chushi.storage.set("csFloat",fltOn).catch(function(){})
+});
+if(chushi.storage)chushi.storage.get("csFloat").then(function(v){
+  fltOn=!(v===false||v==="false");$("flt").classList.toggle("on",fltOn)
+}).catch(function(){});
 window.addEventListener("message",function(ev){
   var d=ev.data;if(!d||d.type!=="widgetStoragePatch"||ev.source!==window.parent)return;
   if(d.key==="csDlyric"){var nw=d.value===true||d.value==="true";
     if(nw!==wordOn){wordOn=nw;$("bw").classList.toggle("on",wordOn)}}
+  if(d.key==="csFloat"){var nf=!(d.value===false||d.value==="false");
+    if(nf!==fltOn){fltOn=nf;$("flt").classList.toggle("on",fltOn)}}
   if(d.key==="csGlow"){var ng=!(d.value===false||d.value==="false");
     if(ng!==glowOn){glowOn=ng;if(!glowOn)beatFrame(null)}}
 });

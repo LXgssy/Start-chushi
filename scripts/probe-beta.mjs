@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.34/ChuShi-NewTab-v8.7.34.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.35/ChuShi-NewTab-v8.7.35.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -3063,8 +3063,10 @@ try {
       indSnapResize: widgetSrc55.includes("function indSnap(){") &&
         widgetSrc55.includes('window.addEventListener("resize",indSnap)') &&
         widgetSrc55.includes("indMove(S.tab||\"d\")"),
+      /* v8.7.35 翻转：1px 度量补偿退役（headless 校准 chasing 噪声，Windows YaHei 过矫） */
       tabCenter: widgetSrc55.includes(".tabs b{position:relative;z-index:1;flex:1;display:flex;align-items:center;justify-content:center;") &&
-        widgetSrc55.includes("height:25px;padding:1px 0 0;"),
+        widgetSrc55.includes("height:25px;") &&
+        !widgetSrc55.includes("padding:1px 0 0"),
       empPgrid: widgetSrc55.includes('l.style.display="";l.classList.remove("pgrid")'),
       /* v8.7.33：文本钮 nb/bk 退出 translateZ 基态（raster 吸附载体移除）——六钮→四钮 */
       tzBase: tzCount55 === 4,
@@ -3116,13 +3118,49 @@ try {
     gate("TL57 右键捕获层退场无滤镜门（v8.7.34）：veil-hold-none 注入 --veil-to-bf:none",
       t57.holdNone && t57.toNone, JSON.stringify(t57));
   }
+  /* ---------- TL58 浮窗退散+浮窗开关+页签居中根修+时钟日期/掠影压暗门（v8.7.35） ----------
+     用户四项：①移除网易云播放器预设后全局音乐浮窗不会消失（宿主 audio 单例不随
+     iframe 卸载、暂停帧 10min 保鲜窗持续）→ teardown+显式空帧撤真值，SW sameTab
+     守卫防双开页误清；②播放器加浮窗开关（csFloat → cardEnabled 同通道镜像）；
+     ③页签选中文字居中根修（v8.7.32 1px 度量补偿按 headless 字体校准 chasing 噪声，
+     Windows YaHei 过矫=文字偏低——退役回归平台中立 flex 居中）；④掠影压暗程度
+     自定义（photo-scrim 全层 α×--photo-dim）+ 时钟/日期分别显隐。 */
+  {
+    let w58 = "";
+    try {
+      const opj58 = JSON.parse(readFileSync(new URL("../src/lib/startpage/official-presets.json", import.meta.url), "utf8"));
+      w58 = opj58.presets.find((p) => (p.name || "").includes("网易云")).manifest.widgets[0].html;
+    } catch { }
+    const pw58 = readFileSync(new URL("../src/components/startpage/PresetWidgets.tsx", import.meta.url), "utf8");
+    const ne58 = readFileSync(new URL("../src/lib/startpage/netease.ts", import.meta.url), "utf8");
+    const ck58 = readFileSync(new URL("../src/components/startpage/Clock.tsx", import.meta.url), "utf8");
+    const sp58 = readFileSync(new URL("../src/components/startpage/SettingsPanel.tsx", import.meta.url), "utf8");
+    const pg58 = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+    const ab58 = readFileSync(new URL("../src/components/startpage/AuroraBackground.tsx", import.meta.url), "utf8");
+    const css58 = readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8");
+    const bg58 = readFileSync(new URL("../extension-src/ext-bg.js", import.meta.url), "utf8");
+    const cDim58 = (css58.match(/var\(--photo-dim, 1\)/g) || []).length;
+    const t58 = {
+      fltBtn: w58.includes('id="flt"') && w58.includes("全局音乐浮窗"),
+      fltMirror: w58.includes('chushi.storage.set("csFloat",fltOn)') && w58.includes('d.key==="csFloat"'),
+      tabCenter35: !w58.includes("padding:1px 0 0") && w58.includes("height:25px;"),
+      teardown: pw58.includes("neAudioTeardown") && pw58.includes('type: "neFrame", track: null') && ne58.includes("navigator.mediaSession.metadata = null"),
+      swGuard: bg58.includes("sid === neTabId"),
+      showFlags: ck58.includes("settings.showClock") && ck58.includes("settings.showDate") && sp58.includes('segKey="clock"') && sp58.includes('segKey="date"'),
+      dimUi: sp58.includes("壁纸压暗程度") && sp58.includes("settings.photoDim") && pg58.includes("photoDim={sp.settings.photoDim}") && ab58.includes('"--photo-dim": photoDim / 100'),
+      dimCss: cDim58 >= 5,
+      lenOk58: w58.length <= 44000,
+    };
+    gate("TL58 浮窗退散+浮窗开关+页签居中根修+时钟日期/掠影压暗门（v8.7.35）",
+      t58.fltBtn && t58.fltMirror && t58.tabCenter35 && t58.teardown && t58.swGuard && t58.showFlags && t58.dimUi && t58.dimCss && t58.lenOk58, JSON.stringify(t58));
+  }
   /* ---------- T10 pageerror ---------- */
   gate("T10 pageerror=0", errors.length === 0, errors.join(" | ").slice(0, 120));
 } catch (e) {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.34 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.35 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);

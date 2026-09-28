@@ -337,6 +337,26 @@ export function neAudioSys(cmd: "next" | "prev"): void {
 
 export type NeAudioAct = "load" | "meta" | "play" | "pause" | "toggle" | "seek" | "vol" | "stop";
 
+/* v8.7.35 播放器预设移除：宿主音频停播 + ne 真值撤除（悬浮卡退散的宿主半边）。
+   复用 act "stop"（pause+摘 src+清 meta+notify——发布门 st.id 闭合，噪声帧根灭）；
+   补 MediaSession 元数据清空（OS 媒体通知随预设移除一并退散）。元素不销毁：
+   msWired 单次布线律依赖同一元素闭包，销毁会让下次 ensureAudio 的新元素
+   永久挂在旧 handler 上。 */
+export async function neAudioTeardown(): Promise<void> {
+  try {
+    await neAudioAct("stop");
+  } catch {
+    /* 无音频可用环境静默 */
+  }
+  try {
+    if (typeof navigator !== "undefined" && "mediaSession" in navigator) {
+      navigator.mediaSession.metadata = null;
+    }
+  } catch {
+    /* 老 MediaMetadata 静默 */
+  }
+}
+
 export async function neAudioAct(
   act: NeAudioAct,
   o: { url?: string; meta?: Partial<NeAudioMeta>; position?: number; volume?: number } = {}

@@ -104,16 +104,22 @@ function Clock({
 }: {
   settings: Settings;
   mini?: boolean;
-  /** 预设时钟覆写：仅 showDate / greeting 两个无面板控件的字段仍走声明式覆写
-   *  （字段存在即生效，删除预设即还原）；hour12 / showSeconds 已在预设安装时
-   *  一次性合入用户设置，故此处一律以 settings 为准 */
+  /** 预设时钟覆写：greeting 仍走声明式覆写（字段存在即生效，删除预设即还原）；
+   *  showDate v8.7.35 起有面板控件——预设声明在装着期仍优先，未声明回落
+   *  settings.showDate；hour12 / showSeconds 已在预设安装时一次性合入
+   *  用户设置，故此处一律以 settings 为准 */
   preset?: PresetClock;
 }) {
   const now = useNow();
 
   const hour12 = settings.hour12;
   const showSeconds = settings.showSeconds;
-  const showDate = preset?.showDate ?? true;
+  const showClock = settings.showClock;
+  const showDate = preset?.showDate ?? settings.showDate;
+
+  /* v8.7.35 显隐开关：mini（禅时钟）只有时间主体——showClock=false 即整件退场；
+     完整版两者全隐才退场（useNow 在上，hook 序不受早退影响） */
+  if (mini ? !showClock : !showClock && !showDate) return null;
 
   let hours = now.getHours();
   const minutes = pad(now.getMinutes());
@@ -139,7 +145,8 @@ function Clock({
 
   return (
     <div className="cl-clock flex flex-col items-center select-none">
-      {/* 时钟主体 */}
+      {/* 时钟主体（v8.7.35 showClock=false 整体隐藏，日期/问候行独立开关） */}
+      {showClock && (
       <time
         dateTime={now.toISOString()}
         className={`clock-text font-extralight leading-none tracking-[-0.02em] text-zinc-900 dark:text-zinc-100 ${
@@ -169,10 +176,12 @@ function Clock({
           </span>
         )}
       </time>
+      )}
 
-      {/* 日期 · 农历 · 问候（预设 clock.showDate=false 时整行隐藏） */}
+      {/* 日期 · 农历 · 问候（showDate=false 或预设 clock.showDate=false 时整行隐藏；
+          时钟主体也隐藏时去掉顶距，日期行升为独立主体） */}
       {!mini && showDate && (
-        <div className="clock-sub mt-5 flex h-6 items-center gap-3 text-sm font-light tracking-wide text-zinc-500 dark:text-zinc-400">
+        <div className={`clock-sub flex h-6 items-center gap-3 text-sm font-light tracking-wide text-zinc-500 dark:text-zinc-400 ${showClock ? "mt-5" : ""}`}>
           <span>{dateStr}</span>
           {lunarText && (
             <>

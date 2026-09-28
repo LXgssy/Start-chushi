@@ -732,6 +732,29 @@ function SettingsPanel({
               e.target.value = "";
             }}
           />
+          {/* v8.7.35 壁纸压暗程度：photo-scrim 全部压暗层 α 的倍率
+              （0%=不压暗，100%=原设计值，200%=双倍压暗；rgba α 自动夹紧 ≤1） */}
+          <div className="flex items-center justify-between gap-4 px-1 py-1.5">
+            <span className="text-xs font-light tracking-wide text-zinc-600 dark:text-zinc-300">
+              压暗程度
+            </span>
+            <div className="flex shrink-0 items-center gap-2.5">
+              <input
+                type="range"
+                min={0}
+                max={200}
+                step={5}
+                value={settings.photoDim ?? 100}
+                aria-label="壁纸压暗程度"
+                onChange={(e) => onPatch({ photoDim: Number(e.target.value) })}
+                className="h-1 w-28 cursor-pointer appearance-none rounded-full bg-zinc-900/10 outline-none dark:bg-white/10 [&::-webkit-slider-thumb]:h-3.5 [&::-webkit-slider-thumb]:w-3.5 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:shadow [&::-webkit-slider-thumb]:ring-1 [&::-webkit-slider-thumb]:ring-zinc-900/15 dark:[&::-webkit-slider-thumb]:ring-white/20"
+                style={{ accentColor: "var(--ui-accent, #8b5cf6)" }}
+              />
+              <span className="w-11 text-right text-[11px] tabular-nums text-zinc-400 dark:text-zinc-500">
+                {settings.photoDim ?? 100}%
+              </span>
+            </div>
+          </div>
         </Section>
           </motion.div>
         )}
@@ -740,6 +763,17 @@ function SettingsPanel({
       <div aria-hidden className="border-t border-zinc-900/5 dark:border-white/5" />
 
       <Section title="时钟">
+        {/* v8.7.35 时钟/日期分别显隐：时钟=时间主体，日期=日期·农历·问候整行 */}
+        <Segmented
+          segKey="clock"
+          label="时钟"
+          value={settings.showClock ? "on" : "off"}
+          options={[
+            { value: "off", label: "隐藏" },
+            { value: "on", label: "显示" },
+          ]}
+          onChange={(v) => onPatch({ showClock: v === "on" })}
+        />
         <Segmented
           segKey="hour"
           label="时制"
@@ -759,6 +793,16 @@ function SettingsPanel({
             { value: "on", label: "显示" },
           ]}
           onChange={(v) => onPatch({ showSeconds: v === "on" })}
+        />
+        <Segmented
+          segKey="date"
+          label="日期"
+          value={settings.showDate ? "on" : "off"}
+          options={[
+            { value: "off", label: "隐藏" },
+            { value: "on", label: "显示" },
+          ]}
+          onChange={(v) => onPatch({ showDate: v === "on" })}
         />
       </Section>
 

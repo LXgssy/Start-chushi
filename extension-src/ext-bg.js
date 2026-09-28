@@ -424,8 +424,15 @@ chrome.runtime.onMessage.addListener((m, sender) => {
         neSessSave(identChanged);
       }
     } else {
-      neTrack = null; neTrackAt = 0;
-      neSessSave(true);
+      /* v8.7.35 空帧=发布方撤真值（播放器预设移除→悬浮卡退散）：只认当前
+         发布方/无主场合，防双开页另一侧的移除误清活跃真值（播放帧 4Hz
+         自愈虽快仍是闪烁，守卫根除）；neTabId 留置——命令路由由 neWins()
+         门控，真值已撤即回退 hub，无残留路径。 */
+      const sid = sender.tab && typeof sender.tab.id === "number" ? sender.tab.id : null;
+      if (neTabId == null || sid == null || sid === neTabId) {
+        neTrack = null; neTrackAt = 0;
+        neSessSave(true);
+      }
     }
     return; /* 单向真值流：不占 sendResponse 通道 */
   }

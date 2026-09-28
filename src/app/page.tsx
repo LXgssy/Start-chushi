@@ -325,6 +325,7 @@ function StartPageView() {
         photoId={sp.settings.photoId}
         wallpaperUrl={sp.settings.wallpaperUrl}
         wallpaperRev={sp.settings.wallpaperRev}
+        photoDim={sp.settings.photoDim}
       />
 
       {/* 禅模式：内容雾化散场由 html.zen + .zen-fade/.search-pill/.zen-dock 各自承载。

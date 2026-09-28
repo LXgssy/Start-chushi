@@ -92,8 +92,14 @@ for feat in (
     '-webkit-text-stroke:.35px var(--acc)}',  # 已扫词白描边根修
     'transition:opacity .26s ease,transform .3s ease}',  # 律动高光渐入渐出
     'will-change:transform}',  # hover 合成层（重栅格化抖动根修）
+    # v8.7.35 四件：浮窗开关（csFloat 同通道镜像）+ 页签居中根修（1px 补偿退役）
+    'chushi.storage.set("csFloat",fltOn)',  # 浮窗开关写入（宿主镜像 cardEnabled）
+    'chushi.storage.get("csFloat")',        # 浮窗开关初值
+    'd.key==="csFloat"',                    # 浮窗开关外部反向回翻
+    '.nx.on{color:var(--acc)}',             # 浮窗钮 on 态
 ):
     assert feat in html, f"cshz 缺特征 {feat!r}"
+assert "padding:1px 0 0" not in html, "v8.7.35 页签 1px 度量补偿应已退役"
 # widget html 不能含外链资源（iframe 不透明源加载不了；运行时 URL 字符串不算资源加载）
 _no_data = re.sub(r"data:image/svg\+xml,[^\"']+", "", html)
 _no_ns = _no_data.replace("http://www.w3.org/", "")

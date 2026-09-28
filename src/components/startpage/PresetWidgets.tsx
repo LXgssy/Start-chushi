@@ -20,7 +20,7 @@
 import { memo, useEffect, useRef } from "react";
 import { sandboxWidgetSrc } from "@/lib/startpage/sandbox";
 import { smtc, SMTC_COMMANDS } from "@/lib/startpage/smtc";
-import { NE_PATHS, neCall, neAudioAct, neAudioState, neAudioSys, onNeAudio, onNeBeat, type NeAudioAct } from "@/lib/startpage/netease";
+import { NE_PATHS, neCall, neAudioAct, neAudioState, neAudioSys, neAudioTeardown, onNeAudio, onNeBeat, type NeAudioAct } from "@/lib/startpage/netease";
 import { postToWidget, widgetFrameGet, widgetFrameSet, widgetThemeBroadcast } from "@/lib/startpage/widget-frames";
 import { smtcSpectrum, type SmtcSpectrum } from "@/lib/startpage/smtc";
 
@@ -334,6 +334,25 @@ function PresetWidgets(props: {
     });
     return off;
   }, []);
+
+  /* v8.7.35 播放器预设移除 → 宿主音频停播 + SW ne 真值撤帧（悬浮卡退散）。
+     audio 元素是宿主单例，不随部件 iframe 卸载——不显式停播=音乐继续响、
+     发布帧持续保鲜（暂停帧 10min 窗）→ 悬浮卡永不消失（用户实测现场）。
+     netease 部件从 widgets 清单消失的瞬间：teardown 清 meta 闭发布门 +
+     显式空帧让 SW 立即撤 ne 真值，1Hz 广播兜底 track:null → 卡退散。 */
+  const hadNePlayerRef = useRef(false);
+  useEffect(() => {
+    const has = props.widgets.some((w) => w.key.endsWith(":netease"));
+    if (hadNePlayerRef.current && !has) {
+      void neAudioTeardown();
+      try {
+        void Promise.resolve(chromeRuntime()?.sendMessage?.({ type: "neFrame", track: null })).catch(() => {});
+      } catch {
+        /* 非 extension 环境（gh-pages 预览） */
+      }
+    }
+    hadNePlayerRef.current = has;
+  }, [props.widgets]);
 
   /* v8.7.26 网易云频谱帧 → 部件帧（宿主 WebAudio 30Hz 已包络 {on,bass,bands}），
      参数族与 SMTC 频谱（v8.2.0 sendSpectrum）同语言；无订阅者时 onNeBeat

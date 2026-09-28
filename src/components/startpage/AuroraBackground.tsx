@@ -16,7 +16,7 @@
  * class 在黑透时刻切换，反白前景不会悬在旧画面上。
  */
 
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import type { BackgroundMode } from "@/lib/startpage/types";
 import { resolveWallpaper, wallpaperKindOf, type WallpaperKind } from "@/lib/startpage/gallery";
 import { idbGet } from "@/lib/startpage/idb";
@@ -94,6 +94,9 @@ function AuroraBackground({
   photoId,
   wallpaperUrl = "",
   wallpaperRev = 0,
+  /** 掠影壁纸压暗程度（v8.7.35）：百分数 0–200，默认 100=原设计值；
+   *  以 --photo-dim 倍率注入 photo-scrim，全部压暗层 α 同步缩放 */
+  photoDim = 100,
 }: {
   mode: BackgroundMode;
   photoId: string;
@@ -101,6 +104,8 @@ function AuroraBackground({
   wallpaperUrl?: string;
   /** 自定义壁纸导入版本号：每次导入自增——同一 custom 源下重复导入也强制重读 */
   wallpaperRev?: number;
+  /** 掠影壁纸压暗程度（v8.7.35）：百分数 0–200，默认 100=原设计值 */
+  photoDim?: number;
 }) {
   const [phase, setPhase] = useState<Phase>("night");
   const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
@@ -357,7 +362,10 @@ function AuroraBackground({
             />
           )}
           {/* 双层压暗：整体平底 + 上下渐变，保证浅色主题下白字亦可读 */}
-          <div className={`photo-scrim absolute inset-0 transition-opacity ${fadeDur} ${photoReady ? "opacity-100" : "opacity-0"}`} />
+          <div
+          className={`photo-scrim absolute inset-0 transition-opacity ${fadeDur} ${photoReady ? "opacity-100" : "opacity-0"}`}
+          style={{ "--photo-dim": photoDim / 100 } as CSSProperties}
+        />
         </div>
       )}
 

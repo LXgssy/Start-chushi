@@ -441,17 +441,21 @@ html.dark .accent-bar {
   to   { transform: scale(1.12) translate3d(0, -1.6%, 0); }
 }
 
-/* ---------- 掠影双层压暗遮罩：平底 + 上下渐变，保证前景可读 ---------- */
+/* ---------- 掠影双层压暗遮罩：平底 + 上下渐变，保证前景可读 ----------
+   v8.7.35 压暗程度自定义：全部 α 乘 --photo-dim 倍率（AuroraBackground 注入，
+   设置面板「压暗程度」0–200%，缺省 1=原设计值）。calc 在 rgba α 位求值，
+   超 1 由 rgba 自动夹紧；0=不压暗。衰减梯度形状/层次比例保持不变——
+   只整体加深或减淡，不改可读性设计律。 */
 .photo-scrim {
   background:
     linear-gradient(
       to bottom,
-      rgba(0, 0, 0, 0.34),
-      rgba(0, 0, 0, 0.12) 30%,
-      rgba(0, 0, 0, 0.12) 60%,
-      rgba(0, 0, 0, 0.48)
+      rgba(0, 0, 0, calc(0.34 * var(--photo-dim, 1))),
+      rgba(0, 0, 0, calc(0.12 * var(--photo-dim, 1))) 30%,
+      rgba(0, 0, 0, calc(0.12 * var(--photo-dim, 1))) 60%,
+      rgba(0, 0, 0, calc(0.48 * var(--photo-dim, 1)))
     ),
-    rgba(0, 0, 0, 0.18);
+    rgba(0, 0, 0, calc(0.18 * var(--photo-dim, 1)));
 }
 
 /* ---------- 掠影模式前景分工律 ----------
