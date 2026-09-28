@@ -50,7 +50,7 @@ def minify_html(s: str) -> str:
 
 html = minify_html((SRC / "player.html").read_text(encoding="utf-8"))
 
-assert len(html) <= 44000, f"widget html 超限: {len(html)} > 44000"  # v8.7.27：39600→44000（命令面板式弹窗重写+音质弹窗+串扰/封面根修）与宿主 widgetHtmlLen 同步（两道数字门律）
+assert len(html) <= 44200, f"widget html 超限: {len(html)} > 44200"  # v8.7.27：39600→44000（命令面板式弹窗重写）；v8.7.38：44000→44200（歌词×/浮窗贴×两修）——与宿主 widgetHtmlLen 同步（两道数字门律）
 # 特征门（核心链路防回归）
 for feat in (
     "chushi.ne.api",           # 宿主代理 API

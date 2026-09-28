@@ -252,7 +252,7 @@ export const PRESET_LIMITS = {
      v8.7.27：39600 → 44000 —— 播放器整体重写为命令面板式弹窗（palette 展示面
      + 常驻搜索行 + 音质三选一小弹窗 + 页签世代令牌串扰根修 + 封面/歌词存活
      根修）minified 实测 41694；五处联动对账同上 */
-  widgetHtmlLen: 44000,
+  widgetHtmlLen: 44200, /* v8.7.38：44000→44200（歌词×/浮窗贴×两修净增 23 字符） */
   icons: 7,
   iconLen: 8192,
   tokenValLen: 120,

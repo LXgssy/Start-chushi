@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.37/ChuShi-NewTab-v8.7.37.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.38/ChuShi-NewTab-v8.7.38.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -2351,15 +2351,15 @@ try {
     const docsSrc = readFileSync(new URL("../src/components/startpage/PresetDocs.tsx", import.meta.url), "utf8");
     const devMd = readFileSync(new URL("../docs/PRESET_DEV.md", import.meta.url), "utf8");
     const c37 = {
-      /* v8.7.27：44000（palette 弹窗重写+音质弹窗+修复，五处联动同步） */
-      htmlCap: docsSrc.includes("44000"),
+      /* v8.7.27：44000 五处联动；v8.7.38：44000→44200（歌词×/浮窗贴×两修） */
+      htmlCap: docsSrc.includes("44200"),
       height: docsSrc.includes("40–560"),
       icons: docsSrc.includes("数组 ≤7 条"),
       fields: docsSrc.includes("十三个内容字段"),
-      md: devMd.includes("44000"),
-      legacyGone: !docsSrc.includes("≤18000") && !docsSrc.includes("≤26400") && !docsSrc.includes("≤27600") && !docsSrc.includes("≤28800") && !docsSrc.includes("≤30400") && !docsSrc.includes("≤36800") && !docsSrc.includes("≤39600") && !docsSrc.includes("40–320"),
+      md: devMd.includes("44200"),
+      legacyGone: !docsSrc.includes("≤18000") && !docsSrc.includes("≤26400") && !docsSrc.includes("≤27600") && !docsSrc.includes("≤28800") && !docsSrc.includes("≤30400") && !docsSrc.includes("≤36800") && !docsSrc.includes("≤39600") && !docsSrc.includes("≤44000") && !docsSrc.includes("40–320"),
     };
-    gate("TL37b 文档内容同步源码门（v8.7.27 升 44000）：44000/40–560/≤7/十三字段 + 应用内与仓内 md 对账 + 旧值（18000/26400/27600/28800/30400/36800/39600）退役", c37.htmlCap && c37.height && c37.icons && c37.fields && c37.md && c37.legacyGone, JSON.stringify(c37));
+    gate("TL37b 文档内容同步源码门（v8.7.38 升 44200）：44200/40–560/≤7/十三字段 + 应用内与仓内 md 对账 + 旧值（18000/26400/27600/28800/30400/36800/39600/44000）退役", c37.htmlCap && c37.height && c37.icons && c37.fields && c37.md && c37.legacyGone, JSON.stringify(c37));
   }
 
   /* ---------- TL38 掠影染色退役（v8.7.8 ③）：CSSOM 门 + 默认态零波及对账 ----------
@@ -2418,11 +2418,11 @@ try {
     const t39 = {
       photoVarSat: /--dv-open-bf:\s*blur\(14px\)\s*;/.test(photoVarRule) && /--dv-mid-bf:\s*blur\(9px\)\s*;/.test(photoVarRule) && !/saturate/.test(photoVarRule),
       screenDark: /backdrop-filter:\s*blur\(12px\)/.test(screenRule) && /(#0000002e|rgba?\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0?\.18\)|rgb\(\s*0\s+0\s+0\s*\/\s*0?\.18\))/.test(screenRule) && !/saturate/.test(screenRule),
-      onlyPhoto: screenRules.length > 0 && screenRules.every((x) => /photo-mode/.test(x)),
+      modesOnly: screenRules.length > 0 && screenRules.every((x) => /photo-mode|glow-mode|palette-veil/.test(x)),
       srcCount: src39 >= 4,
     };
-    gate("TL39 掠影模糊不提亮律静态门（v8.7.11）：photo 站点变量无sat + cl-screen-veil 深纱blur12无sat + 规则仅掠影态 + 源码接线≥4",
-      t39.photoVarSat && t39.screenDark && t39.onlyPhoto && t39.srcCount,
+    gate("TL39 掠影模糊不提亮律静态门（v8.7.11/v8.7.38 扩容）：photo 站点变量无sat + cl-screen-veil 深纱blur12无sat + 覆写规则仅模式/面板面(掠影|辉光|palette-veil) + 源码接线≥4",
+      t39.photoVarSat && t39.screenDark && t39.modesOnly && t39.srcCount,
       JSON.stringify(t39) + " screen=" + screenRule.slice(0, 140));
   }
 
@@ -2930,7 +2930,7 @@ try {
      ① dock 弹出回退：palette 展示面全链退役——preset.ts 无 display 字段/校验、
         use-start-presets 无透传、Dock 无过滤+无 WidgetPalette 挂载（舞台收编
         全部 dock 部件）；manifest 无 display 字段（宽高 560×540 保留，回
-        PanelStage 统一舞台底锚弹出）；宽高钳制 580/560 与上限 44000 保留
+        PanelStage 统一舞台底锚弹出）；宽高钳制 580/560 与上限 44200 保留
         （v8.7.31 画布收窄 460×540）；
      ② 四修复源锚：页签世代令牌（S.gen++）+ 搜索页关键词双对账 +
         封面 .on 无条件补回（同曲切音质封面消失根修）+ 歌词 rAF 续跑
@@ -2953,7 +2953,7 @@ try {
         pSrc52.includes("display,") === false,
       clampW: /Math\.min\(580, Math\.max\(120, wo\.width\)\)/.test(pSrc52),
       clampH: /Math\.min\(560, Math\.max\(40, wo\.height\)\)/.test(pSrc52),
-      cap: /widgetHtmlLen: 44000/.test(pSrc52),
+      cap: /widgetHtmlLen: 44200/.test(pSrc52),
       hostGone: dSrc52.includes("WidgetPalette") === false &&
         dSrc52.includes('w.display !== "palette"') === false && dSrc52.includes('w.display === "palette"') === false &&
         dSrc52.includes("dockWidgets={sp.presetDockWidgets}") && dSrc52.includes('className="fixed inset-0 z-30"'),
@@ -3070,7 +3070,7 @@ try {
       empPgrid: widgetSrc55.includes('l.style.display="";l.classList.remove("pgrid")'),
       /* v8.7.33：文本钮 nb/bk 退出 translateZ 基态（raster 吸附载体移除）——六钮→四钮 */
       tzBase: tzCount55 === 4,
-      lenOk: widgetSrc55.length <= 44000,
+      lenOk: widgetSrc55.length <= 44200,
     };
     gate("TL55 播放器四修门（v8.7.32）：indSnap resize 重对位 + 页签 flex 居中 + emp 摘 pgrid + 六钮 translateZ(0) 基态",
       t55.indSnapResize && t55.tabCenter && t55.empPgrid && t55.tzBase && t55.lenOk, JSON.stringify(t55));
@@ -3097,7 +3097,7 @@ try {
       oldGone: widgetSrc56.includes(".nb:hover{background:var(--card2);color:var(--acc);transform:scale(1.06)}") === false &&
         widgetSrc56.includes(".bk:hover{color:var(--ink);transform:scale(1.06)}") === false,
       bkFixed: widgetSrc56.includes(".bk:hover{color:var(--ink)}"),
-      lenOk: widgetSrc56.length <= 44000,
+      lenOk: widgetSrc56.length <= 44200,
     };
     gate("TL56 文本钮悬停药丸根修门（v8.7.33）：nb 药丸 ::before + hover 本体零 transform + bk 同律 + bw.on 守卫",
       t56.pillBase && t56.pillHover && t56.bwGuard && t56.oldGone && t56.bkFixed && t56.lenOk, JSON.stringify(t56));
@@ -3149,7 +3149,7 @@ try {
       showFlags: ck58.includes("settings.showClock") && ck58.includes("settings.showDate") && sp58.includes('segKey="clock"') && sp58.includes('segKey="date"'),
       dimUi: sp58.includes("壁纸压暗程度") && sp58.includes("settings.photoDim") && pg58.includes("photoDim={sp.settings.photoDim}") && ab58.includes('"--photo-dim": photoDim / 100'),
       dimCss: cDim58 >= 5,
-      lenOk58: w58.length <= 44000,
+      lenOk58: w58.length <= 44200,
     };
     gate("TL58 浮窗退散+浮窗开关+页签居中根修+时钟日期/掠影压暗门（v8.7.35）",
       t58.fltBtn && t58.fltMirror && t58.tabCenter35 && t58.teardown && t58.swGuard && t58.showFlags && t58.dimUi && t58.dimCss && t58.lenOk58, JSON.stringify(t58));
@@ -3170,18 +3170,18 @@ try {
     const ql59 = readFileSync(new URL("../src/components/startpage/QuickLinks.tsx", import.meta.url), "utf8");
     const ks59 = readFileSync(new URL("../src/app/startpage/keys.ts", import.meta.url), "utf8");
     const t59 = {
-      phQuick: ph59.includes("btn-bkm") && ph59.includes("收藏此页") && ph59.includes("壁纸压暗程度") && ph59.includes("显示 Dock 栏"),
+      phQuick: ph59.includes("添加至快捷服务") && !ph59.includes("btn-bkm") && ph59.includes("壁纸压暗程度") && ph59.includes("显示 Dock 栏"),
       phTip: ph59.includes("常驻浏览器顶栏") && ph59.includes("图钉"),
-      pjBkm: pj59.includes("start:bookmarks") && pj59.includes("chrome.tabs.query") && pj59.includes("已收藏"),
+      pjBkm: pj59.includes('LINKS_KEY = "start:links"') && pj59.includes("chrome.tabs.query") && pj59.includes("已在快捷服务"),
       pjDimDock: pj59.includes('photoDim: v') && pj59.includes("showDock: on"),
       cardHide: ck59.includes("cardBooted && host.style.display === \"block\"") && ck59.includes('host.style.display = "none"'),
       cardOldGone: !ck59.includes('if (cardEnabled) host.style.display = "block";'),
       showDockType: ty59.includes("showDock: boolean") && ty59.includes("showDock: true"),
       dockGate: pg59.includes("sp.settings.showDock !== false"),
-      intentBkm: pg59.includes('j.panel === "bookmarks"') && pg59.includes("start:bookmarks-open"),
+      intentBkm: !pg59.includes('j.panel === "bookmarks"') && !pg59.includes("start:bookmarks-open"),
       hotFollow: st59.includes("p.photoDim") && st59.includes("p.showDock"),
-      qlBkm: ql59.includes("BOOKMARKS_KEY") && ql59.includes("start:bookmarks-open") && ql59.includes("removeBookmark") && ql59.includes("renderBookmarks()"),
-      key36: ks59.includes('BOOKMARKS_KEY = "start:bookmarks"'),
+      qlBkm: !ql59.includes("renderBookmarks") && !ql59.includes("BOOKMARKS_KEY") && !ql59.includes("setBkmPage"),
+      key36: !ks59.includes("BOOKMARKS_KEY") && !ty59.includes("CsBookmark"),
     };
     gate("TL59 弹窗扩容+书签+浮窗残影根治门（v8.7.36）",
       t59.phQuick && t59.phTip && t59.pjBkm && t59.pjDimDock && t59.cardHide && t59.cardOldGone && t59.showDockType && t59.dockGate && t59.intentBkm && t59.hotFollow && t59.qlBkm && t59.key36, JSON.stringify(t59));
@@ -3206,16 +3206,53 @@ try {
       glowGate: st60.includes('settings.perfLite && settings.background === "glow"') && st60.includes('patchSettings({ background: "photo" })'),
       glowPj: pj60.includes('background: "photo"') && pj60.includes("流畅模式禁用辉光"),
       glowGray: sp60.includes("disabled: settings.perfLite") && sp60.includes("流畅模式下不可用") && sp60.includes("cursor-not-allowed"),
-      bkmPage: ql60.includes("bkmPage ? renderBookmarks() : renderGrid(true)") && ql60.includes("bkmPage ? renderBookmarks() : renderGrid(false)"),
-      wheel: ql60.includes(".bkm-scroll, .cl-panel") && ql60.includes("bkmCoolRef") && ql60.includes("deltaY > 0 && bookmarks.length > 0"),
-      bkmFoot: ql60.includes("向上滚动返回"),
+      bkmGone: !ql60.includes("renderBookmarks") && !ql60.includes("setBkmPage") && !ql60.includes("bkmCoolRef"),
       altV: ql60.includes('e.code !== "KeyV"') && ql60.includes("setOpen((o) => !o)") && ql60.includes("window.focus()"),
       ghost: pg60.includes("ghost\n                />") && ql60.includes("ghost?: boolean") && ql60.includes("disabled || ghost"),
-      fadeCls: cs60.includes("@keyframes cl-page-in") && cs60.includes(".cl-links-fade"),
+      fadeGone: !cs60.includes("cl-page-in") && !cs60.includes("cl-links-fade"),
       lenKey37: cs60.includes("0.001s") || cs60.includes("1ms"),
     };
-    gate("TL60 流畅根治+辉光互斥+书签翻页+alt+v 门（v8.7.37）",
-      t60.liteLoop && t60.perfSync && t60.glowGate && t60.glowPj && t60.glowGray && t60.bkmPage && t60.wheel && t60.bkmFoot && t60.altV && t60.ghost && t60.fadeCls, JSON.stringify(t60));
+    gate("TL60 流畅根治+辉光互斥+alt+v 门（v8.7.37/v8.7.38 翻转）",
+      t60.liteLoop && t60.perfSync && t60.glowGate && t60.glowPj && t60.glowGray && t60.bkmGone && t60.altV && t60.ghost && t60.fadeGone, JSON.stringify(t60));
+  }
+  /* ---------- TL61 歌词×+浮窗贴×+面板去提亮丝滑+360+抽屉退出区+磨砂驻留根修+直达添加 门（v8.7.38） ----------
+     用户六域：①无歌词时歌词页×可点击退出（.lhint 提示层 pointer-events:none）
+     +浮窗开关贴 × 左侧（#flt margin-left:0）；②命令面板退场丝滑（--veil-to-bf
+     对齐 blur(0) 卸载帧无缝 + 0.32s 减速曲线）且辉光模式不再被提亮
+     （html.glow-mode .cl-screen-veil 去 sat 深纱，v8.7.10 无提亮律辉光面补齐）；
+     ③搜索引擎新增 360 搜索；④抽屉点空白退出区还原（rootRef 去 w-full）；
+     ⑤磁贴磨砂驻留动画根修（cl-links-fade fill:both 渲染表面滞留=backdrop
+     root 杀后代 backdrop-filter——拆除，diag-frost-fill 实证）；
+     ⑥标签系统退役：弹窗「添加至快捷服务」直写 start:links（队尾追加/
+     URL 去重/FIFO 200）+use-start-data storage 热跟随+孤儿数据清理。 */
+  {
+    const pl61 = readFileSync(new URL("../preset-src/netease/player.html", import.meta.url), "utf8");
+    const en61 = readFileSync(new URL("../src/lib/startpage/engines.ts", import.meta.url), "utf8");
+    const gc61 = readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8");
+    const ab61 = readFileSync(new URL("../src/components/startpage/AuroraBackground.tsx", import.meta.url), "utf8");
+    const cp61 = readFileSync(new URL("../src/components/startpage/CommandPalette.tsx", import.meta.url), "utf8");
+    const ql61 = readFileSync(new URL("../src/components/startpage/QuickLinks.tsx", import.meta.url), "utf8");
+    const pg61 = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+    const ud61 = readFileSync(new URL("../src/app/startpage/use-start-data.ts", import.meta.url), "utf8");
+    const pj61 = readFileSync(new URL("../extension-src/popup.js", import.meta.url), "utf8");
+    const ph61 = readFileSync(new URL("../extension-src/popup.html", import.meta.url), "utf8");
+    const t61 = {
+      lyrX: pl61.includes("color:var(--ink3);pointer-events:none"),
+      fltNextX: pl61.includes("#flt{margin-left:auto") && !pl61.includes("#x{margin-left"),
+      so360: en61.includes('id: "so360"') && en61.includes("360搜索") && en61.includes("https://www.so.com/s?q="),
+      glowClass: ab61.includes('"glow-mode"') && ab61.includes('shownKey === "bg:glow"'),
+      glowVeil: gc61.includes("html.glow-mode .cl-screen-veil") && gc61.includes("rgba(0, 0, 0, 0.12)"),
+      paletteVeil: cp61.includes("cl-screen-veil palette-veil") && cp61.includes("duration={0.32}") && gc61.includes("--veil-to-bf: blur(0px) !important;") && gc61.includes(".veil-out.palette-veil"),
+      drawerClick: !ql61.includes("cl-links-drawer pointer-events-auto flex w-full") && ql61.includes("cl-links cl-links-drawer pointer-events-auto flex flex-col items-center"),
+      frostAlive: !gc61.includes("cl-links-fade") && !ql61.includes('className="cl-links-fade') && !ql61.includes("cl-page-in"),
+      directAdd: pj61.includes('LINKS_KEY = "start:links"') && pj61.includes("list.push({") && ph61.includes("添加至快捷服务") && !ph61.includes("btn-bkm"),
+      hotFollow: ud61.includes("KEYS.links") && ud61.includes('removeItem("start:bookmarks")'),
+      intentGone: !pg61.includes("start:bookmarks-open"),
+      ghostKeep: ql61.includes("disabled || ghost"),
+      veilHit: gc61.includes("visibility: visible") && gc61.includes("transition: none;"),
+    };
+    gate("TL61 歌词×+浮窗贴×+面板去提亮丝滑+360+抽屉退出区+磨砂驻留根修+直达添加 门（v8.7.38）",
+      t61.lyrX && t61.fltNextX && t61.so360 && t61.glowClass && t61.glowVeil && t61.paletteVeil && t61.drawerClick && t61.frostAlive && t61.directAdd && t61.hotFollow && t61.intentGone && t61.ghostKeep && t61.veilHit, JSON.stringify(t61));
   }
   /* ---------- T10 pageerror ---------- */
   gate("T10 pageerror=0", errors.length === 0, errors.join(" | ").slice(0, 120));
@@ -3223,7 +3260,7 @@ try {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.37 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.38 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);

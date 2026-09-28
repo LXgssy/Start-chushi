@@ -276,6 +276,13 @@ function AuroraBackground({
       "photo-mode",
       shownKey.startsWith("photo:")
     );
+    /* v8.7.38 辉光面无提亮律钩子：辉光显示中置 html.glow-mode，globals.css
+       据此把 cl-screen-veil 的 saturate(1.5)/白纱降为无 sat 深纱（命令面板
+       「高斯模糊背景提亮辉光颜色」根修；与 photo-mode 同一置位通道） */
+    document.documentElement.classList.toggle(
+      "glow-mode",
+      shownKey === "bg:glow"
+    );
   }, [shownKey]);
 
   const blobStrength = BLOB_OPACITY[phase];

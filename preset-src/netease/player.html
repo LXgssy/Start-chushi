@@ -39,12 +39,12 @@ img{-webkit-user-drag:none;user-select:none}
 .chip{font-size:10px;color:var(--ink3);border:1px solid var(--line);border-radius:var(--r9);
   padding:2px 8px;transition:color .3s,border-color .3s}
 .chip.ok{color:var(--acc);border-color:var(--acc32)}
-.nx{margin-left:auto;appearance:none;border:0;cursor:pointer;width:24px;height:24px;
+.nx{appearance:none;border:0;cursor:pointer;width:24px;height:24px;
   display:flex;align-items:center;justify-content:center;border-radius:var(--r9);
   color:var(--ink2);background:var(--card2);transition:transform .22s var(--ez),color .22s var(--ez);
   will-change:transform;transform:translateZ(0)}
 .nx:hover{transform:scale(1.08);color:var(--ink)}
-.nx svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round}
+#flt{margin-left:auto /* v8.7.38 浮窗钮贴 × 左侧（auto 归首钮推组靠右，间距=nh gap 8px） */}.nx svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round}
 .nx.on{color:var(--acc)}
 /* ---------- 搜索行（v8.7.31 收进搜索页签内：仅搜索页显示，全局常驻行退役） ---------- */
 .qsr{display:flex;align-items:center;gap:8px;flex:none;height:38px;padding:0 5px 0 12px;
@@ -246,7 +246,7 @@ img{-webkit-user-drag:none;user-select:none}
 .trw .tr{min-height:0;font-size:11px;font-weight:400;color:var(--ink2);line-height:1.5;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .lhint{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-  font-size:11.5px;color:var(--ink3)}
+  font-size:11.5px;color:var(--ink3);pointer-events:none}
 .tst{position:absolute;left:50%;bottom:128px;transform:translateX(-50%) translateY(8px);z-index:7;
   background:rgba(0,0,0,.78);color:#fff;font-size:11px;border-radius:var(--r9);padding:7px 15px;
   opacity:0;pointer-events:none;transition:opacity .3s,transform .3s var(--ez);white-space:nowrap;

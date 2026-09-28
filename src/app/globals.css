@@ -1869,22 +1869,6 @@ html.cs-lite .pulse-dot,
 html.cs-lite .pomo-dot {
   animation: none !important;
 }
-/* v8.7.37 书签翻页淡入：磁贴页↔书签页滚轮切换（key 重挂触发，柔和上浮；
-   cs-lite 通配 0.001s 自动降级为瞬切） */
-@keyframes cl-page-in {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-.cl-links-fade {
-  animation: cl-page-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
-}
-
 /* ---------- 快捷服务抽屉（中键唤出全屏磁贴墙）----------
    纱罩 = 【整页高斯模糊】+ 轻染色（不要纯黑遮罩，模糊整个页面）：
    backdrop blur(20px)+saturate 把整页磨砂化，让位感由整页模糊承担
@@ -2027,10 +2011,16 @@ html.cs-drawer-closing .cl-drawer-veil {
 }
 .cl-drawer-veil[data-veil="1"] {
   backdrop-filter: var(--dv-open-bf, blur(14px) saturate(1.5));
+  /* v8.7.38 开态命中律：visibility 的 0s 过渡仍会创建 CSSTransition 对象，
+     headless/冻结时间线(progress 恒 0)下把计算值钉死在起始帧 hidden——
+     Web Animations 层压过一切 CSS 声明（含 !important），开态纱幕脱离
+     hit-test=点空白关闭与纱幕语义全灭（真实用户 bug，非仅台架怪癖）。
+     开态语义本就「即时可见」（0s 过渡=无过渡），改 transition:none 根除
+     过渡对象；关态 0.42s 延迟隐没走基态 after-change 规则不受影响。 */
   visibility: visible;
   /* v8.7.16：0.5s→0.4s（用户「打开速度再快一点点」）；曲线零改动 */
   animation: dv-open-kf calc(0.4s * var(--mo-speed, 1)) cubic-bezier(0.5, 0, 0.3, 1) backwards;
-  transition: visibility 0s;
+  transition: none;
 }
 .cl-drawer-veil[data-veil="1"]::before {
   opacity: 1;
@@ -2096,6 +2086,29 @@ html.photo-mode .cl-drawer-veil {
    第二层也从「提亮」变「轻压暗」。非掠影模式四遮罩白纱/黑纱原样零波及；
    cs-lite 的 backdrop-filter:none !important 优先级高于本条（流畅模式
    降级语义不变），background-color 在 cs-lite 下同样生效（纯色纱同向压暗）。 */
+/* v8.7.38 辉光面无提亮律（B2）：辉光模式下 cl-screen-veil 的
+   saturate(1.5)（Tailwind backdrop-saturate-150 + veil 关键帧 fallback）会把
+   背后辉光光斑颜色提亮增艳——sat≡1 + 深纱平底替代白纱（blur 亮度均值抬升由
+   深纱补偿，任何帧不比开启前更亮）；与掠影面 html.photo-mode 同律同构。
+   非辉光模式四遮罩白纱/黑纱原样零波及；cs-lite 降级语义不变。 */
+html.glow-mode .cl-screen-veil {
+  background-color: rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(12px);
+  --veil-from-bf: blur(1px);
+  --veil-hold-bf: blur(12px);
+  --veil-to-bf: blur(1px);
+}
+/* v8.7.38 命令面板退场丝滑（B1）：退场尾段模糊收拢终点对齐零值——卸载帧与
+   末帧无缝（旧 to=blur(1px) 在 forwards 驻留卸载瞬间跳掉 1px 残模糊=「不
+   丝滑」的尾刺）；important 压过各模式面同键规则（自定义属性无继承竞争面，
+   作用域仅此一件）。时长/曲线在 .veil-out.palette-veil 处覆盖。 */
+.cl-screen-veil.palette-veil {
+  --veil-to-bf: blur(0px) !important;
+}
+.veil-out.palette-veil {
+  animation: veil-fade calc(0.32s * var(--mo-speed, 1)) cubic-bezier(0.33, 0, 0.2, 1) forwards;
+  --veil-out-dur: 0.32s;
+}
 html.photo-mode .cl-screen-veil {
   background-color: rgba(0, 0, 0, 0.18);
   backdrop-filter: blur(12px);

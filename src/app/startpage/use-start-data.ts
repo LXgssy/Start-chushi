@@ -42,6 +42,45 @@ export function useStartData(
   settings: Settings
 ) {
   const [links, setLinks] = useStored<StartLink[]>(KEYS.links, DEFAULT_LINKS);
+
+  /* ---------- v8.7.38 弹窗「添加至快捷服务」热跟随 ----------
+     popup 直写 start:links（新标签页可能已开），storage 事件并入本地状态
+     （与 settings 热跟随同律）。条目形状校验（id/name/url 字符串），残缺
+     条目过滤；写回同值不广播（storage 事件只达跨文档），无事件环。 */
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== KEYS.links || e.newValue == null) return;
+      try {
+        const j = JSON.parse(e.newValue) as unknown;
+        if (!Array.isArray(j)) return;
+        const ok = j.filter(
+          (l): l is StartLink =>
+            !!l && typeof l === "object" &&
+            typeof (l as StartLink).id === "string" &&
+            typeof (l as StartLink).name === "string" &&
+            typeof (l as StartLink).url === "string"
+        );
+        setLinks(ok);
+      } catch {
+        /* 残缺 JSON 忽略 */
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [setLinks]);
+
+  /* ---------- v8.7.38 标签系统孤儿数据一次性清理 ----------
+     v8.7.36/37 的 start:bookmarks 随标签系统退役（弹窗改「添加至快捷
+     服务」直写 start:links）——挂载期清掉存量孤儿，恢复默认也不留残骸。 */
+  useEffect(() => {
+    if (!mounted) return;
+    try {
+      window.localStorage.removeItem("start:bookmarks");
+    } catch {
+      /* 隐私模式静默 */
+    }
+  }, [mounted]);
+
   const [todos, setTodos] = useStored<TodoItem[]>(KEYS.todos, []);
   const [note, setNote] = useStored<string>(KEYS.note, "");
   const [place, setPlace] = useStored<Place>(KEYS.place, {});

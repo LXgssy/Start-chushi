@@ -27,6 +27,12 @@ export const ENGINES: Engine[] = [
     search: (q) => `https://www.baidu.com/s?wd=${encodeURIComponent(q)}`,
   },
   {
+    id: "so360",
+    name: "360搜索",
+    hint: "在 360 搜索中搜索，或输入网址",
+    search: (q) => `https://www.so.com/s?q=${encodeURIComponent(q)}`,
+  },
+  {
     id: "ddg",
     name: "DuckDuckGo",
     hint: "在 DuckDuckGo 中搜索，或输入网址",

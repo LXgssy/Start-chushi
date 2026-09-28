@@ -19,15 +19,6 @@ export type IconStyle = "letter" | "favicon";
 /** 快捷服务样式（v8.6.2）：常驻 / 抽屉（v8.5.x 曾以 linksStyle 短暂存在，见 Settings.linksForm） */
 export type LinksForm = "docked" | "drawer";
 
-/** v8.7.36 收藏书签：弹窗「收藏此页」与快捷服务面板书签区共享的数据面
- *  （localStorage start:bookmarks；popup.js 与本侧各自实现同一 JSON 契约） */
-export interface CsBookmark {
-  id: string;
-  title: string;
-  url: string;
-  at: number;
-}
-
 export type PanelId = "weather" | "todo" | "note" | "pomodoro" | "settings" | null;
 
 /** 番茄钟时长设置（分钟） */

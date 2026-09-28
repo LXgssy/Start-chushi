@@ -51,8 +51,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { SortableContext, rectSortingStrategy, useSortable } from "@dnd-kit/sortable";
-import type { CsBookmark, IconStyle, LinksForm, StartLink } from "@/lib/startpage/types";
-import { BOOKMARKS_KEY } from "@/app/startpage/keys";
+import type { IconStyle, LinksForm, StartLink } from "@/lib/startpage/types";
 import { hostOf } from "@/lib/startpage/link-utils";
 import { inExtIframe, openExternalUrl } from "@/lib/startpage/nav";
 import { clearIconSource, orderedIconSources, saveIconSource } from "@/lib/startpage/favicon";
@@ -512,8 +511,7 @@ function QuickLinks({
    *  drawer = 抽屉（默认，中键唤出全屏磁贴墙） */
   form?: LinksForm;
   /** v8.7.37 布局占位克隆（drawer 形态的隐形 docked 克隆）：只参与布局，
-   *  交互监听（滚轮翻页 / 中键 / alt+v）一律不挂——否则与真身双监听，
-   *  一次滚轮翻两次等于没翻 */
+   *  交互监听（中键 / alt+v）一律不挂——否则与真身双监听 */
   ghost?: boolean;
 }) {
   const drawer = form === "drawer";
@@ -526,113 +524,23 @@ function QuickLinks({
      声明若留在下方 latch effect 旁会触发 TDZ（Cannot access before init） */
   const [mount, setMount] = useState(false);
 
-  /* ---------- v8.7.36 收藏书签区 ----------
-     数据面 = localStorage start:bookmarks（弹窗「收藏此页」写入，同扩展
-     origin 共享）；本侧只读+删，跨文档跟随走 storage 事件（popup 收藏后
-     已开页面即时出现，与 perfLite 热跟随同律）。意图消费 = 弹窗「书签」
-     按钮经 page.tsx 转发 start:bookmarks-open：抽屉开抽屉、常驻滚到书签区。 */
-  const [bookmarks, setBookmarks] = useState<CsBookmark[]>([]);
-  /* ---------- v8.7.37 书签翻页（磁贴页 ↔ 书签页滚轮切换）----------
-     用户指令：书签页面要在磁贴区域向下滚动滚轮时切入、向上滚动切回
-     快捷服务页面——v8.7.36「磁贴下方接排」形态退役。两形态同律：
-     docked = 主列内切换；drawer = 抽屉开着时在磁贴墙内切换。
-     守卫：书签列表自身滚动（.bkm-scroll）/ 对话框（设置面板等）/
-     Dock / 输入焦点内不翻页、禅模式不翻页、ghost 克隆不挂监听、
-     书签为空不可进入；650ms 冷却防触控板惯性连翻。 */
-  const [bkmPage, setBkmPage] = useState(false);
-  const bkmPageRef = useRef(false);
-  const bkmCoolRef = useRef(0);
-  useEffect(() => {
-    const read = () => {
-      try {
-        const raw = window.localStorage.getItem(BOOKMARKS_KEY);
-        const j = raw ? JSON.parse(raw) : [];
-        setBookmarks(Array.isArray(j) ? j.filter((b) => b && typeof b.url === "string") : []);
-      } catch {
-        setBookmarks([]);
-      }
-    };
-    const onOpen = () => {
-      /* v8.7.37 弹窗「书签」按钮意图：直落书签页（翻页形态下
-         scrollIntoView 无处可滚——书签已是独立页） */
-      if (drawer) setOpen(true);
-      setBkmPage(true);
-    };
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === BOOKMARKS_KEY || e.key === null) read();
-    };
-    read();
-    window.addEventListener("storage", onStorage);
-    window.addEventListener("start:bookmarks-open", onOpen);
-    return () => {
-      window.removeEventListener("storage", onStorage);
-      window.removeEventListener("start:bookmarks-open", onOpen);
-    };
-  }, [drawer]);
-  const removeBookmark = useCallback((id: string) => {
-    setBookmarks((prev) => {
-      const next = prev.filter((b) => b.id !== id);
-      try {
-        window.localStorage.setItem(BOOKMARKS_KEY, JSON.stringify(next));
-      } catch {
-        /* 隐私模式静默：本地状态已删，重载后回读为准 */
-      }
-      return next;
-    });
-  }, []);
-  /* bkmPage 镜像 ref：wheel 冷却判定读最新值（state 闭包陈旧免疫） */
-  useEffect(() => {
-    bkmPageRef.current = bkmPage;
-  }, [bkmPage]);
-
-  /* 滚轮翻页监听（两形态真身共用；ghost 不挂）。抽屉形态仅开着时响应
-     （抽屉没开书签页无处显示）；依赖数组带 open——开合重建监听，
-     判定直读 state 免 ref 竞态。 */
-  useEffect(() => {
-    if (disabled || ghost) return;
-    const onWheel = (e: WheelEvent) => {
-      if (drawer && !open) return;
-      if (document.documentElement.classList.contains("zen")) return;
-      const t = e.target as Element | null;
-      if (!t || typeof t.closest !== "function") return;
-      if (
-        t.closest(
-          ".bkm-scroll, .cl-panel, [role=dialog], .cl-dock, .cl-dockwidget, input, textarea",
-        )
-      )
-        return;
-      const now = Date.now();
-      if (now < bkmCoolRef.current) return;
-      if (Math.abs(e.deltaY) < 14) return;
-      if (!bkmPageRef.current) {
-        if (e.deltaY > 0 && bookmarks.length > 0) {
-          bkmCoolRef.current = now + 650;
-          setBkmPage(true);
-        }
-      } else if (e.deltaY < 0) {
-        bkmCoolRef.current = now + 650;
-        setBkmPage(false);
-      }
-    };
-    window.addEventListener("wheel", onWheel, { passive: true });
-    return () => window.removeEventListener("wheel", onWheel);
-  }, [disabled, ghost, drawer, open, bookmarks.length]);
-
-  /* 抽屉关闭重置：下次开抽屉从磁贴页开始（书签页是抽屉内的临时页） */
-  useEffect(() => {
-    if (drawer && !open) {
-      setBkmPage(false);
-      bkmPageRef.current = false;
-    }
-  }, [open, drawer]);
-
+  /* ---------- v8.7.38 标签系统退役 ----------
+     v8.7.36/37 的收藏书签区与滚轮翻页整体退役（用户指令：删掉标签系统，
+     弹窗改「添加至快捷服务」直达磁贴）——start:bookmarks 数据面、
+     bkmPage 翻页、滚轮监听、start:bookmarks-open 意图全部拆除；
+     旧数据由 use-start-data 挂载期一次性清理。磁贴墙 rootRef 同步还原
+     v8.7.35 内容宽（w-full 曾为书签页布局所加——它让磁贴行左右两侧空白
+     落进 pointer-events-auto 的 rootRef，抽屉点空白退出的区域因此缩水；
+     cl-links-fade 淡入包装层同期拆除——fill:both 驻留动画在合成器滞留
+     渲染表面形成 backdrop root，后代 .tile-frost 磨砂全灭）。 */
   /* ---------- v8.7.37 alt+v 快捷键开关抽屉（仅抽屉形态真身）----------
      与中键同守卫（禅模式豁免 + 输入焦点豁免）。壳架构下焦点在顶层
      shell 文档时键盘事件进不来（与 ESC 同一架构限制）——中键/点击
      页面后 window.focus() 归位，alt+v 处理完同样归位，连续快捷键
      不断链。 */
   useEffect(() => {
-    if (disabled || !drawer || ghost) return;
+    if (disabled || ghost) return;
+    if (!drawer) return;
     const onKey = (e: KeyboardEvent) => {
       if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
       if (e.code !== "KeyV") return;
@@ -886,66 +794,6 @@ function QuickLinks({
     setActiveId(null);
   }
 
-  /* 书签页渲染（v8.7.37 翻页形态，两形态共用）：独立页替换磁贴墙
-     （滚轮切换进出），不再是磁贴下方接排。条目=首字徽+标题+域名，
-     hover 显删除；列表限高自滚（.bkm-scroll 内滚轮翻页豁免）。
-     空收藏不渲染整区（wheel 守卫同样不可进入=诚实边界不空挂）。
-     宽度与磁贴墙同构（列数约束），页脚提示向上滚回。 */
-  const renderBookmarks = () => {
-    if (disabled || bookmarks.length === 0) return null;
-    return (
-      <div className="flex w-full flex-col items-center" style={{ maxWidth: columns ? 6 * columns + 1 + "rem" : 680 + 16 }}>
-        <div className="mb-3 select-none text-center text-[11px] font-light tracking-[0.3em] text-zinc-500 dark:text-zinc-400">
-          书签
-        </div>
-        <div className="bkm-scroll slim-scroll mx-auto flex max-h-[52vh] w-full flex-col gap-1 overflow-y-auto rounded-2xl px-2 py-1">
-          {bookmarks.map((b) => {
-            const h = hostOf(b.url) || "";
-            const ch = (b.title || h || "?").trim().charAt(0).toUpperCase();
-            return (
-              <a
-                key={b.id}
-                href={b.url}
-                target="_blank"
-                rel="noreferrer"
-                className="bkm-item group flex items-center gap-3 rounded-xl px-3 py-2 transition-colors duration-200 hover:bg-zinc-900/5 dark:hover:bg-white/5"
-              >
-                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-zinc-900/5 text-sm font-light text-zinc-500 dark:bg-white/10 dark:text-zinc-300">
-                  {ch}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13px] font-light text-zinc-700 dark:text-zinc-200">
-                    {b.title || h}
-                  </span>
-                  {h ? (
-                    <span className="block truncate text-[10.5px] font-light tracking-wide text-zinc-400 dark:text-zinc-500">
-                      {h}
-                    </span>
-                  ) : null}
-                </span>
-                <button
-                  type="button"
-                  aria-label="删除书签"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    removeBookmark(b.id);
-                  }}
-                  className="bkm-del shrink-0 rounded-md p-1 text-zinc-300 opacity-0 transition-opacity duration-200 hover:text-zinc-600 focus-visible:opacity-100 group-hover:opacity-100 dark:text-zinc-600 dark:hover:text-zinc-300"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </a>
-            );
-          })}
-        </div>
-        <div className="mt-4 select-none text-center text-[10px] font-light tracking-[0.24em] text-zinc-400/70 dark:text-zinc-500/70">
-          向上滚动返回
-        </div>
-      </div>
-    );
-  };
-
   const enterEdit = useCallback(() => setEditing(true), []);
   const removeLink = useCallback(
     (id: string) => {
@@ -1055,9 +903,7 @@ function QuickLinks({
       {/* ---------- 形态一：常驻（v8.5.9 原样式）——内联网格，无纱罩无中键 ---------- */}
       {form === "docked" && (
         <div ref={rootRef} className="cl-links cl-links-docked flex w-full flex-col items-center">
-          <div key={bkmPage ? "bkm" : "tiles"} className="cl-links-fade flex w-full flex-col items-center">
-            {bkmPage ? renderBookmarks() : renderGrid(true)}
-          </div>
+          {renderGrid(true)}
         </div>
       )}
 
@@ -1100,10 +946,8 @@ function QuickLinks({
                     animate={open ? { y: 0, scale: 1 } : { y: 42, scale: 0.97 }}
                     transition={{ type: "spring", stiffness: 300, damping: 32, mass: 0.95 }}
                   >
-                    <div ref={rootRef} className="cl-links cl-links-drawer pointer-events-auto flex w-full flex-col items-center">
-                      <div key={bkmPage ? "bkm" : "tiles"} className="cl-links-fade flex w-full flex-col items-center">
-                        {bkmPage ? renderBookmarks() : renderGrid(false)}
-                      </div>
+                    <div ref={rootRef} className="cl-links cl-links-drawer pointer-events-auto flex flex-col items-center">
+                      {renderGrid(false)}
                     </div>
                   </motion.div>
             </motion.div>,
