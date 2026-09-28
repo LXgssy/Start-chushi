@@ -498,6 +498,7 @@ function QuickLinks({
   columns,
   disabled = false,
   form = "drawer",
+  ghost = false,
 }: {
   links: StartLink[];
   setLinks: (updater: (prev: StartLink[]) => StartLink[]) => void;
@@ -510,6 +511,10 @@ function QuickLinks({
   /** v8.6.2 快捷服务样式：docked = 常驻（v8.5.9 原样式，内联网格）；
    *  drawer = 抽屉（默认，中键唤出全屏磁贴墙） */
   form?: LinksForm;
+  /** v8.7.37 布局占位克隆（drawer 形态的隐形 docked 克隆）：只参与布局，
+   *  交互监听（滚轮翻页 / 中键 / alt+v）一律不挂——否则与真身双监听，
+   *  一次滚轮翻两次等于没翻 */
+  ghost?: boolean;
 }) {
   const drawer = form === "drawer";
   const rootRef = useRef<HTMLDivElement>(null);
@@ -527,7 +532,16 @@ function QuickLinks({
      已开页面即时出现，与 perfLite 热跟随同律）。意图消费 = 弹窗「书签」
      按钮经 page.tsx 转发 start:bookmarks-open：抽屉开抽屉、常驻滚到书签区。 */
   const [bookmarks, setBookmarks] = useState<CsBookmark[]>([]);
-  const bkmRef = useRef<HTMLDivElement>(null);
+  /* ---------- v8.7.37 书签翻页（磁贴页 ↔ 书签页滚轮切换）----------
+     用户指令：书签页面要在磁贴区域向下滚动滚轮时切入、向上滚动切回
+     快捷服务页面——v8.7.36「磁贴下方接排」形态退役。两形态同律：
+     docked = 主列内切换；drawer = 抽屉开着时在磁贴墙内切换。
+     守卫：书签列表自身滚动（.bkm-scroll）/ 对话框（设置面板等）/
+     Dock / 输入焦点内不翻页、禅模式不翻页、ghost 克隆不挂监听、
+     书签为空不可进入；650ms 冷却防触控板惯性连翻。 */
+  const [bkmPage, setBkmPage] = useState(false);
+  const bkmPageRef = useRef(false);
+  const bkmCoolRef = useRef(0);
   useEffect(() => {
     const read = () => {
       try {
@@ -539,8 +553,10 @@ function QuickLinks({
       }
     };
     const onOpen = () => {
+      /* v8.7.37 弹窗「书签」按钮意图：直落书签页（翻页形态下
+         scrollIntoView 无处可滚——书签已是独立页） */
       if (drawer) setOpen(true);
-      else window.setTimeout(() => bkmRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 80);
+      setBkmPage(true);
     };
     const onStorage = (e: StorageEvent) => {
       if (e.key === BOOKMARKS_KEY || e.key === null) read();
@@ -564,6 +580,78 @@ function QuickLinks({
       return next;
     });
   }, []);
+  /* bkmPage 镜像 ref：wheel 冷却判定读最新值（state 闭包陈旧免疫） */
+  useEffect(() => {
+    bkmPageRef.current = bkmPage;
+  }, [bkmPage]);
+
+  /* 滚轮翻页监听（两形态真身共用；ghost 不挂）。抽屉形态仅开着时响应
+     （抽屉没开书签页无处显示）；依赖数组带 open——开合重建监听，
+     判定直读 state 免 ref 竞态。 */
+  useEffect(() => {
+    if (disabled || ghost) return;
+    const onWheel = (e: WheelEvent) => {
+      if (drawer && !open) return;
+      if (document.documentElement.classList.contains("zen")) return;
+      const t = e.target as Element | null;
+      if (!t || typeof t.closest !== "function") return;
+      if (
+        t.closest(
+          ".bkm-scroll, .cl-panel, [role=dialog], .cl-dock, .cl-dockwidget, input, textarea",
+        )
+      )
+        return;
+      const now = Date.now();
+      if (now < bkmCoolRef.current) return;
+      if (Math.abs(e.deltaY) < 14) return;
+      if (!bkmPageRef.current) {
+        if (e.deltaY > 0 && bookmarks.length > 0) {
+          bkmCoolRef.current = now + 650;
+          setBkmPage(true);
+        }
+      } else if (e.deltaY < 0) {
+        bkmCoolRef.current = now + 650;
+        setBkmPage(false);
+      }
+    };
+    window.addEventListener("wheel", onWheel, { passive: true });
+    return () => window.removeEventListener("wheel", onWheel);
+  }, [disabled, ghost, drawer, open, bookmarks.length]);
+
+  /* 抽屉关闭重置：下次开抽屉从磁贴页开始（书签页是抽屉内的临时页） */
+  useEffect(() => {
+    if (drawer && !open) {
+      setBkmPage(false);
+      bkmPageRef.current = false;
+    }
+  }, [open, drawer]);
+
+  /* ---------- v8.7.37 alt+v 快捷键开关抽屉（仅抽屉形态真身）----------
+     与中键同守卫（禅模式豁免 + 输入焦点豁免）。壳架构下焦点在顶层
+     shell 文档时键盘事件进不来（与 ESC 同一架构限制）——中键/点击
+     页面后 window.focus() 归位，alt+v 处理完同样归位，连续快捷键
+     不断链。 */
+  useEffect(() => {
+    if (disabled || !drawer || ghost) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      if (e.code !== "KeyV") return;
+      if (document.documentElement.classList.contains("zen")) return;
+      const ae = document.activeElement as Element | null;
+      if (
+        ae &&
+        typeof ae.closest === "function" &&
+        ae.closest("input, textarea, select, [contenteditable=\"true\"]")
+      )
+        return;
+      e.preventDefault();
+      setOpen((o) => !o);
+      window.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [disabled, drawer, ghost]);
+
   useEffect(() => {
     setPortalReady(true);
   }, []);
@@ -798,21 +886,19 @@ function QuickLinks({
     setActiveId(null);
   }
 
-  /* 书签区渲染（两形态共用）：磁贴墙下方居中列，条目=首字徽+标题+域名，
-     hover 显删除。空收藏不渲染整区（诚实边界：无内容不空挂）。 */
+  /* 书签页渲染（v8.7.37 翻页形态，两形态共用）：独立页替换磁贴墙
+     （滚轮切换进出），不再是磁贴下方接排。条目=首字徽+标题+域名，
+     hover 显删除；列表限高自滚（.bkm-scroll 内滚轮翻页豁免）。
+     空收藏不渲染整区（wheel 守卫同样不可进入=诚实边界不空挂）。
+     宽度与磁贴墙同构（列数约束），页脚提示向上滚回。 */
   const renderBookmarks = () => {
     if (disabled || bookmarks.length === 0) return null;
     return (
-      <div ref={bkmRef} className="mt-12 w-full" style={{ maxWidth: columns ? 6 * columns + 1 + "rem" : 680 + 16 }}>
+      <div className="flex w-full flex-col items-center" style={{ maxWidth: columns ? 6 * columns + 1 + "rem" : 680 + 16 }}>
         <div className="mb-3 select-none text-center text-[11px] font-light tracking-[0.3em] text-zinc-500 dark:text-zinc-400">
           书签
         </div>
-        <div
-          className={
-            "mx-auto flex flex-col gap-1 overflow-y-auto rounded-2xl px-2 " +
-            (drawer ? "max-h-[30vh] py-1" : "")
-          }
-        >
+        <div className="bkm-scroll slim-scroll mx-auto flex max-h-[52vh] w-full flex-col gap-1 overflow-y-auto rounded-2xl px-2 py-1">
           {bookmarks.map((b) => {
             const h = hostOf(b.url) || "";
             const ch = (b.title || h || "?").trim().charAt(0).toUpperCase();
@@ -852,6 +938,9 @@ function QuickLinks({
               </a>
             );
           })}
+        </div>
+        <div className="mt-4 select-none text-center text-[10px] font-light tracking-[0.24em] text-zinc-400/70 dark:text-zinc-500/70">
+          向上滚动返回
         </div>
       </div>
     );
@@ -966,8 +1055,9 @@ function QuickLinks({
       {/* ---------- 形态一：常驻（v8.5.9 原样式）——内联网格，无纱罩无中键 ---------- */}
       {form === "docked" && (
         <div ref={rootRef} className="cl-links cl-links-docked flex w-full flex-col items-center">
-          {renderGrid(true)}
-          {renderBookmarks()}
+          <div key={bkmPage ? "bkm" : "tiles"} className="cl-links-fade flex w-full flex-col items-center">
+            {bkmPage ? renderBookmarks() : renderGrid(true)}
+          </div>
         </div>
       )}
 
@@ -1010,9 +1100,10 @@ function QuickLinks({
                     animate={open ? { y: 0, scale: 1 } : { y: 42, scale: 0.97 }}
                     transition={{ type: "spring", stiffness: 300, damping: 32, mass: 0.95 }}
                   >
-                    <div ref={rootRef} className="cl-links cl-links-drawer pointer-events-auto flex flex-col items-center">
-                      {renderGrid(false)}
-                      {renderBookmarks()}
+                    <div ref={rootRef} className="cl-links cl-links-drawer pointer-events-auto flex w-full flex-col items-center">
+                      <div key={bkmPage ? "bkm" : "tiles"} className="cl-links-fade flex w-full flex-col items-center">
+                        {bkmPage ? renderBookmarks() : renderGrid(false)}
+                      </div>
                     </div>
                   </motion.div>
             </motion.div>,

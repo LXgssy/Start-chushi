@@ -46,7 +46,7 @@ function Segmented<T extends string>({
 }: {
   label: string;
   value: T;
-  options: Array<{ value: T; label: string }>;
+  options: Array<{ value: T; label: string; disabled?: boolean }>;
   onChange: (v: T) => void;
   segKey: string;
 }) {
@@ -72,21 +72,30 @@ function Segmented<T extends string>({
           style={{ width: `calc(${100 / options.length}% - 4px)` }}
           transition={{ duration: 0.35, ease: EASE }}
         />
-        {options.map((o) => (
-          <button
-            key={o.value}
-            role="radio"
-            aria-checked={value === o.value}
-            onClick={() => onChange(o.value)}
-            className={`relative z-10 min-w-[44px] rounded-full px-2 py-1 text-center text-[11px] font-light tracking-wide transition-colors duration-300 ${
-              value === o.value
-                ? "text-zinc-900 dark:text-zinc-100"
-                : "text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
-            }`}
-          >
-            {o.label}
-          </button>
-        ))}
+        {options.map((o) => {
+          const dis = !!o.disabled && value !== o.value;
+          return (
+            <button
+              key={o.value}
+              role="radio"
+              aria-checked={value === o.value}
+              aria-disabled={dis || undefined}
+              title={dis ? "流畅模式下不可用" : undefined}
+              onClick={() => {
+                if (!dis) onChange(o.value);
+              }}
+              className={`relative z-10 min-w-[44px] rounded-full px-2 py-1 text-center text-[11px] font-light tracking-wide transition-colors duration-300 ${
+                value === o.value
+                  ? "text-zinc-900 dark:text-zinc-100"
+                  : dis
+                    ? "cursor-not-allowed text-zinc-300 dark:text-zinc-600"
+                    : "text-zinc-400 hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
+              }`}
+            >
+              {o.label}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -579,7 +588,7 @@ function SettingsPanel({
           label="背景"
           value={settings.background}
           options={[
-            { value: "glow", label: "辉光" },
+            { value: "glow", label: "辉光", disabled: settings.perfLite },
             { value: "pure", label: "纯净" },
             { value: "photo", label: "掠影" },
           ]}

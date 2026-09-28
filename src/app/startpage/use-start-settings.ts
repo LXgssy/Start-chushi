@@ -98,9 +98,16 @@ export function useStartSettings(mounted: boolean) {
         root.classList.toggle("cs-lite", !!next.perfLite);
         /* v8.7.36 弹窗快捷面板改的 photoDim/showDock 热跟随（popup 直写
            同一键，storage 事件到达后并入本地状态；真不同才 patch——
-           回写同值不广播，双开页无事件环） */
+           回写同值不广播，双开页无事件环）。
+           v8.7.37 perfLite 并入：此前只 toggle html 类不进 state——
+           页面随后任何 patchSettings 都会把陈旧值回写覆盖弹窗写入
+           （流畅模式被静默关闭=弹窗再开「开关显示关闭」，需再次开启
+           关闭才真正关闭的根因）；并入后三域同步同律。 */
         setSettings((prev) => {
           const p: Partial<Settings> = {};
+          if (typeof next.perfLite === "boolean" && next.perfLite !== prev.perfLite) {
+            p.perfLite = next.perfLite;
+          }
           if (typeof next.photoDim === "number" && next.photoDim !== prev.photoDim) {
             p.photoDim = Math.min(200, Math.max(0, Math.round(next.photoDim)));
           }
@@ -116,6 +123,19 @@ export function useStartSettings(mounted: boolean) {
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, [mounted, settings.perfLite, setSettings]);
+
+  /* ---------- 流畅模式 × 辉光互斥（v8.7.37） ----------
+     cs-lite 下光斑层整体隐藏（globals.css .aurora-blob display:none），
+     辉光在流畅系统里语义已死。开启流畅模式时背景=辉光 → 自动切掠影；
+     关闭流畅模式不回切（用户自选）。弹窗开流畅时 popup.js 直写同律
+     （单次写入少竞态窗），此 effect 兜底所有路径（storage 事件并入的
+     perfLite 也走到）。patch 后 background=photo，条件不再成立，稳定。 */
+  useEffect(() => {
+    if (!mounted) return;
+    if (settings.perfLite && settings.background === "glow") {
+      patchSettings({ background: "photo" });
+    }
+  }, [mounted, settings.perfLite, settings.background, patchSettings]);
 
   /* ---------- 新标签页焦点归位（settings.noOmniboxFocus 门控） ----------
      Chrome 打开新标签页时焦点在地址栏（omnibox）——开关打开时在挂载后

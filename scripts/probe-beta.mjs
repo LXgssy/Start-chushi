@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.36/ChuShi-NewTab-v8.7.36.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.37/ChuShi-NewTab-v8.7.37.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -3186,13 +3186,44 @@ try {
     gate("TL59 弹窗扩容+书签+浮窗残影根治门（v8.7.36）",
       t59.phQuick && t59.phTip && t59.pjBkm && t59.pjDimDock && t59.cardHide && t59.cardOldGone && t59.showDockType && t59.dockGate && t59.intentBkm && t59.hotFollow && t59.qlBkm && t59.key36, JSON.stringify(t59));
   }
+  /* ---------- TL60 流畅根治+辉光互斥+书签翻页+alt+v 门（v8.7.37） ----------
+     用户四域：①流畅模式三连修（掠影壁纸跳动=cs-lite 通配把 kenburns 80s
+     infinite 压成 1ms 高频抖动；冒号加速闪=colon-breathe 4s 同律；开关显示
+     关闭=onStorage 只 toggle 类不并入 state→页面回写陈旧值覆盖弹窗写入）；
+     ②流畅模式禁用辉光：开启时背景=glow 自动切 photo+设置面板辉光置灰；
+     ③书签滚轮翻页：磁贴区域向下滚轮进书签页/向上滚回（两形态）；
+     ④alt+v 开抽屉。 */
+  {
+    const cs60 = readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8");
+    const st60 = readFileSync(new URL("../src/app/startpage/use-start-settings.ts", import.meta.url), "utf8");
+    const sp60 = readFileSync(new URL("../src/components/startpage/SettingsPanel.tsx", import.meta.url), "utf8");
+    const ql60 = readFileSync(new URL("../src/components/startpage/QuickLinks.tsx", import.meta.url), "utf8");
+    const pg60 = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+    const pj60 = readFileSync(new URL("../extension-src/popup.js", import.meta.url), "utf8");
+    const t60 = {
+      liteLoop: cs60.includes("html.cs-lite .kenburns") && cs60.includes("html.cs-lite .colon-breathe") && cs60.includes("html.cs-lite .pulse-dot") && cs60.includes("html.cs-lite .pomo-dot"),
+      perfSync: st60.includes("p.perfLite = next.perfLite"),
+      glowGate: st60.includes('settings.perfLite && settings.background === "glow"') && st60.includes('patchSettings({ background: "photo" })'),
+      glowPj: pj60.includes('background: "photo"') && pj60.includes("流畅模式禁用辉光"),
+      glowGray: sp60.includes("disabled: settings.perfLite") && sp60.includes("流畅模式下不可用") && sp60.includes("cursor-not-allowed"),
+      bkmPage: ql60.includes("bkmPage ? renderBookmarks() : renderGrid(true)") && ql60.includes("bkmPage ? renderBookmarks() : renderGrid(false)"),
+      wheel: ql60.includes(".bkm-scroll, .cl-panel") && ql60.includes("bkmCoolRef") && ql60.includes("deltaY > 0 && bookmarks.length > 0"),
+      bkmFoot: ql60.includes("向上滚动返回"),
+      altV: ql60.includes('e.code !== "KeyV"') && ql60.includes("setOpen((o) => !o)") && ql60.includes("window.focus()"),
+      ghost: pg60.includes("ghost\n                />") && ql60.includes("ghost?: boolean") && ql60.includes("disabled || ghost"),
+      fadeCls: cs60.includes("@keyframes cl-page-in") && cs60.includes(".cl-links-fade"),
+      lenKey37: cs60.includes("0.001s") || cs60.includes("1ms"),
+    };
+    gate("TL60 流畅根治+辉光互斥+书签翻页+alt+v 门（v8.7.37）",
+      t60.liteLoop && t60.perfSync && t60.glowGate && t60.glowPj && t60.glowGray && t60.bkmPage && t60.wheel && t60.bkmFoot && t60.altV && t60.ghost && t60.fadeCls, JSON.stringify(t60));
+  }
   /* ---------- T10 pageerror ---------- */
   gate("T10 pageerror=0", errors.length === 0, errors.join(" | ").slice(0, 120));
 } catch (e) {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.35 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.37 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);

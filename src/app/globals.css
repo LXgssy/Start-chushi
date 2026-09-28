@@ -1859,6 +1859,31 @@ html.cs-lite:not(.dark) .glass-pill {
 html.cs-lite.dark .glass-pill {
   background: rgba(24, 24, 27, 0.94) !important;
 }
+/* v8.7.37 循环动画 cs-lite 豁免：通配 0.001s 对 infinite 循环动画=高频抖动
+   （壁纸 kenburns 80s→1ms=壁纸跳动、时钟冒号 4s→1ms=加速闪、脉冲点同律）——
+   循环装饰动画直接停掉（与 prefers-reduced-motion 同律），一次性入场动画
+   保持 0.001s 快速完成的降级语义不变 */
+html.cs-lite .kenburns,
+html.cs-lite .colon-breathe,
+html.cs-lite .pulse-dot,
+html.cs-lite .pomo-dot {
+  animation: none !important;
+}
+/* v8.7.37 书签翻页淡入：磁贴页↔书签页滚轮切换（key 重挂触发，柔和上浮；
+   cs-lite 通配 0.001s 自动降级为瞬切） */
+@keyframes cl-page-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.cl-links-fade {
+  animation: cl-page-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
 
 /* ---------- 快捷服务抽屉（中键唤出全屏磁贴墙）----------
    纱罩 = 【整页高斯模糊】+ 轻染色（不要纯黑遮罩，模糊整个页面）：

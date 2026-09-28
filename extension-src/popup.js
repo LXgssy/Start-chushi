@@ -123,7 +123,13 @@
   $("#sw-lite").addEventListener("click", function () {
     var on = $("#sw-lite").getAttribute("aria-checked") !== "true";
     setSw($("#sw-lite"), on);
-    writeSettings({ perfLite: on });
+    if (on && readSettings().background === "glow") {
+      /* v8.7.37 流畅模式禁用辉光：开启瞬间背景=辉光则一并切掠影
+         （单次写入少竞态窗；页面侧 use-start-settings 互斥 effect 同律兜底） */
+      writeSettings({ perfLite: true, background: "photo" });
+    } else {
+      writeSettings({ perfLite: on });
+    }
   });
 
   $("#sw-nofocus").addEventListener("click", function () {

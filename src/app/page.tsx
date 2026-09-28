@@ -402,6 +402,7 @@ function StartPageView() {
                   iconStyle={sp.settings.iconStyle}
                   columns={sp.layout.linksColumns}
                   form="docked"
+                  ghost
                 />
               </section>
             )}
