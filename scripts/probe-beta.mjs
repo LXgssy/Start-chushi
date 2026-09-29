@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.39/ChuShi-NewTab-v8.7.39.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.40/ChuShi-NewTab-v8.7.40.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -2418,10 +2418,10 @@ try {
     const t39 = {
       photoVarSat: /--dv-open-bf:\s*blur\(14px\)\s*;/.test(photoVarRule) && /--dv-mid-bf:\s*blur\(9px\)\s*;/.test(photoVarRule) && !/saturate/.test(photoVarRule),
       screenDark: /backdrop-filter:\s*blur\(12px\)/.test(screenRule) && /(#0000002e|rgba?\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0?\.18\)|rgb\(\s*0\s+0\s+0\s*\/\s*0?\.18\))/.test(screenRule) && !/saturate/.test(screenRule),
-      modesOnly: screenRules.length > 0 && screenRules.every((x) => /photo-mode|glow-mode|palette-veil/.test(x) || /^\.cl-screen-veil\{--veil-to-bf:blur\(0px\)!important;\}$/.test(x.replace(/\s/g, "")) || /^\.veil-out\.cl-screen-veil\{animation:veil-fade/.test(x.replace(/\s/g, ""))),
+      modesOnly: screenRules.length > 0 && screenRules.every((x) => /photo-mode|glow-mode|palette-veil|cs-drawer/.test(x) || /^\.cl-screen-veil\{--veil-to-bf:blur\(0px\)!important;\}$/.test(x.replace(/\s/g, "")) || /^\.veil-out\.cl-screen-veil\{animation:veil-fade/.test(x.replace(/\s/g, ""))),
       srcCount: src39 >= 4,
     };
-    gate("TL39 掠影模糊不提亮律静态门（v8.7.11/v8.7.38 扩容/v8.7.39 翻转）：photo 站点变量无sat + cl-screen-veil 深纱blur12无sat + 覆写规则仅模式/面板面/裸纱幕律(blur0 全量) + 源码接线≥4",
+    gate("TL39 掠影模糊不提亮律静态门（v8.7.11/v8.7.38 扩容/v8.7.39 翻转/v8.7.40 cs-drawer 面扩容）：photo 站点变量无sat + cl-screen-veil 深纱blur12无sat + 覆写规则仅模式/面板面/裸纱幕律(blur0 全量) + 源码接线≥4",
       t39.photoVarSat && t39.screenDark && t39.modesOnly && t39.srcCount,
       JSON.stringify(t39) + " screen=" + screenRule.slice(0, 140));
   }
@@ -3242,7 +3242,7 @@ try {
       so360: en61.includes('id: "so360"') && en61.includes("360搜索") && en61.includes("https://www.so.com/s?q="),
       glowClass: ab61.includes('"glow-mode"') && ab61.includes('shownKey === "bg:glow"'),
       glowVeil: gc61.includes("html.glow-mode .cl-screen-veil") && gc61.includes("rgba(0, 0, 0, 0.12)"),
-      paletteVeil: cp61.includes("cl-screen-veil palette-veil") && cp61.includes("duration={0.32}") && gc61.includes("--veil-to-bf: blur(0px) !important;") && gc61.includes(".veil-out.cl-screen-veil"),
+      paletteVeil: cp61.includes("cl-screen-veil palette-veil") && cp61.includes("duration={0.30}") && gc61.includes("--veil-to-bf: blur(0px) !important;") && gc61.includes(".veil-out.cl-screen-veil"),
       drawerClick: !ql61.includes("cl-links-drawer pointer-events-auto flex w-full") && ql61.includes("cl-links cl-links-drawer pointer-events-auto flex flex-col items-center"),
       frostAlive: !gc61.includes("cl-links-fade") && !ql61.includes('className="cl-links-fade') && !ql61.includes("cl-page-in"),
       directAdd: pj61.includes('LINKS_KEY = "start:links"') && pj61.includes("list.push({") && ph61.includes("添加至快捷服务") && !ph61.includes("btn-bkm"),
@@ -3279,10 +3279,37 @@ try {
       contentSync: gc62.includes("animation: content-defocus var(--veil-out-dur, 0.25s) cubic-bezier(0.4, 0, 1, 1) forwards;"),
       liteAnimKept: !gc62.includes("0.001s") && !gc62.includes("html.cs-lite .kenburns"),
       liteDrawerFlat: gc62.includes("html.cs-lite .cl-drawer-veil::before {\n  background: rgba(255, 255, 255, 0.55);\n}"),
-      durSync: ld62.includes("duration={0.32}") && cd62.includes("duration={0.32}") && pdocs62.includes("duration={0.32}"),
+      durSync: ld62.includes("duration={0.30}") && cd62.includes("duration={0.30}") && pdocs62.includes("duration={0.30}"), /* v8.7.40 关开同速翻转 */
     };
     gate("TL62 主列定高+弹窗同帧退场+流畅动画保留 门（v8.7.39）",
       Object.values(t62).every(Boolean), JSON.stringify(t62));
+  }
+  /* ---------- TL63 悬浮卡律动桥+掠影×流畅抽屉遮罩+抽屉态纱幕零叠加+关开同速+搜索拉近 门（v8.7.40） ----------
+     用户四域：①全局音乐浮窗（悬浮音乐卡）ne 播放下零律动——宿主 neSpecFrame
+     直通 SW+源锁仲裁（800ms 窗内桥 on:false 让路）+ext-card 既有消费零改动；
+     ②掠影×流畅抽屉零遮罩死角——cs-lite.photo-mode 交叉面 display:block+暗纱
+     （不提亮律）；③抽屉页编辑弹窗双层加深加黑——html.cs-drawer .cl-screen-veil
+     底色归零；④关开同速——veil-out.cl-screen-veil 0.30s=panel-rise 0.3s+全族
+     duration 0.30；搜索框与时钟 6vh→3vh 拉近（定高律同构）。 */
+  {
+    const pw63 = readFileSync(new URL("../src/components/startpage/PresetWidgets.tsx", import.meta.url), "utf8");
+    const bg63 = readFileSync(new URL("../extension-src/ext-bg.js", import.meta.url), "utf8");
+    const gc63 = readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8");
+    const pg63 = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+    const ld63 = readFileSync(new URL("../src/components/startpage/LinkDialog.tsx", import.meta.url), "utf8");
+    const cp63 = readFileSync(new URL("../src/components/startpage/CommandPalette.tsx", import.meta.url), "utf8");
+    const t63 = {
+      beatHost: pw63.includes('type: "neSpecFrame"') && pw63.includes("sentOn") && pw63.includes("chromeRuntime()"),
+      beatSw: bg63.includes('"neSpecFrame"') && bg63.includes("neSpecAt = Date.now()") && bg63.includes("broadcastSpec({"),
+      specLock: bg63.includes("Date.now() - neSpecAt < 800 && !cap") && bg63.includes("Date.now() - neSpecAt >= 800"),
+      veilCross: gc63.includes("html.cs-lite.photo-mode:not(.dark) .cl-drawer-veil::before") && gc63.includes("rgba(0, 0, 0, 0.18)") && gc63.includes("html.cs-lite.photo-mode.dark .cl-drawer-veil::before"),
+      drawerVeilZero: gc63.includes("html.cs-drawer .cl-screen-veil") && /html\.cs-drawer \.cl-screen-veil \{\n  background-color: transparent !important;\n\}/.test(gc63),
+      durSync30: gc63.includes("--veil-out-dur: 0.30s;") && ld63.includes("duration={0.30}") && cp63.includes("duration={0.30}") && !gc63.includes("--veil-out-dur: 0.32s;"),
+      searchNear: pg63.includes("mt-[clamp(1rem,3vh,1.75rem)]") && !pg63.includes("mt-[clamp(1.8rem,6vh,3.5rem)]"),
+      linksZoneKeep: pg63.includes("mt-[clamp(2rem,8vh,4.5rem)]"),
+    };
+    gate("TL63 悬浮卡律动桥+掠影×流畅抽屉遮罩+抽屉态纱幕零叠加+关开同速+搜索拉近 门（v8.7.40）",
+      Object.values(t63).every(Boolean), JSON.stringify(t63));
   }
   /* ---------- T10 pageerror ---------- */
   gate("T10 pageerror=0", errors.length === 0, errors.join(" | ").slice(0, 120));

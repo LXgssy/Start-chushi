@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.40",
+    date: "2026-09-29",
+    title: "悬浮卡律动高光 · 布局更紧凑 · 遮罩三修",
+    channel: "shell",
+    highlights: [
+      "全局音乐浮窗（悬浮音乐卡）在扩展内置播放器播放时也有封面律动高光了",
+      "搜索框与时钟/日期间距拉近，主页布局更紧凑不再浪费空间",
+      "流畅模式下打开抽屉恢复背景遮罩；抽屉页打开编辑链接弹窗不再把背景加深加黑；编辑弹窗关闭速度与打开动画同速",
+    ],
+  },
+  {
     version: "8.7.39",
     date: "2026-09-29",
     title: "主列定高 · 编辑弹窗同帧退场 · 流畅模式动画保留",

@@ -239,7 +239,11 @@ async function specTick() {
          只在 on→off 边沿发一条熄辉光 */
       if (specSentOn !== false) {
         specSentOn = false;
-        broadcastSpec({ type: "spec", on: false, bass: 0, bands: [], t: Date.now() });
+        /* v8.7.40 ne 源锁:ne 频谱活跃窗内桥熄灯帧让路（不覆盖 ne on:true 帧
+           ——ne 播放中,桌面桥未跑/暂停时的 on:false 边沿会把悬浮卡辉光误熄） */
+        if (Date.now() - neSpecAt >= 800) {
+          broadcastSpec({ type: "spec", on: false, bass: 0, bands: [], t: Date.now() });
+        }
       }
       return;
     }
@@ -256,6 +260,10 @@ async function specTick() {
     }
     specFails = 0;
     const cap = j.cap === true || j.cap === 1;
+    /* v8.7.40 ne 源锁:ne 频谱活跃窗（800ms）内桥链仅 on:true 真值帧可夺回
+       （桌面客户端真在前台播）,on:false/失联衰减帧不覆盖 ne 帧——双链同屏
+       只剩一个主导源,悬浮卡辉光不闪断 */
+    if (Date.now() - neSpecAt < 800 && !cap) return;
     specSentOn = cap;
     broadcastSpec({
       type: "spec",
@@ -316,6 +324,7 @@ async function sendCmd(cmd, position) {
 let neTrack = null;
 let neTrackAt = 0;
 let neTabId = null;
+let neSpecAt = 0; /* v8.7.40 ne 频谱源锁时间戳（最近 neSpecFrame 到达时刻） */
 const NE_LYRIC_CAP = 4;
 let neLyrics = new Map();
 let neSessLoaded = false;
@@ -439,6 +448,21 @@ chrome.runtime.onMessage.addListener((m, sender) => {
   if (m.type === "neLyricPush") {
     neSessLoad();
     if (m.lyric && typeof m.lyric === "object") neLyricPut(m.lyric);
+    return;
+  }
+  if (m.type === "neSpecFrame") {
+    /* v8.7.40 悬浮卡律动桥（宿主页面直发）:ne WebAudio 频谱帧按既有 spec
+       协议扇出 __spec 订阅卡——ext-card 消费端零改动（形状同构）。
+       帧仲裁见 specTick ne 源锁（桥链让路）;此处恒转发（on:false 边沿帧
+       需要透传给卡熄辉光,发送侧已有边沿门,静默期零帧）。 */
+    neSpecAt = Date.now();
+    broadcastSpec({
+      type: "spec",
+      on: m.on === true,
+      bass: Number(m.bass) || 0,
+      bands: Array.isArray(m.bands) ? m.bands.slice(0, 128) : [],
+      t: Date.now(),
+    });
     return;
   }
   /* 未知类型：静默（不 return true，不占用响应通道） */

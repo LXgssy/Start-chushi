@@ -2048,6 +2048,21 @@ html.cs-lite.dark .cl-drawer-veil::before {
 html.photo-mode .cl-drawer-veil::before {
   display: none;
 }
+/* v8.7.40 掠影×流畅抽屉遮罩回归律:两条正交退役律叠加留死角——掠影染色退役
+   (本条上方 display:none,v8.7.8「染色=主题色滤镜」)×流畅 blur 通配压置
+   (backdrop-filter:none !important)=抽屉打开时页面零遮罩(用户实测「流畅模式
+   打开抽屉页面时没有遮罩背景」)。流畅面恢复遮罩:掠影不提亮律→必须暗纱方向
+   (白纱叠掠影壁纸=提亮违 v8.7.9 律),浅色取掠影满屏纱幕 rgba(0,0,0,0.18)
+   同语言(与 photo-scrim 平底同值),深色取抽屉纱深色原值 rgba(24,24,27,0.42);
+   磨砂掠影面维持染色退役零波及(模糊承担分离,平涂染色仍属主题色滤镜)。 */
+html.cs-lite.photo-mode:not(.dark) .cl-drawer-veil::before {
+  display: block;
+  background: rgba(0, 0, 0, 0.18);
+}
+html.cs-lite.photo-mode.dark .cl-drawer-veil::before {
+  display: block;
+  background: rgba(24, 24, 27, 0.42);
+}
 /* 掠影模式：纱幕去饱和律（v8.7.9）：用户指令「保证模糊效果不会提亮背景」
    ——掠影为可读性刻意用 photo-scrim 压暗壁纸，而满值/散场站点里的
    saturate(1.5→1.22) 会把压暗后的壁纸重新提色提亮（用户实测「抽屉模式以及
@@ -2080,6 +2095,24 @@ html.glow-mode .cl-screen-veil {
   --veil-hold-bf: blur(12px);
   --veil-to-bf: blur(0px);
 }
+/* v8.7.40 抽屉态满屏纱幕零叠加底色律:抽屉页打开编辑链接,弹窗纱幕底色
+   (白 0.10/掠影黑 0.18)叠在抽屉纱幕(0.55 纯色/掠影暗纱)上=双层加深加黑
+   (用户实测「编辑链接的模糊遮罩会加深加黑遮罩后面背景的颜色」)。抽屉开态
+   (latch 窗含 520ms 散场)满屏纱幕底色归零,分离感由抽屉纱幕+blur 本体承担;
+   blur 雾化语言保留(只去平涂底色,遮罩仍模糊背景)。!important 压过各模式面
+   同键规则(--veil-to-bf 先例同构);非抽屉场景(主页直开)底色原样零波及。 */
+html.cs-drawer .cl-screen-veil {
+  background-color: transparent !important;
+}
+/* 声明强度律（v8.7.40 visual 实证）：cs-lite 流畅降级底色挂在 .veil-in 上
+   （html.cs-lite.dark .veil-in{background:rgba(9,9,11,0.5)!important}，
+   specificity (0,3,1)）压过上方单类规则 ((0,2,1))——抽屉态归零失效
+   （N46 实测 bg=rgba(9,9,11,0.5)）。同强度双类规则 (0,3,1)+源序靠后取胜，
+   veil-in/veil-out 两态全覆盖（退场帧 veil-out 类在位同须归零）。 */
+html.cs-drawer .cl-screen-veil.veil-in,
+html.cs-drawer .cl-screen-veil.veil-out {
+  background-color: transparent !important;
+}
 /* v8.7.38 命令面板退场丝滑（B1）→ v8.7.39 满屏纱幕退场丝滑律全量推广：
    退场尾段模糊收拢终点对齐零值——卸载帧与末帧无缝（旧 to=blur(1px) 在
    forwards 驻留卸载瞬间跳掉 1px 残模糊=「不丝滑」的尾刺，编辑链接弹窗
@@ -2090,8 +2123,11 @@ html.glow-mode .cl-screen-veil {
   --veil-to-bf: blur(0px) !important;
 }
 .veil-out.cl-screen-veil {
-  animation: veil-fade calc(0.32s * var(--mo-speed, 1)) cubic-bezier(0.33, 0, 0.2, 1) forwards;
-  --veil-out-dur: 0.32s;
+  /* v8.7.40 关开同速律:0.32→0.30s=panel-rise 卡片入场 0.3s 严格同拍
+     (用户实测「关闭速度和它的打开动画速度同步」);减速曲线零改动,
+     三链(内容/卡片/纱幕)经 --veil-out-dur 同源依旧同拍收口 */
+  animation: veil-fade calc(0.30s * var(--mo-speed, 1)) cubic-bezier(0.33, 0, 0.2, 1) forwards;
+  --veil-out-dur: 0.30s;
 }
 html.photo-mode .cl-screen-veil {
   background-color: rgba(0, 0, 0, 0.18);

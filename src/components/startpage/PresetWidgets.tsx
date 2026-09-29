@@ -358,9 +358,31 @@ function PresetWidgets(props: {
      参数族与 SMTC 频谱（v8.2.0 sendSpectrum）同语言；无订阅者时 onNeBeat
      循环自停（订阅驱动，非轮询空转） */
   useEffect(() => {
+    /* v8.7.40 悬浮卡律动桥:ne 频谱帧直通 SW（neSpecFrame → ext-bg 仲裁后按
+       既有 spec 协议扇出 __spec 订阅卡）——旧链只推部件帧，ne 内置播放器
+       播放时悬浮音乐卡零律动（用户实测「全局音乐浮窗没有加上律动高光」）。
+       发送侧边沿门:on 帧 30Hz 恒发,on:false 仅边沿一枚（对齐 SW 翻转门,
+       静默期零消息）;数据形状 {on,bass,bands,t} 与桥链 spec 帧同构。 */
+    let sentOn = false;
+    const rt = chromeRuntime();
+    const fwdSpec = (msg: Record<string, unknown>) => {
+      try {
+        const r = rt?.sendMessage?.(msg) as unknown;
+        if (r && typeof (r as Promise<void>).catch === "function") {
+          (r as Promise<void>).catch(() => { /* 无监听/无 SW 静默 */ });
+        }
+      } catch { /* 非扩展环境静默 */ }
+    };
     return onNeBeat((beat) => {
       for (const wkey of neBeatSubsRef.current) {
         postToWidget(wkey, { type: "widgetNeBeat", widgetKey: wkey, beat });
+      }
+      if (beat.on) {
+        sentOn = true;
+        fwdSpec({ type: "neSpecFrame", on: true, bass: beat.bass, bands: beat.bands, t: Date.now() });
+      } else if (sentOn) {
+        sentOn = false;
+        fwdSpec({ type: "neSpecFrame", on: false, bass: 0, bands: [], t: Date.now() });
       }
     });
   }, []);

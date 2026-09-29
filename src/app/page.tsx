@@ -359,7 +359,10 @@ function StartPageView() {
             {/* 搜索：入场上浮移至 .search-pill 自身（玻璃元素祖先禁止 opacity/filter
                 动画）；抽屉让位感由纱罩整页高斯模糊承担，搜索栏磨砂恒定在线 */}
             {!sp.layout.hideSearch && (
-              <section className="mt-[clamp(1.8rem,6vh,3.5rem)] w-full" aria-label="搜索">
+              /* v8.7.40 时钟→搜索间距拉近(用户「不要离日期以及时钟组件这么远,
+                  浪费太多空间」):6vh 档(28.8~56px)→3vh 档(16~28px);静态
+                  clamp 值与主列定高律同构(不随磁贴数量变,只改常量) */
+              <section className="mt-[clamp(1rem,3vh,1.75rem)] w-full" aria-label="搜索">
                 <div className="flex justify-center">
                   <SearchBar settings={sp.settings} onPatchSettings={sp.patchSettings} />
                 </div>

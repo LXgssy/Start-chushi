@@ -180,7 +180,7 @@ function PaletteInner({
       key="palette-overlay"
       ref={overlayRef}
       exitClass="veil-out"
-      duration={0.32}
+      duration={0.30}
       className="veil-in cl-screen-veil palette-veil fixed inset-0 z-50 flex items-start justify-center bg-white/10 px-4 pt-[16vh] backdrop-blur-md backdrop-saturate-150 dark:bg-black/10"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
