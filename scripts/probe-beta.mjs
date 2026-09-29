@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.38/ChuShi-NewTab-v8.7.38.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.39/ChuShi-NewTab-v8.7.39.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -2418,10 +2418,10 @@ try {
     const t39 = {
       photoVarSat: /--dv-open-bf:\s*blur\(14px\)\s*;/.test(photoVarRule) && /--dv-mid-bf:\s*blur\(9px\)\s*;/.test(photoVarRule) && !/saturate/.test(photoVarRule),
       screenDark: /backdrop-filter:\s*blur\(12px\)/.test(screenRule) && /(#0000002e|rgba?\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0?\.18\)|rgb\(\s*0\s+0\s+0\s*\/\s*0?\.18\))/.test(screenRule) && !/saturate/.test(screenRule),
-      modesOnly: screenRules.length > 0 && screenRules.every((x) => /photo-mode|glow-mode|palette-veil/.test(x)),
+      modesOnly: screenRules.length > 0 && screenRules.every((x) => /photo-mode|glow-mode|palette-veil/.test(x) || /^\.cl-screen-veil\{--veil-to-bf:blur\(0px\)!important;\}$/.test(x.replace(/\s/g, "")) || /^\.veil-out\.cl-screen-veil\{animation:veil-fade/.test(x.replace(/\s/g, ""))),
       srcCount: src39 >= 4,
     };
-    gate("TL39 掠影模糊不提亮律静态门（v8.7.11/v8.7.38 扩容）：photo 站点变量无sat + cl-screen-veil 深纱blur12无sat + 覆写规则仅模式/面板面(掠影|辉光|palette-veil) + 源码接线≥4",
+    gate("TL39 掠影模糊不提亮律静态门（v8.7.11/v8.7.38 扩容/v8.7.39 翻转）：photo 站点变量无sat + cl-screen-veil 深纱blur12无sat + 覆写规则仅模式/面板面/裸纱幕律(blur0 全量) + 源码接线≥4",
       t39.photoVarSat && t39.screenDark && t39.modesOnly && t39.srcCount,
       JSON.stringify(t39) + " screen=" + screenRule.slice(0, 140));
   }
@@ -2453,7 +2453,7 @@ try {
       kfInBf: /(?:from|0%)\s*\{[^}]*backdrop-filter:\s*var\(--veil-from-bf,\s*blur\(1px\)\s*saturate\(1\.5\)\)/.test(veilInKf),
       kfFadeBg: /(?:to|100%)\s*\{[^}]*background-color:\s*var\(--veil-out-bg,\s*transparent\)/.test(veilFadeKf),
       kfFadeBf: /(?:to|100%)\s*\{[^}]*backdrop-filter:\s*var\(--veil-to-bf,\s*blur\(1px\)\s*saturate\(1\.5\)\)/.test(veilFadeKf),
-      photoVars: /--veil-from-bf:\s*blur\(1px\)/.test(screenPhoto) && /--veil-hold-bf:\s*blur\(12px\)/.test(screenPhoto) && /--veil-to-bf:\s*blur\(1px\)/.test(screenPhoto) && !/saturate/.test(screenPhoto),
+      photoVars: /--veil-from-bf:\s*blur\(1px\)/.test(screenPhoto) && /--veil-hold-bf:\s*blur\(12px\)/.test(screenPhoto) && /--veil-to-bf:\s*blur\(0px\)/.test(screenPhoto) && !/saturate/.test(screenPhoto),
       hold2xl: /backdrop-filter:\s*blur\(40px\)/.test(hold2xlPhoto) && /--veil-hold-bf:\s*blur\(40px\)/.test(hold2xlPhoto) && !/saturate/.test(hold2xlPhoto),
     };
     /* 源码级接线：源 globals.css 两关键帧 from/to 已 var 化，且不再存在
@@ -3201,7 +3201,7 @@ try {
     const pg60 = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
     const pj60 = readFileSync(new URL("../extension-src/popup.js", import.meta.url), "utf8");
     const t60 = {
-      liteLoop: cs60.includes("html.cs-lite .kenburns") && cs60.includes("html.cs-lite .colon-breathe") && cs60.includes("html.cs-lite .pulse-dot") && cs60.includes("html.cs-lite .pomo-dot"),
+      liteLoopAlive: !cs60.includes("html.cs-lite .kenburns") && !cs60.includes("html.cs-lite .colon-breathe") && !cs60.includes("html.cs-lite .pulse-dot") && !cs60.includes("html.cs-lite .pomo-dot"),
       perfSync: st60.includes("p.perfLite = next.perfLite"),
       glowGate: st60.includes('settings.perfLite && settings.background === "glow"') && st60.includes('patchSettings({ background: "photo" })'),
       glowPj: pj60.includes('background: "photo"') && pj60.includes("流畅模式禁用辉光"),
@@ -3210,10 +3210,10 @@ try {
       altV: ql60.includes('e.code !== "KeyV"') && ql60.includes("setOpen((o) => !o)") && ql60.includes("window.focus()"),
       ghost: pg60.includes("ghost\n                />") && ql60.includes("ghost?: boolean") && ql60.includes("disabled || ghost"),
       fadeGone: !cs60.includes("cl-page-in") && !cs60.includes("cl-links-fade"),
-      lenKey37: cs60.includes("0.001s") || cs60.includes("1ms"),
+      lenKey39: !cs60.includes("0.001s"),
     };
     gate("TL60 流畅根治+辉光互斥+alt+v 门（v8.7.37/v8.7.38 翻转）",
-      t60.liteLoop && t60.perfSync && t60.glowGate && t60.glowPj && t60.glowGray && t60.bkmGone && t60.altV && t60.ghost && t60.fadeGone, JSON.stringify(t60));
+      t60.liteLoopAlive && t60.perfSync && t60.glowGate && t60.glowPj && t60.glowGray && t60.bkmGone && t60.altV && t60.ghost && t60.fadeGone && t60.lenKey39, JSON.stringify(t60));
   }
   /* ---------- TL61 歌词×+浮窗贴×+面板去提亮丝滑+360+抽屉退出区+磨砂驻留根修+直达添加 门（v8.7.38） ----------
      用户六域：①无歌词时歌词页×可点击退出（.lhint 提示层 pointer-events:none）
@@ -3242,7 +3242,7 @@ try {
       so360: en61.includes('id: "so360"') && en61.includes("360搜索") && en61.includes("https://www.so.com/s?q="),
       glowClass: ab61.includes('"glow-mode"') && ab61.includes('shownKey === "bg:glow"'),
       glowVeil: gc61.includes("html.glow-mode .cl-screen-veil") && gc61.includes("rgba(0, 0, 0, 0.12)"),
-      paletteVeil: cp61.includes("cl-screen-veil palette-veil") && cp61.includes("duration={0.32}") && gc61.includes("--veil-to-bf: blur(0px) !important;") && gc61.includes(".veil-out.palette-veil"),
+      paletteVeil: cp61.includes("cl-screen-veil palette-veil") && cp61.includes("duration={0.32}") && gc61.includes("--veil-to-bf: blur(0px) !important;") && gc61.includes(".veil-out.cl-screen-veil"),
       drawerClick: !ql61.includes("cl-links-drawer pointer-events-auto flex w-full") && ql61.includes("cl-links cl-links-drawer pointer-events-auto flex flex-col items-center"),
       frostAlive: !gc61.includes("cl-links-fade") && !ql61.includes('className="cl-links-fade') && !ql61.includes("cl-page-in"),
       directAdd: pj61.includes('LINKS_KEY = "start:links"') && pj61.includes("list.push({") && ph61.includes("添加至快捷服务") && !ph61.includes("btn-bkm"),
@@ -3254,13 +3254,43 @@ try {
     gate("TL61 歌词×+浮窗贴×+面板去提亮丝滑+360+抽屉退出区+磨砂驻留根修+直达添加 门（v8.7.38）",
       t61.lyrX && t61.fltNextX && t61.so360 && t61.glowClass && t61.glowVeil && t61.paletteVeil && t61.drawerClick && t61.frostAlive && t61.directAdd && t61.hotFollow && t61.intentGone && t61.ghostKeep && t61.veilHit, JSON.stringify(t61));
   }
+  /* ---------- TL62 主列定高+弹窗同帧退场+流畅动画保留 门（v8.7.39） ----------
+     用户三域：①主页时钟/搜索不随快捷服务数量位移（page.tsx 快捷服务区
+     固定高度 LINKS_ZONE_H=188px 两处挂载[常驻+抽屉克隆] + 行数换挡/
+     padding 过渡退役 + pb 恒定）；②编辑链接弹窗同帧退场（content-defocus
+     与玻璃卡同参 var(--veil-out-dur)）+ 满屏纱幕退场丝滑全量推广
+     （.cl-screen-veil to=blur(0) + .veil-out.cl-screen-veil 0.32s 减速曲线，
+     命令面板/快捷服务编辑/预设文档/更新日志四遮罩统一）；③流畅模式动画
+     保留（通配近零时长压缩退役 + 循环豁免退役 = 原生时长照常播放）+
+     流畅抽屉背景半透明纯色遮罩。 */
+  {
+    const pg62 = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+    const gc62 = readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8");
+    const ld62 = readFileSync(new URL("../src/components/startpage/LinkDialog.tsx", import.meta.url), "utf8");
+    const cd62 = readFileSync(new URL("../src/components/startpage/ChangelogDialog.tsx", import.meta.url), "utf8");
+    const pdocs62 = readFileSync(new URL("../src/components/startpage/PresetDocs.tsx", import.meta.url), "utf8");
+    const t62 = {
+      zoneConst: pg62.includes("const LINKS_ZONE_H = 188;"),
+      zoneDual: pg62.split("style={{ height: LINKS_ZONE_H }}").length === 3,
+      pbConst: pg62.includes("pb-[clamp(8rem,22vh,11rem)]") && !pg62.includes("mainPb") && !pg62.includes("linkRows"),
+      padTransGone: !pg62.includes("transition-[padding]"),
+      veilZeroAll: gc62.includes(".cl-screen-veil {\n  --veil-to-bf: blur(0px) !important;\n}"),
+      veilOutScope: gc62.includes(".veil-out.cl-screen-veil {") && !gc62.includes(".veil-out.palette-veil"),
+      contentSync: gc62.includes("animation: content-defocus var(--veil-out-dur, 0.25s) cubic-bezier(0.4, 0, 1, 1) forwards;"),
+      liteAnimKept: !gc62.includes("0.001s") && !gc62.includes("html.cs-lite .kenburns"),
+      liteDrawerFlat: gc62.includes("html.cs-lite .cl-drawer-veil::before {\n  background: rgba(255, 255, 255, 0.55);\n}"),
+      durSync: ld62.includes("duration={0.32}") && cd62.includes("duration={0.32}") && pdocs62.includes("duration={0.32}"),
+    };
+    gate("TL62 主列定高+弹窗同帧退场+流畅动画保留 门（v8.7.39）",
+      Object.values(t62).every(Boolean), JSON.stringify(t62));
+  }
   /* ---------- T10 pageerror ---------- */
   gate("T10 pageerror=0", errors.length === 0, errors.join(" | ").slice(0, 120));
 } catch (e) {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.38 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.39 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);

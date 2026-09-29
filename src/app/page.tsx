@@ -312,12 +312,16 @@ function StartPageView() {
     );
   }
 
-  /* 主列垂直重心（v1.7.2/v1.7.4）：磁贴行数按「常驻添加位」计入估算
-     （links+1 槽位），两排时整组上移；pb 换挡配合同帧 padding 过渡不瞬跳 */
-  const PB_NORMAL = "pb-[clamp(8rem,22vh,11rem)]";
-  const PB_LIFTED = "pb-[clamp(8rem,22vh,11rem)] min-[720px]:pb-[clamp(8rem,30vh,15rem)]";
-  const linkRows = Math.ceil((sp.links.length + 1) / (sp.layout.linksColumns ?? 6));
-  const mainPb = linkRows === 1 ? PB_LIFTED : PB_NORMAL;
+  /* 主列定高律（v8.7.39）：时钟/搜索/磁贴区的纵向位置只由固定常量决定，
+     绝不随快捷服务数量上下位移——旧行数换挡（一排抬高/两排常规两档
+     padding 随行数切换 + padding 过渡）在增删磁贴跨行时整列上下跳，
+     用户多次反馈「很早就说过了」。定高两件套：
+     ① 快捷服务区固定高度 LINKS_ZONE_H=188px（56px 图标+10px 间距+16px
+     文案=82px/行 × 2 行 + 24px 行距，容纳两排；第三排起向下溢出到 pb
+     空白带不占布局）——增删磁贴、常驻/抽屉两形态切换布局高度恒定；
+     ② pb 恒定（旧行数换挡与 padding 过渡删除）——磁贴区抬高一点
+     （两行保留）后全列锁定，任何数量变化零位移。 */
+  const LINKS_ZONE_H = 188;
   const linksForm = sp.settings.linksForm ?? "drawer";
 
   return (
@@ -339,7 +343,7 @@ function StartPageView() {
         <main
           className={`relative z-10 mx-auto flex min-h-dvh w-full max-w-4xl flex-col items-center ${
             sp.layout.verticalAlign === "top" ? "justify-start" : "justify-center"
-          } px-6 pt-[max(2.5rem,8vh)] transition-[padding] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] ${mainPb}`}
+          } px-6 pt-[max(2.5rem,8vh)] pb-[clamp(8rem,22vh,11rem)]`}
         >
           <div className="flex flex-col items-center">
             {!sp.layout.hideClock && (
@@ -368,6 +372,7 @@ function StartPageView() {
             {!sp.layout.hideLinks && linksForm === "docked" && (
               <section
                 className="zen-gone mt-[clamp(2rem,8vh,4.5rem)] w-full"
+                style={{ height: LINKS_ZONE_H }}
                 aria-label="快捷链接"
               >
                 <QuickLinks
@@ -387,6 +392,7 @@ function StartPageView() {
               <section
                 aria-hidden
                 className="cl-layout-ghost invisible mt-[clamp(2rem,8vh,4.5rem)] w-full"
+                style={{ height: LINKS_ZONE_H }}
               >
                 <QuickLinks
                   links={sp.links}

@@ -113,7 +113,8 @@ function DialogForm({
       key="link-overlay"
       ref={overlayRef}
       exitClass="veil-out"
-      duration={0.25}
+      /* v8.7.39 与 .veil-out.cl-screen-veil 0.32s 严格同参（+150ms 余量在组件内） */
+      duration={0.32}
       className="veil-in cl-screen-veil fixed inset-0 z-50 flex items-center justify-center bg-white/10 px-4 backdrop-blur-md backdrop-saturate-150 dark:bg-black/10"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();

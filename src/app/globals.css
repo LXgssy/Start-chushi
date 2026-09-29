@@ -568,8 +568,8 @@ html.photo-mode .vignette {
 .cl-links-grid > *:nth-child(even) .jiggle {
   animation-direction: reverse;
 }
-/* 流畅模式豁免：抖动是编辑态的功能性指示（非装饰），白名单回原速
-   （否则 html.cs-lite 通配 0.001s 把它杀死） */
+/* 编辑态功能性指示（非装饰）：v8.7.39 动画保留律后通配时长压缩退役，
+   本规则退化为显式同参保险（0.28s 与基态同值，语义等价） */
 html.cs-lite .jiggle {
   animation-duration: 0.28s !important;
 }
@@ -972,9 +972,12 @@ html.cs-drawer-closing .cl-fade-leaf {
 .veil-out-slow .glass-card:not(.palette-out):not(.dialog-sink):not(.ctx-out) {
   animation: glass-card-out-kf var(--veil-out-dur, 0.25s) cubic-bezier(0.4, 0, 1, 1) forwards;
 }
+/* v8.7.39 同帧退场律：内容散场与玻璃卡/纱幕同窗同参——旧 0.16s 抢跑=
+   用户实测「关闭动画是子元素先退场然后面板再退场」；时长取 --veil-out-dur
+   与 glass-card-out-kf 同源，三链（内容/卡片/纱幕）同拍收口 */
 .veil-out .glass-card:not(.palette-out):not(.dialog-sink):not(.ctx-out) .content-focus,
 .veil-out-slow .glass-card:not(.palette-out):not(.dialog-sink):not(.ctx-out) .content-focus {
-  animation: content-defocus 0.16s cubic-bezier(0.4, 0, 1, 1) forwards;
+  animation: content-defocus var(--veil-out-dur, 0.25s) cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 @media (prefers-reduced-motion: reduce) {
   .panel-sink,
@@ -1794,23 +1797,20 @@ html .zen-pomo[data-tone="on-light"] {
    双渲染系统·其二：流畅系统（html.cs-lite）
    ---------------------------------------------------------------
    磨砂系统（默认）= backdrop-filter 玻璃语言全套；流畅系统（html.cs-lite）
-   = 完全独立的一套渲染——零 backdrop-filter、玻璃件换实底、动画近零时长、
-   装饰滤镜隐藏，与磨砂系统无半帧共享视觉路径。入口两处（扩展弹窗快捷
+   = 完全独立的一套渲染——零 backdrop-filter、玻璃件换实底、装饰滤镜隐藏，
+   与磨砂系统无半帧共享视觉路径。入口两处（扩展弹窗快捷
    面板 popup.js 与设置面板「性能」，同一 settings.perfLite 字段）。
-   三层降级：
+   两层降级（v8.7.39 动画保留律：用户指令「不需要阉割开启流畅模式后的
+   动画，动画不会影响多少性能」——旧全局近零时长压缩整体退役，
+   CSS animation/transition 以原生时长照常播放，抽屉壁纸放大等一次性
+   过渡不再被杀；模糊与装饰滤镜才是真实成本所在）：
    ① 模糊成本：全部 backdrop-filter 关停，主要玻璃类补不透明兜底底色；
-   ② 动画成本：全局 CSS animation/transition 时长近零、长驻合成层清零
-      （transitionend 仍会触发，依赖过渡结束回调的逻辑不受影响）；
-   ③ 装饰成本：极光辉光 blob（blur 96px 大滤镜层）整体隐藏。
+   ② 装饰成本：极光辉光 blob（blur 96px 大滤镜层）整体隐藏。
    ================================================================ */
 html.cs-lite *,
 html.cs-lite *::before,
 html.cs-lite *::after {
   backdrop-filter: none !important;
-  animation-duration: 0.001s !important;
-  animation-delay: 0s !important;
-  transition-duration: 0.001s !important;
-  transition-delay: 0s !important;
   will-change: auto !important;
 }
 html.cs-lite .aurora-blob {
@@ -1858,16 +1858,6 @@ html.cs-lite:not(.dark) .glass-pill {
 }
 html.cs-lite.dark .glass-pill {
   background: rgba(24, 24, 27, 0.94) !important;
-}
-/* v8.7.37 循环动画 cs-lite 豁免：通配 0.001s 对 infinite 循环动画=高频抖动
-   （壁纸 kenburns 80s→1ms=壁纸跳动、时钟冒号 4s→1ms=加速闪、脉冲点同律）——
-   循环装饰动画直接停掉（与 prefers-reduced-motion 同律），一次性入场动画
-   保持 0.001s 快速完成的降级语义不变 */
-html.cs-lite .kenburns,
-html.cs-lite .colon-breathe,
-html.cs-lite .pulse-dot,
-html.cs-lite .pomo-dot {
-  animation: none !important;
 }
 /* ---------- 快捷服务抽屉（中键唤出全屏磁贴墙）----------
    纱罩 = 【整页高斯模糊】+ 轻染色（不要纯黑遮罩，模糊整个页面）：
@@ -2037,23 +2027,15 @@ html.cs-drawer-closing .cl-drawer-veil {
     rgba(24, 24, 27, 0.38)
   );
 }
-/* 流畅模式：cs-lite 通配已把 backdrop-filter 压为 none，纱罩纯色加深保证
-   磁贴可读性（染色移到 ::before 染色层；纯色模式无磨砂，opacity 渐显同构） */
+/* 流畅模式：cs-lite 通配已把 backdrop-filter 压为 none，抽屉页面背景 =
+   不消耗性能的半透明纯色遮罩（v8.7.39 用户指令「改成不消耗性能的半透明
+   遮罩」——旧白渐变染色在无磨砂时读作浑浊乳罩；纯色平面与 .veil-in 流畅
+   降级同值同语言，opacity 渐显渐隐机制零改动） */
 html.cs-lite .cl-drawer-veil::before {
-  background: linear-gradient(
-    180deg,
-    rgba(255, 255, 255, 0.55),
-    rgba(255, 255, 255, 0.45) 42%,
-    rgba(255, 255, 255, 0.52)
-  );
+  background: rgba(255, 255, 255, 0.55);
 }
 html.cs-lite.dark .cl-drawer-veil::before {
-  background: linear-gradient(
-    180deg,
-    rgba(9, 9, 11, 0.62),
-    rgba(9, 9, 11, 0.52) 42%,
-    rgba(9, 9, 11, 0.6)
-  );
+  background: rgba(9, 9, 11, 0.55);
 }
 /* 掠影模式：纱罩染色退役（v8.7.8）：壁纸是掠影主角——开抽屉时整页染色层把照片
    蒙上一层主题色滤镜（浅色=白纱/深色=暗纱，用户指令原话「把掠影模式下的浅色/
@@ -2096,16 +2078,18 @@ html.glow-mode .cl-screen-veil {
   backdrop-filter: blur(12px);
   --veil-from-bf: blur(1px);
   --veil-hold-bf: blur(12px);
-  --veil-to-bf: blur(1px);
+  --veil-to-bf: blur(0px);
 }
-/* v8.7.38 命令面板退场丝滑（B1）：退场尾段模糊收拢终点对齐零值——卸载帧与
-   末帧无缝（旧 to=blur(1px) 在 forwards 驻留卸载瞬间跳掉 1px 残模糊=「不
-   丝滑」的尾刺）；important 压过各模式面同键规则（自定义属性无继承竞争面，
-   作用域仅此一件）。时长/曲线在 .veil-out.palette-veil 处覆盖。 */
-.cl-screen-veil.palette-veil {
+/* v8.7.38 命令面板退场丝滑（B1）→ v8.7.39 满屏纱幕退场丝滑律全量推广：
+   退场尾段模糊收拢终点对齐零值——卸载帧与末帧无缝（旧 to=blur(1px) 在
+   forwards 驻留卸载瞬间跳掉 1px 残模糊=「不丝滑」的尾刺，编辑链接弹窗
+   同病灶用户实测在案）；important 压过各模式面同键规则（自定义属性无
+   继承竞争面）。时长/曲线在 .veil-out.cl-screen-veil 处覆盖——四张满屏
+   遮罩（命令面板/快捷服务编辑/预设文档/更新日志）同一丝滑语言。 */
+.cl-screen-veil {
   --veil-to-bf: blur(0px) !important;
 }
-.veil-out.palette-veil {
+.veil-out.cl-screen-veil {
   animation: veil-fade calc(0.32s * var(--mo-speed, 1)) cubic-bezier(0.33, 0, 0.2, 1) forwards;
   --veil-out-dur: 0.32s;
 }
@@ -2117,7 +2101,7 @@ html.photo-mode .cl-screen-veil {
      均值保持=任何帧都不比开启前更亮（「提亮一两秒很割裂」根除） */
   --veil-from-bf: blur(1px);
   --veil-hold-bf: blur(12px);
-  --veil-to-bf: blur(1px);
+  --veil-to-bf: blur(0px);
 }
 /* 预设对话框背板补网（v8.7.10）：PresetDialog 遮罩 = bg-white/20 +
    backdrop-blur-2xl(40px) + backdrop-saturate-150 且未挂 cl-screen-veil
@@ -2129,7 +2113,7 @@ html.photo-mode .veil-hold-2xl {
   backdrop-filter: blur(40px);
   --veil-from-bf: blur(1px);
   --veil-hold-bf: blur(40px);
-  --veil-to-bf: blur(1px);
+  --veil-to-bf: blur(0px);
 }
 /* reduce-motion：抽屉关闭即刻隐没（visibility 延迟归零 + 散场动画瞬完
    停 blur(1px) 终帧 + 染色瞬隐）；开态凝聚/染色渐入 transition 一并归零

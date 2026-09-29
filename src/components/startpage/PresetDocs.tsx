@@ -184,7 +184,8 @@ export default function PresetDocs({
         <PresenceClass
           key="preset-docs-overlay"
           exitClass="veil-out"
-          duration={0.22}
+          /* v8.7.39 与 .veil-out.cl-screen-veil 0.32s 严格同参 */
+          duration={0.32}
           className="veil-in cl-screen-veil fixed inset-0 z-[60] flex items-center justify-center bg-white/10 px-4 backdrop-blur-md backdrop-saturate-150 dark:bg-black/10"
           onMouseDown={(e) => {
             if (e.target === e.currentTarget) onClose();
