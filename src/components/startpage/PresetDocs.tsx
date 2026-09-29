@@ -100,7 +100,7 @@ const MIN_PRESET = `{
 
 const FULL_ACTION_DEMO = `{
   "type": "open",   "url": "https://github.com",
-  "type": "copy",   "text": "要复制的文本（≤200 字符）",
+  "type": "copy",   "text": "要复制的文本（≤2000 字符）",
   "type": "search", "engine": "bing", "q": "关键词",
   "type": "panel",  "id": "todo",
   "type": "theme",  "mode": "dark",
@@ -214,7 +214,7 @@ export default function PresetDocs({
                 预设开发文档
               </p>
               <p className="hidden text-[10px] font-extralight tracking-wider text-zinc-400 dark:text-zinc-500 sm:inline">
-                适用于预设系统 2.0
+                适用于预设系统 3.0 · v8.7.42 全面开放版
               </p>
               <button
                 type="button"
@@ -237,16 +237,16 @@ export default function PresetDocs({
                   「声明即一切」：安装即生效，删除预设即全部还原，没有任何隐藏的中间状态。
                 </P>
                 <P>
-                  安全模型分三层：①<b>声明式部分零代码执行</b>——命令/磁贴/按钮只接受白名单
+                  安全模型分四层：①<b>声明式部分零代码执行</b>——命令/磁贴/按钮只接受白名单
                   action（见 §04）；②<b>代码全部关进唯一源沙箱</b>——scripts/pages/widgets
                   跑在与主页面完全隔离的 iframe 里，拿不到页面数据、localStorage 与扩展 API，
                   只能通过受控的 <K>chushi</K> API 产生副作用（见 §10–§12）；③<b>样式注入有净化</b>——
-                  CSS 会剥除 <K>@import</K> 与 <K>javascript:</K>（CSS 本身无法执行脚本）。
+                  CSS 会剥除 <K>@import</K> 与 <K>javascript:</K>（CSS 本身无法执行脚本）；④<b>导入基础审核（v8.7.42）</b>——无效字符、孤立代理对、静态死循环、语法试编译四道门（见 §10c），远端 API 域需用户授权（见 §10b）。
                 </P>
                 <P>
                   校验是<b>整体拒绝</b>制：任何一个字段不合法，整个预设都不导入，并在面板里列出
                   全部错误（<K>字段路径：原因</K> 格式，如 <K>dock[1]：url 必须以 https:// 开头</K>）。
-                  这是为了杜绝「装了一半」的预设——半装状态最难排查。
+                  这是为了杜绝「装了一半」的预设——半装状态最难排查。v8.7.42 起新增<b>警告通道</b>：零宽字符剥离、事件驱动死循环写法等问题以琥珀色列出，<b>不阻断导入</b>——错误拒绝、警告放行，两通道分离。
                 </P>
               </Sec>
 
@@ -257,7 +257,7 @@ export default function PresetDocs({
                   <K>chushi: 1</K> 是格式版本标记（必需，缺了会直接拒绝）；<K>name</K> 必填；
                   <K>commands / links / dock</K> 至少写一项——十三个内容字段
                   （commands / links / dock / settings / scripts / animations / pages / widgets /
-                  layout / icons / tokens / motion / clock）全空同样会被拒绝。
+                  layout / icons / tokens / motion / clock）全空同样会被拒绝（<K>api</K> 声明也计入内容）。
                 </P>
               </Sec>
 
@@ -266,18 +266,20 @@ export default function PresetDocs({
                   head={["字段", "类型与上限", "说明"]}
                   rows={[
                     [<K>chushi</K>, "1", "格式版本标记，必须为 1"],
-                    [<K>name</K>, "字符串 ≤20 字", "预设名称（必填），管理列表里展示"],
-                    [<K>author</K>, "字符串 ≤20 字", "作者署名（可选）"],
-                    [<K>description</K>, "字符串 ≤60 字", "一句话描述（可选）"],
-                    [<K>commands</K>, "数组 ≤12", "指令面板命令（见 §04）"],
-                    [<K>links</K>, "数组 ≤12", "快捷磁贴（name ≤20 字 + https url）"],
-                    [<K>dock</K>, "数组 ≤3", "底部栏按钮（见 §04–§05）"],
+                    [<K>name</K>, "字符串 ≤40 字", "预设名称（必填），管理列表里展示"],
+                    [<K>author</K>, "字符串 ≤40 字", "作者署名（可选）"],
+                    [<K>description</K>, "字符串 ≤200 字", "一句话描述（可选）"],
+                    [<K>commands</K>, "数组 ≤100", "指令面板命令（title ≤60 字，见 §04）"],
+                    [<K>links</K>, "数组 ≤100", "快捷磁贴（name ≤20 字 + https url ≤2000 字符）"],
+                    [<K>dock</K>, "数组 ≤12", "底部栏按钮（见 §04–§05）"],
                     [<K>settings</K>, "对象", "设置白名单字段一次性合并（见 §06）"],
-                    [<K>scripts</K>, "数组 ≤3", "沙箱脚本，单段 code ≤16000 字符（见 §10）"],
-                    [<K>animations</K>, "数组 ≤4", "CSS 注入，单段 ≤6000、合计 ≤12000 字符（见 §09）"],
-                    [<K>pages</K>, "数组 ≤3", "沙箱整页，单页 html ≤24000 字符（见 §11）"],
-                    [<K>widgets</K>, "数组 ≤3", "小部件：角落磁贴 / dock 弹出面板 / palette 弹窗，单块 html ≤44200 字符（见 §12）"],
+                    [<K>scripts</K>, "数组 ≤30", "沙箱脚本，单段 code ≤400,000 字符（见 §10）"],
+                    [<K>animations</K>, "数组 ≤30", "CSS 注入，单段 ≤300,000、合计 ≤600,000 字符（见 §09）"],
+                    [<K>pages</K>, "数组 ≤30", "沙箱整页，单页 html ≤1,200,000 字符（见 §11）"],
+                    [<K>widgets</K>, "数组 ≤30", "小部件：角落磁贴 / dock 弹出面板 / palette 弹窗，单块 html ≤1,200,000 字符（v8.7.42 导入放开；官方内置包按 44200 构建对账值打包，见 §12）"],
                     [<K>layout</K>, "对象", "声明式布局覆写（见 §07）"],
+                    [<K>api</K>, "数组 ≤20", "预设声明的远端 API 域（host[:port]，见 §10b）"],
+                    [<K>整包</K>, "≤8,000,000 字符", "JSON 字符总量上限（防内存/存储滥用）"],
                   ]}
                 />
                 <P>
@@ -285,11 +287,14 @@ export default function PresetDocs({
                   小部件<b>共享同一个 id 命名空间</b>，互不重名。磁贴 <K>links[].url</K> 必须以
                   <K>https://</K> 开头（杜绝 javascript:/data: 注入面）。
                 </P>
+                <P>
+                  上限与官方包解耦（v8.7.42）：官方内置包（网易云播放器等）按构建链自身常量（如 widgets 44200 字符对账值）打包，与第三方导入上限互不影响；旧版宿主导入超其旧上限的预设会被拒绝，升级宿主即可。
+                </P>
               </Sec>
 
               <Sec n="04" title="action 白名单（commands 与 dock 通用）">
                 <P>
-                  每条命令 / 底部栏按钮 = <K>title</K>（≤24 字）+ <K>action</K>。action 只接受以下
+                  每条命令 / 底部栏按钮 = <K>title</K>（≤60 字）+ <K>action</K>。action 只接受以下
                   7 种类型，未知类型直接拒绝：
                 </P>
                 <Code>{FULL_ACTION_DEMO}</Code>
@@ -297,12 +302,12 @@ export default function PresetDocs({
                   head={["type", "字段", "说明"]}
                   rows={[
                     [<K>open</K>, <K>url</K>, "打开网址，必须 https://"],
-                    [<K>copy</K>, <K>text</K>, "复制文本到剪贴板，≤200 字符"],
+                    [<K>copy</K>, <K>text</K>, "复制文本到剪贴板，≤2000 字符"],
                     [
                       <K>search</K>,
                       <><K>engine</K> + <K>q</K></>,
                       <>
-                        用指定搜索引擎搜索；engine ∈ <K>google / bing / baidu / ddg</K>，q ≤100 字符
+                        用指定搜索引擎搜索；engine ∈ <K>google / bing / baidu / so360 / ddg</K>，q ≤500 字符
                       </>,
                     ],
                     [
@@ -352,7 +357,7 @@ export default function PresetDocs({
                     [<K>showSeconds</K>, "boolean", "时钟显示秒"],
                     [<K>userName</K>, "字符串 ≤20 字", "问候语称呼"],
                     [<K>iconStyle</K>, <>"letter" | "favicon"</>, "磁贴图标风格"],
-                    [<K>engineId</K>, <K>google / bing / baidu / ddg</K>, "默认搜索引擎"],
+                    [<K>engineId</K>, <K>google / bing / baidu / so360 / ddg</K>, "默认搜索引擎"],
                     [<K>searchSuggest</K>, "boolean", "搜索联想"],
                   ]}
                 />
@@ -390,13 +395,13 @@ export default function PresetDocs({
                       <>[&#123; target, icon &#125;]</>,
                       <><b>图标替换</b>：target ∈ weather / todo / note / pomodoro / settings / command
                       （tab 栏六个内建按钮）；icon 填内置图标名（与 dock 按钮同一白名单）或 base64
-                      data:image URL（≤8KB，&lt;img&gt; 静态渲染，不执行脚本）。每按钮仅接受一条覆写，数组 ≤7 条</>,
+                      data:image URL（≤65,536 字符，仅 png/jpeg/webp/gif/svg+xml，&lt;img&gt; 静态渲染，不执行脚本）。每按钮仅接受一条覆写，数组 ≤7 条</>,
                     ],
                     [
                       <K>tokens</K>,
                       <>&#123; &quot;--ui-accent&quot;: … &#125;</>,
                       <><b>主题令牌覆写</b>：键白名单 --ui-accent（强调色）/ --pill-seg（选框底色）/
-                      --pill-seg-ring（选框描边）/ --pill-line（分隔线）；值 ≤120 字符，净空
+                      --pill-seg-ring（选框描边）/ --pill-line（分隔线）；值 ≤300 字符，净空
                       ;&#123;&#125;&lt;&gt; 字符。删除预设即还原用户设置</>,
                     ],
                     [
@@ -413,7 +418,7 @@ export default function PresetDocs({
                       <><b>时钟格式</b>：hour12 / showSeconds 为<b>安装时一次性合入用户设置</b>（与 settings
                       字段同律：写入后随时可在设置面板调整，删除预设不回滚）；showDate（「日期 ·
                       农历 · 问候」行显隐）与 greeting（问候语模板，&#123;greet&#125; = 时段问候、
-                      &#123;name&#125; = 用户名，≤40 字符，空串 = 隐藏问候）为声明式覆写，删除预设即还原</>,
+                      &#123;name&#125; = 用户名，≤120 字符，空串 = 隐藏问候）为声明式覆写，删除预设即还原</>,
                     ],
                   ]}
                 />
@@ -563,8 +568,8 @@ chushi.settings.onChange((values) => { /* 整组热更新 */ });`}</Code>
               <Sec n="10" title="scripts 沙箱脚本与 chushi API">
                 <P>
                   脚本运行在唯一源沙箱 iframe 里：拿不到主文档、页面数据与扩展 API，只能用受控
-                  <K>chushi</K> API。脚本以 async 函数体执行（<b>顶层 await 可用</b>）；启动 4 秒未完成会被
-                  看门狗自动冻结停用（删除并重新导入预设可恢复），防止死循环卡页。
+                  <K>chushi</K> API。脚本以 async 函数体执行（<b>顶层 await 可用</b>）。容量（v8.7.42 放宽）：每预设 ≤30 个脚本，单段 code ≤400,000 字符。
+                  启动看门狗自动冻结停用（删除并重新导入预设可恢复）；<b>沙箱心跳（v8.7.42）</b>：宿主每 5 秒 ping 沙箱，运行期 realm 被卡死（pong 连续缺席）时整体自动重启，宿主永不失联——静态死循环审核见 §10c。
                 </P>
                 <Code>{SCRIPT_DEMO}</Code>
                 <T
@@ -581,6 +586,7 @@ chushi.settings.onChange((values) => { /* 整组热更新 */ });`}</Code>
                     [<K>chushi.open(url)</K>, "打开 https:// 网址（当前标签页跳转）"],
                     [<K>chushi.copy(text)</K>, "复制文本到剪贴板"],
                     [<K>chushi.fetchJSON(url, init?)</K>, "受限 fetch：仅 https，10 秒超时，返回解析好的 JSON"],
+                    [<K>chushi.proxyFetch(url, init?)</K>, "跨域请求（v8.7.42）：请求本预设声明并获授权的 API 域，扩展版经 SW 代理绕过 CORS（详见 §10b）"],
                     [
                       <K>chushi.fx.mount / unmount / onResize</K>,
                       "视觉效果作用面：注入 style/svg、订阅玻璃容器尺寸（详见 §08）",
@@ -595,11 +601,80 @@ chushi.settings.onChange((values) => { /* 整组热更新 */ });`}</Code>
                 />
               </Sec>
 
+              <Sec n="10b" title="api 声明与跨域请求（v8.7.42 新作用面）">
+                <P>
+                  预设可以自带后端：顶层声明 <K>api</K> 域，用户授权后，沙箱脚本经 <K>chushi.proxyFetch</K>
+                  请求这些域——这是预设向宿主添加新数据通道的正门（自建 API、私有服务、本地工具进程皆可接入）。
+                </P>
+                <Code>{`{
+  "chushi": 1,
+  "name": "我的数据源",
+  "api": [
+    { "host": "api.example.com", "name": "示例 API" },
+    { "host": "127.0.0.1:8787", "allowInsecure": true, "name": "本地工具" }
+  ],
+  "scripts": [
+    { "id": "pull", "name": "拉数据",
+      "code": "chushi.run = async () => { const r = await chushi.proxyFetch('https://api.example.com/v1/list'); chushi.notify({ title: '拉取完成', description: String(r.status) }); };" }
+  ]
+}`}</Code>
+                <T
+                  head={["字段", "规则"]}
+                  rows={[
+                    [
+                      <K>host</K>,
+                      "hostname[:port]（不带协议与路径），域名规则校验，≤253 字符，导入去重；host[:port] 精确匹配——api.example.com 不等于 api.example.com:8443",
+                    ],
+                    [<K>name</K>, "可选展示名（≤60 字），授权弹窗与管理列表里展示"],
+                    [
+                      <K>allowInsecure</K>,
+                      "仅本地回环（127.0.0.1 / localhost / [::1]）可设 true，允许 http:// 明文——本地工具联调专用；非回环域写它整包拒绝",
+                    ],
+                  ]}
+                />
+                <P>
+                  授权流（授权真源 = 浏览器 permissions，不是预设数据）：导入时授权视图列出声明的域，
+                  <b>已授权域直接跳过</b>（contains 真源查询，二次导入零打扰）；未授权域经浏览器权限弹窗授予
+                  （用户手势触发）；拒绝则导入中止；安装后可随时在管理面板<b>撤销</b>（SW 侧 contains 复核是硬门，撤销即刻生效）。
+                  manifest 只声明 optional_host_permissions——安装扩展时不预取任何站点权限。
+                </P>
+                <T
+                  head={["proxyFetch 选项", "规则"]}
+                  rows={[
+                    [<K>method</K>, "默认 GET，≤12 字符"],
+                    [<K>headers</K>, "对象 ≤16 个；键为 token 字符集（≤64 字符），值 ≤2048 字符"],
+                    [<K>body</K>, "字符串 ≤4,000,000 字符"],
+                    [<K>base64</K>, "true 时回执走 bodyBase64（二进制安全）"],
+                    [<K>timeoutMs</K>, "1000–60000，缺省 30000；超时回 &#123;ok:false, error:&quot;timeout&quot;&#125;"],
+                  ]}
+                />
+                <P>
+                  校验链（任一不过即拒绝）：①脚本存活；②协议门——只允许 https，http 仅限本地回环且声明
+                  allowInsecure；③域授权集——host[:port] 精确匹配已授权域；④双路径——扩展版走 SW 代理（SW 复核
+                  contains 后代理请求，<b>绕过 CORS</b>），网页版直连降级（受目标站 CORS 约束）；回执 bodyText ≤8,000,000 字符。
+                  安全本质：授权在浏览器、不在预设 JSON——预设只能申请，用户才是授权方。
+                </P>
+              </Sec>
+
+              <Sec n="10c" title="导入基础审核（v8.7.42）">
+                <P>
+                  放开体积与数量上限的同时，四道基础审核门保留并前置到导入期（全部拒绝制）：
+                  ①<b>无效字符</b>——C0/C1 控制字符与 DEL（tab/换行/回车除外）整包拒绝；零宽字符（网页复制常见）自动剥离并警告；
+                  ②<b>孤立代理对</b>——UTF-16 半截代理（损坏的 emoji/生僻字）拒绝；
+                  ③<b>静态死循环</b>——while(true)/for(;;) 且附近无退出路径：无 await 拒绝，有 await 警告放行（事件驱动合法写法）；
+                  ④<b>语法试编译</b>——new Function 编译不执行，语法错拒绝（扩展页 CSP 禁 eval 时感知跳过，沙箱 bootError 兜底）。
+                </P>
+                <P>
+                  错误走红色错误列表（阻断导入），警告走琥珀色警告区（放行但提示作者）。导入期静态审核 +
+                  运行期启动看门狗（4 秒）+ 沙箱心跳自动重启三层叠加，构成「放开不失控」的完整兜底。
+                </P>
+              </Sec>
+
               <Sec n="11" title="pages 沙箱整页">
                 <P>
                   <K>pages</K> 放完整 HTML 文档片段（含 &lt;style&gt; 与 &lt;script&gt;），通过
                   <K>&#123;&quot;type&quot;: &quot;page&quot;, &quot;id&quot;: &quot;...&quot;&#125;</K>{" "}
-                  全屏打开。与脚本同一套沙箱隔离，页面内可用极简 <K>window.chushi</K>：
+                  全屏打开。与脚本同一套沙箱隔离，页面内可用极简 <K>window.chushi</K>。容量（v8.7.42 放宽）：每预设 ≤30 页，单页 html ≤1,200,000 字符——整页应用（编辑器、仪表盘、小游戏）可以整包放进一个预设。页面内 API：
                 </P>
                 <T
                   head={["API", "说明"]}
@@ -616,7 +691,7 @@ chushi.settings.onChange((values) => { /* 整组热更新 */ });`}</Code>
                   小部件有两种表面（<K>surface</K>，v1.8.2）：<b>corner</b>（缺省）常驻页面角落的沙箱卡片
                   （倒数日、快捷信息等）；<b>dock</b> 不出角落，而是在底部 tab 栏注册一个按钮，点击在 dock
                   上方弹出同源沙箱面板（高度弹簧与内建面板同一动效语言），再点按钮 / 点击外部 /
-                  部件内 <K>chushi.close()</K> 均可关闭。最多 3 块。文档片段自动获得
+                  部件内 <K>chushi.close()</K> 均可关闭。容量（v8.7.42 放宽）：每预设 ≤30 块，单块 html ≤1,200,000 字符（官方内置包按 44200 构建对账值打包）。文档片段自动获得
                   宿主主题（<K>html[data-theme]</K>）与强调色（<K>var(--w-accent)</K>），深浅色跟随起始页；
                   dock 面板形态下沙箱会置 <K>html[data-panel="1"]</K>（部件可据此切换布局）；
                   禅模式随内容一同雾化隐去。
@@ -703,6 +778,9 @@ chushi.settings.onChange((values) => { /* 整组热更新 */ });`}</Code>
                     ["资源类型", "图片 / 音频 / 视频 / 字体（MIME 白名单）"],
                   ]}
                 />
+                <P>
+                  两条上限（v8.7.42 起）：粘贴导入的整包 JSON 上限为 8,000,000 字符；.cshz 解压后总量仍为 4MB（zip 炸弹防护）。超过 4MB 的超大预设请直接粘贴 JSON 文本导入。
+                </P>
               </Sec>
 
               <Sec n="14" title="调试与分发建议">
@@ -725,7 +803,7 @@ chushi.settings.onChange((values) => { /* 整组热更新 */ });`}</Code>
 
               <Sec n="15" title="作用面总览（整页焕新）">
                 <P>
-                  预设系统当前提供以下作用面，八个维度组合即可完成整页焕新。全部作用面共用同一套
+                  预设系统当前提供以下作用面，八个维度组合与数据通道即可完成整页焕新。全部作用面共用同一套
                   产品约定：声明式白名单校验（不合法整体拒绝）、装了即生效、删除预设即还原、
                   多预设同字段安装顺序后者胜。
                 </P>
@@ -740,6 +818,7 @@ chushi.settings.onChange((values) => { /* 整组热更新 */ });`}</Code>
                     ["时钟格式", <K>clock</K>, "小时制、秒数、日期行、问候语模板"],
                     ["动画", <K>animations</K>, "自定义 CSS（净化后注入，公开元素钩子）"],
                     ["材质", <K>chushi.material / chushi.fx</K>, "任意材质换装——亚克力、Mica、液态玻璃等风格均由预设自行实现，宿主零内建"],
+                    ["数据通道", <K>api + chushi.proxyFetch</K>, "预设自带后端：声明域 + 用户授权 + SW 代理跨域请求（§10b）"],
                   ]}
                 />
                 <P>

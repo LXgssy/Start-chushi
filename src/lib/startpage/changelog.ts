@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.43",
+    title: "开发者文档全面同步：API 声明 / 审核门 / 心跳 / 开放上限全部落档",
+    highlights: [
+      "页内开发者文档与仓库 PRESET_DEV.md 全面重写，对齐 v8.7.42 开放体系：上限表、api 声明、chushi.proxyFetch、四道审核门、沙箱心跳全部落档",
+      "新增「api 声明与跨域请求」「导入基础审核」两章；作用面总览补数据通道维度",
+      "陈旧数值对账修正：主题令牌值 ≤300、问候语 ≤120、图标 data URL ≤65536 字符、搜索引擎白名单补 so360、dock ≤12 / commands·links ≤100",
+      "README 预设章节同步刷新，补掠影×深色灰字提亮说明",
+    ],
+    channel: "shell" as ChangelogChannel,
+  },
+  {
     version: "8.7.42",
     title: "预设系统全面开放：自定义 API、MB 级导入、基础安全审核；掠影深色灰字提亮",
     highlights: [
