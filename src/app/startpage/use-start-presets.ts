@@ -228,6 +228,15 @@ export function useStartPresets({
     () => sandboxScripts.filter((sc) => !frozenScripts[sc.key]),
     [sandboxScripts, frozenScripts]
   );
+  /* v8.7.42 预设 API 开放律：声明域授权集（host → allowInsecure）同步给沙箱桥，
+     proxyFetch 的宿主侧域校验源；SW 端 permissions.contains 仍是硬门（真源） */
+  const apiHosts = useMemo(() => {
+    const m: Record<string, boolean> = {};
+    for (const p of presets) {
+      for (const d of p.raw.api ?? []) m[d.host] = d.allowInsecure === true;
+    }
+    return m;
+  }, [presets]);
   /** 激活脚本键集：声明式 script 命令/按钮只在此集合内的脚本上展示（冻结即隐藏） */
   const activeScriptKeys = useMemo(
     () => new Set(activeSandboxScripts.map((sc) => sc.key)),
@@ -361,6 +370,10 @@ export function useStartPresets({
   useEffect(() => {
     sandboxBridge.sync(activeSandboxScripts);
   }, [activeSandboxScripts]);
+
+  useEffect(() => {
+    sandboxBridge.syncApiHosts(apiHosts);
+  }, [apiHosts]);
 
   /* 预设变更后同步清理失主脚本（删除/冻结）的运行时命令条目 */
   useEffect(() => {

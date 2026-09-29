@@ -62,7 +62,7 @@ OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
 EXT_SRC = ROOT / "extension-src"    # v8.2.0 SW/内容脚本源
-VERSION = "8.7.41"
+VERSION = "8.7.42"
 DEST = ROOT / f"download/v{VERSION}/ChuShi-NewTab-v{VERSION}.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():
@@ -236,6 +236,15 @@ manifest = {
     # PRIVACY.md / README 一直按「扩展声明 geolocation」描述，本次补齐实现。
     # v8.4.5：+alarms——云端静默更新器周期检查（ext-bg.js 更新器，6h）。
     "permissions": ["storage", "tabs", "scripting", "geolocation", "alarms"],
+    # v8.7.42 预设 API 开放律：预设声明的远端域经用户在导入授权步骤逐域授予
+    # （chrome.permissions.request 由用户手势触发，弹域清单确认弹窗）。可选权限
+    # 声明不影响安装时提示文案；SW csProxyFetch 在 fetch 前复核 permissions.contains
+    # ——授权真源恒在浏览器侧。本地回环 http 供预设连本机服务（allowInsecure 专属）。
+    "optional_host_permissions": [
+        "https://*/*",
+        "http://127.0.0.1/*",
+        "http://localhost/*",
+    ],
     "background": {"service_worker": "ext-bg.js"},
     # v8.4.4：+ 壳桥页面端双注入（仅「初始」云端域，授权面无增量）——
     #   shim-page.js（MAIN world，document_start）：为云端页面伪造 chrome.storage.local，
@@ -424,6 +433,8 @@ if "scripting" not in _m.get("permissions", []):
 if "http://*/*" not in _m.get("host_permissions", []) or "https://*/*" not in _m.get("host_permissions", []):
     sys.exit("manifest 缺 http/https 通配 host_permissions——v8.3.1 补针无执行权")
 # v8.4.5 门：本地直载壳三要素（路由 + 地址栏收敛 + 站点 SW）+ alarms + 快照沙箱特权
+if _m.get("optional_host_permissions") != ["https://*/*", "http://127.0.0.1/*", "http://localhost/*"]:
+    sys.exit("manifest 缺 optional_host_permissions——v8.7.42 预设 API 开放律")
 if "alarms" not in _m.get("permissions", []):
     sys.exit("manifest 缺 alarms 权限——v8.4.5 云端静默更新器缺失")
 if "cs-snap/sandbox.html" not in _m.get("sandbox", {}).get("pages", []):

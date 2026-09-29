@@ -142,7 +142,13 @@
   --secondary: oklch(0.235 0.01 296);
   --secondary-foreground: oklch(0.955 0.005 92);
   --muted: oklch(0.235 0.01 296);
-  --muted-foreground: oklch(0.71 0.01 91);
+  --muted-foreground: oklch(0.78 0.008 91); /* v8.7.42 0.71→0.78 */
+  /* v8.7.42 掠影+深色灰字可读性律：Tailwind v4 text-zinc-* 引用 --color-zinc-*，
+     深色作用域整体提亮一档（zinc-500/600 是面板次要文字主力——41/11 处，
+     深色玻璃上过暗；覆写只影响 .dark 子树，浅色主题零感知） */
+  --color-zinc-600: #74747f;
+  --color-zinc-500: #9b9ba5;
+  --color-zinc-400: #c2c2cb;
   --accent: oklch(0.27 0.025 298);
   --accent-foreground: oklch(0.95 0.01 300);
   --destructive: oklch(0.704 0.191 22.216);
@@ -479,6 +485,17 @@ html.photo-mode .search-hint {
 }
 /* dock 按钮收窄到深色掠影——dock 有自家玻璃背板（.glass-pill），
    按分工律玻璃面跟随主题；浅色掠影回落基线墨系，与辉光/纯色模式一致 */
+/* v8.7.42 掠影+深色面板对比度律：壁纸亮处透过率是灰字发灰的根因——
+   玻璃底整体加深一档（.6→.72 调黑 + pill/chip 同步），文字对比回升 */
+html.photo-mode.dark .glass-card {
+  background: rgba(14, 14, 19, 0.72);
+}
+html.photo-mode.dark .glass-pill {
+  background: rgba(14, 14, 19, 0.62);
+}
+html.photo-mode.dark .glass-chip {
+  background: rgba(0, 0, 0, 0.26);
+}
 html.photo-mode.dark .dock-btn {
   color: rgb(255 255 255 / 0.68);
 }

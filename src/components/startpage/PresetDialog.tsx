@@ -14,7 +14,8 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { PresenceClass } from "./PresenceClass";
-import { FileUp, PackageOpen, Plus, Trash2 } from "lucide-react";
+import { FileUp, Globe, PackageOpen, Plus, Trash2 } from "lucide-react";
+import { ApiGrantStep, collectPendingGrants, revokeGrants, type GrantPending } from "./PresetApiGrant";
 import { parsePreset, SAMPLE_PRESET, type InstalledPreset, type PresetPayload } from "@/lib/startpage/preset";
 import { parsePack } from "@/lib/startpage/pack";
 
@@ -71,6 +72,11 @@ function DialogInner({
   const [text, setText] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  /* v8.7.42 授权步骤 + 审核警告通道 */
+  const [grant, setGrant] = useState<{ preset: PresetPayload; pending: GrantPending[] } | null>(null);
+  const [grantBusy, setGrantBusy] = useState(false);
+  const [warns, setWarns] = useState<string[]>([]);
+  const [revokedApi, setRevokedApi] = useState<Map<string, boolean>>(new Map());
   const taRef = useRef<HTMLTextAreaElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
 
@@ -123,7 +129,45 @@ function DialogInner({
     }
   }, []);
 
-  /* ---------- 导入 ---------- */
+  /* ---------- 导入（v8.7.42：parse → 审核警告 → 授权检查 → 安装） ---------- */
+
+  function finishInstall(preset: PresetPayload) {
+    onInstall(preset, preset.name);
+    onClose();
+  }
+
+  async function tryInstall(preset: PresetPayload, warnings?: string[]) {
+    setWarns(warnings ?? []);
+    const pending = await collectPendingGrants(preset.api);
+    if (pending && pending.length > 0) {
+      setGrant({ preset, pending });
+      return;
+    }
+    finishInstall(preset);
+  }
+
+  async function confirmGrant() {
+    if (!grant) return;
+    setGrantBusy(true);
+    try {
+      const ok = await requestGrants(grant.pending);
+      if (!ok) {
+        setErrors((prev) => [...prev, "网络授权被拒绝：预设声明的 API 域未获授权，代理请求将被拒——可重新导入并授权。"]);
+        setGrant(null);
+        return;
+      }
+      const p = grant.preset;
+      setGrant(null);
+      finishInstall(p);
+    } finally {
+      setGrantBusy(false);
+    }
+  }
+
+  async function revokePresetApi(id: string, api: NonNullable<PresetPayload["api"]>) {
+    const ok = await revokeGrants(api.map((d) => `${d.allowInsecure ? "http" : "https"}://${d.host}/*`));
+    setRevokedApi((prev) => new Map(prev).set(id, ok));
+  }
 
   function importText() {
     setErrors([]);
@@ -141,8 +185,8 @@ function DialogInner({
       setErrors(r.errors);
       return;
     }
-    onInstall(r.preset, r.preset.name);
-    onClose();
+    setErrors([]);
+    void tryInstall(r.preset, r.warnings);
   }
 
   async function importFile(f: File) {
@@ -155,8 +199,7 @@ function DialogInner({
           setErrors(r.errors);
           return;
         }
-        onInstall(r.preset, r.preset.name);
-        onClose();
+        void tryInstall(r.preset, r.warnings);
       } else if (/\.json$/i.test(f.name) || f.type === "application/json") {
         let raw: unknown;
         try {
@@ -170,8 +213,7 @@ function DialogInner({
           setErrors(r.errors);
           return;
         }
-        onInstall(r.preset, r.preset.name);
-        onClose();
+        void tryInstall(r.preset, r.warnings);
       } else {
         setErrors(["不支持的文件类型：请选择 .json 预设文件或 .cshz / .zip 预设包"]);
       }
@@ -261,6 +303,14 @@ function DialogInner({
               className="flow-root content-focus"
             >
               {tab === "import" ? (
+                grant ? (
+                  <ApiGrantStep
+                    pending={grant.pending}
+                    busy={grantBusy}
+                    onConfirm={() => void confirmGrant()}
+                    onCancel={() => setGrant(null)}
+                  />
+                ) : (
                 <div className="p-4">
                   <p className="mb-2.5 px-1 text-xs font-light leading-relaxed text-zinc-500 dark:text-zinc-400">
                     粘贴预设 JSON 或导入本地文件（.json / .cshz 预设包）— 命令、磁贴与按钮均为声明式白名单动作；
@@ -274,6 +324,13 @@ function DialogInner({
                     placeholder='以 { "chushi": 1, ... } 开头的预设 JSON'
                     className="slim-scroll h-44 w-full resize-none rounded-xl border border-zinc-900/10 bg-white/40 p-3 font-mono text-xs leading-relaxed text-zinc-800 outline-none transition-colors duration-200 placeholder:text-zinc-400 focus:border-zinc-900/20 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-white/20"
                   />
+                  {warns.length > 0 && (
+                    <ul className="mt-2.5 space-y-1 rounded-xl bg-amber-500/[0.08] p-3 text-xs font-light leading-relaxed text-amber-600 dark:text-amber-400">
+                      {warns.map((w, i) => (
+                        <li key={i}>{w}</li>
+                      ))}
+                    </ul>
+                  )}
                   {errors.length > 0 && (
                     <ul className="mt-2.5 space-y-1 rounded-xl bg-red-500/[0.07] p-3 text-xs font-light leading-relaxed text-red-600 dark:text-red-400">
                       {errors.map((e, i) => (
@@ -326,6 +383,7 @@ function DialogInner({
                     />
                   </div>
                 </div>
+                )
               ) : (
                 <div className="slim-scroll max-h-[46vh] overflow-y-auto p-3">
                   {presets.length === 0 ? (
@@ -349,6 +407,7 @@ function DialogInner({
                           s.animations && s.animations.length > 0 ? `${s.animations.length} 段样式` : null,
                           s.pages && s.pages.length > 0 ? `${s.pages.length} 个页面` : null,
                           s.widgets && s.widgets.length > 0 ? `${s.widgets.length} 个小部件` : null,
+                          s.api && s.api.length > 0 ? `${s.api.length} 个 API 域` : null,
                           s.layout ? "布局覆写" : null,
                         ].filter(Boolean);
                         return (
@@ -369,6 +428,18 @@ function DialogInner({
                                 {parts.length > 0 ? parts.join(" · ") : "无内容项"}
                               </p>
                             </div>
+                            {s.api && s.api.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => void revokePresetApi(p.id, s.api!)}
+                                disabled={revokedApi.get(p.id) === true}
+                                aria-label={`撤销预设 ${s.name} 的网络授权`}
+                                title={revokedApi.get(p.id) === true ? "已撤销网络授权" : "撤销该预设的网络授权（API 域）"}
+                                className="rounded-lg p-2 text-zinc-400 opacity-0 transition-all duration-150 hover:bg-amber-500/10 hover:text-amber-500 group-hover:opacity-100 disabled:opacity-40 disabled:hover:bg-transparent dark:text-zinc-500"
+                              >
+                                <Globe className="h-3.5 w-3.5" strokeWidth={1.5} />
+                              </button>
+                            )}
                             <button
                               type="button"
                               onClick={() => onRemove(p.id)}

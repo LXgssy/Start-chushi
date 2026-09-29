@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.41/ChuShi-NewTab-v8.7.41.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.42/ChuShi-NewTab-v8.7.42.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -993,7 +993,8 @@ try {
     };
     dbl();
     let t0 = performance.now();
-    while (performance.now() - t0 < 950) await nextFrame();
+    /* v8.7.42：950→1300ms——0.7s 过渡 + headless 高负载帧距抖动下 950 窗口尾帧 flaky（本轮 TL23 实证 0.999862）；稳态语义不变 */
+    while (performance.now() - t0 < 1300) await nextFrame();
     const inZen = snap();
     dbl();
     t0 = performance.now();
@@ -2764,7 +2765,7 @@ try {
       pwBridge: /case "neApi":/.test(pwSrc48) && /case "neAudio":/.test(pwSrc48) && /case "neSub":/.test(pwSrc48) && /widgetNeResult/.test(pwSrc48) && /widgetNeAudio/.test(pwSrc48) && /NE_PATHS/.test(pwSrc48),
       sbShim: /ne:\{api:function\(p,d\)/.test(sbSrc48) && /op:'neApi'/.test(sbSrc48) && /op:'neAudio'/.test(sbSrc48) && /op:'neSub'/.test(sbSrc48),
       sbRelay: /path: str\(d\.path, 64\)/.test(sbSrc48) && /widgetNeResult" \|\| m\.type === "widgetNeAudio/.test(sbSrc48),
-      sbCache: /sandbox\.html\?v=127/.test(sbTs48) && /mode=widget&v=127/.test(sbTs48) && /mode=page&v=127/.test(sbTs48),
+      sbCache: /sandbox\.html\?v=128/.test(sbTs48) && /mode=widget&v=128/.test(sbTs48) && /mode=page&v=128/.test(sbTs48), /* v8.7.42 翻转：心跳根修 bump 沙箱版本参数 */
       opEntry: /初始网易云播放器预设\.cshz/.test(opSrc48) && /"netease"/.test(opSrc48),
       opJson: opJson48.includes("初始 · 网易云播放器") && opJson48.includes("chushi.ne.api"),
     };
@@ -2919,7 +2920,7 @@ try {
         qlSrc51.includes("{ y: -4, scale: 1.06 }") === false &&
         qlSrc51.includes("group-hover:scale-105") &&
         qlSrc51.includes("group-hover:-translate-y-1") === false,
-      vBump: sbTs51.includes("v=127") && sbTs51.includes("v=126") === false,
+      vBump: sbTs51.includes("v=128") && sbTs51.includes("v=127") === false, /* v8.7.42 翻转同上 */
     };
     gate("TL51 四件迭代静态门（v8.7.27 音质弹窗形态）：音质三档热切换 + YRC 绝对时间戳根修 + 频谱全链五源 + 磁贴纯放大",
       t51.quality && t51.yrcAbs && t51.beat && t51.tileScale && t51.vBump, JSON.stringify(t51));
@@ -2953,7 +2954,7 @@ try {
         pSrc52.includes("display,") === false,
       clampW: /Math\.min\(580, Math\.max\(120, wo\.width\)\)/.test(pSrc52),
       clampH: /Math\.min\(560, Math\.max\(40, wo\.height\)\)/.test(pSrc52),
-      cap: /widgetHtmlLen: 44200/.test(pSrc52),
+      cap: /widgetHtmlLen: 1200000/.test(pSrc52), /* v8.7.42 翻转：导入路径全面放开（官方包构建对账与导入上限解耦） */
       hostGone: dSrc52.includes("WidgetPalette") === false &&
         dSrc52.includes('w.display !== "palette"') === false && dSrc52.includes('w.display === "palette"') === false &&
         dSrc52.includes("dockWidgets={sp.presetDockWidgets}") && dSrc52.includes('className="fixed inset-0 z-30"'),
@@ -3344,12 +3345,83 @@ try {
         && !sp65.includes("onPatch({ photoDim"));
   }
   /* ---------- T10 pageerror ---------- */
-  gate("T10 pageerror=0", errors.length === 0, errors.join(" | ").slice(0, 120));
+  /* ---------- TL66 预设系统全面开放门（v8.7.42） ----------
+   ① lib 层：api 声明（PresetApiDecl + parse 集成）+ 上限全面放宽（widgetHtmlLen 1200000 /
+      codeLen 400000 / pages 30 / scripts 30 / totalLen 8000000）+ 三道基础审核
+      （无效字符拒绝制 + 孤立代理对 + 静态死循环[await 放行警告] + 语法试编译 CSP 感知）；
+   ② 沙箱层：chushi.proxyFetch（reqId + pendingProxy + 30s 超时）+ ping/pong 心跳 +
+      proxyFetchResult 分发；宿主桥 syncApiHosts + proxyFetch 校验链 + 心跳重启；
+   ③ SW 层：csProxyFetch（permissions.contains 复核 → 代理 fetch → base64/text 双形态）；
+   ④ manifest：optional_host_permissions（https 通配 + 本地回环 http）；
+   ⑤ UI 层：授权视图（授权并导入/拒绝中止）+ 管理 api 徽标 + 撤销授权 + warnings amber 通道。 */
+{
+  const p66 = readFileSync(new URL("../src/lib/startpage/preset.ts", import.meta.url), "utf8");
+  const sb66 = readFileSync(new URL("../src/lib/startpage/sandbox.ts", import.meta.url), "utf8");
+  const sbjs66 = readFileSync(new URL("../public/sandbox.js", import.meta.url), "utf8");
+  const bg66 = readFileSync(new URL("../extension-src/ext-bg.js", import.meta.url), "utf8");
+  const be66 = readFileSync(new URL("../scripts/build-extension.py", import.meta.url), "utf8");
+  const dl66 = readFileSync(new URL("../src/components/startpage/PresetDialog.tsx", import.meta.url), "utf8");
+  const pp66 = readFileSync(new URL("../src/components/startpage/PresetPanel.tsx", import.meta.url), "utf8");
+  const up66 = readFileSync(new URL("../src/app/startpage/use-start-presets.ts", import.meta.url), "utf8");
+  const gt66 = readFileSync(new URL("../src/components/startpage/PresetApiGrant.tsx", import.meta.url), "utf8");
+  let manifest66 = "";
+  try {
+    const z66 = zip66ref(manifest66);
+  } catch { }
+  const t66 = {
+    apiDecl: p66.includes("export interface PresetApiDecl") && p66.includes("api?: PresetApiDecl[]"),
+    apiParse: p66.includes("const LOOPBACK_RE") && p66.includes("allowInsecure 仅允许本地回环"),
+    limitsOpen: p66.includes("widgetHtmlLen: 1200000") && p66.includes("codeLen: 400000,") &&
+      p66.includes("pages: 30,") && p66.includes("totalLen: 8000000,"),
+    auditInvalid: p66.includes("无效字符审核拒绝") && p66.includes("hasLoneSurrogate"),
+    auditDeadloop: p66.includes("死循环审核拒绝") && p66.includes("事件驱动写法"),
+    auditSyntax: p66.includes("脚本语法无效") && p66.includes("unsafe-eval"),
+    warnChannel: p66.includes("warnings?: string[]"),
+    sbProxy: sbjs66.includes("proxyFetch: function (url, init)") && sbjs66.includes("pendingProxy"),
+    sbPong: sbjs66.includes('if (m.type === "ping")'),
+    bridgeSync: sb66.includes("syncApiHosts") && sb66.includes("startPing") && sb66.includes("pongMiss"),
+    bridgeGuard: sb66.includes("未在预设 api 声明中") && sb66.includes("疑似脚本运行期死循环"),
+    swProxy: bg66.includes("csProxyFetch") && bg66.includes("permissions.contains"),
+    manifestOpt: be66.includes('"optional_host_permissions"') && be66.includes("http://127.0.0.1/*"),
+    uiGrant: dl66.includes("ApiGrantStep") && pp66.includes("ApiGrantStep") && gt66.includes("授权并导入") && gt66.includes("该预设声明了网络 API"),
+    uiRevoke: dl66.includes("撤销该预设的网络授权") && pp66.includes("撤销该预设的网络授权"),
+    uiWarn: dl66.includes("warns.map") && pp66.includes("warns.map"),
+    hostWire: up66.includes("syncApiHosts(apiHosts)"),
+    grantTsx: gt66.includes("collectPendingGrants") && gt66.includes("requestGrants"),
+  };
+  gate("TL66 预设系统全面开放门（v8.7.42）：api 声明+上限放宽+三道审核 / 沙箱 proxyFetch+心跳 / SW 代理+manifest optional / 授权 UI+撤销+warnings",
+    t66.apiDecl && t66.apiParse && t66.limitsOpen && t66.auditInvalid && t66.auditDeadloop && t66.auditSyntax &&
+    t66.warnChannel && t66.sbProxy && t66.sbPong && t66.bridgeSync && t66.bridgeGuard && t66.swProxy &&
+    t66.manifestOpt && t66.uiGrant && t66.uiRevoke && t66.uiWarn && t66.hostWire && t66.grantTsx,
+    JSON.stringify(t66));
+}
+
+/* ---------- TL67 掠影+深色灰字可读性门（v8.7.42） ----------
+   globals.css：.dark 内 zinc 三档提亮（500→#9b9ba5 / 400→#c2c2cb / 600→#74747f，
+   Tailwind v4 text-zinc-* 变量引用链全局生效）+ --muted-foreground 0.71→0.78 +
+   html.photo-mode.dark 面板玻璃加深（card/pill/chip 三面）——壁纸亮处透过率根因治理。 */
+{
+  const g67 = readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8");
+  const t67 = {
+    zinc500: g67.includes("--color-zinc-500: #9b9ba5"),
+    zinc400: g67.includes("--color-zinc-400: #c2c2cb"),
+    zinc600: g67.includes("--color-zinc-600: #74747f"),
+    mutedFg: g67.includes("oklch(0.78 0.008 91)"),
+    glassCard: g67.includes("html.photo-mode.dark .glass-card") && g67.includes("rgba(14, 14, 19, 0.72)"),
+    glassPill: g67.includes("html.photo-mode.dark .glass-pill"),
+    glassChip: g67.includes("html.photo-mode.dark .glass-chip"),
+  };
+  gate("TL67 掠影+深色灰字可读性门（v8.7.42）：zinc 三档 dark 提亮 + muted-fg 0.78 + photo-mode.dark 玻璃加深三面",
+    t67.zinc500 && t67.zinc400 && t67.zinc600 && t67.mutedFg && t67.glassCard && t67.glassPill && t67.glassChip,
+    JSON.stringify(t67));
+}
+
+gate("T10 pageerror=0", errors.length === 0, errors.join(" | ").slice(0, 120));
 } catch (e) {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.41 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.42 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);

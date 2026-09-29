@@ -22,6 +22,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.42",
+    title: "预设系统全面开放：自定义 API、MB 级导入、基础安全审核；掠影深色灰字提亮",
+    highlights: [
+      "掠影+深色模式下所有面板灰字整体提亮一档，面板玻璃加深，可读性回升",
+      "预设系统全面开放：导入不再限 24K~44K 字符，页面/小部件/脚本/样式全部放开到 MB 级",
+      "预设可声明网络 API：导入时浏览器原生弹窗逐域授权，后台代理请求（绕 CORS），管理列表可随时撤销",
+      "基础安全审核：无效字符 / 孤立代理对 / 静态死循环 / 语法校验导入即拦，运行期沙箱心跳兜底自动重启",
+      "新增 chushi.proxyFetch 沙箱 API 与 api 声明字段，开发者文档同步",
+    ],
+    channel: "shell" as ChangelogChannel,
+  },
+  {
     version: "8.7.41",
     date: "2026-09-29",
     title: "三件套紧凑上移 · 搜索建议 10 行 · 磁贴 4 行上限",

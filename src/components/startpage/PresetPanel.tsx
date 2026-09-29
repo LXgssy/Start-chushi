@@ -14,8 +14,9 @@ import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { PresenceClass } from "./PresenceClass";
 import PresetDocs from "./PresetDocs";
-import { ArrowLeft, BookOpen, FileUp, PackageOpen, Plus, Trash2, Wrench } from "lucide-react";
+import { ArrowLeft, BookOpen, FileUp, Globe as GlobeIcon, PackageOpen, Plus, Trash2, Wrench } from "lucide-react";
 import { parsePreset, SAMPLE_PRESET, type InstalledPreset, type PresetPayload } from "@/lib/startpage/preset";
+import { ApiGrantStep, collectPendingGrants, revokeGrants, type GrantPending } from "./PresetApiGrant";
 import { parsePack } from "@/lib/startpage/pack";
 
 /** 静态资源 basePath（Pages 项目站子路径 / 扩展根路径两种形态） */
@@ -75,6 +76,11 @@ export default function PresetPanel({
   const [text, setText] = useState("");
   const [errors, setErrors] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  /* v8.7.42 授权步骤 + 审核警告通道 */
+  const [grant, setGrant] = useState<{ preset: PresetPayload; pending: GrantPending[] } | null>(null);
+  const [grantBusy, setGrantBusy] = useState(false);
+  const [warns, setWarns] = useState<string[]>([]);
+  const [revokedApi, setRevokedApi] = useState<Map<string, boolean>>(new Map());
   /* 拖拽导入（v1.2.0）：文件悬停高亮 + 松手即导入；window 级拦住
      dragover/drop 默认行为（拖到面板外不再被浏览器当导航打开文件） */
   const [dragOver, setDragOver] = useState(false);
@@ -96,7 +102,45 @@ export default function PresetPanel({
     };
   }, [tab]);
 
-  /* ---------- 导入 ---------- */
+  /* ---------- 导入（v8.7.42：parse → 审核警告 → 授权检查 → 安装） ---------- */
+
+  function finishInstall(preset: PresetPayload) {
+    onInstall(preset);
+    onClose();
+  }
+
+  async function tryInstall(preset: PresetPayload, warnings?: string[]) {
+    setWarns(warnings ?? []);
+    const pending = await collectPendingGrants(preset.api);
+    if (pending && pending.length > 0) {
+      setGrant({ preset, pending });
+      return;
+    }
+    finishInstall(preset);
+  }
+
+  async function confirmGrant() {
+    if (!grant) return;
+    setGrantBusy(true);
+    try {
+      const ok = await requestGrants(grant.pending);
+      if (!ok) {
+        setErrors((prev) => [...prev, "网络授权被拒绝：预设声明的 API 域未获授权，代理请求将被拒——可重新导入并授权。"]);
+        setGrant(null);
+        return;
+      }
+      const p = grant.preset;
+      setGrant(null);
+      finishInstall(p);
+    } finally {
+      setGrantBusy(false);
+    }
+  }
+
+  async function revokePresetApi(id: string, api: NonNullable<PresetPayload["api"]>) {
+    const ok = await revokeGrants(api.map((d) => `${d.allowInsecure ? "http" : "https"}://${d.host}/*`));
+    setRevokedApi((prev) => new Map(prev).set(id, ok));
+  }
 
   function importText() {
     setErrors([]);
@@ -114,8 +158,8 @@ export default function PresetPanel({
       setErrors(r.errors);
       return;
     }
-    onInstall(r.preset);
-    onClose();
+    setErrors([]);
+    void tryInstall(r.preset, r.warnings);
   }
 
   async function importFile(f: File) {
@@ -128,8 +172,7 @@ export default function PresetPanel({
           setErrors(r.errors);
           return;
         }
-        onInstall(r.preset);
-        onClose();
+        void tryInstall(r.preset, r.warnings);
       } else if (/\.json$/i.test(f.name) || f.type === "application/json") {
         let raw: unknown;
         try {
@@ -143,8 +186,7 @@ export default function PresetPanel({
           setErrors(r.errors);
           return;
         }
-        onInstall(r.preset);
-        onClose();
+        void tryInstall(r.preset, r.warnings);
       } else {
         setErrors(["不支持的文件类型：请选择 .json 预设文件或 .cshz / .zip 预设包"]);
       }
@@ -223,6 +265,14 @@ export default function PresetPanel({
             className="flow-root content-focus"
           >
             {tab === "import" ? (
+              grant ? (
+                <ApiGrantStep
+                  pending={grant.pending}
+                  busy={grantBusy}
+                  onConfirm={() => void confirmGrant()}
+                  onCancel={() => setGrant(null)}
+                />
+              ) : (
               <div
                 className="p-4"
                 onDragOver={onDragOver}
@@ -248,6 +298,13 @@ export default function PresetPanel({
                   <p className="mt-1.5 px-1 text-[11px] font-light tracking-wide text-[var(--ui-accent)]">
                     松开即导入该预设文件
                   </p>
+                </Collapse>
+                <Collapse show={warns.length > 0}>
+                  <ul className="mt-2.5 space-y-1 rounded-xl bg-amber-500/[0.08] p-3 text-xs font-light leading-relaxed text-amber-600 dark:text-amber-400">
+                    {warns.map((w, i) => (
+                      <li key={i}>{w}</li>
+                    ))}
+                  </ul>
                 </Collapse>
                 <Collapse show={errors.length > 0}>
                   {errors.length > 0 && (
@@ -326,6 +383,7 @@ export default function PresetPanel({
                   />
                 </div>
               </div>
+              )
             ) : (
               <div className="slim-scroll max-h-[46vh] overflow-y-auto p-3">
                 {presets.length === 0 ? (
@@ -349,6 +407,7 @@ export default function PresetPanel({
                         s.animations && s.animations.length > 0 ? `${s.animations.length} 段样式` : null,
                         s.pages && s.pages.length > 0 ? `${s.pages.length} 个页面` : null,
                         s.widgets && s.widgets.length > 0 ? `${s.widgets.length} 个小部件` : null,
+                        s.api && s.api.length > 0 ? `${s.api.length} 个 API 域` : null,
                         s.layout ? "布局覆写" : null,
                       ].filter(Boolean);
                       return (
@@ -369,6 +428,18 @@ export default function PresetPanel({
                               {parts.length > 0 ? parts.join(" · ") : "无内容项"}
                             </p>
                           </div>
+                          {s.api && s.api.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => void revokePresetApi(p.id, s.api!)}
+                              disabled={revokedApi.get(p.id) === true}
+                              aria-label={`撤销预设 ${s.name} 的网络授权`}
+                              title={revokedApi.get(p.id) === true ? "已撤销网络授权" : "撤销该预设的网络授权（API 域）"}
+                              className="rounded-lg p-2 text-zinc-400 opacity-0 transition-all duration-150 hover:bg-amber-500/10 hover:text-amber-500 group-hover:opacity-100 disabled:opacity-40 disabled:hover:bg-transparent dark:text-zinc-500"
+                            >
+                              <GlobeIcon className="h-3.5 w-3.5" strokeWidth={1.5} />
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => onRemove(p.id)}

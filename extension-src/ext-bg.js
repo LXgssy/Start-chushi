@@ -407,7 +407,7 @@ async function sendNeCmd(cmd, position) {
     return !!(r && r.ok === true);
   } catch (e) { return false; }
 }
-chrome.runtime.onMessage.addListener((m, sender) => {
+chrome.runtime.onMessage.addListener((m, sender, sendResponse) => {
   /* 发送方校验：只信本扩展自身的页面（初始新标签页），网页/内容脚本一律不认 */
   if (!m || typeof m !== "object") return;
   const fromPage = sender && sender.id === chrome.runtime.id &&
@@ -464,6 +464,57 @@ chrome.runtime.onMessage.addListener((m, sender) => {
       t: Date.now(),
     });
     return;
+  }
+  if (m.type === "csProxyFetch") {
+    /* v8.7.42 预设 API 代理（开放律）：沙箱声明域经用户导入授权（chrome.permissions
+       request 逐域授予，optional_host_permissions）→ SW 复核 contains 后代理 fetch。
+       SW 持 host_permissions 即绕 CORS；授权真源在浏览器 permissions——不落盘不缓存。 */
+    const url = typeof m.url === "string" ? m.url.slice(0, 2048) : "";
+    const method = (typeof m.method === "string" ? m.method : "GET").toUpperCase().slice(0, 12);
+    const base64 = m.base64 === true;
+    const reply = (r) => { try { sendResponse(r); } catch { /* 页面已走 */ } };
+    let u;
+    try { u = new URL(url); } catch { reply({ ok: false, error: "url 无效" }); return; }
+    const isHttps = u.protocol === "https:";
+    const isLoop = /^(127\.0\.0\.1|localhost|\[::1\])$/.test(u.hostname);
+    const isLoopHttp = u.protocol === "http:" && isLoop;
+    if (!isHttps && !isLoopHttp) { reply({ ok: false, error: "仅允许 https 与本地回环 http" }); return; }
+    const origin = u.origin + "/*";
+    chrome.permissions.contains({ origins: [origin] }, (granted) => {
+      if (!granted) { reply({ ok: false, error: `域 ${u.host} 未授权（导入预设时未确认或已撤销）` }); return; }
+      const headers = {};
+      if (m.headers && typeof m.headers === "object") {
+        let n = 0;
+        for (const [k, v] of Object.entries(m.headers)) {
+          if (n >= 16) break;
+          if (typeof v === "string" && /^[!#-'*+.0-9A-Za-z^_`|~-]{1,64}$/.test(k)) { headers[k] = v.slice(0, 2048); n += 1; }
+        }
+      }
+      const init = { method: ["GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"].includes(method) ? method : "GET", headers };
+      if (typeof m.body === "string" && m.body && !["GET", "HEAD"].includes(init.method)) init.body = m.body.slice(0, 4000000);
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 30000);
+      fetch(url, { ...init, signal: ctrl.signal })
+        .then(async (r) => {
+          clearTimeout(timer);
+          if (base64) {
+            const buf = await r.arrayBuffer();
+            const bytes = new Uint8Array(buf);
+            let bin = "";
+            for (let i = 0; i < bytes.length; i += 0x8000) {
+              bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+            }
+            reply({ ok: true, status: r.status, bodyBase64: btoa(bin) });
+          } else {
+            reply({ ok: true, status: r.status, bodyText: (await r.text()).slice(0, 8000000) });
+          }
+        })
+        .catch((e) => {
+          clearTimeout(timer);
+          reply({ ok: false, error: String((e && e.message) || e).slice(0, 200) });
+        });
+    });
+    return true; /* 异步 sendResponse */
   }
   /* 未知类型：静默（不 return true，不占用响应通道） */
 });

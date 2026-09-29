@@ -8,10 +8,13 @@
  *   localStorage/Cookie；扩展版 → manifest sandbox 页，无任何扩展 API）；
  * - 脚本副作用全部经 postMessage 回宿主，宿主复核白名单（open 仅 https、
  *   长度上限、命令数上限）后通过 onEvent 交页面执行；
- * - 宿主不代理网络请求，脚本自行 fetch（受目标站 CORS 约束）；
+ * - 宿主不代理网络请求，脚本自行 fetch（受目标站 CORS 约束）；v8.7.42 开放律：
+ *   预设声明的 api 域经用户授权后，扩展版由 SW 代理 fetch（绕 CORS，真源 =
+ *   chrome.permissions），网页版沙箱直连（仍受 CORS 约束）；
  * - 逐脚本启动握手 + 4s 看门狗：顶层死循环脚本被标记 frozen 并从启动列
  *   表剔除（ realm 已卡死，销毁 iframe 重建）；父页面持久化冻结标记，
- *   删除预设即恢复。
+ *   删除预设即恢复。v8.7.42 心跳兜底：5s ping/pong，运行期死循环卡死
+ *   realm（pong 连续缺席）→ 自动重启沙箱，宿主永不失联。
  */
 
 export interface SandboxScript {
@@ -83,19 +86,19 @@ const caps = {
  *  ?v= 供部署后冲掉 SW cache-first 旧缓存 */
 function sandboxSrc(): string {
   const base = (process.env.NEXT_PUBLIC_BASE_PATH as string | undefined) ?? "";
-  return `${base}/sandbox.html?v=127`;
+  return `${base}/sandbox.html?v=128`;
 }
 
 /** 沙箱页面模式地址（自定义页 overlay 用）：mode=page 下运行时仅充当页面宿主 */
 export function sandboxPageSrc(): string {
   const base = (process.env.NEXT_PUBLIC_BASE_PATH as string | undefined) ?? "";
-  return `${base}/sandbox.html?mode=page&v=127`;
+  return `${base}/sandbox.html?mode=page&v=128`;
 }
 
 /** 沙箱小部件模式地址（角落小部件用）：mode=widget 下运行时仅充当部件宿主 */
 export function sandboxWidgetSrc(): string {
   const base = (process.env.NEXT_PUBLIC_BASE_PATH as string | undefined) ?? "";
-  return `${base}/sandbox.html?mode=widget&v=127`;
+  return `${base}/sandbox.html?mode=widget&v=128`;
 }
 
 type Msg = { type?: unknown } & Record<string, unknown>;
@@ -117,6 +120,20 @@ class SandboxBridge {
   private helloTimer: number | null = null;
   private watchdog: number | null = null;
   private listenAttached = false;
+
+  /* v8.7.42 开放律：预设声明的 api 域授权集（host[:port] → allowInsecure）。
+   * 由页面在预设安装/卸载时 syncApiHosts；proxyFetch 的宿主侧校验源。 */
+  private apiHosts = new Map<string, boolean>();
+  /* 心跳（运行期死循环兜底）：5s ping，连续 2 次无 pong → 自动重启 */
+  private pingTimer: number | null = null;
+  private pongMiss = 0;
+  /* 代理 fetch 请求序号与挂起表（reqId → resolve） */
+  private proxySeq = 0;
+
+  /** 页面同步授权域集（全量替换）：installed presets 的 api 声明并集 */
+  syncApiHosts(hosts: Record<string, boolean>) {
+    this.apiHosts = new Map(Object.entries(hosts));
+  }
 
   /** 页面注入的事件出口（toast/命令合并/执行副作用）；置 null 即停 */
   onEvent: ((e: SandboxEvent) => void) | null = null;
@@ -246,11 +263,43 @@ class SandboxBridge {
     }
   }
 
+  /* ---------- v8.7.42 心跳：运行期死循环兜底 ---------- */
+
+  private startPing() {
+    this.stopPing();
+    this.pongMiss = 0;
+    this.pingTimer = window.setInterval(() => {
+      if (!this.iframe) {
+        this.stopPing();
+        return;
+      }
+      if (!this.booted) return; /* boot 序列中不计数：沙箱就绪前 pong 无源 */
+      this.pongMiss += 1;
+      if (this.pongMiss > 2) {
+        /* 连续无 pong：沙箱 realm 已被同步死循环卡死 → 整体重启（不剔单脚本：
+           无法定位嫌疑者，重启后宿主保持响应；卡死脚本随下次触发再现即再重启） */
+        this.stopPing();
+        this.emit({ kind: "error", message: "沙箱无响应（疑似脚本运行期死循环），已自动重启" });
+        this.reboot(this.scripts);
+        return;
+      }
+      this.post({ type: "ping" });
+    }, 5000);
+  }
+
+  private stopPing() {
+    if (this.pingTimer != null) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
+  }
+
   private teardown() {
     if (this.helloTimer != null) {
       clearTimeout(this.helloTimer);
       this.helloTimer = null;
     }
+    this.stopPing();
     fxHost.stop();
     this.settingsSchemas.clear();
     this.smtcSubs.clear();
@@ -299,6 +348,7 @@ class SandboxBridge {
     fxHost.start(this.fxPost);
 
     this.queue = [...scripts];
+    this.startPing();
     this.helloTimer = window.setTimeout(() => {
       this.helloTimer = null;
       if (!this.iframe) return;
@@ -321,6 +371,14 @@ class SandboxBridge {
         }
         this.bootNext();
         break;
+      case "pong":
+        this.pongMiss = 0;
+        break;
+      case "proxyFetchResult": {
+        /* SW 异步代理的回执桥接（proxyFetch 的 SW 路径在 onProxyFetch 内以
+           回调闭包直接 post——此分支保留给未来沙箱主动轮询形态） */
+        break;
+      }
       case "ready":
         this.onScriptDone(s(m.scriptKey, 80));
         break;
@@ -441,6 +499,14 @@ class SandboxBridge {
         this.emit({ kind: "copy", text });
         break;
       }
+      case "proxyFetch": {
+        /* v8.7.42 开放律：预设声明的 api 域代理请求。
+           校验链：url 协议（https / 本地回环 http）→ 域在授权集（syncApiHosts）
+           → 扩展版 SW 代理（permissions.contains 由 SW 端复核，SW 是授权真源）
+           → 网页版直连（CORS 受限）。结果经 proxyFetchResult 回沙箱。 */
+        this.onProxyFetch(m);
+        break;
+      }
       case "settingsDefine": {
         /* 设置面 schema 白名单校验（整体拒绝）：合法则登记并转页面渲染 */
         const key = s(m.scriptKey, 80);
@@ -516,6 +582,104 @@ class SandboxBridge {
         break;
       }
     }
+  }
+
+  /* ---------- v8.7.42 预设 API 代理 fetch ---------- */
+
+  private onProxyFetch(m: Msg) {
+    const key = s(m.scriptKey, 80);
+    const reqId = typeof m.reqId === "number" ? Math.min(1e9, Math.max(0, m.reqId | 0)) : 0;
+    const reply = (r: Record<string, unknown>) => {
+      this.post({ type: "proxyFetchResult", scriptKey: key, reqId, ...r });
+    };
+    if (!key || !this.scripts.some((x) => x.key === key)) {
+      reply({ ok: false, error: "脚本未注册" });
+      return;
+    }
+    const url = s(m.url, 2048);
+    const method = (s(m.method, 12) || "GET").toUpperCase();
+    const body = typeof m.body === "string" ? m.body.slice(0, 4_000_000) : undefined;
+    const base64 = m.base64 === true;
+    /* headers 白名单化：string → string（≤16 项，键 ≤64 字符） */
+    const headers: Record<string, string> = {};
+    if (typeof m.headers === "object" && m.headers != null) {
+      let n = 0;
+      for (const [k, v] of Object.entries(m.headers as Record<string, unknown>)) {
+        if (n >= 16) break;
+        if (typeof v !== "string") continue;
+        if (!/^[!#-'*+.0-9A-Za-z^_`|~-]{1,64}$/.test(k)) continue;
+        headers[k] = v.slice(0, 2048);
+        n += 1;
+      }
+    }
+
+    let u: URL;
+    try {
+      u = new URL(url);
+    } catch {
+      reply({ ok: false, error: "url 无效" });
+      return;
+    }
+    const isHttps = u.protocol === "https:";
+    const isLoop = /^(127\.0\.0\.1|localhost|\[::1\])$/.test(u.hostname);
+    const isLoopHttp = u.protocol === "http:" && isLoop;
+    if (!isHttps && !isLoopHttp) {
+      reply({ ok: false, error: "仅允许 https 与本地回环 http" });
+      return;
+    }
+    /* 授权校验：host[:port] 精确匹配授权集（端口级授权——非默认端口必须显式声明） */
+    const hostPort = u.host.toLowerCase();
+    const insecure = this.apiHosts.get(hostPort);
+    if (insecure === undefined) {
+      reply({ ok: false, error: `域 ${hostPort} 未在预设 api 声明中（或预设未授权）` });
+      return;
+    }
+    if (isLoopHttp && !insecure) {
+      reply({ ok: false, error: `域 ${hostPort} 未允许 http 明文（api 声明 allowInsecure）` });
+      return;
+    }
+
+    if (body !== undefined && method !== "GET" && method !== "HEAD") {
+      /* 有体请求：透传 */
+    }
+
+    const extSW = (globalThis as { chrome?: { runtime?: { sendMessage?: Function; id?: string } } }).chrome?.runtime;
+    if (extSW?.sendMessage && extSW.id) {
+      /* 扩展版：SW 代理（SW 复核 permissions.contains——授权真源在浏览器侧） */
+      try {
+        extSW.sendMessage(
+          { type: "csProxyFetch", url, method, headers, body, base64 },
+          (resp: { ok?: boolean; status?: number; bodyText?: string; bodyBase64?: string; error?: string } | undefined) => {
+            const err = (globalThis as { chrome?: { runtime?: { lastError?: { message?: string } } } }).chrome?.runtime?.lastError;
+            if (err) {
+              reply({ ok: false, error: s(err.message, 200) || "SW 代理失败" });
+              return;
+            }
+            reply(resp ?? { ok: false, error: "SW 无响应" });
+          }
+        );
+      } catch (e) {
+        reply({ ok: false, error: s(String((e as Error)?.message ?? e), 200) });
+      }
+      return;
+    }
+
+    /* 网页版：沙箱直连降级（不透明源 fetch，受目标站 CORS 约束） */
+    fetch(url, { method, headers, body, signal: AbortSignal.timeout?.(30_000) })
+      .then(async (r) => {
+        if (base64) {
+          const buf = await r.arrayBuffer();
+          let bin = "";
+          const bytes = new Uint8Array(buf);
+          for (let i = 0; i < bytes.length; i += 0x8000) {
+            bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+          }
+          reply({ ok: true, status: r.status, bodyBase64: btoa(bin) });
+        } else {
+          reply({ ok: true, status: r.status, bodyText: (await r.text()).slice(0, 8_000_000) });
+        }
+      })
+      .catch((e) => reply({ ok: false, error: s(String((e as Error)?.message ?? e), 200) }));
   }
 }
 

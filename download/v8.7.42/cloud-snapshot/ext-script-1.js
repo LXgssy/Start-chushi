@@ -1,0 +1,1 @@
+(function(){if(location.hostname==="lxgssy.github.io")location.replace("web/")})();
