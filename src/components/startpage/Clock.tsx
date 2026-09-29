@@ -181,7 +181,7 @@ function Clock({
       {/* 日期 · 农历 · 问候（showDate=false 或预设 clock.showDate=false 时整行隐藏；
           时钟主体也隐藏时去掉顶距，日期行升为独立主体） */}
       {!mini && showDate && (
-        <div className={`clock-sub flex h-6 items-center gap-3 text-sm font-light tracking-wide text-zinc-500 dark:text-zinc-400 ${showClock ? "mt-5" : ""}`}>
+        <div className={`clock-sub flex h-6 items-center gap-3 text-sm font-light tracking-wide text-zinc-500 dark:text-zinc-400 ${showClock ? "mt-3" : ""}`}>
           <span>{dateStr}</span>
           {lunarText && (
             <>

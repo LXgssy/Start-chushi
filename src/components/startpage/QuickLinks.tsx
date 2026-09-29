@@ -515,6 +515,12 @@ function QuickLinks({
   ghost?: boolean;
 }) {
   const drawer = form === "drawer";
+  /* v8.7.41 磁贴 4 行上限律：磁贴墙每行 = layout.linksColumns（未设 6，
+     680px 默认宽 5rem 磁贴 + 1rem 间隙实测 6 列），总量上限 = 4 行 × 列数。
+     到顶后「添加」磁贴整体隐藏（docked/抽屉/ghost 三处共用 renderGrid 一处
+     生效）；popup 收藏同式判顶提示「快捷服务已到达限制数量」；存量超限
+     不删数据只拦新增。 */
+  const linksCap = 4 * (columns ?? 6);
   const rootRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -852,6 +858,7 @@ function QuickLinks({
             菜单让位，右键自身只吞默认菜单不弹任何菜单） */}
         {/* v8.6.4：不再用无延迟的 framer 弹簧 —— 与磁贴图标同一套自承载入场
             （.link-intro：同延迟、同缓动、同模糊），整排同拍升起 */}
+        {links.length < linksCap && (
         <motion.div layout initial={false} exit={{ opacity: 0 }} transition={LAYOUT_SPRING}>
           <button
             type="button"
@@ -886,6 +893,7 @@ function QuickLinks({
             </span>
           </button>
         </motion.div>
+        )}
       </div>
     </div>
   );

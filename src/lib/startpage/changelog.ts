@@ -22,6 +22,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.41",
+    date: "2026-09-29",
+    title: "三件套紧凑上移 · 搜索建议 10 行 · 磁贴 4 行上限",
+    channel: "shell",
+    highlights: [
+      "时钟、日期与搜索栏整体更紧凑并整列上移，上方不再留大片空白",
+      "搜索建议最多显示 10 行",
+      "快捷服务磁贴最多 4 行：到顶后「添加」按钮隐藏，弹窗收藏时提示已达限制数量",
+      "设置页的壁纸压暗调节移除，只保留插件弹窗面板里的滑杆（原取值继续生效）",
+    ],
+  },
+  {
     version: "8.7.40",
     date: "2026-09-29",
     title: "悬浮卡律动高光 · 布局更紧凑 · 遮罩三修",

@@ -283,6 +283,14 @@ function StartPageView() {
   /* ---------- 链接保存 / 删除 ---------- */
   const saveLink = useCallback(
     (link: StartLink) => {
+      /* v8.7.41 磁贴 4 行上限律：每行 = layout.linksColumns（未设 6），总量
+         上限 = 4 行 × 列数。到顶后「添加」磁贴隐藏（QuickLinks）、弹窗收藏
+         提示受限（popup），此处兜底编辑弹窗新增路径（存量超限不删只拦新增）。 */
+      if (!link.id && sp.links.length >= 4 * (sp.layout.linksColumns ?? 6)) {
+        sp.setEditor({ open: false, editing: null });
+        toast({ title: "快捷服务已到达限制数量" });
+        return;
+      }
       sp.setLinks((prev) =>
         link.id
           ? prev.map((l) => (l.id === link.id ? link : l))
@@ -291,7 +299,7 @@ function StartPageView() {
       sp.setEditor({ open: false, editing: null });
       toast({ title: link.id ? "链接已更新" : "链接已添加" });
     },
-    [sp.setLinks, sp.setEditor, toast]
+    [sp.setLinks, sp.setEditor, sp.links, sp.layout.linksColumns, toast]
   );
 
   const deleteLink = useCallback(
@@ -343,7 +351,7 @@ function StartPageView() {
         <main
           className={`relative z-10 mx-auto flex min-h-dvh w-full max-w-4xl flex-col items-center ${
             sp.layout.verticalAlign === "top" ? "justify-start" : "justify-center"
-          } px-6 pt-[max(2.5rem,8vh)] pb-[clamp(8rem,22vh,11rem)]`}
+          } px-6 pt-[max(2rem,5vh)] pb-[clamp(10rem,26vh,13rem)]`}
         >
           <div className="flex flex-col items-center">
             {!sp.layout.hideClock && (
@@ -361,8 +369,10 @@ function StartPageView() {
             {!sp.layout.hideSearch && (
               /* v8.7.40 时钟→搜索间距拉近(用户「不要离日期以及时钟组件这么远,
                   浪费太多空间」):6vh 档(28.8~56px)→3vh 档(16~28px);静态
-                  clamp 值与主列定高律同构(不随磁贴数量变,只改常量) */
-              <section className="mt-[clamp(1rem,3vh,1.75rem)] w-full" aria-label="搜索">
+                  clamp 值与主列定高律同构(不随磁贴数量变,只改常量)。
+                  v8.7.41 再收紧:3vh 档(16~28px)→2vh 档(12~20px),时钟/日期/
+                  搜索三件套整体更紧凑;主列 pb 同步加深,整列再上移一点 */
+              <section className="mt-[clamp(0.75rem,2vh,1.25rem)] w-full" aria-label="搜索">
                 <div className="flex justify-center">
                   <SearchBar settings={sp.settings} onPatchSettings={sp.patchSettings} />
                 </div>

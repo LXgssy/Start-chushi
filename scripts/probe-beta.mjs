@@ -15,7 +15,7 @@ import { execSync, spawn } from "child_process";
 import { mkdirSync, rmSync, writeFileSync, readFileSync, statSync } from "fs";
 
 const ROOT = "/tmp/ext-beta";
-const ZIP = "/tmp/beta-wt/download/v8.7.40/ChuShi-NewTab-v8.7.40.zip";
+const ZIP = "/tmp/beta-wt/download/v8.7.41/ChuShi-NewTab-v8.7.41.zip";
 const MOCK = "/tmp/beta-mock";
 const PORT = 26997;
 const SHOTS = "/tmp/probe-beta-shots";
@@ -1774,19 +1774,19 @@ try {
   if (af) {
     const searchBar872 = readFileSync(new URL("../src/components/startpage/SearchBar.tsx", import.meta.url), "utf8");
     const css872b = readFileSync(new URL("../src/app/globals.css", import.meta.url), "utf8");
-    gate("TL29a 搜索建议常驻静态门：AnimatePresence/motion 条件列表退役 + 常驻容器 data-open 接线 + SUG_MAX=6 + CSS data-open 过渡（visibility 离散插值）",
+    gate("TL29a 搜索建议常驻静态门：AnimatePresence/motion 条件列表退役 + 常驻容器 data-open 接线 + SUG_MAX=10（v8.7.41 翻转） + CSS data-open 过渡（visibility 离散插值）",
       !/key="sug-list"/.test(searchBar872)
         && !/<motion\.div/.test(searchBar872)
         && /search-sug-list\$\{cascade \? " sug-cascade" : ""\}/.test(searchBar872)
         && /cascadeOut \? " sug-cascade-out" : ""/.test(searchBar872)
         && /data-open=\{showDrop \? "true" : undefined\}/.test(searchBar872)
         && /aria-hidden=\{!showDrop\}/.test(searchBar872)
-        && /const SUG_MAX = 6;/.test(searchBar872)
+        && /const SUG_MAX = 10;/.test(searchBar872)
         && /const SUG_CLEAR_MS = 460;/.test(searchBar872)
         && /\.search-sug-list \{/.test(css872b)
         && /\.search-sug-list\[data-open\] \{/.test(css872b)
         && /visibility 0s linear calc\(0\.3s \* var\(--mo-speed, 1\)\);/.test(css872b),
-      `motionDiv=${/<motion\.div/.test(searchBar872)} sugMax6=${/const SUG_MAX = 6;/.test(searchBar872)} css=${/\.search-sug-list\[data-open\] \{/.test(css872b)}`);
+      `motionDiv=${/<motion\.div/.test(searchBar872)} sugMax10=${/const SUG_MAX = 10;/.test(searchBar872)} css=${/\.search-sug-list\[data-open\] \{/.test(css872b)}`);
     /* TL29b 行为门：mock sugrec fetch → 输入 → 建议浮现（data-open + 6 行 +
        opacity→1）→ 追加输入同一节点不重挂（闪动根因=重挂 WAAPI 空窗）→
        Esc 收起 data-open 摘除但元素仍在 DOM（常驻结构） */
@@ -1839,8 +1839,8 @@ try {
         visAfter: list3 ? getComputedStyle(list3).visibility : null,
       };
     });
-    gate("TL29b 搜索建议行为门（㊸）：浮现 data-open + 6 行 + opacity=1 + 追加输入同节点不重挂 + Esc 收起 data-open 摘除元素常驻",
-      !r872c.err && r872c.openState.open && r872c.openState.rows === 6 && parseFloat(r872c.openState.op) > 0.95
+    gate("TL29b 搜索建议行为门（㊸）：浮现 data-open + 7 行（v8.7.41 翻转：SUG_MAX=10 放行 mock 全量 7 条） + opacity=1 + 追加输入同节点不重挂 + Esc 收起 data-open 摘除元素常驻",
+      !r872c.err && r872c.openState.open && r872c.openState.rows === 7 && parseFloat(r872c.openState.op) > 0.95
         && r872c.afterType.same && r872c.afterType.mark && r872c.afterType.open
         && r872c.closedSeen && r872c.stillInDom,
       JSON.stringify(r872c));
@@ -3147,7 +3147,9 @@ try {
       teardown: pw58.includes("neAudioTeardown") && pw58.includes('type: "neFrame", track: null') && ne58.includes("navigator.mediaSession.metadata = null"),
       swGuard: bg58.includes("sid === neTabId"),
       showFlags: ck58.includes("settings.showClock") && ck58.includes("settings.showDate") && sp58.includes('segKey="clock"') && sp58.includes('segKey="date"'),
-      dimUi: sp58.includes("壁纸压暗程度") && sp58.includes("settings.photoDim") && pg58.includes("photoDim={sp.settings.photoDim}") && ab58.includes('"--photo-dim": photoDim / 100'),
+      /* v8.7.41 翻转：设置页压暗滑杆退役（用户指令：只保留插件弹窗面板里的
+         调节选项）——sp 侧断言取反；数据面（pg 传参/ab 消费）与弹窗滑杆留存不变 */
+      dimUi: !sp58.includes("壁纸压暗程度") && !sp58.includes("settings.photoDim") && pg58.includes("photoDim={sp.settings.photoDim}") && ab58.includes('"--photo-dim": photoDim / 100'),
       dimCss: cDim58 >= 5,
       lenOk58: w58.length <= 44200,
     };
@@ -3272,7 +3274,7 @@ try {
     const t62 = {
       zoneConst: pg62.includes("const LINKS_ZONE_H = 188;"),
       zoneDual: pg62.split("style={{ height: LINKS_ZONE_H }}").length === 3,
-      pbConst: pg62.includes("pb-[clamp(8rem,22vh,11rem)]") && !pg62.includes("mainPb") && !pg62.includes("linkRows"),
+      pbConst: pg62.includes("pb-[clamp(10rem,26vh,13rem)]") && !pg62.includes("mainPb") && !pg62.includes("linkRows"),
       padTransGone: !pg62.includes("transition-[padding]"),
       veilZeroAll: gc62.includes(".cl-screen-veil {\n  --veil-to-bf: blur(0px) !important;\n}"),
       veilOutScope: gc62.includes(".veil-out.cl-screen-veil {") && !gc62.includes(".veil-out.palette-veil"),
@@ -3305,11 +3307,41 @@ try {
       veilCross: gc63.includes("html.cs-lite.photo-mode:not(.dark) .cl-drawer-veil::before") && gc63.includes("rgba(0, 0, 0, 0.18)") && gc63.includes("html.cs-lite.photo-mode.dark .cl-drawer-veil::before"),
       drawerVeilZero: gc63.includes("html.cs-drawer .cl-screen-veil") && /html\.cs-drawer \.cl-screen-veil \{\n  background-color: transparent !important;\n\}/.test(gc63),
       durSync30: gc63.includes("--veil-out-dur: 0.30s;") && ld63.includes("duration={0.30}") && cp63.includes("duration={0.30}") && !gc63.includes("--veil-out-dur: 0.32s;"),
-      searchNear: pg63.includes("mt-[clamp(1rem,3vh,1.75rem)]") && !pg63.includes("mt-[clamp(1.8rem,6vh,3.5rem)]"),
+      searchNear: pg63.includes("mt-[clamp(0.75rem,2vh,1.25rem)]") && !pg63.includes("mt-[clamp(1rem,3vh,1.75rem)]"),
       linksZoneKeep: pg63.includes("mt-[clamp(2rem,8vh,4.5rem)]"),
     };
     gate("TL63 悬浮卡律动桥+掠影×流畅抽屉遮罩+抽屉态纱幕零叠加+关开同速+搜索拉近 门（v8.7.40）",
       Object.values(t63).every(Boolean), JSON.stringify(t63));
+  }
+  /* ---------- TL64 磁贴 4 行上限+收藏受限提示 门（v8.7.41） ---------- */
+  {
+    const ql64 = readFileSync(new URL("../src/components/startpage/QuickLinks.tsx", import.meta.url), "utf8");
+    const pg64 = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+    const pj64 = readFileSync(new URL("../extension-src/popup.js", import.meta.url), "utf8");
+    gate("TL64 磁贴 4 行上限门（v8.7.41）：QuickLinks linksCap=4×列数 + add 按钮 links.length<linksCap 条件渲染；page saveLink 兜底拦截；popup 动态 cap + 判顶 flash「快捷服务已到达限制数量」",
+      /const linksCap = 4 \* \(columns \?\? 6\);/.test(ql64)
+        && /links\.length < linksCap && \(/.test(ql64)
+        && /sp\.links\.length >= 4 \* \(sp\.layout\.linksColumns \?\? 6\)/.test(pg64)
+        && pg64.includes("快捷服务已到达限制数量")
+        && /function linksCap\(\)/.test(pj64)
+        && pj64.includes("快捷服务已到达限制数量")
+        && pj64.includes("list.length >= cap")
+        && !pj64.includes("LINKS_CAP"));
+  }
+  /* ---------- TL65 三件套紧凑上移+SUG10+设置页压暗滑杆退役 门（v8.7.41） ---------- */
+  {
+    const pg65 = readFileSync(new URL("../src/app/page.tsx", import.meta.url), "utf8");
+    const ck65 = readFileSync(new URL("../src/components/startpage/Clock.tsx", import.meta.url), "utf8");
+    const sb65 = readFileSync(new URL("../src/components/startpage/SearchBar.tsx", import.meta.url), "utf8");
+    const sp65 = readFileSync(new URL("../src/components/startpage/SettingsPanel.tsx", import.meta.url), "utf8");
+    gate("TL65 三件套紧凑上移+SUG10+压暗滑杆仅弹窗 门（v8.7.41）：pt max(2rem,5vh)+pb clamp(10rem,26vh,13rem)+时钟→搜索 2vh 档+日期行 mt-3+SUG_MAX=10+设置页无压暗滑杆",
+      /pt-\[max\(2rem,5vh\)\]/.test(pg65)
+        && /pb-\[clamp\(10rem,26vh,13rem\)\]/.test(pg65)
+        && /mt-\[clamp\(0\.75rem,2vh,1\.25rem\)\]/.test(pg65)
+        && /showClock \? "mt-3" : ""/.test(ck65)
+        && /const SUG_MAX = 10;/.test(sb65)
+        && !sp65.includes("壁纸压暗程度")
+        && !sp65.includes("onPatch({ photoDim"));
   }
   /* ---------- T10 pageerror ---------- */
   gate("T10 pageerror=0", errors.length === 0, errors.join(" | ").slice(0, 120));
@@ -3317,7 +3349,7 @@ try {
   fail++;
   console.log("  [FATAL]", e.message);
 } finally {
-  console.log(`\n===== v8.7.39 probe: ${pass} PASS / ${fail} FAIL =====`);
+  console.log(`\n===== v8.7.41 probe: ${pass} PASS / ${fail} FAIL =====`);
   await browser.close();
   try { httpSrv.kill(); } catch { }
   process.exit(fail ? 1 : 0);
