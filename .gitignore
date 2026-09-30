@@ -80,9 +80,16 @@ download/edge-store/
 /tools/
 vendor/
 
-# ===== 内部工作档案永不入库（2026-09-30 律）=====
+# ===== 内部工作档案永不入公开库（2026-09-30 律；归私有工作仓库 Start-chushi-workspace）=====
 /worklog.md
+/worklog_*.md
 /docs/AI-HANDOFF.md
 /docs/skills/
 /.pkgtmp/
 /recon-notes/
+scripts/append-worklog-*.py
+scripts/worklog-*
+scripts/recon-*
+scripts/wss-share-recon.mjs
+scripts/watch-ci-*
+scripts/ci-status-*
