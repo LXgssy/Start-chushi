@@ -1,11 +1,14 @@
 <!doctype html>
-<!-- 「初始」扩展弹窗快捷面板（v8.5.0）。
+<!-- 「初始」扩展弹窗快捷面板（v8.5.0 / v8.7.36 扩容）。
      点击浏览器工具栏「初始」图标弹出的轻量设置面板（青柠起始页同款交互）。
-     v1 收录两项高频开关 + 完整设置直达：
+     v8.7.36 收录：
+       · 快捷行：添加至快捷服务（当前标签页直入磁贴，v8.7.38 标签系统退役）
        · 流畅模式（低配电脑优化）—— settings.perfLite
+       · 壁纸压暗程度 —— settings.photoDim（掠影壁纸压暗倍率 0–200%）
+       · 显示 Dock 栏 —— settings.showDock
        · 新标签页不聚焦地址栏 —— settings.noOmniboxFocus
-     与新标签页共享同一 localStorage 键（start:settings，同扩展 origin），
-     开关即时写入、已开标签页经 storage 事件热跟随（page.tsx 消费）。
+     与新标签页共享同一 localStorage 键（start:settings / start:bookmarks，
+     同扩展 origin），开关即时写入、已开标签页经 storage 事件热跟随。
      样式零依赖（内联 CSS）：zinc 刻度 + 强调紫，深浅色跟随
      settings.themeMode（system 回退 prefers-color-scheme）。
      CSP 律：MV3 扩展页禁内联 script，逻辑全部走外链 popup.js。 -->
@@ -70,6 +73,47 @@
         color: var(--fg3);
         font-variant-numeric: tabular-nums;
       }
+      /* v8.7.38 快捷行：添加至快捷服务（单钮通栏；v8.7.36 两钮+书签列表退役） */
+      .quick {
+        display: flex;
+        gap: 8px;
+        padding: 12px 0 4px;
+      }
+      .qbtn {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 8px 0;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: var(--track);
+        color: var(--fg2);
+        font-size: 11.5px;
+        font-weight: 300;
+        letter-spacing: 0.12em;
+        cursor: pointer;
+        outline: none;
+        transition: background-color 0.25s ease, color 0.25s ease,
+          border-color 0.25s ease;
+      }
+      .qbtn:hover {
+        background: color-mix(in srgb, var(--fg) 7%, transparent);
+        color: var(--fg);
+      }
+      .qbtn:focus-visible {
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--acc) 45%, transparent);
+      }
+      .qbtn svg {
+        width: 13px;
+        height: 13px;
+        flex-shrink: 0;
+      }
+      .qbtn.ok {
+        color: var(--acc);
+        border-color: color-mix(in srgb, var(--acc) 45%, transparent);
+      }
       .row {
         display: flex;
         align-items: center;
@@ -93,6 +137,45 @@
         line-height: 1.55;
         letter-spacing: 0.03em;
         color: var(--fg3);
+      }
+      /* v8.7.36 压暗滑杆行：标题描述在上，滑杆+数值在下 */
+      .dim-ctl {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 9px;
+      }
+      .dim-ctl input[type="range"] {
+        flex: 1;
+        height: 4px;
+        appearance: none;
+        -webkit-appearance: none;
+        border-radius: 999px;
+        background: var(--track);
+        outline: none;
+        cursor: pointer;
+      }
+      .dim-ctl input[type="range"]::-webkit-slider-thumb {
+        appearance: none;
+        -webkit-appearance: none;
+        width: 14px;
+        height: 14px;
+        border-radius: 999px;
+        background: var(--acc);
+        border: none;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+      }
+      .dim-ctl input[type="range"]:focus-visible {
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--acc) 45%, transparent);
+      }
+      .dim-v {
+        flex-shrink: 0;
+        width: 38px;
+        text-align: right;
+        font-size: 11px;
+        font-weight: 300;
+        color: var(--fg2);
+        font-variant-numeric: tabular-nums;
       }
       /* 迷你开关：与设置面板 Switch 同构（38x22 胶囊 + 16px 旋钮） */
       .sw {
@@ -151,6 +234,22 @@
         background: color-mix(in srgb, var(--fg) 6%, transparent);
         color: var(--fg);
       }
+      /* v8.7.36 图标固定引导（Chrome 无自动固定 API，如实引导） */
+      .tip {
+        margin-top: 11px;
+        padding: 8px 10px;
+        border-radius: 9px;
+        background: var(--track);
+        font-size: 10px;
+        font-weight: 300;
+        line-height: 1.6;
+        letter-spacing: 0.03em;
+        color: var(--fg3);
+      }
+      .tip b {
+        font-weight: 400;
+        color: var(--fg2);
+      }
       footer {
         margin-top: 11px;
         text-align: center;
@@ -170,12 +269,43 @@
     </header>
 
     <main>
+      <!-- v8.7.38 快捷行：添加当前网页至快捷服务（标签系统退役，直入磁贴） -->
+      <div class="quick">
+        <button class="qbtn" id="btn-add" aria-label="添加当前网页至快捷服务">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 5v14M5 12h14" />
+          </svg>
+          <span id="add-label">添加至快捷服务</span>
+        </button>
+      </div>
+
       <section class="row">
         <div class="row-text">
           <div class="row-title">流畅模式</div>
           <div class="row-desc">低配电脑优化：停用磨砂玻璃与装饰动画，优先帧率。</div>
         </div>
         <button class="sw" id="sw-lite" role="switch" aria-checked="false" aria-label="流畅模式">
+          <span class="knob"></span>
+        </button>
+      </section>
+
+      <section class="row" style="flex-direction: column; align-items: stretch">
+        <div class="row-text">
+          <div class="row-title">壁纸压暗程度</div>
+          <div class="row-desc">掠影壁纸压暗倍率：0% 不压暗，100% 原设计，200% 双倍压暗。</div>
+          <div class="dim-ctl">
+            <input type="range" id="rg-dim" min="0" max="200" step="5" value="100" aria-label="壁纸压暗程度" />
+            <span class="dim-v" id="dim-v">100%</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="row">
+        <div class="row-text">
+          <div class="row-title">显示 Dock 栏</div>
+          <div class="row-desc">关闭后底部 Dock 栏不再显示（快捷服务与搜索不受影响）。</div>
+        </div>
+        <button class="sw" id="sw-dock" role="switch" aria-checked="true" aria-label="显示 Dock 栏">
           <span class="knob"></span>
         </button>
       </section>
@@ -200,6 +330,10 @@
 
       <button class="more" id="open-settings">打开完整设置</button>
     </main>
+
+    <div class="tip">
+      想让「初始」图标<b>常驻浏览器顶栏</b>：Chrome 出于安全策略要求手动固定一次——点工具栏右侧<b>拼图图标</b>，找到「初始」点右侧<b>图钉</b>即可，之后每次启动都在。
+    </div>
 
     <footer>初始 · 新标签页</footer>
 
