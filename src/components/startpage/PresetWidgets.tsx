@@ -4,7 +4,7 @@
  *
  * 结构：应用层 fixed 定位盒 → sandbox.html?mode=widget（唯一源宿主，见 sandbox.js
  * widgetMode）→ 嵌套 srcdoc iframe（sandbox="allow-scripts"，不透明源，用户 HTML）。
- * 部件内极简 chushi API（notify/open/storage/resize/close/music/smtc）经两级
+ * 部件内极简 chushi API（notify/open/storage/resize/close/music/smtc/ne）经两级
  * postMessage 中继回这里，白名单复核后执行：open 仅 https、storage 键值限长并
  * 持久化到本地 localStorage（start:widget-kv，命名空间 = 部件复合键，数据不离开设备）。
  *
@@ -20,6 +20,7 @@
 import { memo, useEffect, useRef } from "react";
 import { sandboxWidgetSrc } from "@/lib/startpage/sandbox";
 import { smtc, SMTC_COMMANDS } from "@/lib/startpage/smtc";
+import { NE_PATHS, neCall, neAudioAct, neAudioState, neAudioSys, neAudioTeardown, onNeAudio, onNeBeat, type NeAudioAct } from "@/lib/startpage/netease";
 import { postToWidget, widgetFrameGet, widgetFrameSet, widgetThemeBroadcast } from "@/lib/startpage/widget-frames";
 import { smtcSpectrum, type SmtcSpectrum } from "@/lib/startpage/smtc";
 
@@ -66,9 +67,37 @@ type WidgetApiMsg = {
   /** SMTC 通道（v1.8.0）：控制命令与 seek 位置 */
   cmd?: unknown;
   position?: unknown;
+  /** 网易云直链播放通道（v8.7.23）：neApi 端点+参数 / neAudio 动作载荷 */
+  path?: unknown;
+  params?: unknown;
+  act?: unknown;
+  url?: unknown;
+  meta?: unknown;
+  volume?: unknown;
+  /** v8.7.24 内置播放器歌词推送载荷（JSON 字符串，chushi.ne.pub） */
+  payload?: unknown;
 };
 
 const s = (v: unknown, max: number): string => (typeof v === "string" ? v.slice(0, max) : "");
+
+/* v8.7.24 扩展 runtime 访问器（真扩展内页有 chrome.runtime；壳/纯网页静默降级，
+   与 mirrorExtCard 的 chrome.storage 访问模式同律） */
+type ChromeRuntimeLike = {
+  sendMessage?: (msg: Record<string, unknown>) => unknown;
+  onMessage?: {
+    addListener?: (
+      fn: (m: unknown, sender: unknown, sendResponse: (v?: unknown) => void) => boolean | void
+    ) => void;
+    removeListener?: (fn: unknown) => void;
+  };
+};
+function chromeRuntime(): ChromeRuntimeLike | undefined {
+  try {
+    return (window as unknown as { chrome?: { runtime?: ChromeRuntimeLike } }).chrome?.runtime;
+  } catch {
+    return undefined;
+  }
+}
 
 function readKv(): Record<string, string> {
   try {
@@ -96,13 +125,20 @@ function pushSmtcSnapshot(wkey: string, reqId?: unknown) {
 }
 
 /* v8.2.9 面板开关 → 扩展浮窗镜像（cardAcc/cardForceWord 同律）：
-   律动 → cardGlow；浮窗 → cardEnabled。默认 true（与面板默认一致）。
+   律动 → cardGlow；浮窗 → cardEnabled；强行逐字 → cardForceWord；
+   v8.7.16：全局歌词 → cardDlyric。浮窗/律动默认 true（与面板默认一致），
+   强行逐字/全局歌词默认 false（true 字面量才置真）。
    v8.4.4 壳桥律：云端壳内页面没有 chrome API——manifest 已注入 MAIN world
    shim（shim-page.js）把 chrome.storage.local 伪造为 postMessage 桥 →
    壳桥（shell-bridge.js/cs-bridge.js）校验 origin 后代写真 chrome.storage；
    本函数零改动（真 API 与 shim 伪造 API 同签名），镜像在三种运行面统一：
    扩展内页（真 API）/ 壳内云端页（shim→壳桥）/ 纯网页（无 chrome，静默）。 */
-function mirrorExtCard(fw: string | undefined, glow: string | undefined, flt: string | undefined) {
+function mirrorExtCard(
+  fw: string | undefined,
+  glow: string | undefined,
+  flt: string | undefined,
+  dl: string | undefined,
+) {
   try {
     const ext = (window as unknown as {
       chrome?: { storage?: { local?: { set?: (o: Record<string, unknown>) => void } } };
@@ -112,6 +148,7 @@ function mirrorExtCard(fw: string | undefined, glow: string | undefined, flt: st
     if (fw !== undefined) patch.cardForceWord = fw === "true";
     if (glow !== undefined) patch.cardGlow = glow !== "false";
     if (flt !== undefined) patch.cardEnabled = flt !== "false";
+    if (dl !== undefined) patch.cardDlyric = dl === "true";
     if (Object.keys(patch).length) ext.storage.local.set(patch);
   } catch {
     /* 非 extension 环境（gh-pages 预览） */
@@ -120,14 +157,16 @@ function mirrorExtCard(fw: string | undefined, glow: string | undefined, flt: st
 
 /* v8.4.4 反向实时同步：chrome.storage.local 变化 → 面板 kv 回写 +
    widgetStoragePatch 下发（面板开关 UI 实时翻转）。
-   变化来源：浮窗（未来全局开关/其他镜像方）、其他「初始」标签页（扩展内
-   或壳内）、顶层直访 Pages 的 cs-bridge——任一处写键，所有表面跟随。
+   变化来源：浮窗（全局开关/其他镜像方）、全局歌词浮层（× 钮反向写）、
+   其他「初始」标签页（扩展内或壳内）、顶层直访 Pages 的 cs-bridge——
+   任一处写键，所有表面跟随。
    回环律：本页面自己 mirrorExtCard 写入触发的 onChanged 回声与新值恒等，
    被下方「同值 no-op」守卫吸收（值不再变化即链断，无震荡）。 */
 const EXT_KV_MAP: Record<string, string> = {
   cardEnabled: ":csFloat",
   cardGlow: ":csGlow",
   cardForceWord: ":csForceWord",
+  cardDlyric: ":csDlyric", /* v8.7.16 全局歌词（桌面歌词浮层全局显隐） */
 };
 
 function PresetWidgets(props: {
@@ -149,6 +188,11 @@ function PresetWidgets(props: {
   const smtcSubsRef = useRef<Set<string>>(new Set());
   /** v8.2.0 频谱转发句柄（首个媒体订阅部件出现即挂，卸载/清零即卸） */
   const specUnsubRef = useRef<(() => void) | null>(null);
+  /** v8.7.23 网易云播放通道：订阅宿主音频状态的部件 key 集合（chushi.ne.sub） */
+  const neSubsRef = useRef<Set<string>>(new Set());
+  /* v8.7.26 频谱帧订阅（neBeatSub 登记 → widgetNeBeat 30Hz 推帧）；
+     onNeBeat 内部订阅驱动启停（末位退订即停循环，收面板零残留） */
+  const neBeatSubsRef = useRef<Set<string>>(new Set());
   /* 消息监听器只挂一次 → 经 ref 读取最新值；ref 写入放 effect（React Compiler 律：
      渲染期不可触 ref，与 page.tsx contentHRef 镜像同模式） */
   const widgetsRef = useRef(props.widgets);
@@ -165,12 +209,14 @@ function PresetWidgets(props: {
   useEffect(() => {
     kvRef.current = readKv();
     /* v8.2.8 初始镜像：已有开关值同步给浮窗（否则浮窗要等用户
-       下一次切换开关才知道面板状态）；v8.2.9 扩至三开关 */
+       下一次切换开关才知道面板状态）；v8.2.9 扩至三开关；
+       v8.7.16 扩至四开关（全局歌词 cardDlyric） */
     const kv = kvRef.current;
     const fw = Object.entries(kv).find(([k]) => k.endsWith(":csForceWord"));
     const glow = Object.entries(kv).find(([k]) => k.endsWith(":csGlow"));
     const flt = Object.entries(kv).find(([k]) => k.endsWith(":csFloat"));
-    mirrorExtCard(fw ? fw[1] : undefined, glow ? glow[1] : undefined, flt ? flt[1] : undefined);
+    const dl = Object.entries(kv).find(([k]) => k.endsWith(":csDlyric"));
+    mirrorExtCard(fw ? fw[1] : undefined, glow ? glow[1] : undefined, flt ? flt[1] : undefined, dl ? dl[1] : undefined);
   }, []);
 
   /* v8.4.4 反向实时：chrome.storage.onChanged（扩展内真事件 / 壳内 shim
@@ -251,6 +297,94 @@ function PresetWidgets(props: {
         specUnsubRef.current = null;
       }
     };
+  }, []);
+
+  /* v8.7.23 网易云宿主音频状态 → 订阅部件帧广播（timeupdate ≈4Hz 原生节流）
+     v8.7.24 兼职 SW ne 数据面发布器：真值帧（含 fetchedAt 锚点）推给后台，
+     悬浮卡/全局歌词浮层据此换源广播（SW 按 ne 优先窗与 hub 真值仲裁）；
+     发布面门控：有曲目（st.id）才发——面板未放歌不产生噪声帧 */
+  useEffect(() => {
+    const off = onNeAudio((st) => {
+      for (const wkey of neSubsRef.current) {
+        postToWidget(wkey, { type: "widgetNeAudio", widgetKey: wkey, state: st });
+      }
+      if (st.id) {
+        try {
+          void Promise.resolve(
+            chromeRuntime()?.sendMessage?.({
+              type: "neFrame",
+              track: {
+                songId: Number(st.id) || 0,
+                title: st.name,
+                artist: st.artist,
+                album: st.album,
+                playing: st.playing,
+                position: st.position,
+                duration: st.duration,
+                pic: st.cover,
+                rate: 1,
+                fetchedAt: Date.now(),
+              },
+            })
+          ).catch(() => {});
+        } catch {
+          /* 非 extension 环境（gh-pages 预览） */
+        }
+      }
+    });
+    return off;
+  }, []);
+
+  /* v8.7.35 播放器预设移除 → 宿主音频停播 + SW ne 真值撤帧（悬浮卡退散）。
+     audio 元素是宿主单例，不随部件 iframe 卸载——不显式停播=音乐继续响、
+     发布帧持续保鲜（暂停帧 10min 窗）→ 悬浮卡永不消失（用户实测现场）。
+     netease 部件从 widgets 清单消失的瞬间：teardown 清 meta 闭发布门 +
+     显式空帧让 SW 立即撤 ne 真值，1Hz 广播兜底 track:null → 卡退散。 */
+  const hadNePlayerRef = useRef(false);
+  useEffect(() => {
+    const has = props.widgets.some((w) => w.key.endsWith(":netease"));
+    if (hadNePlayerRef.current && !has) {
+      void neAudioTeardown();
+      try {
+        void Promise.resolve(chromeRuntime()?.sendMessage?.({ type: "neFrame", track: null })).catch(() => {});
+      } catch {
+        /* 非 extension 环境（gh-pages 预览） */
+      }
+    }
+    hadNePlayerRef.current = has;
+  }, [props.widgets]);
+
+  /* v8.7.26 网易云频谱帧 → 部件帧（宿主 WebAudio 30Hz 已包络 {on,bass,bands}），
+     参数族与 SMTC 频谱（v8.2.0 sendSpectrum）同语言；无订阅者时 onNeBeat
+     循环自停（订阅驱动，非轮询空转） */
+  useEffect(() => {
+    /* v8.7.40 悬浮卡律动桥:ne 频谱帧直通 SW（neSpecFrame → ext-bg 仲裁后按
+       既有 spec 协议扇出 __spec 订阅卡）——旧链只推部件帧，ne 内置播放器
+       播放时悬浮音乐卡零律动（用户实测「全局音乐浮窗没有加上律动高光」）。
+       发送侧边沿门:on 帧 30Hz 恒发,on:false 仅边沿一枚（对齐 SW 翻转门,
+       静默期零消息）;数据形状 {on,bass,bands,t} 与桥链 spec 帧同构。 */
+    let sentOn = false;
+    const rt = chromeRuntime();
+    const fwdSpec = (msg: Record<string, unknown>) => {
+      try {
+        const r = rt?.sendMessage?.(msg) as unknown;
+        if (r && typeof (r as Promise<void>).catch === "function") {
+          (r as Promise<void>).catch(() => { /* 无监听/无 SW 静默 */ });
+        }
+      } catch { /* 非扩展环境静默 */ }
+    };
+    return onNeBeat((beat) => {
+      for (const wkey of neBeatSubsRef.current) {
+        postToWidget(wkey, { type: "widgetNeBeat", widgetKey: wkey, beat });
+      }
+      if (beat.on) {
+        sentOn = true;
+        fwdSpec({ type: "neSpecFrame", on: true, bass: beat.bass, bands: beat.bands, t: Date.now() });
+      } else if (sentOn) {
+        sentOn = false;
+        fwdSpec({ type: "neSpecFrame", on: false, bass: 0, bands: [], t: Date.now() });
+      }
+    });
   }, []);
 
   /** v8.2.0 频谱帧 → 部件帧（30Hz 已包络，{on,bass,bands,t}） */
@@ -345,11 +479,117 @@ function PresetWidgets(props: {
         writeKv(kvRef.current);
         /* v8.2.8/9 面板开关镜像到 chrome.storage.local：csForceWord →
            cardForceWord；csGlow → cardGlow（律动总开关）；csFloat →
-           cardEnabled（浮窗全局显隐）——悬浮卡任意网页读取 + onChanged */
-        if (k.endsWith(":csForceWord")) mirrorExtCard(v, undefined, undefined);
-        else if (k.endsWith(":csGlow")) mirrorExtCard(undefined, v, undefined);
-        else if (k.endsWith(":csFloat")) mirrorExtCard(undefined, undefined, v);
+           cardEnabled（浮窗全局显隐）；v8.7.16：csDlyric → cardDlyric
+           （全局歌词浮层全局显隐）——悬浮卡/歌词浮层任意网页读取 + onChanged */
+        if (k.endsWith(":csForceWord")) mirrorExtCard(v, undefined, undefined, undefined);
+        else if (k.endsWith(":csGlow")) mirrorExtCard(undefined, v, undefined, undefined);
+        else if (k.endsWith(":csFloat")) mirrorExtCard(undefined, undefined, v, undefined);
+        else if (k.endsWith(":csDlyric")) mirrorExtCard(undefined, undefined, undefined, v);
         postToWidget(wkey, { type: "widgetStorage", widgetKey: wkey, reqId: m.reqId, op: "storageSet", ok: true });
+        break;
+      }
+      /* ---------- 网易云直链播放通道（v8.7.23）----------
+         neApi：端点白名单复核 → 宿主 weapi 加密直连（cookie jar 携带登录态）
+         → 回执 widgetNeResult；neAudio：宿主 <audio> 单例动作 → 回执 +
+         状态推送；neSub：登记后立即回推当前状态（后续广播承接）。 */
+      case "neApi": {
+        const path = s(m.path, 64);
+        let params: Record<string, string> = {};
+        try {
+          const parsed = JSON.parse(s(m.params, 2000));
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+              params[k.slice(0, 40)] = String(v).slice(0, 600);
+            }
+          }
+        } catch {
+          /* 参数非 JSON → 空参数继续（部分端点本就无参） */
+        }
+        neCall(path, params).then(
+          (data) => postToWidget(wkey, { type: "widgetNeResult", widgetKey: wkey, reqId: m.reqId, ok: true, data }),
+          (err) =>
+            postToWidget(wkey, {
+              type: "widgetNeResult",
+              widgetKey: wkey,
+              reqId: m.reqId,
+              ok: false,
+              err: String((err as Error)?.message ?? err).slice(0, 120),
+            })
+        );
+        break;
+      }
+      case "neAudio": {
+        const act = s(m.act, 8) as NeAudioAct;
+        let payload: { url?: string; meta?: Record<string, unknown>; position?: number; volume?: number } = {};
+        try {
+          const parsed = JSON.parse(s(m.meta, 1000));
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) payload.meta = parsed;
+        } catch {
+          /* meta 可缺省 */
+        }
+        if (typeof m.url === "string" && m.url) payload.url = s(m.url, 600);
+        if (typeof m.position === "number" && Number.isFinite(m.position)) payload.position = m.position;
+        if (typeof m.volume === "number" && Number.isFinite(m.volume)) payload.volume = m.volume;
+        neAudioAct(act, payload).then(
+          (st) => postToWidget(wkey, { type: "widgetNeResult", widgetKey: wkey, reqId: m.reqId, ok: true, data: st }),
+          (err) =>
+            postToWidget(wkey, {
+              type: "widgetNeResult",
+              widgetKey: wkey,
+              reqId: m.reqId,
+              ok: false,
+              err: String((err as Error)?.message ?? err).slice(0, 120),
+            })
+        );
+        break;
+      }
+      case "neBeatSub": {
+        /* v8.7.26 频谱订阅登记：后续帧走 onNeBeat 广播（30Hz，包络已由宿主完成） */
+        neBeatSubsRef.current.add(wkey);
+        break;
+      }
+      case "neSub": {
+        neSubsRef.current.add(wkey);
+        postToWidget(wkey, { type: "widgetNeAudio", widgetKey: wkey, state: neAudioState() });
+        break;
+      }
+      /* ---------- 歌词外送（v8.7.24）----------
+         nePub：widget 推原始歌词体（同桥 /api/lyric 载荷形状）→ 白名单校验
+         （数字 songId + yrc/lrc 至少一项非空）→ SW ne 歌词缓存，悬浮卡/
+         全局歌词浮层的 {type:"lyric"} 请求优先命中。 */
+      case "nePub": {
+        let ly: Record<string, unknown> | null = null;
+        try {
+          const parsed: unknown = JSON.parse(s(m.payload, 240000) || "null");
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            const o = parsed as Record<string, unknown>;
+            const songId = s(o.songId, 16);
+            const yrc = s(o.yrc, 240000);
+            const lrc = s(o.lrc, 240000);
+            if (/^\d+$/.test(songId) && (yrc.trim() || lrc.trim())) {
+              ly = {
+                songId,
+                yrc,
+                ytlrc: s(o.ytlrc, 240000),
+                lrc,
+                tlyric: s(o.tlyric, 240000),
+                source: "chushi-ne",
+                rev: "ne-" + songId,
+              };
+            }
+          }
+        } catch {
+          /* 载荷非 JSON：静默 */
+        }
+        if (ly) {
+          try {
+            void Promise.resolve(chromeRuntime()?.sendMessage?.({ type: "neLyricPush", lyric: ly })).catch(
+              () => {}
+            );
+          } catch {
+            /* 非 extension 环境 */
+          }
+        }
         break;
       }
       default:
@@ -360,6 +600,51 @@ function PresetWidgets(props: {
   useEffect(() => {
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
+  }, []);
+
+  /* v8.7.24 反向控制回程：SW 在 ne 活跃期把浮窗卡片命令路由回发布帧的本页
+     （tabs.sendMessage {type:"neCmd"}）。play/pause/toggle/seek 直落宿主哑
+     播放器；next/prev 走 sysCmd 单次标志（队列逻辑在 widget，与 MediaSession
+     硬件键同通道）。多开初始页不打架：SW 只回发最后发布帧的标签页。 */
+  useEffect(() => {
+    const om = chromeRuntime()?.onMessage;
+    if (!om?.addListener) return;
+    const handler = (
+      m: unknown,
+      _sender: unknown,
+      sendResponse: (v?: unknown) => void
+    ): boolean | undefined => {
+      if (!m || typeof m !== "object" || (m as { type?: unknown }).type !== "neCmd") return undefined;
+      const cm = m as { cmd?: unknown; position?: unknown };
+      const cmd = s(cm.cmd, 8);
+      const pos = cm.position;
+      void (async () => {
+        try {
+          if (cmd === "next") neAudioSys("next");
+          else if (cmd === "prev") neAudioSys("prev");
+          else if (cmd === "seek")
+            await neAudioAct("seek", {
+              position: typeof pos === "number" && Number.isFinite(pos) ? Math.max(0, Math.min(86400, pos)) : 0,
+            });
+          else if (cmd === "play") await neAudioAct("play");
+          else if (cmd === "pause") await neAudioAct("pause");
+          else if (cmd === "toggle") await neAudioAct("toggle");
+          else throw new Error("bad cmd");
+          sendResponse({ ok: true });
+        } catch {
+          sendResponse({ ok: false });
+        }
+      })();
+      return true; /* 异步回执 */
+    };
+    om.addListener(handler);
+    return () => {
+      try {
+        if (om.removeListener) om.removeListener(handler);
+      } catch {
+        /* shim 场景移除失败不影响 */
+      }
+    };
   }, []);
 
   /* 主题/强调色变化 → 下发全部部件帧（角落 + 统一舞台里的 dock 部件） */

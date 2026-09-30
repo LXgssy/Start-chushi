@@ -91,7 +91,10 @@ img{-webkit-user-drag:none;user-select:none}
 .cs-seek:hover .cs-rail{transform:scaleY(1)}
 .cs-rail i{position:absolute;left:0;top:0;height:100%;width:0%;border-radius:4px;background:var(--acc)}
 .cs-tm{display:flex;justify-content:space-between;margin-top:2px;font-size:10.5px;
-  color:var(--ink3);font-variant-numeric:tabular-nums;position:relative;z-index:1}
+  color:var(--ink3);font-variant-numeric:tabular-nums;position:relative;z-index:2}
+  /* v8.7.18：z 1→2——词钮 absolute 悬垂到 ctl 行上方，cs-ctl 同 z 且 DOM 靠后
+     会盖住悬垂区截获点击（visual 实测 intercepts pointer events）；
+     tm 仅词钮悬垂越界，整行提层对可见布局零影响（chip z4 仍在其上） */
 .cs-b{appearance:none;border:0;background:transparent;color:var(--ink2);width:38px;height:38px;
   border-radius:var(--r9);flex:none;display:flex;align-items:center;justify-content:center;
   cursor:pointer}
@@ -204,6 +207,39 @@ img{-webkit-user-drag:none;user-select:none}
 .cs-wbw{margin-left:auto}
 .cs-wbw:hover,.cs-tg:hover{color:var(--ink)}
 .cs-wbw.on,.cs-tg.on{color:#fff;background:var(--acc);border-color:var(--acc)}
+/* v8.7.18 词钮迁时长行右下（用户反馈：播放/上一首/下一首三键不让位 +
+   位置=右侧歌曲总时长正下方 + 悬停去圆形高亮改图标本身点亮 + 「词」字
+   按真字形描取居中方框正中）。绝对定位锚 .cs-tm（position:relative 现成）：
+   零流入=控制行三键/歌词区/底行几何零影响；.cs-b:hover 圆底+scale
+   对此钮退役，悬停仅图标本体点亮（accent）。on 态点亮级联序在
+   .cs-b:hover 之后（同特异性后者胜，hover 不抢 on 态颜色）。 */
+.cs-b.on{color:var(--acc)}
+#csWordBtn{position:absolute;right:-4px;top:100%;margin-top:3px;width:26px;height:26px;
+  z-index:2;transition:transform .12s ease,color .25s,background-color .3s,filter .3s}
+#csWordBtn svg{width:20px;height:20px}
+#csWordBtn:hover{background:transparent;color:var(--acc);transform:none}
+/* v8.7.19 点击反馈律（用户：不知道自己是否点击了按钮）：
+   根因=hover 点亮与 on 点亮同为 accent，悬停态下点击前后颜色零变化。
+   ①按下 :active 图标本体缩小（.12s 快过渡=按下即陷，松手即弹）
+   ②点击落定 wpulse 脉冲弹跳（起点对齐按下态续接不跳变，
+   连点经 remove+reflow+add 重触发必重播）
+   ③on 态 accent 辉光（drop-shadow 图标本体，非圆底）——on 在悬停下仍可分辨
+   级联序：:active 在 :hover 后（同特异性后者胜，按下压过 transform:none）；
+   hover 透明底律原样保留，零圆底回归。
+   v8.7.20 轻量化+角标（用户：回弹感没必要这么强+加开启状态图标）：
+   ④按压缩深 .82→.88、脉冲峰 1.22→1.1、时长 .32s→.28s（回弹轻一点）
+   ⑤on-badge ✓ 角标（accent 圆+白勾），off 隐 on 显，与辉光并用=状态双保险。
+   v8.7.22 角标入框（用户：✓放到词钮的方框里面，也就是「词」字的右下角）：
+   ⑥徽标 9px 收进图标圆角方框内、中心落在「词」字形右下角上（旧外悬位退役），
+   圆加白描边环与点亮后的 accent 字形分离（同色相融则勾形不可辨）。 */
+#csWordBtn:active{transform:scale(.88);color:var(--acc)}
+#csWordBtn.on{filter:drop-shadow(0 0 5px var(--acc32))}
+#csWordBtn .on-badge{position:absolute;right:4.5px;bottom:4.5px;width:9px;height:9px;display:none;fill:var(--acc);stroke:none}
+#csWordBtn .on-badge circle{stroke:#fff;stroke-width:1.5}
+#csWordBtn .on-badge path{fill:none;stroke:#fff;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+#csWordBtn.on .on-badge{display:block}
+@keyframes cs-wpulse-kf{0%{transform:scale(.88)}45%{transform:scale(1.1)}100%{transform:scale(1)}}
+#csWordBtn.wpulse{animation:cs-wpulse-kf .28s var(--ez)}
 /* ---------- 提示芯片 ---------- */
 .cs-chip{position:absolute;left:50%;transform:translateX(-50%);z-index:4;display:none;
   align-items:center;gap:5px;padding:4px 10px;border-radius:var(--r9);
@@ -218,6 +254,13 @@ img{-webkit-user-drag:none;user-select:none}
 .cs-e1{font-size:12.5px;font-weight:550;color:var(--ink)}
 .cs-e2{font-size:11px;color:var(--ink3);line-height:1.5;max-width:288px}
 .cs-hide{display:none!important}
+/* v8.7.11 玻璃协作（仅 dock 面板形态）：宿主 .cl-dockwidget 容器已挂与内建面板同款磨砂玻璃，
+   卡体透明让玻璃透出为唯一底色——互切揭示幕（旧玻璃溶解）与聚拢期不再出现「半透明↔纯色」
+   材质跳变；iframe 内 backdrop-filter 采样不到壁纸（透明画布）徒耗合成开销故一并关停。
+   角落磁贴形态（无 data-panel）--card 原样零波及。
+   【v8.7.16 考古回补】本规则在 v8.7.11 曾只补进构建产物 official-presets.json 而源文件
+   缺失（上游漂移）——v8.7.16 重建预设包时 TL41 拦截，此处落源根治（构建链自含）。 */
+[data-panel] .cs-card{background:transparent;backdrop-filter:none;-webkit-backdrop-filter:none;border-color:transparent}
 </style>
 </head>
 <body>
@@ -230,6 +273,7 @@ img{-webkit-user-drag:none;user-select:none}
     <symbol id="cs-i-chev" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></symbol>
     <symbol id="cs-i-warn" viewBox="0 0 24 24"><path d="M12 4L2.6 20h18.8L12 4z"/><path d="M12 10.5v4"/><path d="M12 17.4v.2"/></symbol>
     <symbol id="cs-i-note" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.4"/><path d="M10 16V8.6l5.4 3"/></symbol>
+    <symbol id="cs-i-word" viewBox="0 0 24 24"><rect x="2.9" y="2.9" width="18.2" height="18.2" rx="5.2" stroke-width="1.7"/><path fill="currentColor" stroke="none" d="m7.2 6.9 0.6 -0.6 1.2 1.1 0.8 0.8 -0.7 0.7 -0.7 -0.9zm3.6 2.6 0 -0.8 5 0 0 0.8zm-4.4 0.4 2.8 0 0 5.5 1.3 -1 0.3 0.8 -2.1 1.7 -0.6 0.4 -0.5 -0.6 0.5 -0.6 0.2 -0.5 0 -4.8 -1.9 0zm4.1 -3.4 7.1 0 0 10.1 -0.1 0.6 -0.3 0.3 -0.7 0.2 -1.6 0 -0.3 -1 1.8 0.1 0.2 -0.1 0.1 -0.1 0 -9.2 -6.2 0zm4.7 4.3 0 4.2 -3 0 0 0.8 -0.9 0 0 -5zm-0.9 3.3 0 -2.4 -2.1 0 0 2.4z"/></symbol><!-- v8.7.18「词」=真字形描取（Sarasa/思源黑体 U+8BCD 轮廓 DP 简化 45 点，bbox 居中方框 12,12） -->
   </defs>
 </svg>
 
@@ -253,7 +297,7 @@ img{-webkit-user-drag:none;user-select:none}
       <div class="cs-chip" id="csNote"><svg><use href="#cs-i-warn"/></svg><span id="csNoteTxt"></span></div>
     </div>
     <div class="cs-chip warn" id="csUpd" style="top:8px"><svg><use href="#cs-i-warn"/></svg><span id="csUpdTxt"></span></div>
-    <div class="cs-tm"><span id="csTCur">0:00</span><span id="csTDur">--:--</span></div>
+    <div class="cs-tm"><span id="csTCur">0:00</span><span id="csTDur">--:--</span><button class="cs-b" id="csWordBtn" type="button" title="全局歌词：在所有网页顶部显示可拖动的歌词浮层（逐字扫光与面板同语言）；开启后图标点亮并带 ✓ 角标，浮层右上角 × 可临时隐藏"><svg><use href="#cs-i-word"/></svg><svg class="on-badge" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="5.25"/><path d="m3.5 6.3 1.7 1.7 3.3-3.7"/></svg></button></div>
     <div class="cs-ctl">
       <button class="cs-b" id="csPrev" title="上一首"><svg><use href="#cs-i-prev"/></svg></button>
       <button class="cs-b cs-bmain" id="csPlay" title="播放 / 暂停">
@@ -276,6 +320,8 @@ img{-webkit-user-drag:none;user-select:none}
 (function () {
   "use strict";
   /* ================= ChuShi music widget v8.2.9（纯渲染层）=================
+     v8.7.18：词钮迁时长行右下（三键不让位+总时长正下+hover 图标点亮）
+     +「词」真字形描取居中（思源黑体轮廓 DP 简化）
      v8.2.9：① 面板「律动」「浮窗」双开关（右键隐藏退役，浮窗全局显隐）
      ② 逐行行级时钟（mus.now(true)——行界不受逐字 -100ms 补偿拖累）
      ③ 频段细化 128 段自适应（中/高轴区间随 bands.length 切换）
@@ -741,6 +787,21 @@ img{-webkit-user-drag:none;user-select:none}
     applyToggles();
     if (window.chushi && chushi.storage) chushi.storage.set("csFloat", floatOn);
   };
+  /* v8.7.18 全局歌词开关驻时长行右下（右侧总时长正下方，绝对定位零让位）：
+     csDlyric 持久化（宿主 PresetWidgets 镜像
+     cardDlyric 给扩展侧浮层）；默认关（桌面歌词是主动选择的形态）。
+     浮层 × 钮反向写 storage 时经 widgetStoragePatch 回写实时翻转本按钮。 */
+  var wordBtn = $("csWordBtn");
+  var wordOn = false;
+  wordBtn.onclick = function () {
+    wordOn = !wordOn;
+    wordBtn.classList.toggle("on", wordOn);
+    /* v8.7.19 点击反馈：脉冲弹跳重触发（remove+reflow+add，连点必重播） */
+    wordBtn.classList.remove("wpulse");
+    void wordBtn.offsetWidth;
+    wordBtn.classList.add("wpulse");
+    if (window.chushi && chushi.storage) chushi.storage.set("csDlyric", wordOn);
+  };
   /* v8.4.4 反向实时同步：浮窗/他页改 chrome.storage → 宿主回写 kv 并下发
      widgetStoragePatch → 本面板开关 UI 实时翻转；只认直接宿主帧。 */
   window.addEventListener("message", function (ev) {
@@ -756,6 +817,10 @@ img{-webkit-user-drag:none;user-select:none}
     } else if (d.key === "csForceWord") {
       var nf = d.value === true || d.value === "true";
       if (nf !== forceWord) { forceWord = nf; applyWbw(true); }
+    } else if (d.key === "csDlyric") {
+      /* v8.7.16：全局歌词反向同步（浮层 × 钮 / 他页写入 → 按钮实时翻转） */
+      var nw = d.value === true || d.value === "true";
+      if (nw !== wordOn) { wordOn = nw; wordBtn.classList.toggle("on", wordOn); }
     }
   });
   if (window.chushi && chushi.storage) {
@@ -768,6 +833,11 @@ img{-webkit-user-drag:none;user-select:none}
     }).catch(function () { });
     chushi.storage.get("csFloat").then(function (v) {
       floatOn = v !== false && v !== "false"; applyToggles();
+    }).catch(function () { });
+    chushi.storage.get("csDlyric").then(function (v) {
+      /* v8.7.16：全局歌词默认关（与浮窗/律动默认开不同向） */
+      wordOn = v === true || v === "true";
+      wordBtn.classList.toggle("on", wordOn);
     }).catch(function () { });
   } else applyWbw(false);
 

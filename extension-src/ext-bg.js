@@ -171,14 +171,17 @@ function cleanTrack(j) {
   };
 }
 
+/* v8.7.24：广播真值 = ne/hub 仲裁赢家（ne 优先窗见 neWins）；无赢家发 null
+   （卡侧 has=false 自然隐没——hub 缺席且 ne 失新时不再留幽灵锚点） */
 async function pollState() {
-  if (!hubPort && !(await discoverHub())) return;
-  const j = await getJson(`http://127.0.0.1:${hubPort}/api/state`, 1500);
-  if (!j) { hubPort = null; return; }
-  state = cleanTrack(j);
-  stateAt = Date.now();
-  playing = !!(state && state.playing);
-  broadcast({ type: "state", track: state, at: stateAt });
+  if (hubPort || (await discoverHub())) {
+    const j = await getJson(`http://127.0.0.1:${hubPort}/api/state`, 1500);
+    if (j) { state = cleanTrack(j); stateAt = Date.now(); }
+    else hubPort = null;
+  }
+  const t = neWins() ? neTrack : state;
+  playing = !!(t && t.playing);
+  broadcast({ type: "state", track: t, at: t === neTrack ? neTrackAt : stateAt });
 }
 
 function broadcast(msg) {
@@ -236,7 +239,11 @@ async function specTick() {
          只在 on→off 边沿发一条熄辉光 */
       if (specSentOn !== false) {
         specSentOn = false;
-        broadcastSpec({ type: "spec", on: false, bass: 0, bands: [], t: Date.now() });
+        /* v8.7.40 ne 源锁:ne 频谱活跃窗内桥熄灯帧让路（不覆盖 ne on:true 帧
+           ——ne 播放中,桌面桥未跑/暂停时的 on:false 边沿会把悬浮卡辉光误熄） */
+        if (Date.now() - neSpecAt >= 800) {
+          broadcastSpec({ type: "spec", on: false, bass: 0, bands: [], t: Date.now() });
+        }
       }
       return;
     }
@@ -253,6 +260,10 @@ async function specTick() {
     }
     specFails = 0;
     const cap = j.cap === true || j.cap === 1;
+    /* v8.7.40 ne 源锁:ne 频谱活跃窗（800ms）内桥链仅 on:true 真值帧可夺回
+       （桌面客户端真在前台播）,on:false/失联衰减帧不覆盖 ne 帧——双链同屏
+       只剩一个主导源,悬浮卡辉光不闪断 */
+    if (Date.now() - neSpecAt < 800 && !cap) return;
     specSentOn = cap;
     broadcastSpec({
       type: "spec",
@@ -291,6 +302,224 @@ async function sendCmd(cmd, position) {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* v8.7.24 内置网易云播放器真值面（ne 数据面）
+   播放器预设跑在「初始」新标签页（扩展页），宿主 <audio> + MediaSession 的
+   真值经页面侧 PresetWidgets 推上来（runtime 消息，发送方=本扩展页面自身）：
+     {type:"neFrame", track:{songId,title,artist,album,playing,position,
+                             duration,pic,rate,fetchedAt}}
+     {type:"neLyricPush", lyric:{songId,yrc,ytlrc,lrc,tlyric,source,rev}}
+   广播仲裁（ne 优先窗）：ne 帧新鲜（播放中 3s / 暂停 10min 保持）且
+   （ne 播放中 或 hub 未在播放）→ ne 真值胜出广播；否则 hub 真值照旧——
+   内置播放器一开声，所有网页的悬浮卡/全局歌词浮层立即换源；暂停回退外部
+   网易云（hub），两端都停则停在最近的内置曲目（诚实显示）。发布方仲裁：
+   播放中的发布帧不被暂停帧抢走（同标签自更例外），双开初始页不打架。
+   歌词面：卡片 {type:"lyric"} 请求优先命中 ne 歌词缓存（与 hub /api/lyric
+   同载荷形状 {songId,yrc,ytlrc,lrc,tlyric,source,rev}，卡侧 ChuShiLyric.parse
+   零改动复用），未命中走 hub 照旧；缓存 LRU 4 首 + storage.session 落盘
+   （SW 重启存活）。
+   命令回程：ne 活跃期卡片 cmd 路由回发布帧的标签页（tabs.sendMessage
+   {type:"neCmd"}，页面侧 PresetWidgets 落到宿主 audio/队列 sysCmd 通道），
+   失败回退 hub /api/cmd 照旧。 */
+let neTrack = null;
+let neTrackAt = 0;
+let neTabId = null;
+let neSpecAt = 0; /* v8.7.40 ne 频谱源锁时间戳（最近 neSpecFrame 到达时刻） */
+const NE_LYRIC_CAP = 4;
+let neLyrics = new Map();
+let neSessLoaded = false;
+let neSessLast = 0;
+
+function neFresh() {
+  if (!neTrack) return false;
+  const win = neTrack.playing ? 3000 : 600000;
+  return Date.now() - neTrackAt < win;
+}
+function neWins() {
+  return neFresh() && (neTrack.playing || !(state && state.playing));
+}
+function cleanNeTrack(t) {
+  if (!t || typeof t !== "object") return null;
+  const title = String(t.title || "").slice(0, 200);
+  const position = Number(t.position);
+  const pos = Number.isFinite(position) && position > 0 ? position : 0;
+  if (!title && !(pos > 0)) return null;
+  const pic = String(t.pic || "");
+  const ts = Number(t.fetchedAt);
+  const now = Date.now();
+  return {
+    songId: Number(t.songId) || 0,
+    title,
+    artist: String(t.artist || "").slice(0, 200),
+    album: String(t.album || "").slice(0, 200),
+    playing: t.playing === true,
+    position: pos,
+    duration: Number(t.duration) || 0,
+    rate: Number(t.rate) > 0 ? Number(t.rate) : 1,
+    pic: /^https:\/\//.test(pic) ? pic.slice(0, 500) : "",
+    fetchedAt: ts > 0 && ts <= now + 2000 ? ts : now,
+  };
+}
+/* storage.session 节流落盘（SW 重启存活；4s 窗合并真值流写放大） */
+function neSessSave(force) {
+  const now = Date.now();
+  if (!force && now - neSessLast < 4000) return;
+  neSessLast = now;
+  try {
+    chrome.storage.session.set({
+      neTrack, neTrackAt, neTabId,
+      neLyrics: Array.from(neLyrics.entries()),
+    }, () => void chrome.runtime.lastError);
+  } catch (e) { /* 旧内核无 session API：内存态即可 */ }
+}
+function neSessLoad() {
+  if (neSessLoaded) return;
+  neSessLoaded = true;
+  try {
+    chrome.storage.session.get(["neTrack", "neTrackAt", "neTabId", "neLyrics"], (o) => {
+      try {
+        if (o && o.neTrack && typeof o.neTrack === "object") {
+          if (!(neTrack && neFresh())) { neTrack = o.neTrack; neTrackAt = Number(o.neTrackAt) || 0; }
+        }
+        if (o && neTabId == null && o.neTabId != null) neTabId = o.neTabId;
+        if (o && Array.isArray(o.neLyrics) && neLyrics.size === 0) {
+          neLyrics = new Map(o.neLyrics.filter((e) => Array.isArray(e) && e.length === 2));
+        }
+      } catch (e) { /* 损坏条目：按无缓存处理 */ }
+    });
+  } catch (e) { /* noop */ }
+}
+function neLyricPut(ly) {
+  const id = String((ly && ly.songId) || "");
+  if (!/^\d+$/.test(id)) return;
+  neLyrics.delete(id);
+  neLyrics.set(id, ly);
+  while (neLyrics.size > NE_LYRIC_CAP) {
+    const first = neLyrics.keys().next().value;
+    neLyrics.delete(first);
+  }
+  neSessSave(true);
+}
+async function sendNeCmd(cmd, position) {
+  if (!CMD_SET.has(cmd) || neTabId == null) return false;
+  try {
+    const r = await chrome.tabs.sendMessage(neTabId, { type: "neCmd", cmd, position });
+    return !!(r && r.ok === true);
+  } catch (e) { return false; }
+}
+chrome.runtime.onMessage.addListener((m, sender, sendResponse) => {
+  /* 发送方校验：只信本扩展自身的页面（初始新标签页），网页/内容脚本一律不认 */
+  if (!m || typeof m !== "object") return;
+  const fromPage = sender && sender.id === chrome.runtime.id &&
+    typeof sender.url === "string" && sender.url.startsWith("chrome-extension://");
+  if (!fromPage) return;
+  if (m.type === "neFrame") {
+    neSessLoad();
+    const t = cleanNeTrack(m.track);
+    if (t) {
+      /* 发布方仲裁：播放中的发布帧不被暂停帧抢走（同标签自更例外） */
+      const curPlaying = neTrack && neFresh() && neTrack.playing;
+      const sameTab = sender.tab && typeof sender.tab.id === "number" && sender.tab.id === neTabId;
+      if (t.playing || !curPlaying || sameTab) {
+        const identChanged = !neTrack || neTrack.songId !== t.songId ||
+          neTrack.title !== t.title || neTrack.playing !== t.playing;
+        neTrack = t;
+        neTrackAt = Date.now();
+        if (sender.tab && typeof sender.tab.id === "number") neTabId = sender.tab.id;
+        if (neWins()) {
+          playing = !!neTrack.playing;
+          broadcast({ type: "state", track: neTrack, at: neTrackAt });
+        }
+        neSessSave(identChanged);
+      }
+    } else {
+      /* v8.7.35 空帧=发布方撤真值（播放器预设移除→悬浮卡退散）：只认当前
+         发布方/无主场合，防双开页另一侧的移除误清活跃真值（播放帧 4Hz
+         自愈虽快仍是闪烁，守卫根除）；neTabId 留置——命令路由由 neWins()
+         门控，真值已撤即回退 hub，无残留路径。 */
+      const sid = sender.tab && typeof sender.tab.id === "number" ? sender.tab.id : null;
+      if (neTabId == null || sid == null || sid === neTabId) {
+        neTrack = null; neTrackAt = 0;
+        neSessSave(true);
+      }
+    }
+    return; /* 单向真值流：不占 sendResponse 通道 */
+  }
+  if (m.type === "neLyricPush") {
+    neSessLoad();
+    if (m.lyric && typeof m.lyric === "object") neLyricPut(m.lyric);
+    return;
+  }
+  if (m.type === "neSpecFrame") {
+    /* v8.7.40 悬浮卡律动桥（宿主页面直发）:ne WebAudio 频谱帧按既有 spec
+       协议扇出 __spec 订阅卡——ext-card 消费端零改动（形状同构）。
+       帧仲裁见 specTick ne 源锁（桥链让路）;此处恒转发（on:false 边沿帧
+       需要透传给卡熄辉光,发送侧已有边沿门,静默期零帧）。 */
+    neSpecAt = Date.now();
+    broadcastSpec({
+      type: "spec",
+      on: m.on === true,
+      bass: Number(m.bass) || 0,
+      bands: Array.isArray(m.bands) ? m.bands.slice(0, 128) : [],
+      t: Date.now(),
+    });
+    return;
+  }
+  if (m.type === "csProxyFetch") {
+    /* v8.7.42 预设 API 代理（开放律）：沙箱声明域经用户导入授权（chrome.permissions
+       request 逐域授予，optional_host_permissions）→ SW 复核 contains 后代理 fetch。
+       SW 持 host_permissions 即绕 CORS；授权真源在浏览器 permissions——不落盘不缓存。 */
+    const url = typeof m.url === "string" ? m.url.slice(0, 2048) : "";
+    const method = (typeof m.method === "string" ? m.method : "GET").toUpperCase().slice(0, 12);
+    const base64 = m.base64 === true;
+    const reply = (r) => { try { sendResponse(r); } catch { /* 页面已走 */ } };
+    let u;
+    try { u = new URL(url); } catch { reply({ ok: false, error: "url 无效" }); return; }
+    const isHttps = u.protocol === "https:";
+    const isLoop = /^(127\.0\.0\.1|localhost|\[::1\])$/.test(u.hostname);
+    const isLoopHttp = u.protocol === "http:" && isLoop;
+    if (!isHttps && !isLoopHttp) { reply({ ok: false, error: "仅允许 https 与本地回环 http" }); return; }
+    const origin = u.origin + "/*";
+    chrome.permissions.contains({ origins: [origin] }, (granted) => {
+      if (!granted) { reply({ ok: false, error: `域 ${u.host} 未授权（导入预设时未确认或已撤销）` }); return; }
+      const headers = {};
+      if (m.headers && typeof m.headers === "object") {
+        let n = 0;
+        for (const [k, v] of Object.entries(m.headers)) {
+          if (n >= 16) break;
+          if (typeof v === "string" && /^[!#-'*+.0-9A-Za-z^_`|~-]{1,64}$/.test(k)) { headers[k] = v.slice(0, 2048); n += 1; }
+        }
+      }
+      const init = { method: ["GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"].includes(method) ? method : "GET", headers };
+      if (typeof m.body === "string" && m.body && !["GET", "HEAD"].includes(init.method)) init.body = m.body.slice(0, 4000000);
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 30000);
+      fetch(url, { ...init, signal: ctrl.signal })
+        .then(async (r) => {
+          clearTimeout(timer);
+          if (base64) {
+            const buf = await r.arrayBuffer();
+            const bytes = new Uint8Array(buf);
+            let bin = "";
+            for (let i = 0; i < bytes.length; i += 0x8000) {
+              bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+            }
+            reply({ ok: true, status: r.status, bodyBase64: btoa(bin) });
+          } else {
+            reply({ ok: true, status: r.status, bodyText: (await r.text()).slice(0, 8000000) });
+          }
+        })
+        .catch((e) => {
+          clearTimeout(timer);
+          reply({ ok: false, error: String((e && e.message) || e).slice(0, 200) });
+        });
+    });
+    return true; /* 异步 sendResponse */
+  }
+  /* 未知类型：静默（不 return true，不占用响应通道） */
+});
+neSessLoad();
+
 chrome.runtime.onConnect.addListener((port) => {
   if (!port || port.name !== "chushi-card") return;
   cards.add(port);
@@ -307,7 +536,11 @@ chrome.runtime.onConnect.addListener((port) => {
       case "ping":
         break; /* 保活：本事件本身已重置 SW 空闲计时 */
       case "cmd": {
-        const ok = await sendCmd(m.cmd, m.position);
+        /* v8.7.24：ne 活跃期命令回程发布帧标签页（宿主 audio/队列 sysCmd），
+           失败回退 hub /api/cmd 照旧 */
+        let ok = false;
+        if (neWins()) ok = await sendNeCmd(m.cmd, m.position);
+        if (!ok) ok = await sendCmd(m.cmd, m.position);
         try { port.postMessage({ type: "cmdOk", id: m.id, ok }); } catch { /* 卡已走 */ }
         void pollState(); /* 命令后立即拉真值（乐观反馈快一拍） */
         if (m.cmd === "seek") {
@@ -333,6 +566,13 @@ chrome.runtime.onConnect.addListener((port) => {
         const songId = String(m.songId || "");
         if (!/^\d+$/.test(songId) || songId === "0") {
           try { port.postMessage({ type: "lyric", key: m.key, ok: false }); } catch { /* 卡已走 */ }
+          break;
+        }
+        /* v8.7.24：ne 歌词缓存优先（内置播放器推送的原始体，同 hub 载荷形状；
+           卡侧 ChuShiLyric.parse 零改动复用），未命中走 hub 照旧 */
+        const neLy = neLyrics.get(songId);
+        if (neLy) {
+          try { port.postMessage({ type: "lyric", key: m.key, ok: true, lyric: neLy }); } catch { /* 卡已走 */ }
           break;
         }
         if (!hubPort && !(await discoverHub())) {

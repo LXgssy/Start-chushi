@@ -68,6 +68,10 @@ export function emitEditLink(link: StartLink | null) {
   window.dispatchEvent(new CustomEvent("start:edit-link", { detail: link }));
 }
 
+/* 设计律（v8.7.34 用户定调）：磁贴颜色不开放用户自定义——色相由域名稳定派生
+ * （同站恒同色、异站天然错开），饱和/明度锁在全局瓷釉/墨夜框架内，开箱即美；
+ * 手动配色徒增设置面复杂度，且自选色易与主题/壁纸冲突。样式个性由「图标风格」
+ * （字母磁贴/站点图标）承载，颜色一律系统派生、零配置。 */
 /** 由域名生成稳定色相 */
 function hueOf(s: string): number {
   let h = 0;
@@ -259,7 +263,10 @@ function TileVisual({
       className={"flex w-full flex-col items-center gap-2.5" + (jiggle ? " jiggle" : "")}
     >
       <motion.span
-        whileHover={jiggle ? undefined : { y: -4, scale: 1.06 }}
+        /* v8.7.26 hover 纯放大律：y:-4 上浮位移主导视觉（4px/56px≈7% 位移量
+           压过 scale 1.06 的中心扩展）=用户「放大动画变成了位移动画」根因；
+           改纯 scale 1.07（幅度微提补观感），位移分量退役 */
+        whileHover={jiggle ? undefined : { scale: 1.07 }}
         transition={{ duration: 0.35, ease: EASE }}
         className="block cursor-grab active:cursor-grabbing"
         style={{ willChange: "transform" }}
@@ -490,6 +497,7 @@ function QuickLinks({
   columns,
   disabled = false,
   form = "drawer",
+  ghost = false,
 }: {
   links: StartLink[];
   setLinks: (updater: (prev: StartLink[]) => StartLink[]) => void;
@@ -502,8 +510,17 @@ function QuickLinks({
   /** v8.6.2 快捷服务样式：docked = 常驻（v8.5.9 原样式，内联网格）；
    *  drawer = 抽屉（默认，中键唤出全屏磁贴墙） */
   form?: LinksForm;
+  /** v8.7.37 布局占位克隆（drawer 形态的隐形 docked 克隆）：只参与布局，
+   *  交互监听（中键 / alt+v）一律不挂——否则与真身双监听 */
+  ghost?: boolean;
 }) {
   const drawer = form === "drawer";
+  /* v8.7.41 磁贴 4 行上限律：磁贴墙每行 = layout.linksColumns（未设 6，
+     680px 默认宽 5rem 磁贴 + 1rem 间隙实测 6 列），总量上限 = 4 行 × 列数。
+     到顶后「添加」磁贴整体隐藏（docked/抽屉/ghost 三处共用 renderGrid 一处
+     生效）；popup 收藏同式判顶提示「快捷服务已到达限制数量」；存量超限
+     不删数据只拦新增。 */
+  const linksCap = 4 * (columns ?? 6);
   const rootRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -512,6 +529,43 @@ function QuickLinks({
   /* mount latch 声明置顶：cs-drawer 类同步 effect 依赖数组渲染期即求值，
      声明若留在下方 latch effect 旁会触发 TDZ（Cannot access before init） */
   const [mount, setMount] = useState(false);
+
+  /* ---------- v8.7.38 标签系统退役 ----------
+     v8.7.36/37 的收藏书签区与滚轮翻页整体退役（用户指令：删掉标签系统，
+     弹窗改「添加至快捷服务」直达磁贴）——start:bookmarks 数据面、
+     bkmPage 翻页、滚轮监听、start:bookmarks-open 意图全部拆除；
+     旧数据由 use-start-data 挂载期一次性清理。磁贴墙 rootRef 同步还原
+     v8.7.35 内容宽（w-full 曾为书签页布局所加——它让磁贴行左右两侧空白
+     落进 pointer-events-auto 的 rootRef，抽屉点空白退出的区域因此缩水；
+     cl-links-fade 淡入包装层同期拆除——fill:both 驻留动画在合成器滞留
+     渲染表面形成 backdrop root，后代 .tile-frost 磨砂全灭）。 */
+  /* ---------- v8.7.37 alt+v 快捷键开关抽屉（仅抽屉形态真身）----------
+     与中键同守卫（禅模式豁免 + 输入焦点豁免）。壳架构下焦点在顶层
+     shell 文档时键盘事件进不来（与 ESC 同一架构限制）——中键/点击
+     页面后 window.focus() 归位，alt+v 处理完同样归位，连续快捷键
+     不断链。 */
+  useEffect(() => {
+    if (disabled || ghost) return;
+    if (!drawer) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      if (e.code !== "KeyV") return;
+      if (document.documentElement.classList.contains("zen")) return;
+      const ae = document.activeElement as Element | null;
+      if (
+        ae &&
+        typeof ae.closest === "function" &&
+        ae.closest("input, textarea, select, [contenteditable=\"true\"]")
+      )
+        return;
+      e.preventDefault();
+      setOpen((o) => !o);
+      window.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [disabled, drawer, ghost]);
+
   useEffect(() => {
     setPortalReady(true);
   }, []);
@@ -593,8 +647,9 @@ function QuickLinks({
      运行中的 intro 动画会阻断 CSS transition 起步（CSS Transitions §3），
      important 声明也只得到瞬跳——用户实测「打断抽屉动画后不会执行关闭
      动画，动画直接消失」。改为全叶 WAAPI 冻结-淡出：读叶当前动画值 →
-     el.animate 从当前值 280ms 淡出到 0（与纱罩退场同频同缓动，fill:
-     forwards 保持），Web Animations 层级高于普通声明且与纱罩并行。
+     el.animate 从当前值 300ms 淡出到 0（与染色/叶过渡 0.3s 同频同缓动，
+     v8.7.4 ㊻ 对齐；fill: forwards 保持），Web Animations 层级高于普通
+     声明且与纱罩并行。
      不设计算值阈值：EASE 长尾段 intro 最后 ~150ms 计算值就是 1.000 而动画
      仍在跑，阈值分路会让叶子滞留满透明度站满退场窗。也不动 intro 本体
      （无 inline animation:none）——快速重开 cancel 后 intro 从时间线当前
@@ -622,7 +677,7 @@ function QuickLinks({
         const o = parseFloat(getComputedStyle(leaf).opacity);
         if (!Number.isFinite(o)) return;
         const anim = leaf.animate([{ opacity: o }, { opacity: 0 }], {
-          duration: 280,
+          duration: 300,
           easing: "cubic-bezier(0.22, 1, 0.36, 1)",
           fill: "forwards",
         });
@@ -753,7 +808,14 @@ function QuickLinks({
     [setLinks],
   );
 
-  /* portal 挂载 latch：开 → 立即挂载；关 → 留 340ms 窗口播完退场动画再卸载。
+  /* portal 挂载 latch：开 → 立即挂载；关 → 留 780ms 窗口播完退场动画再卸载。
+     v8.7.4 ㊻ 柔散重写后纱罩 blur 收拢拉长 + React 状态双跳渲染
+     （open=false → veilOn effect → data-veil 翻转）起步延迟 ~1-2 帧吃窗，
+     旧 520ms 会把柔散尾段截断在 blur≈4px（探针帧级实测）——620ms 给足
+     过渡完整走完 + 收尾余量。
+     v8.7.6 ㊽ 渐出细腻化后散场拉长到 0.40s——起步链实测 ~230ms + 400ms
+     = 630ms 已越过 620ms（尾段截断重演），780ms 重新给足（余量 150ms
+     覆盖帧距波动；0.42s visibility 翻转也在窗内）。
      （AnimatePresence 不能直接包 createPortal——framer v12 对 PORTAL 类型
      子元素的 presence 注册失效，首开整树不渲染；故把 AnimatePresence 放进
      portal 内部包纯 motion.div，外层用 latch 控制存续。） */
@@ -763,7 +825,7 @@ function QuickLinks({
       return;
     }
     if (!mount) return;
-    const t = setTimeout(() => setMount(false), 520);
+    const t = setTimeout(() => setMount(false), 780);
     return () => clearTimeout(t);
   }, [open, mount]);
 
@@ -796,6 +858,7 @@ function QuickLinks({
             菜单让位，右键自身只吞默认菜单不弹任何菜单） */}
         {/* v8.6.4：不再用无延迟的 framer 弹簧 —— 与磁贴图标同一套自承载入场
             （.link-intro：同延迟、同缓动、同模糊），整排同拍升起 */}
+        {links.length < linksCap && (
         <motion.div layout initial={false} exit={{ opacity: 0 }} transition={LAYOUT_SPRING}>
           <button
             type="button"
@@ -812,7 +875,7 @@ function QuickLinks({
                   (sm ? "h-14 w-14 rounded-[18px] text-xl " : "h-16 w-16 rounded-[20px] text-2xl ") +
                   (editing
                     ? "border-zinc-400/70 text-zinc-500 dark:border-zinc-500 dark:text-zinc-400"
-                    : "border-zinc-300 text-zinc-400 group-hover:-translate-y-1 group-hover:border-zinc-400/70 group-hover:text-zinc-600 dark:border-zinc-700 dark:text-zinc-600 dark:group-hover:border-zinc-500 dark:group-hover:text-zinc-300")
+                    : "border-zinc-300 text-zinc-400 group-hover:scale-105 group-hover:border-zinc-400/70 group-hover:text-zinc-600 dark:border-zinc-700 dark:text-zinc-600 dark:group-hover:border-zinc-500 dark:group-hover:text-zinc-300")
                 }
               >
                 +
@@ -830,6 +893,7 @@ function QuickLinks({
             </span>
           </button>
         </motion.div>
+        )}
       </div>
     </div>
   );
@@ -866,7 +930,7 @@ function QuickLinks({
                   {/* 纱罩：整页高斯模糊 + 轻染色（v8.6.2 用户指令——不再纯色遮罩）。
                       v8.6.23 磨砂底层律：自身 opacity<1 与祖先同罪杀磨砂（v8.6.22
                       blur-selftest 实验实证，「自承载安全」旧律作废）——磨砂本体在
-                      底层走 blur 值通道（CSS transition，data-veil 门控，1px↔28px
+                      底层走 blur 值通道（CSS transition，data-veil 门控，1px↔20px
                       全程在线），染色渐变走 ::before opacity；模糊经 cs-lite 通配
                       自动降级为纯色纱。veilOn 经 rAF 置位：首次唤出（portal 首挂
                       即 open）也走闭态值→开态的凝聚入场，不瞬跳 */}

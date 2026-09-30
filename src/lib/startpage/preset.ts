@@ -65,6 +65,16 @@ export type PresetSettings = Partial<
   >
 >;
 
+/** 预设声明的远端 API（v8.7.42 开放律）：预设需要访问的域清单。
+ *  host 仅填 hostname[:port]（如 "api.example.com"；本地服务填 127.0.0.1 / localhost），
+ *  导入时经用户逐域确认授权；扩展版经 SW 代理（绕 CORS），网页版沙箱直连（受 CORS 约束）。
+ *  allowInsecure 仅本地回环可设 true（允许 http:// 明文）。 */
+export interface PresetApiDecl {
+  host: string;
+  name?: string;
+  allowInsecure?: boolean;
+}
+
 /** 沙箱脚本（高阶模式）：在唯一源沙箱中执行，通过受控 chushi API 产生副作用 */
 export interface PresetScript {
   /** 预设内唯一，^[A-Za-z0-9_-]{1,32}$；运行时复合键 = `${presetId}:${id}` */
@@ -111,9 +121,9 @@ export interface PresetWidget {
   icon?: string;
   /** 停靠角（仅 corner 表面，缺省 top-left） */
   corner?: "top-left" | "top-right" | "bottom-left" | "bottom-right";
-  /** 卡片/面板宽度 px（120–420，缺省 216） */
+  /** 卡片/面板宽度 px（120–580，缺省 216；v8.7.27 上限放宽适配 palette 弹窗） */
   width?: number;
-  /** 卡片初始高度 px（40–460，缺省 88；可用 chushi.resize 在沙箱内调整；v1.9.0 上限放宽） */
+  /** 卡片初始高度 px（40–560，缺省 88；可用 chushi.resize 在沙箱内调整；v1.9.0 放宽 320→460，v8.7.27 放宽 460→560 适配 palette 弹窗） */
   height?: number;
   /** 文档片段（与 pages 同规则，可用 window.chushi 受控 API） */
   html: string;
@@ -197,6 +207,7 @@ export interface PresetPayload {
   tokens?: Record<string, string>;
   motion?: PresetMotion;
   clock?: PresetClock;
+  api?: PresetApiDecl[];
 }
 
 export interface InstalledPreset {
@@ -210,37 +221,56 @@ export interface InstalledPreset {
 /* ---------- 容量上限（防滥用 + 布局保护：dock 项过多会挤爆移动端 pill） ---------- */
 
 export const PRESET_LIMITS = {
-  commands: 12,
-  links: 12,
-  dock: 3,
-  titleLen: 24,
-  nameLen: 20,
-  authorLen: 20,
-  descLen: 60,
-  urlLen: 500,
-  copyLen: 200,
-  queryLen: 100,
-  scripts: 3,
+  commands: 100,
+  links: 100,
+  dock: 12,
+  titleLen: 60,
+  nameLen: 40,
+  authorLen: 40,
+  descLen: 200,
+  urlLen: 2000,
+  copyLen: 2000,
+  queryLen: 500,
+  scripts: 30,
   scriptIdLen: 32,
-  scriptNameLen: 24,
-  codeLen: 16000,
-  animations: 4,
-  cssLen: 6000,
-  cssTotalLen: 12000,
-  pages: 3,
-  htmlLen: 24000,
-  widgets: 3,
+  scriptNameLen: 60,
+  codeLen: 400000,
+  animations: 30,
+  cssLen: 300000,
+  cssTotalLen: 600000,
+  pages: 30,
+  htmlLen: 1200000,
+  widgets: 30,
   /* v1.9.0：12000 → 18000 —— SMTC 音乐部件加入逐字歌词渲染（解析器+DOM 构建+逐帧扫色）
      v8.0.1：18000 → 19200 —— 音乐部件封面双保险与沙箱标准模式修复的余量；预设包仍按 18000 打包（兼容旧宿主）
      v8.1.0：19200 → 20000 —— 音乐部件防闪断宽限（瞬断保内容黄灯 3s）余量；门限与 8.1.0 宿主同步放宽
      v8.1.4：20000 → 22000 —— 歌词高光三律（句尾渐隐/回退残留根治/强行逐字开关）余量；与 8.1.4 宿主同步放宽（旧宿主导入 8.1.4 预设会被拒，需配套升级）
      v8.2.7：22000 → 24000 —— 律动变亮律+细节环+三轴 beatFrame 余量（minified 实测 23299）；旧宿主导入 8.2.7 预设会被拒，需配套升级
-     v8.2.9：24000 → 25600 —— 面板「律动/浮窗」双开关 + 128 段自适应余量；与 build-smtc-preset.py 同步改（两道数字门禁止漂移，Task 100 律）；旧宿主导入 8.2.9 预设会被拒，需配套升级 */
-  widgetHtmlLen: 26400,
-  icons: 7,
-  iconLen: 8192,
-  tokenValLen: 120,
-  greetingLen: 40,
+     v8.2.9：24000 → 25600 —— 面板「律动/浮窗」双开关 + 128 段自适应余量；与 build-smtc-preset.py 同步改（两道数字门禁止漂移，Task 100 律）；旧宿主导入 8.2.9 预设会被拒，需配套升级
+     v8.7.12：26400 → 27200 —— v8.7.11 音乐卡注入「玻璃协作」CSS（[data-panel] panelMode 透明协作，+123 字符）顶破官方自家上限=「音乐预设面板导入后提示超出字符上限」——官方包改动必须对账上限（本条即对账），+800 余量供后续迭代；五处联动：preset.ts/build-smtc-preset.py/PresetDocs/PRESET_DEV.md/探针 TL37b
+     v8.7.18：27600 → 28800 —— 词钮迁时长行右下（绝对定位+hover 律）+「词」真字形
+     描取（思源黑体轮廓 DP 简化 45 点）+净增 ~180 字符（minified 实测 27780）；+1000 余量
+     v8.7.23：28800 → 30400 —— 网易云播放器预设（dock 弹出面板：扫码 QR 编码器
+     + 搜索/每日/歌单三面 + LRC/YRC 逐字渲染）minified 实测 29506；官方预设随
+     扩展同包交付（宿主与预设同步升级）；五处联动对账：
+     preset.ts/build-smtc-preset.py/build-netease-preset.py/PresetDocs/PRESET_DEV.md
+     v8.7.24：30400 → 36800 —— 播放器六项迭代（封面开歌词 + 歌词动效 v2 对标
+     SMTC 面板语言 + 歌词外送 ne.pub + 音量滑块 + 词钮全局歌词开关 + 退出登录）
+     minified 实测 35907；五处联动对账同上
+     v8.7.26：36800 → 39600 —— 音质升级（exhigh/黑胶热切换）+ YRC 词时间戳
+     根修 + 封面频谱高光律动（beatFrame+glow）minified 实测 38514；五处联动
+     对账同上
+     v8.7.27：39600 → 44000 —— 播放器整体重写为命令面板式弹窗（palette 展示面
+     + 常驻搜索行 + 音质三选一小弹窗 + 页签世代令牌串扰根修 + 封面/歌词存活
+     根修）minified 实测 41694；五处联动对账同上 */
+  widgetHtmlLen: 1200000, /* v8.7.42 导入路径全面放开（MB 级）；44200 旧值退役——官方内置包的构建对账上限与导入上限解耦（官方包实测 41694+余量走构建链自身常量） */ /* v8.7.38：44000→44200（歌词×/浮窗贴×两修净增 23 字符） */
+  icons: 30,
+  iconLen: 65536,
+  tokenValLen: 300,
+  greetingLen: 120,
+  /* v8.7.42 预设系统开放：新增两键 */
+  api: 20, /* 预设声明的远端 API 域上限 */
+  totalLen: 8000000, /* 整包 JSON 字符总量上限（防内存/存储滥用） */
 } as const;
 
 export const SCRIPT_ID_RE = /^[A-Za-z0-9_-]{1,32}$/;
@@ -248,7 +278,7 @@ export const SCRIPT_ID_RE = /^[A-Za-z0-9_-]{1,32}$/;
 /* ---------- 校验 ---------- */
 
 export type ParseResult =
-  | { ok: true; preset: PresetPayload }
+  | { ok: true; preset: PresetPayload; warnings?: string[] }
   | { ok: false; errors: string[] };
 
 const ENGINE_IDS = new Set(ENGINES.map((e) => e.id));
@@ -379,6 +409,77 @@ export function sanitizeCss(css: string): string {
   return css.replace(/@import[^;]*;?/gi, "").replace(/javascript:/gi, "");
 }
 
+/* ---------- v8.7.42 基础安全审核（用户指令：放开限制但死循环/无效字符等基础审核保留） ---------- */
+
+/** 无效字符扫描（拒绝制）：C0/C1 控制字符（\t\n\r 除外）与 DEL → errors；
+ *  零宽字符（U+200B/200C/200D/FEFF）剥离 → warnings（网页复制常见，破坏代码语义）。
+ *  返回清洗后的文本。孤立代理对由 hasLoneSurrogate 单独拒绝。 */
+export function scanInvalidChars(text: string, where: string, errors: string[], warnings: string[]): string {
+  let out = "";
+  let bad = 0;
+  let zwsp = 0;
+  for (const ch of text) {
+    const cp = ch.codePointAt(0) ?? 0;
+    if (cp < 32 && cp !== 9 && cp !== 10 && cp !== 13) { bad++; continue; }
+    if (cp === 0x7f || (cp >= 0x80 && cp <= 0x9f)) { bad++; continue; }
+    if (cp === 0x200b || cp === 0x200c || cp === 0x200d || cp === 0xfeff) { zwsp++; continue; }
+    out += ch;
+  }
+  if (bad > 0) errors.push(`${where}：含 ${bad} 个无效控制字符——无效字符审核拒绝`);
+  if (zwsp > 0) warnings.push(`${where}：已剥离 ${zwsp} 个零宽字符（常见于网页复制粘贴）`);
+  return out;
+}
+
+/** 孤立代理对检测：UTF-16 半截代理（损坏的 emoji/生僻字）→ 无效字符拒绝 */
+export function hasLoneSurrogate(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c >= 0xd800 && c <= 0xdbff) {
+      const n = i + 1 < text.length ? text.charCodeAt(i + 1) : 0;
+      if (!(n >= 0xdc00 && n <= 0xdfff)) return true;
+      i++;
+    } else if (c >= 0xdc00 && c <= 0xdfff) return true;
+  }
+  return false;
+}
+
+/** 静态死循环检测（行级粗扫描）：while(true)/for(;;) 且后视窗口（含本行起 80 行）内
+ *  无 break/return/throw → 无 await 则拒绝（同步死循环必卡 realm）；有 await 放行进
+ *  warnings（事件驱动合法写法，运行期由启动看门狗 + 心跳冻结兜底）。 */
+export function scanDeadloop(code: string, where: string, errors: string[], warnings: string[]): void {
+  const lines = code.split("\n");
+  const re = /\bwhile\s*\(\s*(?:true|1|!0|!!1)\s*\)|\bfor\s*\(\s*;\s*;\s*\)/;
+  for (let i = 0; i < lines.length; i++) {
+    if (!re.test(lines[i])) continue;
+    const win = lines.slice(i, i + 81).join("\n");
+    if (/\b(break|return|throw)\b/.test(win)) continue;
+    if (/\bawait\b/.test(win)) {
+      warnings.push(`${where}：第 ${i + 1} 行 while(true)/for(;;) 为事件驱动写法，已放行（运行期看门狗兜底）`);
+      continue;
+    }
+    errors.push(`${where}：第 ${i + 1} 行检测到疑似死循环（while(true)/for(;;) 且附近无退出路径）——死循环审核拒绝；常驻循环请加入 await 让出事件循环`);
+  }
+}
+
+/** 脚本语法试编译（不执行）：包一层 async function 体后 new Function 编译。
+ *  语法错误 → 拒绝导入；扩展页 CSP 禁 eval 时抛 EvalError → 跳过审核（沙箱 bootError 兜底）。 */
+export function syntaxCheck(code: string, where: string, errors: string[]): void {
+  let fn: (code: string) => unknown;
+  try {
+    fn = new Function("c", `"use strict";return new c("return async function(){\n" + c + "\n}")`);
+  } catch {
+    return; // 构造器自身不可用（极端环境）：跳过
+  }
+  try {
+    fn(code);
+  } catch (e) {
+    if (e instanceof EvalError || /Content Security Policy|unsafe-eval/i.test(String((e as Error)?.message ?? e))) {
+      return; // CSP 禁 eval（扩展版主文档）：跳过语法审核
+    }
+    errors.push(`${where}：脚本语法无效（${e instanceof Error ? e.message : "compile error"}）——语法审核拒绝`);
+  }
+}
+
 /**
  * 解析并校验预设 JSON（unknown → PresetPayload）。
  * 有任何错误即整体拒绝（返回 errors 列表），不做部分导入——半装不装的预设最难排查。
@@ -399,6 +500,53 @@ export function parsePreset(raw: unknown): ParseResult {
 
   const name = cleanStr(o.name, PRESET_LIMITS.nameLen);
   if (!name) errors.push("缺少预设名称 name");
+
+  /* 整包字符总量上限（v8.7.42）：JSON 文本级防滥用 */
+  if (JSON.stringify(o).length > PRESET_LIMITS.totalLen) {
+    errors.push(`整包超过 ${PRESET_LIMITS.totalLen} 字符总量上限（防内存滥用）`);
+  }
+
+  const warnings: string[] = [];
+
+  /* 预设声明的远端 API（v8.7.42）：host 格式校验 + 本地回环例外 + 去重。
+     授权在导入确认弹窗（用户手势 → chrome.permissions.request），此处仅解析。 */
+  const api: PresetApiDecl[] = [];
+  const apiArr = parseArray(o.api).slice(0, PRESET_LIMITS.api);
+  if (parseArray(o.api).length > PRESET_LIMITS.api) {
+    errors.push(`api 超过上限（最多 ${PRESET_LIMITS.api} 个域）`);
+  }
+  const API_HOST_RE = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+(?::\d{1,5})?$/i;
+  const LOOPBACK_RE = /^(?:127\.0\.0\.1|localhost|\[::1\])(?::\d{1,5})?$/i;
+  const seenApi = new Set<string>();
+  apiArr.forEach((item, i) => {
+    const where = `api[${i}]`;
+    if (typeof item !== "object" || item == null) {
+      errors.push(`${where}：必须是对象`);
+      return;
+    }
+    const ao = item as Record<string, unknown>;
+    const host = cleanStr(ao.host, 253).toLowerCase();
+    if (!host) {
+      errors.push(`${where}：缺少 host（如 "api.example.com"）`);
+      return;
+    }
+    const isLoop = LOOPBACK_RE.test(host);
+    if (!API_HOST_RE.test(host) && !isLoop) {
+      errors.push(`${where}：host「${host}」格式无效（只允许 hostname[:port]，不带协议与路径）`);
+      return;
+    }
+    if (seenApi.has(host)) {
+      errors.push(`${where}：host「${host}」重复`);
+      return;
+    }
+    seenApi.add(host);
+    const allowInsecure = ao.allowInsecure === true;
+    if (allowInsecure && !isLoop) {
+      errors.push(`${where}：allowInsecure 仅允许本地回环（127.0.0.1 / localhost / ::1）`);
+      return;
+    }
+    api.push({ host, name: cleanStr(ao.name, 60) || undefined, allowInsecure: allowInsecure || undefined });
+  });
 
   /* 先解析 scripts 与 pages（script/page action 的引用完整性需要先拿到全部 id） */
   const scripts: PresetScript[] = [];
@@ -423,11 +571,20 @@ export function parsePreset(raw: unknown): ParseResult {
       errors.push(`${where}：脚本 id「${sid}」重复`);
       return;
     }
-    const code = asString(so.code) ?? "";
-    if (!code.trim()) {
+    const rawCode = asString(so.code) ?? "";
+    if (!rawCode.trim()) {
       errors.push(`${where}：缺少 code（脚本代码）`);
       return;
     }
+    /* v8.7.42 基础安全审核四连：无效字符 → 孤立代理对 → 死循环 → 语法 */
+    const code = scanInvalidChars(rawCode, where, errors, warnings);
+    if (errors.some((e) => e.startsWith(where))) return;
+    if (hasLoneSurrogate(code)) {
+      errors.push(`${where}：含孤立代理对（损坏的字符编码）——无效字符审核拒绝`);
+      return;
+    }
+    scanDeadloop(code, where, errors, warnings);
+    syntaxCheck(code, where, errors);
     if (code.length > PRESET_LIMITS.codeLen) {
       errors.push(`${where}：code 超过 ${PRESET_LIMITS.codeLen} 字符上限（当前 ${code.length}）`);
       return;
@@ -459,9 +616,15 @@ export function parsePreset(raw: unknown): ParseResult {
       errors.push(`${where}：id「${aid}」与脚本或其他动画重复`);
       return;
     }
-    const css = asString(ao.css) ?? "";
-    if (!css.trim()) {
+    const rawCss = asString(ao.css) ?? "";
+    if (!rawCss.trim()) {
       errors.push(`${where}：缺少 css`);
+      return;
+    }
+    const css = scanInvalidChars(rawCss, where, errors, warnings);
+    if (errors.some((e) => e.startsWith(where))) return;
+    if (hasLoneSurrogate(css)) {
+      errors.push(`${where}：含孤立代理对——无效字符审核拒绝`);
       return;
     }
     if (css.length > PRESET_LIMITS.cssLen) {
@@ -500,9 +663,15 @@ export function parsePreset(raw: unknown): ParseResult {
       errors.push(`${where}：页面 id「${pid}」重复`);
       return;
     }
-    const html = asString(po.html) ?? "";
-    if (!html.trim()) {
+    const rawHtml = asString(po.html) ?? "";
+    if (!rawHtml.trim()) {
       errors.push(`${where}：缺少 html`);
+      return;
+    }
+    const html = scanInvalidChars(rawHtml, where, errors, warnings);
+    if (errors.some((e) => e.startsWith(where))) return;
+    if (hasLoneSurrogate(html)) {
+      errors.push(`${where}：含孤立代理对——无效字符审核拒绝`);
       return;
     }
     if (html.length > PRESET_LIMITS.htmlLen) {
@@ -537,9 +706,15 @@ export function parsePreset(raw: unknown): ParseResult {
       errors.push(`${where}：id「${wid}」与脚本/动画/页面重复`);
       return;
     }
-    const html = asString(wo.html) ?? "";
-    if (!html.trim()) {
+    const rawHtml = asString(wo.html) ?? "";
+    if (!rawHtml.trim()) {
       errors.push(`${where}：缺少 html`);
+      return;
+    }
+    const html = scanInvalidChars(rawHtml, where, errors, warnings);
+    if (errors.some((e) => e.startsWith(where))) return;
+    if (hasLoneSurrogate(html)) {
+      errors.push(`${where}：含孤立代理对——无效字符审核拒绝`);
       return;
     }
     if (html.length > PRESET_LIMITS.widgetHtmlLen) {
@@ -582,11 +757,11 @@ export function parsePreset(raw: unknown): ParseResult {
     }
     const width =
       typeof wo.width === "number" && Number.isFinite(wo.width)
-        ? Math.round(Math.min(420, Math.max(120, wo.width)))
+        ? Math.round(Math.min(580, Math.max(120, wo.width)))
         : undefined;
     const height =
       typeof wo.height === "number" && Number.isFinite(wo.height)
-        ? Math.round(Math.min(460, Math.max(40, wo.height)))
+        ? Math.round(Math.min(560, Math.max(40, wo.height)))
         : undefined;
     scriptIds.add(wid); // 共享 id 命名空间（脚本/动画/页面/小部件互不重名）
     widgets.push({
@@ -827,7 +1002,8 @@ export function parsePreset(raw: unknown): ParseResult {
     icons.length === 0 &&
     tokens == null &&
     motion == null &&
-    clock == null
+    clock == null &&
+    api.length === 0
   ) {
     return {
       ok: false,
@@ -856,7 +1032,9 @@ export function parsePreset(raw: unknown): ParseResult {
       tokens,
       motion,
       clock,
+      api: api.length > 0 ? api : undefined,
     },
+    warnings: warnings.length > 0 ? warnings : undefined,
   };
 }
 

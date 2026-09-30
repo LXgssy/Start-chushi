@@ -39,6 +39,11 @@ export interface Settings {
   background: BackgroundMode;
   hour12: boolean;
   showSeconds: boolean;
+  /** 时钟显隐（v8.7.35）：false = 隐藏时间主体（日期/问候行不受此键控制） */
+  showClock: boolean;
+  /** 日期行显隐（v8.7.35）：false = 隐藏日期·农历·问候整行；预设 clock.showDate
+   *  声明在装着期仍优先（装了即生效、删除预设即还原到本设置） */
+  showDate: boolean;
   userName: string;
   iconStyle: IconStyle;
   engineId: string;
@@ -48,6 +53,9 @@ export interface Settings {
   photoId: string;
   /** 最近一次手动选择的壁纸 id（关闭「每日一图」时回退到此；旧数据可能缺失，读取时需兜底） */
   photoLast: string;
+  /** 掠影壁纸压暗程度（v8.7.35）：photo-scrim 全部压暗层 α 的倍率，百分数
+   *  0–200（默认 100=原设计值）——0=不压暗，200=双倍压暗；rgba α 自动夹紧 ≤1 */
+  photoDim: number;
   /** 搜索建议：键入时搜索栏向下展开联想词下拉（含高度自适应动画） */
   searchSuggest: boolean;
   /** 掠影自定义壁纸的 URL 导入源（v1.7.2）：非空 = 使用远程图片/视频 URL；
@@ -76,6 +84,9 @@ export interface Settings {
    *  若被直接恢复，会让 8.6.x 起一直用抽屉的用户升级后突變回常驻；新字段从零开始，
    *  缺省即抽屉，想要原样式去设置面板显式切换。 */
   linksForm: LinksForm;
+  /** v8.7.36 Dock 栏显隐（v8.5.0 起常驻底部）：false = 整条 Dock 不渲染。
+   *  入口：扩展弹窗快捷面板开关；跨文档热跟随走 settings storage 事件 */
+  showDock: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -83,12 +94,15 @@ export const DEFAULT_SETTINGS: Settings = {
   background: "glow",
   hour12: false,
   showSeconds: false,
+  showClock: true,
+  showDate: true,
   userName: "",
   iconStyle: "letter",
   engineId: "google",
   accent: "#8b5cf6",
   photoId: "daily",
   photoLast: "mist-lake",
+  photoDim: 100,
   searchSuggest: true,
   wallpaperUrl: "",
   wallpaperRev: 0,
@@ -96,6 +110,7 @@ export const DEFAULT_SETTINGS: Settings = {
   perfLite: false,
   noOmniboxFocus: false,
   linksForm: "drawer",
+  showDock: true,
 };
 
 export interface WeatherHour {
