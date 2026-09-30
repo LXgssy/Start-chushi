@@ -952,7 +952,12 @@ function QuickLinks({
                     className="pointer-events-none flex h-full w-full flex-col items-center justify-center px-6 pb-24"
                     initial={{ y: 42, scale: 0.97 }}
                     animate={open ? { y: 0, scale: 1 } : { y: 42, scale: 0.97 }}
-                    transition={{ type: "spring", stiffness: 300, damping: 32, mass: 0.95 }}
+                    /* v8.7.44 进入速度与壁纸放大严格同步（用户指令）：spring →
+                       0.4s cubic-bezier(0.5,0,0.3,1)，与 dv-open-kf（纱幕凝聚）/
+                       wallpaper-layer（掠影开抽屉壁纸 scale 1→1.08）同时长同曲线
+                       ——磁贴上浮、纱幕凝聚、壁纸放大三要素同拍起步同拍落座；
+                       回缩（open=false）与壁纸回缩/散场 0.40s 同窗同拍 */
+                    transition={{ duration: 0.4, ease: [0.5, 0, 0.3, 1] }}
                   >
                     <div ref={rootRef} className="cl-links cl-links-drawer pointer-events-auto flex flex-col items-center">
                       {renderGrid(false)}
