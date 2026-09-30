@@ -79,3 +79,10 @@ download/edge-store/
 # cross-compile toolchain (local only)
 /tools/
 vendor/
+
+# ===== 内部工作档案永不入库（2026-09-30 律）=====
+/worklog.md
+/docs/AI-HANDOFF.md
+/docs/skills/
+/.pkgtmp/
+/recon-notes/
