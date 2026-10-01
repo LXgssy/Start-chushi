@@ -980,7 +980,8 @@ export function parsePreset(raw: unknown): ParseResult {
     if (s.background === "glow" || s.background === "pure" || s.background === "photo") {
       patch.background = s.background;
     }
-    if (s.iconStyle === "letter" || s.iconStyle === "favicon") patch.iconStyle = s.iconStyle;
+    if (s.iconStyle === "letter" || s.iconStyle === "favicon" || s.iconStyle === "selfdraw")
+      patch.iconStyle = s.iconStyle;
     if (typeof s.engineId === "string" && ENGINE_IDS.has(s.engineId)) patch.engineId = s.engineId;
     if (typeof s.searchSuggest === "boolean") patch.searchSuggest = s.searchSuggest;
     const uname = cleanStr(s.userName, 20);

@@ -15,7 +15,8 @@ export interface TodoItem {
 
 export type ThemeMode = "light" | "dark" | "system";
 export type BackgroundMode = "glow" | "pure" | "photo";
-export type IconStyle = "letter" | "favicon";
+/** 图标风格（v8.7.44 新增自绘）：字母磁贴 / 站点图标 / 自绘图标（187 站内联 SVG，未收录站走 favicon 链兜底） */
+export type IconStyle = "letter" | "favicon" | "selfdraw";
 /** 快捷服务样式（v8.6.2）：常驻 / 抽屉（v8.5.x 曾以 linksStyle 短暂存在，见 Settings.linksForm） */
 export type LinksForm = "docked" | "drawer";
 

@@ -805,9 +805,12 @@ function SettingsPanel({
           options={[
             { value: "letter", label: "字母磁贴" },
             { value: "favicon", label: "站点图标" },
+            { value: "selfdraw", label: "自绘图标" },
           ]}
           onChange={(v) => onPatch({ iconStyle: v })}
         />
+        {/* v8.7.44 自绘图标：187 站按 host 匹配内联矢量磁贴（全自绘 path，用户逐轮
+            审阅认可的自绘册 v9）；未收录站点自动走站点图标链兜底，字母磁贴再兜底 */}
         {/* v8.6.2 快捷服务样式：常驻（v8.5.9 原样式）/ 抽屉（v8.6.x 磁贴墙，默认）。
             linksForm 缺省（8.5.x 时代数据或 8.6.0/8.6.1 写入的设置）一律视作抽屉，
             与 8.6.x 起的实际形态延续；旧 linksStyle 键不再读取 */}

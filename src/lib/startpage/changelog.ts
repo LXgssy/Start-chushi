@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.44",
+    title: "图标风格新增「自绘图标」：187 站内联矢量磁贴，全自绘 path",
+    highlights: [
+      "设置 → 图标风格新增「自绘图标」：187 个常用站点按域名匹配自绘矢量图标（门户/社交/电商/视频/音乐/直播/游戏/理财/出行/本地生活/工具/开发者/AI/外国网站），全部彩色自绘 path，任意尺寸不失真",
+      "未收录站点自动回落「站点图标」链再回落字母磁贴，自绘册只做增强不做依赖",
+      "支付宝、飞猪、京东、去哪儿、Steam、GitHub、YouTube 等站按官方源逐轮重描校准；国徽/国旗元素一律不绘制",
+    ],
+    channel: "page" as ChangelogChannel,
+  },
+  {
     version: "8.7.43",
     title: "开发者文档全面同步：API 声明 / 审核门 / 心跳 / 开放上限全部落档",
     highlights: [

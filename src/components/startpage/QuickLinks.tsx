@@ -55,6 +55,7 @@ import type { IconStyle, LinksForm, StartLink } from "@/lib/startpage/types";
 import { hostOf } from "@/lib/startpage/link-utils";
 import { inExtIframe, openExternalUrl } from "@/lib/startpage/nav";
 import { clearIconSource, orderedIconSources, saveIconSource } from "@/lib/startpage/favicon";
+import { selfdrawSvg, useSelfdrawIcon } from "@/lib/startpage/selfdraw-icons";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -119,7 +120,16 @@ function TileIcon({
     [...(host || link.name)].find((c) => /[a-z0-9]/i.test(c))?.toUpperCase() ??
     link.name.slice(0, 1);
   const src = sources[idx];
-  const showFavicon = iconStyle === "favicon" && !!host && !exhausted && !!src;
+  /* v8.7.44 自绘图标：仅「自绘图标」风格启用解析。命中注册表 → 内联 SVG 磁贴面
+     （全自绘 path，用户逐轮审阅认可的自绘册 v9，187 站）；未收录 host 或数据块
+     未达（miss）→ 回落站点图标链；loading（数据拉取中）显示字母，不闪 favicon
+     半帧。自绘册是增强而非依赖：fetch 失败永远只是降级，不阻塞磁贴。 */
+  const sd = useSelfdrawIcon(host, iconStyle === "selfdraw");
+  const showFavicon =
+    (iconStyle === "favicon" || (iconStyle === "selfdraw" && sd.state === "miss")) &&
+    !!host &&
+    !exhausted &&
+    !!src;
 
   /* v8.6.7 三层拆分（入场三通道，见 globals.css intro-tile-*）：
    *   包裹层（link-intro-tile）只动 transform；霜层（link-intro-frost）承载
@@ -204,7 +214,16 @@ function TileIcon({
             " 46% var(--tile-grad-l2, 50%) / var(--tile-grad-a2, 0.14)))",
         }}
       >
-        {showFavicon ? (
+        {sd.state === "hit" ? (
+          /* v8.7.44 自绘磁贴面：条目自带圆角方底（rx42/200 ≈ 21.5%），favicon
+             同位略大一号（44/36）铺满磁贴观感；overflow-hidden 裁切描摹溢出 */
+          <span
+            aria-hidden
+            className={"block " + (sm ? "h-9 w-9" : "h-11 w-11")}
+            style={{ borderRadius: "21.5%" }}
+            dangerouslySetInnerHTML={{ __html: selfdrawSvg(sd.entry) }}
+          />
+        ) : showFavicon ? (
           <img
             key={src}
             src={src}
