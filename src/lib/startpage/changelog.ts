@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.45",
+    title: "自绘磁贴面终态：图标铺满磁贴，四角圆角统一，磁贴底色识别主色",
+    highlights: [
+      "自绘图标磁贴面重定：图标铺满整枚磁贴，四角圆角由磁贴自身圆角统一裁切——图标角即磁贴角，消除内层第二套圆角",
+      "磁贴底色智能识别图标主色：137 站品牌色实底同色无缝；50 站无底图形按策略配白底/主色相淡 tint/主色相深调底，主色永不吞图形",
+      "描边环色相同步跟随图标主色，环与磁贴面同族不跳色；主色构建期光栅化提取，运行时零计算",
+    ],
+    channel: "page" as ChangelogChannel,
+  },
+  {
     version: "8.7.44",
     title: "图标风格新增「自绘图标」：187 站内联矢量磁贴，全自绘 path",
     highlights: [

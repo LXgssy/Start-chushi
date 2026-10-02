@@ -55,7 +55,11 @@ import type { IconStyle, LinksForm, StartLink } from "@/lib/startpage/types";
 import { hostOf } from "@/lib/startpage/link-utils";
 import { inExtIframe, openExternalUrl } from "@/lib/startpage/nav";
 import { clearIconSource, orderedIconSources, saveIconSource } from "@/lib/startpage/favicon";
-import { selfdrawSvg, useSelfdrawIcon } from "@/lib/startpage/selfdraw-icons";
+import {
+  selfdrawSvg,
+  useSelfdrawIcon,
+  hexHue,
+} from "@/lib/startpage/selfdraw-icons";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -125,6 +129,10 @@ function TileIcon({
      未达（miss）→ 回落站点图标链；loading（数据拉取中）显示字母，不闪 favicon
      半帧。自绘册是增强而非依赖：fetch 失败永远只是降级，不阻塞磁贴。 */
   const sd = useSelfdrawIcon(host, iconStyle === "selfdraw");
+  /* v8.7.45 主色磁贴面：自绘命中时描边环/底色都跟随条目主色 dom（环与面同族）；
+     无饱和主色（白/深灰策略底）取 null 回落 host 色相，环保持原有主题行为。 */
+  const effHue =
+    sd.state === "hit" ? (hexHue(sd.entry.dom) ?? hue) : hue;
   const showFavicon =
     (iconStyle === "favicon" || (iconStyle === "selfdraw" && sd.state === "miss")) &&
     !!host &&
@@ -193,7 +201,7 @@ function TileIcon({
         }
         style={{
           boxShadow:
-            "inset 0 0 0 1px hsl(" + hue + " 44% var(--tile-ring-l, 60%) / var(--tile-ring-a, 0.28)), inset 0 1px 0 rgba(255,255,255,var(--tile-hl-a, 0.18))",
+            "inset 0 0 0 1px hsl(" + effHue + " 44% var(--tile-ring-l, 60%) / var(--tile-ring-a, 0.28)), inset 0 1px 0 rgba(255,255,255,var(--tile-hl-a, 0.18))",
         }}
       />
       {/* 内容层：色相渐变 + 图标（overflow 裁切、模糊聚拢覆盖面）。
@@ -206,21 +214,26 @@ function TileIcon({
           (intro ? "link-intro-body" : "")
         }
         style={{
+          /* v8.7.45：自绘命中 → 磁贴面 = 条目主色 dom 实底（图标铺满同色无缝，
+             色相渐变退役）；其余风格维持原色相渐变（色相亦随主色对齐） */
           background:
-            "linear-gradient(135deg, hsl(" +
-            hue +
-            " 42% var(--tile-grad-l1, 62%) / var(--tile-grad-a1, 0.22)), hsl(" +
-            ((hue + 40) % 360) +
-            " 46% var(--tile-grad-l2, 50%) / var(--tile-grad-a2, 0.14)))",
+            sd.state === "hit"
+              ? sd.entry.dom
+              : "linear-gradient(135deg, hsl(" +
+                effHue +
+                " 42% var(--tile-grad-l1, 62%) / var(--tile-grad-a1, 0.22)), hsl(" +
+                ((effHue + 40) % 360) +
+                " 46% var(--tile-grad-l2, 50%) / var(--tile-grad-a2, 0.14)))",
         }}
       >
         {sd.state === "hit" ? (
-          /* v8.7.44 自绘磁贴面：条目自带圆角方底（rx42/200 ≈ 21.5%），favicon
-             同位略大一号（44/36）铺满磁贴观感；overflow-hidden 裁切描摹溢出 */
+          /* v8.7.45 自绘磁贴面：图标铺满磁贴（absolute inset-0），四角由磁贴
+             自身 rounded-[inherit]+overflow-hidden 统一裁切——图标角=磁贴角，
+             消除 v8.7.44 内层 21.5% 第二套圆角（无 overflow 裁切，方角溢出）；
+             底色走条目主色 dom（tile-body 处实底渲染，同色无缝） */
           <span
             aria-hidden
-            className={"block " + (sm ? "h-9 w-9" : "h-11 w-11")}
-            style={{ borderRadius: "21.5%" }}
+            className="absolute inset-0 block"
             dangerouslySetInnerHTML={{ __html: selfdrawSvg(sd.entry) }}
           />
         ) : showFavicon ? (

@@ -11,8 +11,11 @@
  *      （15MB 全彩堆叠描摹，不进 bundle；相对 URL 与页面 chunk 同服务层，
  *      扩展包内置与云端热更两态皆达）。未命中 host 走 favicon 链兜底，
  *      加载失败同理 —— 永不因自绘册拖死磁贴渲染。
- * 渲染约定：条目是完整磁贴面设计（自带圆角方底），内容层按 21.5% 圆角
- * （对齐 200 磁贴 rx42 的比例）呈现，尺寸略大于 favicon（44/36 vs 32/28）。
+ * 渲染约定（v8.7.45 主色磁贴面）：条目 = 完整磁贴面设计 + 主色 dom。自绘命中
+ * 时图标铺满磁贴面（absolute inset-0），四角由磁贴自身 rounded+overflow-hidden
+ * 统一裁切——图标角即磁贴角，再无第二套圆角；磁贴底色 = 条目主色 dom：有满幅
+ * 底的条目（137 站）dom 即光栅主色，同色无缝；无底 glyph 条目（50 站）dom 为
+ * 策略底色（白底/主色相淡 tint/主色相深调），防 glyph 被同色吞没。
  */
 
 import { useEffect, useState } from "react";
@@ -20,6 +23,8 @@ import { useEffect, useState } from "react";
 export interface SelfdrawEntry {
   vb: string;
   body: string;
+  /** 磁贴面主色（#RRGGBB）：有底条目=光栅主色；无底 glyph 条目=策略底色 */
+  dom: string;
 }
 
 export type SelfdrawIcon =
@@ -319,6 +324,26 @@ const MODULE_SUFFIXES = Object.keys(HOST_MAP);
 
 /** host → 自绘注册表 key；未收录返回 null（调用方走 favicon 链兜底）。
  *  suffix 最长匹配：music.163.com 命中 neteasemusic 而非裸 163.com 的 netnews。 */
+/** #RRGGBB → HSL 色相（0-360）；无饱和（白/灰/黑）返回 null。
+ *  v8.7.45：自绘命中时磁贴描边环取主色色相，环与磁贴面同族不跳色。 */
+export function hexHue(hex: string): number | null {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  const r = ((n >> 16) & 255) / 255,
+    g = ((n >> 8) & 255) / 255,
+    b = (n & 255) / 255;
+  const mx = Math.max(r, g, b),
+    mn = Math.min(r, g, b),
+    d = mx - mn;
+  if (d < 1e-6) return null;
+  let h: number;
+  if (mx === r) h = ((g - b) / d) % 6;
+  else if (mx === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  return ((h * 60) % 360 + 360) % 360;
+}
+
 export function selfdrawKeyForHost(host: string | null | undefined): string | null {
   if (!host) return null;
   const h = host.trim().toLowerCase().replace(/\.+$/, "").replace(/:\d+$/, "");
@@ -335,9 +360,10 @@ export function selfdrawKeyForHost(host: string | null | undefined): string | nu
 }
 
 /* ---------- 注册表数据（惰性单飞 fetch） ----------
- * 存储形状：{key: [vb, body]}——元组省键名（15MB 级资产，键名冗余可观），
- * 数据边界处展开为 SelfdrawEntry 对象，消费方只见对象。 */
-type SelfdrawData = Record<string, [string, string]>;
+ * 存储形状：{key: [vb, body, dom]}——元组省键名（15MB 级资产，键名冗余可观），
+ * 数据边界处展开为 SelfdrawEntry 对象，消费方只见对象。dom 由构建期光栅化
+ * 提取（scripts/domcolor-v8745.mjs + build-dom-v8745.py），运行时零计算。 */
+type SelfdrawData = Record<string, [string, string, string]>;
 
 let dataP: Promise<SelfdrawData> | null = null;
 
@@ -385,7 +411,11 @@ export function useSelfdrawIcon(
       .then((d) => {
         if (!alive) return;
         const raw = d[key];
-        setSt(raw ? { state: "hit", entry: { vb: raw[0], body: raw[1] } } : MISS);
+        setSt(
+          raw
+            ? { state: "hit", entry: { vb: raw[0], body: raw[1], dom: raw[2] } }
+            : MISS
+        );
       })
       .catch(() => {
         if (alive) setSt(MISS);
@@ -398,7 +428,7 @@ export function useSelfdrawIcon(
   return st;
 }
 
-/** 条目 → 可 innerHTML 的 <svg> 全文（磁贴面：body 自带圆角方底设计） */
+/** 条目 → 可 innerHTML 的 <svg> 全文（铺满磁贴面；圆角/裁切归磁贴容器统一） */
 export function selfdrawSvg(e: SelfdrawEntry): string {
   return (
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="' +
