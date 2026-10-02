@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.47",
+    title: "哔哩哔哩磁贴重绘：白边与锯齿根修，对齐官方源",
+    highlights: [
+      "哔哩哔哩磁贴根修：老描摹在画作边界混出的浅色亮边（所见「左白边」）与 TV 轮廓断裂（所见「锯齿」）根除——画作推倒重描，电视轮廓四边完整、字形干净",
+      "底色还原官方渐变（浅粉到深粉垂直过渡），白字位置与官方标定逐像素对齐（左缘 7.8% 一致）；256px 对账平均色差 7.1/765，坏点 0.12%",
+      "主色磁贴面不变（#FE5D91），满铺渲染链零改动——仅画作数据整体替换",
+    ],
+    channel: "page" as ChangelogChannel,
+  },
+  {
     version: "8.7.46",
     title: "自绘磁贴铺满根修：画作直抵磁贴边，圆角过渡零断层",
     highlights: [
