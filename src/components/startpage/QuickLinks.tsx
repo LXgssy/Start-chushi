@@ -227,10 +227,10 @@ function TileIcon({
         }}
       >
         {sd.state === "hit" ? (
-          /* v8.7.45 自绘磁贴面：图标铺满磁贴（absolute inset-0），四角由磁贴
-             自身 rounded-[inherit]+overflow-hidden 统一裁切——图标角=磁贴角，
-             消除 v8.7.44 内层 21.5% 第二套圆角（无 overflow 裁切，方角溢出）；
-             底色走条目主色 dom（tile-body 处实底渲染，同色无缝） */
+          /* v8.7.46 自绘磁贴面：画作 vb 已收紧至实边界，svg 铺满磁贴（absolute
+             inset-0 + slice），四角由磁贴自身 rounded-[inherit]+overflow-hidden
+             统一裁切——磁贴圆角直接裁在画作上（v8.7.45 的 dom 晕环/第二套圆角
+             退役）；底色走条目主色 dom（tile-body 处实底渲染，同色无缝） */
           <span
             aria-hidden
             className="absolute inset-0 block"

@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.46",
+    title: "自绘磁贴铺满根修：画作直抵磁贴边，圆角过渡零断层",
+    highlights: [
+      "自绘画作收紧至真实边界铺满整枚磁贴：描摹源图自带的 2.34% 系统性透明边距退役（103 站收紧，34 站本已满幅），磁贴圆角直接裁在画作上——主色晕环与「第二套圆角」根除，圆角过渡连贯",
+      "渲染按条目宽高比选 slice/meet：近方形条目像素级铺满零边距，非方形条目（虎牙 1024×800）meet 的上下空带退役、长边裁切铺满；50 站无底 glyph 居中构图不变，磁贴面维持主色实底",
+      "画作 body 与主色 dom 零改动，仅 vb 数据收紧——构建期 256px 光栅化实测边界，装饰元素零溢出与宽高比防线双重核验",
+    ],
+    channel: "page" as ChangelogChannel,
+  },
+  {
     version: "8.7.45",
     title: "自绘磁贴面终态：图标铺满磁贴，四角圆角统一，磁贴底色识别主色",
     highlights: [

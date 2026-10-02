@@ -11,11 +11,13 @@
  *      （15MB 全彩堆叠描摹，不进 bundle；相对 URL 与页面 chunk 同服务层，
  *      扩展包内置与云端热更两态皆达）。未命中 host 走 favicon 链兜底，
  *      加载失败同理 —— 永不因自绘册拖死磁贴渲染。
- * 渲染约定（v8.7.45 主色磁贴面）：条目 = 完整磁贴面设计 + 主色 dom。自绘命中
- * 时图标铺满磁贴面（absolute inset-0），四角由磁贴自身 rounded+overflow-hidden
- * 统一裁切——图标角即磁贴角，再无第二套圆角；磁贴底色 = 条目主色 dom：有满幅
- * 底的条目（137 站）dom 即光栅主色，同色无缝；无底 glyph 条目（50 站）dom 为
- * 策略底色（白底/主色相淡 tint/主色相深调），防 glyph 被同色吞没。
+ * 渲染约定（v8.7.46 铺满律）：条目 = 完整磁贴面设计 + 主色 dom，vb 已在构建
+ * 期收紧至画作真实边界（描摹源图 2.34% 系统性透明边距退役），selfdrawSvg 按
+ * 宽高比选 slice/meet 铺满磁贴面（absolute inset-0），四角由磁贴自身
+ * rounded+overflow-hidden 统一裁切——图标角即磁贴角，磁贴圆角直接裁在画作
+ * 上，再无 dom 晕环与第二套圆角；磁贴底色 = 条目主色 dom：有满幅底的条目
+ * dom 即光栅主色，同色无缝；无底 glyph 条目（50 站）dom 为策略底色（白底/
+ * 主色相淡 tint/主色相深调），防 glyph 被同色吞没。
  */
 
 import { useEffect, useState } from "react";
@@ -428,12 +430,17 @@ export function useSelfdrawIcon(
   return st;
 }
 
-/** 条目 → 可 innerHTML 的 <svg> 全文（铺满磁贴面；圆角/裁切归磁贴容器统一） */
+/** 条目 → 可 innerHTML 的 <svg> 全文（铺满磁贴面；圆角/裁切归磁贴容器统一）。
+ *  v8.7.46 铺满律：vb 已收紧至画作实边界，preserveAspectRatio 一律
+ *  xMidYMid slice——方形视口 × 方形 vb 时 slice 与 meet 数学等价（glyph 居中
+ *  构图不变），非方形（huya 1024×800）slice 裁长边铺满短边，meet 的
+ *  letterbox dom 空带退役（冒烟实证：宽高比分支会让 huya 落回 meet 出空带）。
+ *  数据侧纪律：未来非方形 glyph 入册前先归方形 vb，渲染侧不再设分支。 */
 export function selfdrawSvg(e: SelfdrawEntry): string {
   return (
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="' +
     e.vb +
-    '" width="100%" height="100%" preserveAspectRatio="xMidYMid meet">' +
+    '" width="100%" height="100%" preserveAspectRatio="xMidYMid slice">' +
     e.body +
     "</svg>"
   );
