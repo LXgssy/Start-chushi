@@ -356,7 +356,8 @@ export default function PresetDocs({
                     [<K>hour12</K>, "boolean", "12 小时制"],
                     [<K>showSeconds</K>, "boolean", "时钟显示秒"],
                     [<K>userName</K>, "字符串 ≤20 字", "问候语称呼"],
-                    [<K>iconStyle</K>, <>"letter" | "favicon"</>, "磁贴图标风格"],
+                    [<K>iconStyle</K>, <>"letter" | "favicon" | "selfdraw"</>, "磁贴图标风格"],
+                    [<K>widgets</K>, "组件 id 数组", "小组件卡集合（calendar / weather / todo / countdown 子集）"],
                     [<K>engineId</K>, <K>google / bing / baidu / so360 / ddg</K>, "默认搜索引擎"],
                     [<K>searchSuggest</K>, "boolean", "搜索联想"],
                   ]}

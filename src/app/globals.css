@@ -1564,6 +1564,29 @@ html.cs-drawer-closing .cl-fade-leaf {
   animation: intro-tile-body calc(0.95s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) 0.38s backwards;
 }
 
+/* ---------- 小组件行入场（v8.7.48）：与磁贴墙同语言——玻璃壳体只动
+   transform（wg-rise，玻璃祖先零毒通道），内容层 opacity/filter 复用
+   intro-tile-body；延迟逐卡级联由内联 animationDelay 承担（0.24s 起 +70ms，
+   与搜索框同拍起步）。材质 .glass-card 的深浅色与 cs-lite 实底兜底全站统一。
+   reduce 兜底与 .intro-rise 同律 ---------- */
+.wg-card-in {
+  animation: wg-rise calc(0.95s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+.wg-body-in {
+  animation: intro-tile-body calc(0.95s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+@keyframes wg-rise {
+  from {
+    transform: translateY(16px) scale(0.98);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wg-card-in,
+  .wg-body-in {
+    animation: none;
+  }
+}
+
 /* 全屏抽屉每次唤出磁贴都重新入场（portal 重挂载），延迟收紧到 0.06s
    （「中键→看墙」要即时）；0.95s 本体时长保留（温润上浮） */
 .cl-links .link-intro,

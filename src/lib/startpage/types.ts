@@ -20,6 +20,13 @@ export type IconStyle = "letter" | "favicon" | "selfdraw";
 /** 快捷服务样式（v8.6.2）：常驻 / 抽屉（v8.5.x 曾以 linksStyle 短暂存在，见 Settings.linksForm） */
 export type LinksForm = "docked" | "drawer";
 
+/** 小组件卡 id（v8.7.48，iTab 式组件卡）：日历 / 天气 / 待办 / 倒数日 */
+export type WidgetId = "calendar" | "weather" | "todo" | "countdown";
+/** 小组件规范序：渲染顺序恒为此表对 settings.widgets 过滤的结果（存量顺序不敏感，不做自由拖拽） */
+export const WIDGET_ORDER: WidgetId[] = ["calendar", "weather", "todo", "countdown"];
+/** 小组件默认集（全启用；旧数据由挂载期迁移补默认） */
+export const DEFAULT_WIDGETS: WidgetId[] = [...WIDGET_ORDER];
+
 export type PanelId = "weather" | "todo" | "note" | "pomodoro" | "settings" | null;
 
 /** 番茄钟时长设置（分钟） */
@@ -88,6 +95,15 @@ export interface Settings {
   /** v8.7.36 Dock 栏显隐（v8.5.0 起常驻底部）：false = 整条 Dock 不渲染。
    *  入口：扩展弹窗快捷面板开关；跨文档热跟随走 settings storage 事件 */
   showDock: boolean;
+  /** 小组件行（v8.7.48）：启用的组件 id 集合（渲染序恒为 WIDGET_ORDER 过滤）；
+   *  空数组 = 整行不渲染。入口：设置面板「小组件」分区 */
+  widgets: WidgetId[];
+  /** 倒数日卡标题（如「下班」「生日」） */
+  countdownTitle: string;
+  /** 倒数日目标（datetime-local 串 "YYYY-MM-DDTHH:mm"）；空串 = 未设置。
+   *  双语义：含非零时刻 = 每日循环倒计时（如下班 18:00，到点后自动明天重来）；
+   *  00:00 = 距目标日的天数（纪念日倒数） */
+  countdownTarget: string;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -112,6 +128,9 @@ export const DEFAULT_SETTINGS: Settings = {
   noOmniboxFocus: false,
   linksForm: "drawer",
   showDock: true,
+  widgets: DEFAULT_WIDGETS,
+  countdownTitle: "下班",
+  countdownTarget: "",
 };
 
 export interface WeatherHour {

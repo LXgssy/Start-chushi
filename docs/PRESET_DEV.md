@@ -130,7 +130,8 @@ v8.7.42 起**导入路径全面放开**（MB 级）：上限的作用从「防�
 | `hour12` | boolean | 12 小时制 |
 | `showSeconds` | boolean | 时钟显示秒 |
 | `userName` | 字符串 ≤20 字 | 问候语称呼 |
-| `iconStyle` | `"letter" \| "favicon"` | 磁贴图标风格 |
+| `iconStyle` | `"letter" \| "favicon" \| "selfdraw"` | 磁贴图标风格 |
+| `widgets` | 组件 id 数组 | 小组件卡集合（`calendar / weather / todo / countdown` 子集，渲染序恒为规范序） |
 | `engineId` | `google / bing / baidu / so360 / ddg` | 默认搜索引擎 |
 | `searchSuggest` | boolean | 搜索联想 |
 

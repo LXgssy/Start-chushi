@@ -13,6 +13,7 @@ import AuroraBackground from "@/components/startpage/AuroraBackground";
 import Clock from "@/components/startpage/Clock";
 import SearchBar from "@/components/startpage/SearchBar";
 import QuickLinks from "@/components/startpage/QuickLinks";
+import WidgetRow from "@/components/startpage/WidgetRow";
 import Dock from "@/components/startpage/Dock";
 import CommandPalette from "@/components/startpage/CommandPalette";
 import ContextMenu, { CM_ICONS, type ContextMenuAction } from "@/components/startpage/ContextMenu";
@@ -378,6 +379,18 @@ function StartPageView() {
                 </div>
               </section>
             )}
+
+            {/* 小组件行（v8.7.48）：iTab 式组件卡（日历/天气/待办/倒数日），
+                设置面板「小组件」分区增删；数据全部来自已有状态面（天气/待办/
+                定位），零新增外部数据源。入场壳体走 transform 通道（wg-card-in，
+                玻璃祖先零毒），禅退场挂 .zen-gone（与磁贴墙同通道）；
+                widgets 空集时整行不渲染（组件内自门控） */}
+            <section
+              className="zen-gone mt-[clamp(1rem,3vh,1.75rem)] w-full"
+              aria-label="小组件"
+            >
+              <WidgetRow />
+            </section>
 
             {/* 快捷服务·常驻形态（settings.linksForm = docked）：磁贴墙一直铺在搜索区
                 下方（56px 磁贴）。磁贴墙是玻璃载体（.tile-frost），禅退场挂 .zen-gone
