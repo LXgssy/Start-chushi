@@ -200,7 +200,10 @@ async function loginFlow(
   keys: { authHex: string; vaultRaw: ArrayBuffer },
   salt: string
 ): Promise<SyncSession> {
-  const { sid, updatedAt } = await apiLogin(server, { u, a: keys.authHex });
+  /* 热铁盒沙箱无服务端 SHA-256：v=SHA256(authKey) 由客户端算好上行
+     （与注册的 v 同源同义），服务器恒时比对存储 verifier，零知识属性不变 */
+  const v = await verifierOf(keys.authHex);
+  const { sid, updatedAt } = await apiLogin(server, { u, v });
   const vaultJwk = await exportVaultJwk(keys.vaultRaw);
   const session: SyncSession = {
     server,
