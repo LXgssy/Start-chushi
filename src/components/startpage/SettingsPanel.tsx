@@ -19,6 +19,7 @@ import {
   type PresetSettingValues,
 } from "@/lib/startpage/preset-settings";
 import type { PresetSettingSection } from "./Dock";
+import SyncSection from "./SyncPanel";
 import ChangelogDialog from "./ChangelogDialog";
 import CheckUpdateButton from "./CheckUpdateButton";
 
@@ -951,9 +952,15 @@ function SettingsPanel({
           />
         </div>
         <p className="pb-1 text-[11px] font-extralight leading-relaxed tracking-wide text-zinc-400 dark:text-zinc-500">
-          所有数据仅保存在本浏览器中，不会上传。
+          所有数据默认仅保存在本浏览器中；登录云同步后以端到端加密形态上传，服务器只存密文。
         </p>
       </Section>
+
+      <div aria-hidden className="border-t border-zinc-900/5 dark:border-white/5" />
+
+      {/* v8.7.49 「账号与同步」：端到端加密云同步（布局/便签/待办/预设/设置），
+          服务器由用户自配部署（部署包在私有工作仓），开源仓库不内置任何地址 */}
+      <SyncSection />
 
       <div aria-hidden className="border-t border-zinc-900/5 dark:border-white/5" />
 

@@ -27,6 +27,7 @@ import { useMounted, uid } from "@/hooks/use-start";
 import { useToast } from "@/hooks/use-toast";
 import { StartPageProvider, useStartPage } from "./startpage/startpage-context";
 import { INTENT_KEY, SEEN_KEY } from "./startpage/keys";
+import { startWatch } from "@/lib/startpage/sync/engine";
 import type { StartLink } from "@/lib/startpage/types";
 
 /** 判定按键事件是否发生在输入场景（输入框/可编辑区不抢全局快捷键） */
@@ -73,6 +74,15 @@ function StartPageView() {
       /* 残缺标志静默清理失败也无害 */
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted]);
+
+  /* ---------- 云同步引擎启动（v8.7.49）----------
+     挂载期调用一次（内部幂等）：登录态先做启动对齐（云端更新 → 解密应用
+     + 整页 reload；本地更新 → 补推），随后轮询六键指纹 → debounce 自动
+     推送。非登录态零网络行为（只挂监听），登录后由设置面板触发首轮对齐。 */
+  useEffect(() => {
+    if (!mounted) return;
+    startWatch();
   }, [mounted]);
 
   /* ---------- 「初始」专属右键菜单：拦截浏览器默认菜单 ----------
