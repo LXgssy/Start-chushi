@@ -165,22 +165,57 @@ for _hp in STAGE.rglob("*.html"):
         _patched += 1
 print(f"免疫态改写: {_patched} 个 HTML 的根绝对 src/href 已前置空格")
 
-# 2.8) v8.7.50 闭源登录模块（仅 Release 构建存在）：真实实现在私有工作仓
-#   chushi-sync-server/client-module（esbuild IIFE + 高强度混淆产物），
-#   CI 经 Deploy Key 拉取后放入 ext-assets/chushi-auth.js；本仓永不包含
-#   其源码与产物（.gitignore ext-assets/）。开源构建无此文件 → 无登录入口。
-AUTH_SRC = ROOT / "ext-assets" / "chushi-auth.js"
-if AUTH_SRC.exists():
-    shutil.copyfile(AUTH_SRC, STAGE / "ext-chushi-auth.js")
+# 2.8) v8.7.50 闭源登录模块：真实实现在私有工作仓 chushi-sync-server
+#   （esbuild IIFE + 高强度混淆），本仓永不包含其源码与产物。构建期按
+#   优先级取回：① 本地 ext-assets/（离线/覆盖用）② 官方分发地址（静态）
+#   ③ 云函数分片通道 op=dist（静态被边缘 WAF 拦时的备用路）。取回结果以
+#   AUTH_SHA256 钉死校验，不匹配即视为失败 → 开源构建（无登录入口），
+#   绝不注入未经验证的内容。
+AUTH_SHA256 = "dbee4862c9478e1278944db40288db66cc998b8d909fc06a580fd406bb030e65"
+AUTH_URL = "https://chushi-sync.rth1.xyz/ext-chushi-auth.js"
+AUTH_API = "https://chushi-sync.rth1.xyz/api.node.js?op=dist"
+AUTH_STAGE = STAGE / "ext-chushi-auth.js"
+
+def _auth_fetch(url, ua):
+    import urllib.request
+    _rq = urllib.request.Request(url, headers={"User-Agent": ua})
+    return urllib.request.urlopen(_rq, timeout=60).read()
+
+_auth = None
+_auth_src = None
+if (ROOT / "ext-assets" / "chushi-auth.js").exists():
+    _auth = (ROOT / "ext-assets" / "chushi-auth.js").read_bytes()
+    _auth_src = "local ext-assets"
+else:
+    for _u, _ua in (
+        (AUTH_URL, "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"),
+        (AUTH_API, "chushi-build/8.7.50"),
+    ):
+        try:
+            import hashlib as _h, base64 as _b64
+            _b = _auth_fetch(_u, _ua)
+            if _h.sha256(_b).hexdigest() != AUTH_SHA256:
+                # dist 通道回传 base64——解码后再验
+                _b2 = _b64.b64decode(_b, validate=True)
+                if _h.sha256(_b2).hexdigest() != AUTH_SHA256:
+                    raise RuntimeError("SHA-256 与钉定值不符——拒绝注入")
+                _b = _b2
+            _auth = _b
+            _auth_src = _u
+            break
+        except Exception as _e:
+            print(f"闭源登录模块: {_u} 取回失败（{_e}）")
+if _auth is not None:
+    AUTH_STAGE.write_bytes(_auth)
     _ah = (STAGE / "index.html").read_text(encoding="utf-8")
     if "ext-chushi-auth.js" not in _ah:
         if "</head>" not in _ah:
             sys.exit("index.html 无 </head>——闭源模块注入位失效")
         _ah = _ah.replace("</head>", '<script src="ext-chushi-auth.js" defer></script></head>', 1)
         (STAGE / "index.html").write_text(_ah, encoding="utf-8")
-    print("闭源登录模块: ext-chushi-auth.js 已注入包体")
+    print(f"闭源登录模块: ext-chushi-auth.js 已注入包体（{_auth_src}）")
 else:
-    print("闭源登录模块: ext-assets/chushi-auth.js 不存在——开源构建（无内置登录）")
+    print("闭源登录模块: 全通道取回失败——本次为开源构建（无内置登录）")
 
 # 3) manifest.json（相对路径引用，扩展根即站点根）
 manifest = {
