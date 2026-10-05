@@ -16,7 +16,7 @@
  *    layout（声明式布局覆写，删除预设即还原）；
  *    本地导入支持 .json 与 .cshz 包（zip 结构，见 parsePack）。 */
 
-import { WIDGET_ORDER, type Settings } from "./types";
+import type { Settings } from "./types";
 import { ENGINES } from "./engines";
 
 /* ---------- 白名单 action ---------- */
@@ -62,7 +62,6 @@ export type PresetSettings = Partial<
     | "engineId"
     | "searchSuggest"
     | "userName"
-    | "widgets"
   >
 >;
 
@@ -987,12 +986,6 @@ export function parsePreset(raw: unknown): ParseResult {
     if (typeof s.searchSuggest === "boolean") patch.searchSuggest = s.searchSuggest;
     const uname = cleanStr(s.userName, 20);
     if (uname) patch.userName = uname;
-    /* v8.7.48 小组件集：数组 → 规范序过滤去重（非法 id 丢弃）；非空才生效 */
-    if (Array.isArray(s.widgets)) {
-      const raw = s.widgets as unknown[];
-      const valid = WIDGET_ORDER.filter((w) => raw.includes(w));
-      if (valid.length > 0) patch.widgets = valid;
-    }
     if (Object.keys(patch).length > 0) settings = patch;
   }
 

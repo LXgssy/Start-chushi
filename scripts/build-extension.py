@@ -62,7 +62,7 @@ OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
 EXT_SRC = ROOT / "extension-src"    # v8.2.0 SW/内容脚本源
-VERSION = "8.7.49"
+VERSION = "8.7.50"
 DEST = ROOT / f"download/v{VERSION}/ChuShi-NewTab-v{VERSION}.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():
@@ -164,6 +164,23 @@ for _hp in STAGE.rglob("*.html"):
         _hp.write_text(_ht2, encoding="utf-8")
         _patched += 1
 print(f"免疫态改写: {_patched} 个 HTML 的根绝对 src/href 已前置空格")
+
+# 2.8) v8.7.50 闭源登录模块（仅 Release 构建存在）：真实实现在私有工作仓
+#   chushi-sync-server/client-module（esbuild IIFE + 高强度混淆产物），
+#   CI 经 Deploy Key 拉取后放入 ext-assets/chushi-auth.js；本仓永不包含
+#   其源码与产物（.gitignore ext-assets/）。开源构建无此文件 → 无登录入口。
+AUTH_SRC = ROOT / "ext-assets" / "chushi-auth.js"
+if AUTH_SRC.exists():
+    shutil.copyfile(AUTH_SRC, STAGE / "ext-chushi-auth.js")
+    _ah = (STAGE / "index.html").read_text(encoding="utf-8")
+    if "ext-chushi-auth.js" not in _ah:
+        if "</head>" not in _ah:
+            sys.exit("index.html 无 </head>——闭源模块注入位失效")
+        _ah = _ah.replace("</head>", '<script src="ext-chushi-auth.js" defer></script></head>', 1)
+        (STAGE / "index.html").write_text(_ah, encoding="utf-8")
+    print("闭源登录模块: ext-chushi-auth.js 已注入包体")
+else:
+    print("闭源登录模块: ext-assets/chushi-auth.js 不存在——开源构建（无内置登录）")
 
 # 3) manifest.json（相对路径引用，扩展根即站点根）
 manifest = {
