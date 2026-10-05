@@ -13,7 +13,6 @@ import AuroraBackground from "@/components/startpage/AuroraBackground";
 import Clock from "@/components/startpage/Clock";
 import SearchBar from "@/components/startpage/SearchBar";
 import QuickLinks from "@/components/startpage/QuickLinks";
-import WidgetRow from "@/components/startpage/WidgetRow";
 import Dock from "@/components/startpage/Dock";
 import CommandPalette from "@/components/startpage/CommandPalette";
 import ContextMenu, { CM_ICONS, type ContextMenuAction } from "@/components/startpage/ContextMenu";
@@ -27,7 +26,6 @@ import { useMounted, uid } from "@/hooks/use-start";
 import { useToast } from "@/hooks/use-toast";
 import { StartPageProvider, useStartPage } from "./startpage/startpage-context";
 import { INTENT_KEY, SEEN_KEY } from "./startpage/keys";
-import { startWatch } from "@/lib/startpage/sync/engine";
 import type { StartLink } from "@/lib/startpage/types";
 
 /** 判定按键事件是否发生在输入场景（输入框/可编辑区不抢全局快捷键） */
@@ -74,15 +72,6 @@ function StartPageView() {
       /* 残缺标志静默清理失败也无害 */
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mounted]);
-
-  /* ---------- 云同步引擎启动（v8.7.49）----------
-     挂载期调用一次（内部幂等）：登录态先做启动对齐（云端更新 → 解密应用
-     + 整页 reload；本地更新 → 补推），随后轮询六键指纹 → debounce 自动
-     推送。非登录态零网络行为（只挂监听），登录后由设置面板触发首轮对齐。 */
-  useEffect(() => {
-    if (!mounted) return;
-    startWatch();
   }, [mounted]);
 
   /* ---------- 「初始」专属右键菜单：拦截浏览器默认菜单 ----------
@@ -389,18 +378,6 @@ function StartPageView() {
                 </div>
               </section>
             )}
-
-            {/* 小组件行（v8.7.48）：iTab 式组件卡（日历/天气/待办/倒数日），
-                设置面板「小组件」分区增删；数据全部来自已有状态面（天气/待办/
-                定位），零新增外部数据源。入场壳体走 transform 通道（wg-card-in，
-                玻璃祖先零毒），禅退场挂 .zen-gone（与磁贴墙同通道）；
-                widgets 空集时整行不渲染（组件内自门控） */}
-            <section
-              className="zen-gone mt-[clamp(1rem,3vh,1.75rem)] w-full"
-              aria-label="小组件"
-            >
-              <WidgetRow />
-            </section>
 
             {/* 快捷服务·常驻形态（settings.linksForm = docked）：磁贴墙一直铺在搜索区
                 下方（56px 磁贴）。磁贴墙是玻璃载体（.tile-frost），禅退场挂 .zen-gone

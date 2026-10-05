@@ -9,7 +9,7 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Clapperboard, ImagePlus, Link2 } from "lucide-react";
-import { DEFAULT_WIDGETS, WIDGET_ORDER, type Settings, type WidgetId } from "@/lib/startpage/types";
+import type { Settings } from "@/lib/startpage/types";
 import { GALLERY, dailyPhoto, wallpaperKindOf, type WallpaperKind } from "@/lib/startpage/gallery";
 import { idbDel, idbGet, idbSet } from "@/lib/startpage/idb";
 import {
@@ -19,7 +19,6 @@ import {
   type PresetSettingValues,
 } from "@/lib/startpage/preset-settings";
 import type { PresetSettingSection } from "./Dock";
-import SyncSection from "./SyncPanel";
 import ChangelogDialog from "./ChangelogDialog";
 import CheckUpdateButton from "./CheckUpdateButton";
 
@@ -798,60 +797,6 @@ function SettingsPanel({
 
       <div aria-hidden className="border-t border-zinc-900/5 dark:border-white/5" />
 
-      {/* v8.7.48 小组件行（iTab 式组件卡）：四个开关控制卡片增删（渲染序恒为
-          规范序过滤）；倒数日名称/目标也可在卡片内就地编辑（双入口同源） */}
-      <Section title="小组件">
-        {([
-          { id: "calendar", label: "日历卡" },
-          { id: "weather", label: "天气卡" },
-          { id: "todo", label: "待办卡" },
-          { id: "countdown", label: "倒数日卡" },
-        ] as Array<{ id: WidgetId; label: string }>).map((w) => (
-          <Switch
-            key={w.id}
-            label={w.label}
-            checked={(settings.widgets ?? DEFAULT_WIDGETS).includes(w.id)}
-            onChange={(on) => {
-              const set = new Set(settings.widgets ?? DEFAULT_WIDGETS);
-              if (on) set.add(w.id);
-              else set.delete(w.id);
-              onPatch({ widgets: WIDGET_ORDER.filter((x) => set.has(x)) });
-            }}
-          />
-        ))}
-        <div className="flex items-center justify-between gap-4 py-2.5">
-          <span className="text-xs font-light tracking-wide text-zinc-600 dark:text-zinc-300">
-            倒数日名称
-          </span>
-          <input
-            value={settings.countdownTitle}
-            onChange={(e) => onPatch({ countdownTitle: e.target.value })}
-            placeholder="如 下班 / 生日"
-            maxLength={12}
-            spellCheck={false}
-            aria-label="倒数日名称"
-            className="h-8 w-44 rounded-full border border-zinc-900/10 bg-white/40 px-3 text-[11px] font-light text-zinc-700 outline-none transition-colors placeholder:text-zinc-400 focus:border-zinc-900/25 dark:border-white/10 dark:bg-white/[0.05] dark:text-zinc-200 dark:placeholder:text-zinc-500 dark:focus:border-white/20"
-          />
-        </div>
-        <div className="flex items-center justify-between gap-4 py-2.5">
-          <span className="text-xs font-light tracking-wide text-zinc-600 dark:text-zinc-300">
-            目标时间
-          </span>
-          <input
-            type="datetime-local"
-            value={settings.countdownTarget}
-            onChange={(e) => onPatch({ countdownTarget: e.target.value })}
-            aria-label="倒数日目标时间（含时刻为每日循环，零点为天数倒数）"
-            className="h-8 w-44 rounded-full border border-zinc-900/10 bg-white/40 px-3 text-[11px] font-light text-zinc-700 outline-none transition-colors focus:border-zinc-900/25 dark:border-white/10 dark:bg-white/[0.05] dark:text-zinc-200 dark:focus:border-white/20 dark:[color-scheme:dark]"
-          />
-        </div>
-        <p className="mt-1 pb-1 text-[11px] font-extralight leading-relaxed tracking-wide text-zinc-400 dark:text-zinc-500">
-          目标时间含时刻（如 18:00）= 每日循环倒计时；设为零点 = 距目标日的天数。卡片上也可就地编辑。
-        </p>
-      </Section>
-
-      <div aria-hidden className="border-t border-zinc-900/5 dark:border-white/5" />
-
       <Section title="链接">
         <Segmented
           segKey="icon"
@@ -955,12 +900,6 @@ function SettingsPanel({
           所有数据默认仅保存在本浏览器中；登录云同步后以端到端加密形态上传，服务器只存密文。
         </p>
       </Section>
-
-      <div aria-hidden className="border-t border-zinc-900/5 dark:border-white/5" />
-
-      {/* v8.7.49 「账号与同步」：端到端加密云同步（布局/便签/待办/预设/设置），
-          服务器由用户自配部署（部署包在私有工作仓），开源仓库不内置任何地址 */}
-      <SyncSection />
 
       <div aria-hidden className="border-t border-zinc-900/5 dark:border-white/5" />
 
