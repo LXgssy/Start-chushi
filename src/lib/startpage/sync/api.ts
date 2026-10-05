@@ -90,7 +90,7 @@ export function apiRegister(
 
 export function apiLogin(
   server: string,
-  body: { u: string; a: string }
+  body: { u: string; v: string }
 ): Promise<{ sid: string; updatedAt: number }> {
   return call(server, SYNC_ENDPOINT, { method: "POST", body: { op: "login", ...body } });
 }
