@@ -167,13 +167,24 @@ print(f"免疫态改写: {_patched} 个 HTML 的根绝对 src/href 已前置空�
 
 # 2.8) v8.7.50 闭源登录模块：真实实现在私有工作仓 chushi-sync-server
 #   （esbuild IIFE + 高强度混淆），本仓永不包含其源码与产物。构建期按
-#   优先级取回：① 本地 ext-assets/（离线/覆盖用）② 官方分发地址（静态）
-#   ③ 云函数分片通道 op=dist（静态被边缘 WAF 拦时的备用路）。取回结果以
-#   AUTH_SHA256 钉死校验，不匹配即视为失败 → 开源构建（无登录入口），
-#   绝不注入未经验证的内容。
-AUTH_SHA256 = "dbee4862c9478e1278944db40288db66cc998b8d909fc06a580fd406bb030e65"
-AUTH_URL = "https://sync.example.invalid/ext-chushi-auth.js"
-AUTH_API = "https://sync.example.invalid/api.node.js?op=dist"
+#   优先级取回：① 本地 ext-assets/（离线/覆盖用）② 云镜像分发（github.io
+#   公开载荷，公开仓 CI 恒可达）③ 官方站点静态/分片通道（备用；其地址属
+#   敏感信息，安全律 v8.7.51 起一律加密内置——XOR+Base64 运行时拼装，
+#   本仓任何文件不得出现该地址明文）。取回结果以 AUTH_SHA256 钉死校验，
+#   不匹配即视为失败 → 开源构建（无登录入口），绝不注入未经验证的内容。
+AUTH_SHA256 = "43e61dd5fda08d53eec79a96ac175ef06c1a0b704b3e54f315c5548ff7d9480d"
+AUTH_URL = "https://lxgssy.github.io/Start-chushi/ext-chushi-auth.js"
+_AUTH_API_ENC = "CxwBAxtTAk0WARkXRRtCBg0LThxCRl5SRg0KEkZMEhxHAgtJF0EfB1pCQg1WXxAc"
+
+
+def _auth_api() -> str:
+    import base64 as _b
+    _k = b"chushi-build-route-2026"
+    _raw = _b.b64decode(_AUTH_API_ENC)
+    return bytes(c ^ _k[i % len(_k)] for i, c in enumerate(_raw)).decode()
+
+
+AUTH_API = _auth_api()
 AUTH_STAGE = STAGE / "ext-chushi-auth.js"
 
 def _auth_fetch(url, ua):
@@ -189,7 +200,7 @@ if (ROOT / "ext-assets" / "chushi-auth.js").exists():
 else:
     for _u, _ua in (
         (AUTH_URL, "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"),
-        (AUTH_API, "chushi-build/8.7.50"),
+        (AUTH_API, "chushi-build/8.7.51"),
     ):
         try:
             import hashlib as _h, base64 as _b64

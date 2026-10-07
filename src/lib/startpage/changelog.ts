@@ -22,6 +22,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.51",
+    title: "登录体验安全加固",
+    highlights: [
+      "登录弹窗与账号菜单不再显示同步服务器地址；高级选项留空即用内置官方服务，自定义服务器依旧支持",
+      "内置服务地址改为加密存储：任何界面与安装包内都不再出现明文地址",
+    ],
+    channel: "shell",
+  },
+  {
     version: "8.7.50",
     title: "新增账号系统，支持内容云同步",
     highlights: [
