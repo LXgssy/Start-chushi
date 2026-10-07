@@ -28,16 +28,22 @@
  *    位移键位自校正，与桌面 omnibox 行为同构；
  *  · 玻璃壳体入场 = CSS pill-shell-in（globals.css，祖先 opacity/filter 禁律）。
  *
- * v8.7.52 两改：
+ * v8.7.52→53 三改：
  *  · 聚焦描边换承载通道——原 ring-1（box-shadow 插值）在 backdrop-blur 玻璃上
  *    逐帧重绘，且与 50px 辉光阴影同时插值，退场末段 alpha 极低时视觉停滞
  *    （用户：「白色/黑色高亮描边退场时会卡一下才会完全消失」）。现改为表单内
- *    常驻 inset 描边层 + opacity 0↔1 过渡（合成器通道零重绘），明暗两版色值
- *    与原 ring 完全一致（globals.css .search-focus-ring）；inset 画在内部
- *    不被 overflow-hidden 裁切。辉光阴影保留插值但拆出独立 0.3s 通道收尾。
- *  · 站内直搜行——建议下拉尾部固定一排直达入口（哗哩哗哩/GitHub/知乎/抖音，
- *    DIRECT_SITES），有词即展示、一键换站搜同一个词；无联想结果时也展开
- *    （直搜行独立于联想开关与联想网络面）。
+ *    常驻 inset 描边层 + opacity 0↔1 过渡（合成器通道零重绘）；inset 画在
+ *    内部不被 overflow-hidden 裁切。⚠ inset 阴影按规范裁到 padding edge，
+ *    紧贴 .glass-pill 自带的 1px border 内侧 = 双线相邻 2px（v8.7.52 线上
+ *    「描边太宽」根因）——v8.7.53 起聚焦态把 border-color 内联透明化
+ *    （transition 拦截插值平滑过渡），两条 1px 线重叠为一条；浅色描边
+ *    加深为黑色 0.30（用户：「浅色模式下高亮边缘不应该是黑色吗」）。
+ *  · 站内直搜四站并入引擎列表（用户裁定：直搜选项应放在搜索引擎里）——
+ *    引擎菜单分组「站内直搜」+ 自绘 logo；建议下拉的直达行删除。
+ *  · 浮起/下沉动画恢复——Tailwind 4 的 scale-[1.015] 编译为独立 CSS
+ *    scale 属性（非 transform），v8.7.52 的过渡白名单只写了 transform
+ *    导致聚焦缩放瞬跳无动画（用户：「浮起/下沉动画没了」）；白名单补
+ *    scale 通道（同 0.5s 旧曲线）。
  *
  * 联想源：百度 sugrec JSONP（免 CORS、免密钥、国内可达）；扩展环境（MV3 CSP
  * 禁跨域脚本注入）改 fetch 直取。词表只作「输入联想」，回车仍用当前所选引擎
@@ -48,7 +54,7 @@ import { memo, useEffect, useRef, useState, type CSSProperties } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, Check, ChevronDown, Search } from "lucide-react";
-import { DIRECT_SITES, ENGINES, getEngine, looksLikeUrl, toUrl } from "@/lib/startpage/engines";
+import { MAIN_ENGINES, SITE_ENGINES, getEngine, looksLikeUrl, toUrl } from "@/lib/startpage/engines";
 import { openExternalUrl } from "@/lib/startpage/nav";
 import type { Settings } from "@/lib/startpage/types";
 
@@ -75,9 +81,9 @@ const SUG_DEBOUNCE_MS = 180;
 /** 联想请求超时 */
 const SUG_TIMEOUT_MS = 3000;
 
-/* v8.7.52 站内直搜四站图标（24 网格，currentColor）：B站小电视/知乎为线性
+/* v8.7.53 站内直搜四站图标（24 网格，currentColor）：B站小电视/知乎为线性
  * （stroke），GitHub octocat/抖音音符为官方形态剪影（fill）——各自真实
- * logo 的表达方式本就不同，保持辨识度优先。 */
+ * logo 的表达方式本就不同，保持辨识度优先。引擎菜单分组项渲染。 */
 function DirectIcon({ id }: { id: string }) {
   if (id === "bilibili")
     return (
@@ -258,15 +264,8 @@ function SearchBar({
     else navigate(engine.search(q), newTab);
   }
 
-  const q0 = query.trim();
-  const hasDirect = !!q0 && !looksLikeUrl(q0);
-  /* v8.7.52 直搜行：无联想结果时也能展开（只含直搜行）；独立于联想开关；
-     Esc 可单独收起直搜行（directDismiss，重新输入即复位） */
-  const [directDismiss, setDirectDismiss] = useState(false);
-  const showDrop =
-    focused && (hasDirect || (suggestOn && sugs.length > 0));
-  const showDirectRow =
-    showDrop && hasDirect && !directDismiss;
+  /* v8.7.53 直搜并入引擎：下拉仅承载联想结果，showDrop 回归旧契约 */
+  const showDrop = suggestOn && focused && sugs.length > 0;
 
   /* 级联窗口（v8.7.3 入场 / v8.7.4 ㊺ 退场）：showDrop 边沿在【渲染期】挂类
      （官方「渲染期间调整 state」模式，PanelStage 相位机同款）——类与首帧行
@@ -309,13 +308,7 @@ function SearchBar({
         <motion.form
           role="search"
           initial={false}
-          animate={{
-            height: showDrop
-              ? 58 +
-                sugs.length * SUG_ROW_H +
-                (showDirectRow ? SUG_ROW_H : 0)
-              : 56,
-          }}
+          animate={{ height: showDrop ? 58 + sugs.length * SUG_ROW_H : 56 }}
           transition={{ duration: 0.32, ease: EASE }}
           onSubmit={(e) => {
             e.preventDefault();
@@ -338,7 +331,6 @@ function SearchBar({
             } else if (e.key === "Escape" && showDrop) {
               setSugs([]);
               setActive(-1);
-              if (hasDirect) setDirectDismiss(true);
             }
           }}
           className={`glass-pill backdrop-blur-2xl backdrop-saturate-150 search-pill group absolute inset-x-0 top-0 z-30 flex flex-col overflow-hidden rounded-[28px] ${
@@ -347,12 +339,19 @@ function SearchBar({
               : ""
           }`}
           style={{
-            /* v8.7.52 过渡通道白名单：transform（缩放）0.5s 旧曲线；辉光阴影
-               拆独立 0.3s ease 快收尾——阴影与描边同长缓出时尾段 paint
-               持续整窗，是「描边退场卡一拍」的第二推手。描边本体已换
-               opacity 层（见表单末尾描边层） */
+            /* v8.7.52→53 过渡通道白名单：transform（入场壳体）/ scale（聚焦
+               浮起，Tailwind 4 独立属性，v8.7.52 漏写致浮起/下沉瞬跳）
+               同 0.5s 旧曲线；辉光阴影拆独立 0.3s ease 快收尾——阴影与描边
+               同长缓出时尾段 paint 持续整窗，是「描边退场卡一拍」的第二
+               推手；border-color 0.5s 同曲线承载聚焦态描边重叠律（见
+               文件头：聚焦时 border 透明化，与 inset 描边层合为一条 1px）。
+               描边本体走 opacity 层（见表单末尾描边层） */
             transition:
-              "transform 0.5s cubic-bezier(0.22,1,0.36,1), box-shadow 0.3s ease",
+              "transform 0.5s cubic-bezier(0.22,1,0.36,1), scale 0.5s cubic-bezier(0.22,1,0.36,1), border-color 0.5s cubic-bezier(0.22,1,0.36,1), box-shadow 0.3s ease",
+            /* 聚焦态 border 透明：inset 描边层与 .glass-pill 自带 border
+               相邻双线（2px）的合并手段；非聚焦不写 inline，CSS 类值生效
+               （dark/photo-mode 各自的 border 色不受影响） */
+            borderColor: focused ? "transparent" : undefined,
           }}
         >
           {/* 输入行：恒居顶部、高度锁定；建议列表在其下，由表单 height 动画整体
@@ -375,13 +374,41 @@ function SearchBar({
                   className="z-50 w-44 overflow-hidden rounded-xl border border-zinc-200/70 bg-white/85 shadow-xl backdrop-blur-2xl data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 dark:border-white/10 dark:bg-[#17171c]/90"
                 >
                   <div className="p-1.5">
-                    {ENGINES.map((e) => (
+                    {MAIN_ENGINES.map((e) => (
                       <Popover.Close
                         key={e.id}
                         onClick={() => onPatchSettings({ engineId: e.id })}
                         className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-zinc-600 transition-colors duration-150 hover:bg-zinc-900/5 dark:text-zinc-300 dark:hover:bg-white/10"
                       >
                         <span className="font-light">{e.name}</span>
+                        {e.id === settings.engineId && (
+                          <Check
+                            className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400"
+                            strokeWidth={1.5}
+                          />
+                        )}
+                      </Popover.Close>
+                    ))}
+                    {/* v8.7.53 站内直搜分组：四站与主引擎同契约（选中即当前
+                        引擎，回车语义 = 在该站检索），自绘 logo 增强辨识 */}
+                    <p
+                      aria-hidden
+                      className="px-3 pb-1 pt-2 text-[10px] font-light tracking-wider text-zinc-400 dark:text-zinc-500"
+                    >
+                      站内直搜
+                    </p>
+                    {SITE_ENGINES.map((e) => (
+                      <Popover.Close
+                        key={e.id}
+                        onClick={() => onPatchSettings({ engineId: e.id })}
+                        className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-zinc-600 transition-colors duration-150 hover:bg-zinc-900/5 dark:text-zinc-300 dark:hover:bg-white/10"
+                      >
+                        <span className="flex items-center gap-2 font-light">
+                          <span className="text-zinc-400 dark:text-zinc-500">
+                            <DirectIcon id={e.icon!} />
+                          </span>
+                          {e.name}
+                        </span>
                         {e.id === settings.engineId && (
                           <Check
                             className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400"
@@ -402,10 +429,7 @@ function SearchBar({
               ref={inputRef}
               type="text"
               value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setDirectDismiss(false);
-              }}
+              onChange={(e) => setQuery(e.target.value)}
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
               placeholder={engine.hint}
@@ -478,41 +502,15 @@ function SearchBar({
                 <span className="truncate">{s}</span>
               </button>
             ))}
-
-            {/* v8.7.52 站内直搜行：四个直达入口（哗哩哗哩/GitHub/知乎/抖音），
-                一键换站搜当前词；吃同一套级联入场/退场（--sug-i 排尾）与
-                photo-mode 色板（search-sug-row 同类）；URL 形态输入与 Esc
-                收起后不展示 */}
-            {showDirectRow && (
-              <div
-                role="group"
-                aria-label="站内直搜"
-                style={{ height: SUG_ROW_H, "--sug-i": sugs.length } as CSSProperties}
-                className="search-sug-row direct-row grid w-full grid-cols-4 items-center border-t border-zinc-900/[0.07] px-2 dark:border-white/[0.07]"
-              >
-                {DIRECT_SITES.map((d) => (
-                  <button
-                    key={d.id}
-                    type="button"
-                    tabIndex={-1}
-                    aria-label={`在${d.name}搜索 ${q0}`}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => navigate(d.search(q0), false)}
-                    className="flex h-9 min-w-0 items-center justify-center gap-1.5 rounded-full text-[11px] font-light text-zinc-500 transition-colors duration-150 hover:bg-zinc-900/5 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-50"
-                  >
-                    <DirectIcon id={d.id} />
-                    <span className="truncate">{d.name}</span>
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
 
-          {/* v8.7.52 聚焦描边层：inset 描边常驻 + opacity 承载过渡——原 ring
+          {/* v8.7.52→53 聚焦描边层：inset 描边常驻 + opacity 承载过渡——原 ring
               （box-shadow 插值）在 backdrop-filter 玻璃上逐帧重绘且尾段
               alpha 极低时视觉停滞（退场「卡一拍才消失」根因）；opacity 走
-              合成器零重绘。inset 画在内部不被 overflow-hidden 裁切；明暗
-              两版色值 = 原 ring-1 ring-zinc-900/15 dark:ring-white/25 */}
+              合成器零重绘。inset 画在内部不被 overflow-hidden 裁切；
+              v8.7.53 起聚焦态 border 透明化（form style）使本层 1px 线
+              与原 border 重叠为一条（修复双线相邻 2px「描边太宽」）；
+              浅色描边色加深为黑 0.30（globals.css） */}
           <div
             aria-hidden
             className={`search-focus-ring pointer-events-none absolute inset-0 z-40 rounded-[28px] transition-opacity duration-500 ${

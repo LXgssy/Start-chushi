@@ -17,6 +17,9 @@
  *     （按 origin 天然分域）；点击展开面板；
  *   · 计数徽标 + 首次发现 toast（3.5s 自散）；
  *   · z-index 恒顶（2147483647），不注册任何全局点击拦截，页面零打扰。
+ * v8.7.53 面板布局重排（用户：「各种信息堆在一起太乱了」）：头部 = 图标+
+ *   标题+计数徽章+图标动作钮（清空/收起）；列表项 = 类型色块（title 全称）+
+ *   文件名/「大小 · 来源域名」两行分层；空态图标+双行文案。
  * 幂等律：isolated world 顶层守卫 __chushiSnifferMounted 防重复注入
  *   （manifest 注入 + SW 补针双路径同世界共存）。
  * ==========================================================================*/
@@ -68,28 +71,36 @@
     "background:#8b5cf6;color:#fff;font-size:10px;font-weight:600;line-height:17px;text-align:center;",
     "box-shadow:0 1px 4px rgba(0,0,0,.25);display:none;}",
     ".badge.show{display:block;}",
-    ".panel{pointer-events:auto;position:fixed;width:264px;max-height:380px;display:flex;flex-direction:column;",
+    ".panel{pointer-events:auto;position:fixed;width:280px;max-height:420px;display:flex;flex-direction:column;",
     "border-radius:14px;background:rgba(255,255,255,.9);backdrop-filter:blur(20px) saturate(1.6);-webkit-backdrop-filter:blur(20px) saturate(1.6);",
     "border:1px solid rgba(24,22,36,.12);box-shadow:0 12px 40px rgba(0,0,0,.22);color:#27272a;",
     "opacity:0;visibility:hidden;transform:translateY(6px) scale(.98);transition:opacity .22s ease,transform .22s cubic-bezier(.22,1,.36,1),visibility 0s linear .22s;}",
     ".panel.open{opacity:1;visibility:visible;transform:none;transition:opacity .22s ease,transform .22s cubic-bezier(.22,1,.36,1);}",
-    ".ph{display:flex;align-items:center;gap:6px;padding:10px 12px 8px;border-bottom:1px solid rgba(24,22,36,.07);}",
-    ".ph .t{font-size:12px;font-weight:500;letter-spacing:.05em;}",
-    ".ph .n{font-size:10px;color:#a1a1aa;}",
+    /* v8.7.53 布局重排：头部 = 图标标题+计数徽章+图标动作钮；列表项 =
+       类型色块 + 文件名/元信息两行分层；杜绝信息全堆一行 */
+    ".ph{display:flex;align-items:center;gap:7px;padding:11px 12px 10px;border-bottom:1px solid rgba(24,22,36,.07);}",
+    ".ph .ico{flex-shrink:0;display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:8px;background:rgba(139,92,246,.12);color:#8b5cf6;}",
+    ".ph .ico svg{width:13px;height:13px;}",
+    ".ph .t{font-size:12px;font-weight:500;letter-spacing:.04em;}",
+    ".cnt{flex-shrink:0;min-width:20px;height:16px;padding:0 5px;border-radius:999px;background:rgba(139,92,246,.14);color:#8b5cf6;font-size:9.5px;font-weight:600;line-height:16px;text-align:center;}",
     ".ph .sp{flex:1;}",
-    ".ph button{border:0;background:none;padding:2px 4px;border-radius:6px;font-size:10px;color:#71717a;cursor:pointer;}",
-    ".ph button:hover{background:rgba(24,22,36,.06);color:#27272a;}",
-    ".list{overflow-y:auto;padding:6px;scrollbar-width:thin;}",
+    ".ph .ib{flex-shrink:0;display:flex;align-items:center;justify-content:center;width:22px;height:22px;border:0;border-radius:7px;background:none;color:#a1a1aa;cursor:pointer;transition:background .15s ease,color .15s ease;}",
+    ".ph .ib:hover{background:rgba(24,22,36,.06);color:#52525b;}",
+    ".ph .ib svg{width:13px;height:13px;}",
+    ".list{overflow-y:auto;padding:7px;scrollbar-width:thin;}",
     ".list::-webkit-scrollbar{width:5px;}.list::-webkit-scrollbar-thumb{background:rgba(24,22,36,.15);border-radius:999px;}",
-    ".empty{padding:22px 0;text-align:center;font-size:11px;color:#a1a1aa;}",
-    ".item{display:flex;align-items:center;gap:8px;padding:7px 6px;border-radius:9px;}",
+    ".empty{padding:26px 12px 24px;text-align:center;color:#a1a1aa;}",
+    ".empty svg{width:20px;height:20px;display:block;margin:0 auto 8px;opacity:.6;}",
+    ".empty .e1{font-size:11px;font-weight:400;color:#71717a;margin-bottom:3px;}",
+    ".empty .e2{font-size:9.5px;font-weight:300;line-height:1.6;}",
+    ".item{display:flex;align-items:center;gap:9px;padding:8px;border-radius:10px;}",
     ".item:hover{background:rgba(24,22,36,.045);}",
-    ".tag{flex-shrink:0;width:20px;height:20px;border-radius:6px;color:#fff;font-size:10px;font-weight:700;line-height:20px;text-align:center;}",
-    ".meta{min-width:0;flex:1;}",
-    ".meta .nm{font-size:11px;font-weight:400;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
+    ".tag{flex-shrink:0;width:22px;height:22px;border-radius:7px;color:#fff;font-size:10px;font-weight:700;line-height:22px;text-align:center;}",
+    ".meta{min-width:0;flex:1;display:flex;flex-direction:column;gap:2px;}",
+    ".meta .nm{font-size:11.5px;font-weight:450;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
     ".meta .sub{font-size:9.5px;font-weight:300;color:#a1a1aa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
     ".act{flex-shrink:0;display:flex;gap:2px;}",
-    ".act button{border:0;background:none;padding:3px;border-radius:6px;cursor:pointer;color:#71717a;}",
+    ".act button{border:0;background:none;padding:4px;border-radius:7px;cursor:pointer;color:#71717a;}",
     ".act button:hover{background:rgba(24,22,36,.07);color:#27272a;}",
     ".act svg{width:13px;height:13px;display:block;}",
     ".act button.ok{color:#10b981;}",
@@ -101,9 +112,12 @@
     ".ball{background:rgba(39,39,42,.72);border-color:rgba(255,255,255,.14);color:#e4e4e7;}",
     ".panel{background:rgba(24,24,27,.92);border-color:rgba(255,255,255,.12);color:#f4f4f5;}",
     ".ph{border-bottom-color:rgba(255,255,255,.08);}",
-    ".ph .n{color:#71717a;}.ph button{color:#a1a1aa;}.ph button:hover{background:rgba(255,255,255,.08);color:#f4f4f5;}",
+    ".ph .ico{background:rgba(139,92,246,.2);color:#a78bfa;}",
+    ".cnt{background:rgba(139,92,246,.2);color:#a78bfa;}",
+    ".ph .ib:hover{background:rgba(255,255,255,.08);color:#f4f4f5;}",
     ".list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);}",
     ".item:hover{background:rgba(255,255,255,.06);}",
+    ".empty .e1{color:#a1a1aa;}",
     ".meta .sub{color:#71717a;}",
     ".act button{color:#a1a1aa;}.act button:hover{background:rgba(255,255,255,.08);color:#f4f4f5;}",
     "}",
@@ -167,10 +181,10 @@
   function placePanel() {
     var bx = parseFloat(ball.style.left) || 0;
     var by = parseFloat(ball.style.top) || 0;
-    var px = bx - 264 - 12;
-    if (px < 8) px = Math.min(bx + 56, window.innerWidth - 264 - 8);
+    var px = bx - 280 - 12;
+    if (px < 8) px = Math.min(bx + 56, window.innerWidth - 280 - 8);
     var py = by - 6;
-    py = Math.min(Math.max(8, py), Math.max(8, window.innerHeight - 380));
+    py = Math.min(Math.max(8, py), Math.max(8, window.innerHeight - 420));
     panel.style.left = px + "px";
     panel.style.top = py + "px";
     toast.style.left = Math.max(8, px) + "px";
@@ -186,7 +200,8 @@
   ball.addEventListener("pointerdown", function (e) {
     if (e.button !== 0 && e.pointerType === "mouse") return;
     drag = { x0: e.clientX, y0: e.clientY, moved: false, lx: e.clientX, ly: e.clientY };
-    ball.setPointerCapture(e.pointerId);
+    /* capture 失败（合成事件/自动化环境无 active pointer）不阻断点击链 */
+    try { ball.setPointerCapture(e.pointerId); } catch (er) { /* noop */ }
   });
   ball.addEventListener("pointermove", function (e) {
     if (!drag) return;
@@ -212,7 +227,7 @@
     if (!drag) return;
     var wasDrag = drag.moved;
     ball.classList.remove("drag");
-    ball.releasePointerCapture(e.pointerId);
+    try { ball.releasePointerCapture(e.pointerId); } catch (er) { /* noop */ }
     drag = null;
     if (wasDrag) {
       try {
@@ -252,34 +267,63 @@
       return it.url.slice(0, 60);
     }
   }
+  /* v8.7.53：元信息行只留「大小 · 来源域名」——类型语义已由色块字母承载
+     （title 补全称），不再和大小/域名堆成一行长串 */
+  function hostOf(url) {
+    try {
+      return new URL(url).hostname.replace(/^www\./, "");
+    } catch (e) {
+      return "";
+    }
+  }
+  var ICON_DL =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v10"/><path d="m8 10.5 4 4 4-4"/><path d="M5 20h14"/></svg>';
+  var ICON_CP =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg>';
+  var ICON_TRASH =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/><path d="M6.5 7l.8 12a2 2 0 0 0 2 1.9h5.4a2 2 0 0 0 2-1.9l.8-12"/></svg>';
+  var ICON_X =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12"/><path d="M18 6 6 18"/></svg>';
+  var ICON_DOWN_DOC =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5v11"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M4.5 20h15"/></svg>';
   function renderPanel() {
     var rows = state.items
       .map(function (it, i) {
         var meta = TYPE_META[it.type] || TYPE_META.file;
-        var sub = [fmtSize(it.size), it.ext === "m3u8" ? "m3u8 流列表" : meta.name, it.host]
+        var size = fmtSize(it.size);
+        var extLabel = it.ext === "m3u8" ? "m3u8 流列表" : "";
+        var sub = [extLabel, size, hostOf(it.url)]
           .filter(Boolean)
           .join(" · ");
         return (
           '<div class="item" data-i="' + i + '">' +
-          '<span class="tag" style="background:' + meta.color + '">' + meta.label + "</span>" +
+          '<span class="tag" style="background:' + meta.color + '" title="' + esc(meta.name) + '">' + meta.label + "</span>" +
           '<span class="meta"><span class="nm" title="' + esc(guessName(it)) + '">' + esc(guessName(it)) + "</span>" +
-          '<span class="sub">' + esc(sub) + "</span></span>" +
+          '<span class="sub" title="' + esc(sub) + '">' + esc(sub) + "</span></span>" +
           '<span class="act">' +
           (it.ext === "m3u8"
             ? ""
-            : '<button data-act="dl" title="下载"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v10"/><path d="m8 10.5 4 4 4-4"/><path d="M5 20h14"/></svg></button>') +
-          '<button data-act="cp" title="复制链接"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h9"/></svg></button>' +
+            : '<button data-act="dl" title="下载">' + ICON_DL + "</button>") +
+          '<button data-act="cp" title="复制链接">' + ICON_CP + "</button>" +
           "</span></div>"
         );
       })
       .join("");
     panel.innerHTML =
-      '<div class="ph"><span class="t">嗅探到的资源</span><span class="n">' +
-      state.items.length +
-      '</span><span class="sp"></span>' +
-      '<button data-act="clear">清空</button><button data-act="hide">收起</button></div>' +
+      '<div class="ph">' +
+      '<span class="ico">' + ICON_DOWN_DOC + "</span>" +
+      '<span class="t">资源嗅探</span>' +
+      (state.items.length > 0 ? '<span class="cnt">' + state.items.length + "</span>" : "") +
+      '<span class="sp"></span>' +
+      '<button class="ib" data-act="clear" title="清空列表" aria-label="清空列表">' + ICON_TRASH + "</button>" +
+      '<button class="ib" data-act="hide" title="收起" aria-label="收起面板">' + ICON_X + "</button>" +
+      "</div>" +
       '<div class="list">' +
-      (rows || '<div class="empty">暂无可下载资源<br>继续浏览网页试试</div>') +
+      (rows ||
+        '<div class="empty">' + ICON_DOWN_DOC +
+        '<div class="e1">暂无可下载资源</div>' +
+        '<div class="e2">浏览网页时自动嗅探视频、音频、图片、文档等文件</div>' +
+        "</div>") +
       "</div>";
   }
   function togglePanel(force) {

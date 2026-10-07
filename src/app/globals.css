@@ -1298,16 +1298,18 @@ html.cs-drawer-closing .cl-fade-leaf {
    与「内容模糊语言」同源（blur 聚拢/散场），级联延迟走 --ci / --di 变量。
    ⚠ 声明顺序律：*-out 必须在 *-in 之后。
    ================================================================ */
+/* v8.7.53：去掉 translateY 位移（用户：「右键快捷菜单弹出时，内部的字会
+   位移」）——容器 scale 弹出本身带整体缩放观感，项级再叠 3px 上移就是
+   双重运动，字相对卡片在滑。现项级只做 opacity+blur 聚拢（与内容模糊
+   语言同参），字相对卡片零位移。 */
 @keyframes ctx-item-in-kf {
   from {
     opacity: 0;
     filter: blur(8px);
-    transform: translateY(-3px);
   }
   to {
     opacity: 1;
     filter: blur(0);
-    transform: translateY(0);
   }
 }
 .ctx-in .ctx-item {
@@ -1474,13 +1476,18 @@ html.cs-drawer-closing .cl-fade-leaf {
 .search-pill {
   animation: pill-shell-in 0.95s cubic-bezier(0.22, 1, 0.36, 1) 0.24s backwards;
 }
-/* v8.7.52 聚焦描边层：inset 描边常驻 + opacity 过渡承载（SearchBar.tsx
+/* v8.7.52→53 聚焦描边层：inset 描边常驻 + opacity 过渡承载（SearchBar.tsx
    聚焦态渲染）——替代原 ring-1（box-shadow 插值在 backdrop-filter 玻璃上
-   逐帧重绘，退场末段「卡一拍才消失」）。明暗两版色值 = 原 ring 色板；
-   inset 画在内部不被表单 overflow-hidden 裁切。入场动画排除（否则
-   .search-pill > * 的 pill-content-in 会在首秒覆盖 opacity 过渡）。 */
+   逐帧重绘，退场末段「卡一拍才消失」）。opacity 走合成器零重绘。
+   ⚠ inset 阴影按规范裁到 padding edge（不覆盖 border 环带）：紧贴
+   .glass-pill 自带 1px border 内侧 = 双线相邻 2px（v8.7.52 线上「描边
+   太宽」根因）→ v8.7.53 起聚焦态 form 的 border-color 内联透明化
+   （border-color 0.5s 同曲线过渡），双线合并为一条 1px。
+   浅色描边加深为黑 0.30（用户：「浅色模式下高亮边缘不应该是黑色吗」）；
+   深色维持白 0.25。入场动画排除（否则 .search-pill > * 的
+   pill-content-in 会在首秒覆盖 opacity 过渡）。 */
 .search-focus-ring {
-  box-shadow: inset 0 0 0 1px rgba(24, 22, 36, 0.15);
+  box-shadow: inset 0 0 0 1px rgba(24, 22, 36, 0.3);
 }
 .dark .search-focus-ring {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);

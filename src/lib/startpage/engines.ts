@@ -5,6 +5,9 @@ export interface Engine {
   name: string;
   hint: string; // 占位提示
   search: (q: string) => string;
+  /** 站内直搜引擎的自绘图标 id（bilibili/github/zhihu/douyin，
+   *  SearchBar.DirectIcon 渲染）；主引擎无图标走首字符圆形徽标 */
+  icon?: string;
 }
 
 export const ENGINES: Engine[] = [
@@ -38,40 +41,43 @@ export const ENGINES: Engine[] = [
     hint: "在 DuckDuckGo 中搜索，或输入网址",
     search: (q) => `https://duckduckgo.com/?q=${encodeURIComponent(q)}`,
   },
-];
-
-/* v8.7.52 站内直搜：搜索建议下拉底部的直达入口行。
- * 语义与引擎解耦——引擎管「回车搜哪」，直搜行管「一键换站搜同一个词」；
- * 空词不展示（无目标词的直搜无意义），URL 形态输入同样跳过（用户要的是
- * 前往网址本身）。抖音的搜索 URL 是路径段形态，非 ?query= 参数形态。 */
-export interface DirectSite {
-  id: string;
-  name: string;
-  search: (q: string) => string;
-}
-
-export const DIRECT_SITES: DirectSite[] = [
+  /* v8.7.53 站内直搜四站并入引擎列表（用户裁定：直搜选项应放在搜索引擎
+   * 里，而非建议下拉的直达行）——与主引擎同契约，选中即当前引擎，回车
+   * 语义 = 在该站检索。icon 字段供引擎菜单渲染自绘 logo。
+   * 抖音的搜索 URL 是路径段形态，非 ?query= 参数形态。 */
   {
     id: "bilibili",
     name: "哔哩哔哩",
+    hint: "在哔哩哔哩搜索，或输入网址",
     search: (q) => `https://search.bilibili.com/all?keyword=${encodeURIComponent(q)}`,
+    icon: "bilibili",
   },
   {
     id: "github",
     name: "GitHub",
+    hint: "在 GitHub 搜索，或输入网址",
     search: (q) => `https://github.com/search?q=${encodeURIComponent(q)}`,
+    icon: "github",
   },
   {
     id: "zhihu",
     name: "知乎",
+    hint: "在知乎搜索，或输入网址",
     search: (q) => `https://www.zhihu.com/search?type=content&q=${encodeURIComponent(q)}`,
+    icon: "zhihu",
   },
   {
     id: "douyin",
     name: "抖音",
+    hint: "在抖音搜索，或输入网址",
     search: (q) => `https://www.douyin.com/search/${encodeURIComponent(q)}`,
+    icon: "douyin",
   },
 ];
+
+/** 主引擎（无 icon）——引擎菜单上半区；四站直搜排在「站内直搜」分组下 */
+export const MAIN_ENGINES = ENGINES.filter((e) => !e.icon);
+export const SITE_ENGINES = ENGINES.filter((e) => !!e.icon);
 
 export function getEngine(id: string): Engine {
   return ENGINES.find((e) => e.id === id) ?? ENGINES[0];

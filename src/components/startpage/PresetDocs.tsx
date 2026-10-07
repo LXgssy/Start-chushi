@@ -6,15 +6,17 @@
  * 的实际实现严格同步（字段、上限、缺省值均以此为准）。
  *
  * 结构与动效：全屏轻雾化遮罩（与 ⌘K / 链接对话框幕布同材质）+ 大 glass-card
- * 滚动阅读卡；入场 .veil-in/.card-in，退场 .veil-out/.dialog-sink（CSS 承载）。
+ * 滚动阅读卡；入场 .veil-in/.card-in，退场 .veil-out/.palette-out
+ * （v8.7.53 弹窗统一律：与指令面板同参——弹簧 y/scale 过冲 + 微胀再收，CSS 承载 opacity）。
  * ⚠ Esc 走 window 捕获阶段拦截：文档开着时按 Esc 只关文档，
  *   不得穿透到 ⌘K 全局链把指令面板一起关掉（v1.1.1 律）。
  */
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { AnimatePresence } from "framer-motion";
+import { AnimatePresence, useReducedMotion } from "framer-motion";
 import { PresenceClass } from "./PresenceClass";
+import { SPRING_CARD } from "./CommandPalette";
 import { ArrowLeft, X } from "lucide-react";
 
 /* ---------- 排版辅助（紧凑文档字号，与 ⌘K 面板字号语言一致） ---------- */
@@ -162,6 +164,7 @@ export default function PresetDocs({
   const [host] = useState<HTMLElement | null>(() =>
     typeof document === "undefined" ? null : document.body
   );
+  const reduceMotion = useReducedMotion();
 
   /* Esc 捕获拦截：文档开着时 Esc 只关文档，不穿透 ⌘K 全局链 */
   useEffect(() => {
@@ -194,9 +197,15 @@ export default function PresetDocs({
           aria-modal="true"
           aria-label="预设开发文档"
         >
+          {/* v8.7.53 弹窗动画统一律：开 = SPRING_CARD 弹簧 + .card-in，
+              关 = .palette-out（同指令面板） */}
           <PresenceClass
-            exitClass="dialog-sink"
-            duration={0.2}
+            initial={reduceMotion ? false : { y: -20, scale: 0.88 }}
+            animate={{ y: 0, scale: 1 }}
+            transition={SPRING_CARD}
+            exitClass="palette-out"
+            duration={0.26}
+            style={{ transformOrigin: "top center", willChange: "transform" }}
             className="card-in glass-card slim-scroll flex max-h-[86dvh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl shadow-2xl"
           >
             {/* 顶栏：返回上一级（回导入预设 / 主页面）+ 关闭。v8.6.22 挂

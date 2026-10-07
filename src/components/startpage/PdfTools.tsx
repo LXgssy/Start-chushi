@@ -23,8 +23,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { AnimatePresence } from "framer-motion";
+import { AnimatePresence, useReducedMotion } from "framer-motion";
 import { PresenceClass } from "./PresenceClass";
+import { SPRING_CARD } from "./CommandPalette";
 import { Check, FileText, Image as ImageIcon, Loader2, RefreshCw, X } from "lucide-react";
 
 type TabId = "img2pdf" | "pdf2img" | "merge" | "text";
@@ -99,6 +100,7 @@ export default function PdfTools({
   const [files, setFiles] = useState<File[]>([]);
   const [textOut, setTextOut] = useState("");
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const reduceMotion = useReducedMotion();
 
   /* 打开面板即重置全部状态（tab 保留，文件不跨会话残留） */
   useEffect(() => {
@@ -317,9 +319,17 @@ export default function PdfTools({
           aria-modal="true"
           aria-label="PDF 工具箱"
         >
+          {/* v8.7.53 弹窗动画统一律（用户裁定）：居中弹窗开合一律 = 指令
+              面板语言——开 = SPRING_CARD 弹簧 y/scale 过冲回弹 + .card-in
+              显影；关 = .palette-out（30% 处微胀再收）。原 dialog-sink
+              硬收场退役；opacity 全程 CSS 承载（framer WAAPI 律） */}
           <PresenceClass
-            exitClass="dialog-sink"
-            duration={0.2}
+            initial={reduceMotion ? false : { y: -20, scale: 0.88 }}
+            animate={{ y: 0, scale: 1 }}
+            transition={SPRING_CARD}
+            exitClass="palette-out"
+            duration={0.26}
+            style={{ transformOrigin: "top center", willChange: "transform" }}
             className="card-in glass-card slim-scroll flex max-h-[86dvh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl shadow-2xl"
           >
             {/* 顶栏 */}
