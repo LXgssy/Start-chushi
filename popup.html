@@ -1,16 +1,19 @@
 <!doctype html>
-<!-- 「初始」扩展弹窗快捷面板（v8.5.0 / v8.7.36 扩容）。
+<!-- 「初始」扩展弹窗快捷面板（v8.5.0 / v8.7.36 扩容 / v8.7.52 嗅探+强调色）。
      点击浏览器工具栏「初始」图标弹出的轻量设置面板（青柠起始页同款交互）。
-     v8.7.36 收录：
+     v8.7.52 收录：
        · 快捷行：添加至快捷服务（当前标签页直入磁贴，v8.7.38 标签系统退役）
        · 流畅模式（低配电脑优化）—— settings.perfLite
        · 壁纸压暗程度 —— settings.photoDim（掠影壁纸压暗倍率 0–200%）
        · 显示 Dock 栏 —— settings.showDock
        · 新标签页不聚焦地址栏 —— settings.noOmniboxFocus
+       · 资源嗅探 —— chrome.storage.local 的 snifferOn（SW 读不到 localStorage，
+         故走 chrome.storage；浮球全局浮窗 + 可下载资源提示见 sniffer-float.js）
      与新标签页共享同一 localStorage 键（start:settings / start:bookmarks，
      同扩展 origin），开关即时写入、已开标签页经 storage 事件热跟随。
-     样式零依赖（内联 CSS）：zinc 刻度 + 强调紫，深浅色跟随
-     settings.themeMode（system 回退 prefers-color-scheme）。
+     样式零依赖（内联 CSS）：zinc 刻度 + 强调色——v8.7.52 起 --acc 跟随
+     settings.accent（popup.js 启动写入，storage 事件热跟随；下方 #8b5cf6
+     仅为读取前的回退值）。
      CSP 律：MV3 扩展页禁内联 script，逻辑全部走外链 popup.js。 -->
 <html lang="zh-CN">
   <head>
@@ -18,6 +21,8 @@
     <title>初始 · 快捷面板</title>
     <style>
       :root {
+        /* v8.7.52：--acc 跟随设置面板强调色（popup.js applyAccent 写入）。
+           #8b5cf6 = 默认强调紫，仅作首帧读取前的回退值 */
         --acc: #8b5cf6;
         --bg: #fafafa;
         --fg: #27272a;
@@ -324,6 +329,18 @@
           aria-checked="false"
           aria-label="新标签页不聚焦地址栏"
         >
+          <span class="knob"></span>
+        </button>
+      </section>
+
+      <section class="row">
+        <div class="row-text">
+          <div class="row-title">资源嗅探</div>
+          <div class="row-desc">
+            开启后浏览网页时自动嗅探可下载的视频、音频、大图与文档，页面右侧出现圆形浮球，发现资源时弹提示，点浮球查看列表与下载。
+          </div>
+        </div>
+        <button class="sw" id="sw-sniffer" role="switch" aria-checked="false" aria-label="资源嗅探">
           <span class="knob"></span>
         </button>
       </section>
