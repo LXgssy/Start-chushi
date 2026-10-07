@@ -28,6 +28,17 @@
  *    位移键位自校正，与桌面 omnibox 行为同构；
  *  · 玻璃壳体入场 = CSS pill-shell-in（globals.css，祖先 opacity/filter 禁律）。
  *
+ * v8.7.52 两改：
+ *  · 聚焦描边换承载通道——原 ring-1（box-shadow 插值）在 backdrop-blur 玻璃上
+ *    逐帧重绘，且与 50px 辉光阴影同时插值，退场末段 alpha 极低时视觉停滞
+ *    （用户：「白色/黑色高亮描边退场时会卡一下才会完全消失」）。现改为表单内
+ *    常驻 inset 描边层 + opacity 0↔1 过渡（合成器通道零重绘），明暗两版色值
+ *    与原 ring 完全一致（globals.css .search-focus-ring）；inset 画在内部
+ *    不被 overflow-hidden 裁切。辉光阴影保留插值但拆出独立 0.3s 通道收尾。
+ *  · 站内直搜行——建议下拉尾部固定一排直达入口（哗哩哗哩/GitHub/知乎/抖音，
+ *    DIRECT_SITES），有词即展示、一键换站搜同一个词；无联想结果时也展开
+ *    （直搜行独立于联想开关与联想网络面）。
+ *
  * 联想源：百度 sugrec JSONP（免 CORS、免密钥、国内可达）；扩展环境（MV3 CSP
  * 禁跨域脚本注入）改 fetch 直取。词表只作「输入联想」，回车仍用当前所选引擎
  * 检索，与引擎语义解耦。3s 超时/出错静默降级为无建议，不阻塞输入。
@@ -37,7 +48,7 @@ import { memo, useEffect, useRef, useState, type CSSProperties } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, Check, ChevronDown, Search } from "lucide-react";
-import { ENGINES, getEngine, looksLikeUrl, toUrl } from "@/lib/startpage/engines";
+import { DIRECT_SITES, ENGINES, getEngine, looksLikeUrl, toUrl } from "@/lib/startpage/engines";
 import { openExternalUrl } from "@/lib/startpage/nav";
 import type { Settings } from "@/lib/startpage/types";
 
@@ -63,6 +74,39 @@ const SUG_CLEAR_MS = 460;
 const SUG_DEBOUNCE_MS = 180;
 /** 联想请求超时 */
 const SUG_TIMEOUT_MS = 3000;
+
+/* v8.7.52 站内直搜四站图标（24 网格，currentColor）：B站小电视/知乎为线性
+ * （stroke），GitHub octocat/抖音音符为官方形态剪影（fill）——各自真实
+ * logo 的表达方式本就不同，保持辨识度优先。 */
+function DirectIcon({ id }: { id: string }) {
+  if (id === "bilibili")
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden className="h-3.5 w-3.5 shrink-0">
+        <path d="M7.5 5.5 9.7 2.9M16.5 5.5 14.3 2.9" />
+        <path d="M5.1 5.5h13.8a3.1 3.1 0 0 1 3.1 3.1v9.3a3.1 3.1 0 0 1-3.1 3.1H5.1a3.1 3.1 0 0 1-3.1-3.1V8.6a3.1 3.1 0 0 1 3.1-3.1Z" />
+        <path d="M8.6 10.9v3.4M15.4 10.9v3.4" />
+      </svg>
+    );
+  if (id === "github")
+    return (
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden className="h-3.5 w-3.5 shrink-0">
+        <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56 0-.27-.01-1.17-.02-2.12-3.2.7-3.87-1.36-3.87-1.36-.52-1.33-1.28-1.68-1.28-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.25.72-1.54-2.55-.29-5.23-1.28-5.23-5.68 0-1.26.45-2.28 1.18-3.09-.12-.29-.51-1.46.11-3.05 0 0 .96-.31 3.15 1.18a10.9 10.9 0 0 1 5.74 0c2.19-1.49 3.15-1.18 3.15-1.18.62 1.59.23 2.76.11 3.05.73.81 1.18 1.83 1.18 3.09 0 4.41-2.69 5.38-5.25 5.66.41.35.77 1.05.77 2.12 0 1.53-.01 2.76-.01 3.14 0 .31.21.67.8.56A10.52 10.52 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5Z" />
+      </svg>
+    );
+  if (id === "zhihu")
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden className="h-3.5 w-3.5 shrink-0">
+        <rect x="3.2" y="3.2" width="17.6" height="17.6" rx="4.4" />
+        <text x="12" y="16.1" textAnchor="middle" fontSize="10.5" fontWeight={500} fill="currentColor" stroke="none">知</text>
+      </svg>
+    );
+  /* douyin */
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden className="h-3.5 w-3.5 shrink-0">
+      <path d="M16.6 2.81c.44 2.1 1.9 3.68 4.09 4.05v3.3c-1.5-.04-2.95-.5-4.19-1.32v6.55c0 3.75-3.04 6.8-6.8 6.8a6.8 6.8 0 0 1-6.8-6.8 6.8 6.8 0 0 1 6.8-6.8c.34 0 .68.03 1.01.08v3.5a3.34 3.34 0 0 0-4.35 3.18 3.34 3.34 0 0 0 3.34 3.34 3.34 3.34 0 0 0 3.34-3.34V2.81h3.56Z" />
+    </svg>
+  );
+}
 
 /** 百度 sugrec 联想源（扩展环境 fetch 直取 / 网页版 JSONP） */
 function fetchSuggest(q: string, cb: (list: string[]) => void) {
@@ -214,7 +258,15 @@ function SearchBar({
     else navigate(engine.search(q), newTab);
   }
 
-  const showDrop = suggestOn && focused && sugs.length > 0;
+  const q0 = query.trim();
+  const hasDirect = !!q0 && !looksLikeUrl(q0);
+  /* v8.7.52 直搜行：无联想结果时也能展开（只含直搜行）；独立于联想开关；
+     Esc 可单独收起直搜行（directDismiss，重新输入即复位） */
+  const [directDismiss, setDirectDismiss] = useState(false);
+  const showDrop =
+    focused && (hasDirect || (suggestOn && sugs.length > 0));
+  const showDirectRow =
+    showDrop && hasDirect && !directDismiss;
 
   /* 级联窗口（v8.7.3 入场 / v8.7.4 ㊺ 退场）：showDrop 边沿在【渲染期】挂类
      （官方「渲染期间调整 state」模式，PanelStage 相位机同款）——类与首帧行
@@ -257,7 +309,13 @@ function SearchBar({
         <motion.form
           role="search"
           initial={false}
-          animate={{ height: showDrop ? 58 + sugs.length * SUG_ROW_H : 56 }}
+          animate={{
+            height: showDrop
+              ? 58 +
+                sugs.length * SUG_ROW_H +
+                (showDirectRow ? SUG_ROW_H : 0)
+              : 56,
+          }}
           transition={{ duration: 0.32, ease: EASE }}
           onSubmit={(e) => {
             e.preventDefault();
@@ -280,14 +338,22 @@ function SearchBar({
             } else if (e.key === "Escape" && showDrop) {
               setSugs([]);
               setActive(-1);
+              if (hasDirect) setDirectDismiss(true);
             }
           }}
-          className={`glass-pill backdrop-blur-2xl backdrop-saturate-150 search-pill group absolute inset-x-0 top-0 z-30 flex flex-col overflow-hidden rounded-[28px] transition duration-500 ${
+          className={`glass-pill backdrop-blur-2xl backdrop-saturate-150 search-pill group absolute inset-x-0 top-0 z-30 flex flex-col overflow-hidden rounded-[28px] ${
             focused
-              ? "scale-[1.015] shadow-[0_10px_50px_-8px_rgba(0,0,0,0.25)] ring-1 ring-zinc-900/15 dark:ring-white/25"
+              ? "scale-[1.015] shadow-[0_10px_50px_-8px_rgba(0,0,0,0.25)]"
               : ""
           }`}
-          style={{ transitionTimingFunction: "cubic-bezier(0.22,1,0.36,1)" }}
+          style={{
+            /* v8.7.52 过渡通道白名单：transform（缩放）0.5s 旧曲线；辉光阴影
+               拆独立 0.3s ease 快收尾——阴影与描边同长缓出时尾段 paint
+               持续整窗，是「描边退场卡一拍」的第二推手。描边本体已换
+               opacity 层（见表单末尾描边层） */
+            transition:
+              "transform 0.5s cubic-bezier(0.22,1,0.36,1), box-shadow 0.3s ease",
+          }}
         >
           {/* 输入行：恒居顶部、高度锁定；建议列表在其下，由表单 height 动画整体
               揭示。transition 只含默认属性表（不含 height）——禅雾化与聚焦缩放/
@@ -336,7 +402,10 @@ function SearchBar({
               ref={inputRef}
               type="text"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              onChange={(e) => {
+                setQuery(e.target.value);
+                setDirectDismiss(false);
+              }}
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
               placeholder={engine.hint}
@@ -409,7 +478,47 @@ function SearchBar({
                 <span className="truncate">{s}</span>
               </button>
             ))}
+
+            {/* v8.7.52 站内直搜行：四个直达入口（哗哩哗哩/GitHub/知乎/抖音），
+                一键换站搜当前词；吃同一套级联入场/退场（--sug-i 排尾）与
+                photo-mode 色板（search-sug-row 同类）；URL 形态输入与 Esc
+                收起后不展示 */}
+            {showDirectRow && (
+              <div
+                role="group"
+                aria-label="站内直搜"
+                style={{ height: SUG_ROW_H, "--sug-i": sugs.length } as CSSProperties}
+                className="search-sug-row direct-row grid w-full grid-cols-4 items-center border-t border-zinc-900/[0.07] px-2 dark:border-white/[0.07]"
+              >
+                {DIRECT_SITES.map((d) => (
+                  <button
+                    key={d.id}
+                    type="button"
+                    tabIndex={-1}
+                    aria-label={`在${d.name}搜索 ${q0}`}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => navigate(d.search(q0), false)}
+                    className="flex h-9 min-w-0 items-center justify-center gap-1.5 rounded-full text-[11px] font-light text-zinc-500 transition-colors duration-150 hover:bg-zinc-900/5 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-50"
+                  >
+                    <DirectIcon id={d.id} />
+                    <span className="truncate">{d.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
+
+          {/* v8.7.52 聚焦描边层：inset 描边常驻 + opacity 承载过渡——原 ring
+              （box-shadow 插值）在 backdrop-filter 玻璃上逐帧重绘且尾段
+              alpha 极低时视觉停滞（退场「卡一拍才消失」根因）；opacity 走
+              合成器零重绘。inset 画在内部不被 overflow-hidden 裁切；明暗
+              两版色值 = 原 ring-1 ring-zinc-900/15 dark:ring-white/25 */}
+          <div
+            aria-hidden
+            className={`search-focus-ring pointer-events-none absolute inset-0 z-40 rounded-[28px] transition-opacity duration-500 ${
+              focused ? "opacity-100" : "opacity-0"
+            }`}
+          />
         </motion.form>
       </div>
 

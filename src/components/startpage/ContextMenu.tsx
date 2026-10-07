@@ -20,6 +20,7 @@ import { PresenceClass } from "./PresenceClass";
 import {
   BookOpen,
   Download,
+  FileText,
   Images,
   Leaf,
   ListChecks,
@@ -177,4 +178,5 @@ export const CM_ICONS = {
   settings: <CsSettings2 strokeWidth={1.5} />,
   export: <Download strokeWidth={1.5} />,
   docs: <BookOpen strokeWidth={1.5} />,
+  pdf: <FileText strokeWidth={1.5} />,
 };

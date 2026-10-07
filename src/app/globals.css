@@ -1474,6 +1474,23 @@ html.cs-drawer-closing .cl-fade-leaf {
 .search-pill {
   animation: pill-shell-in 0.95s cubic-bezier(0.22, 1, 0.36, 1) 0.24s backwards;
 }
+/* v8.7.52 聚焦描边层：inset 描边常驻 + opacity 过渡承载（SearchBar.tsx
+   聚焦态渲染）——替代原 ring-1（box-shadow 插值在 backdrop-filter 玻璃上
+   逐帧重绘，退场末段「卡一拍才消失」）。明暗两版色值 = 原 ring 色板；
+   inset 画在内部不被表单 overflow-hidden 裁切。入场动画排除（否则
+   .search-pill > * 的 pill-content-in 会在首秒覆盖 opacity 过渡）。 */
+.search-focus-ring {
+  box-shadow: inset 0 0 0 1px rgba(24, 22, 36, 0.15);
+}
+.dark .search-focus-ring {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+}
+html.photo-mode.dark .search-focus-ring {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+}
+.search-pill > .search-focus-ring {
+  animation: none;
+}
 @keyframes pill-shell-in {
   from {
     background-color: transparent;

@@ -8,7 +8,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AuroraBackground from "@/components/startpage/AuroraBackground";
 import Clock from "@/components/startpage/Clock";
 import SearchBar from "@/components/startpage/SearchBar";
@@ -16,6 +16,7 @@ import QuickLinks from "@/components/startpage/QuickLinks";
 import Dock from "@/components/startpage/Dock";
 import CommandPalette from "@/components/startpage/CommandPalette";
 import ContextMenu, { CM_ICONS, type ContextMenuAction } from "@/components/startpage/ContextMenu";
+import PdfTools from "@/components/startpage/PdfTools";
 import PresetDocs from "@/components/startpage/PresetDocs";
 import ZenPomodoro from "@/components/startpage/ZenPomodoro";
 import LinkDialog from "@/components/startpage/LinkDialog";
@@ -255,6 +256,9 @@ function StartPageView() {
   const openZen = useCallback(() => sp.setZen(true), [sp.setZen]);
   const openSettings = useCallback(() => sp.gotoPanel("settings"), [sp.gotoPanel]);
   const openDevDocs = useCallback(() => sp.setDevDocs(true), [sp.setDevDocs]);
+  /* v8.7.52 PDF 工具箱：页面本地 state（无跨面板耦合，右键菜单直达） */
+  const [pdfToolsOpen, setPdfToolsOpen] = useState(false);
+  const openPdfTools = useCallback(() => setPdfToolsOpen(true), []);
 
   /* ---------- 右键菜单动作清单（与 CM_ICONS 同源；run 后菜单自动关闭） ---------- */
   const ctxActions = useMemo<ContextMenuAction[]>(
@@ -264,11 +268,12 @@ function StartPageView() {
       { id: "manage-links", label: "批量管理磁贴", icon: CM_ICONS.manageLinks, run: manageLinks },
       { id: "theme", label: "明暗切换", icon: CM_ICONS.theme, run: toggleTheme, sep: true },
       { id: "zen", label: "禅模式", icon: CM_ICONS.zen, run: openZen },
+      { id: "pdf-tools", label: "PDF 工具箱", icon: CM_ICONS.pdf, run: openPdfTools },
       { id: "settings", label: "设置", icon: CM_ICONS.settings, run: openSettings, sep: true },
       { id: "dev-docs", label: "开发者文档", icon: CM_ICONS.docs, run: openDevDocs },
       { id: "export", label: "导出备份", icon: CM_ICONS.export, run: sp.exportData },
     ],
-    [sp.openPalette, sp.openAddLink, manageLinks, toggleTheme, openZen, openSettings, openDevDocs, sp.exportData]
+    [sp.openPalette, sp.openAddLink, manageLinks, toggleTheme, openZen, openPdfTools, openSettings, openDevDocs, sp.exportData]
   );
 
   /* ---------- 沙箱自定义页 overlay 稳定回调 ---------- */
@@ -517,6 +522,9 @@ function StartPageView() {
 
       {/* 开发者文档（右键菜单直达；portal 到 body，与 ⌘K 内入口同一组件） */}
       <PresetDocs open={sp.devDocs} onClose={() => sp.setDevDocs(false)} />
+
+      {/* PDF 工具箱（v8.7.52 右键菜单直达；portal 到 body，懒加载 pdf-lib/pdfjs） */}
+      <PdfTools open={pdfToolsOpen} onClose={() => setPdfToolsOpen(false)} />
 
       {/* 右下角落款 */}
       <footer

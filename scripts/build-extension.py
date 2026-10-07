@@ -62,7 +62,7 @@ OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
 EXT_SRC = ROOT / "extension-src"    # v8.2.0 SW/内容脚本源
-VERSION = "8.7.50"
+VERSION = "8.7.52"
 DEST = ROOT / f"download/v{VERSION}/ChuShi-NewTab-v{VERSION}.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():
@@ -298,7 +298,10 @@ manifest = {
     # 直接拿不到坐标（只能手动搜城市）；网页版走标准 Web 权限流程，不受影响。
     # PRIVACY.md / README 一直按「扩展声明 geolocation」描述，本次补齐实现。
     # v8.4.5：+alarms——云端静默更新器周期检查（ext-bg.js 更新器，6h）。
-    "permissions": ["storage", "tabs", "scripting", "geolocation", "alarms"],
+    # v8.7.52：+webRequest（资源嗅探：观察响应头归集可下载资源；只读观察，
+    # 不需要 webRequestBlocking）+downloads（嗅探浮球「下载」经 SW 代理落
+    # chrome.downloads；管理下载类安装警告属预期增量，发版说明如实告知）。
+    "permissions": ["storage", "tabs", "scripting", "geolocation", "alarms", "webRequest", "downloads"],
     # v8.7.42 预设 API 开放律：预设声明的远端域经用户在导入授权步骤逐域授予
     # （chrome.permissions.request 由用户手势触发，弹域清单确认弹窗）。可选权限
     # 声明不影响安装时提示文案；SW csProxyFetch 在 fetch 前复核 permissions.contains
@@ -317,7 +320,9 @@ manifest = {
     "content_scripts": [
         {
             "matches": ["http://*/*", "https://*/*"],
-            "js": ["ext-card.js"],
+            # v8.7.52：+sniffer-float.js——资源嗅探全局浮球（closed shadow DOM，
+            # 幂等守卫防双挂载；ext-card 与浮球同世界共存，消息面互不相干）
+            "js": ["ext-card.js", "sniffer-float.js"],
             "run_at": "document_idle",
             "all_frames": False,
         },
@@ -361,7 +366,7 @@ shutil.copy2(EXT_SRC / "ext-bg.js", STAGE / "ext-bg.js")
 # v8.4.4：云端更新壳三件（壳页 + 壳桥 + 页面端 shim/顶层桥）
 # v8.4.5：+ cs-snap/sw.js（快照 SW：子路径作用域，真实目录过保留名规则）
 # v8.5.0：+ 弹窗快捷面板（popup.html + popup.js）
-for _shell in ("shell.html", "shell-bridge.js", "shim-page.js", "cs-bridge.js", "popup.html", "popup.js"):
+for _shell in ("shell.html", "shell-bridge.js", "shim-page.js", "cs-bridge.js", "popup.html", "popup.js", "sniffer-float.js"):
     shutil.copy2(EXT_SRC / _shell, STAGE / _shell)
 if (STAGE / "cs-snap").exists():
     shutil.rmtree(STAGE / "cs-snap")
@@ -388,13 +393,15 @@ for must in ("manifest.json", "_locales/zh_CN/messages.json", "icons/icon128.png
              # v8.4.4 云端更新壳三件 + v8.4.5 快照 SW（子路径作用域）
              "shell.html", "shell-bridge.js", "shim-page.js", "cs-bridge.js", "cs-snap/sw.js",
              # v8.5.0 弹窗快捷面板
-             "popup.html", "popup.js"):
+             "popup.html", "popup.js",
+             # v8.7.52 资源嗅探全局浮球
+             "sniffer-float.js"):
     if not (STAGE / must).exists():
         sys.exit(f"缺 {must}——产物不完整")
 # v8.2.1 门：SW/内容脚本语法自检（node --check；拼接后的 ext-card.js 才是真产物）
 # v8.4.4：+ 壳桥三件（shell-bridge/shim-page/cs-bridge）同门
 # v8.4.5：+ 快照 SW（cs-snap/sw.js）同门
-for ext_file in ("ext-bg.js", "ext-card.js", "shell-bridge.js", "shim-page.js", "cs-bridge.js", "cs-snap/sw.js"):
+for ext_file in ("ext-bg.js", "ext-card.js", "shell-bridge.js", "shim-page.js", "cs-bridge.js", "cs-snap/sw.js", "sniffer-float.js", "popup.js"):
     r = subprocess.run(["node", "--check", str(STAGE / ext_file)], capture_output=True, text=True)
     if r.returncode != 0:
         sys.exit(f"{ext_file} 语法门 FAIL: {r.stderr[:300]}")
@@ -464,7 +471,9 @@ for feat in ("chushi-spectrum", "spectrum-boot", "chushi-card", 'case "lyric":',
              "chrome.scripting.executeScript",              # v8.3.1：补针执行面
              "chrome.tabs.onUpdated",                      # v8.3.1：complete 补针钩子
              "SNAP_MIRRORS", "version.json",               # v8.4.5：云端静默更新器
-             "chushi-snap", "SNAP_ALARM", "snapCheck"):    # v8.4.5：IDB 库名/报警/检查入口
+             "chushi-snap", "SNAP_ALARM", "snapCheck",    # v8.4.5：IDB 库名/报警/检查入口
+             "snifferOn", "sniffTabs",                       # v8.7.52：资源嗅探（webRequest 归集+浮球消息面）
+             "webRequest.onCompleted", "sniffer-download", "downloads.download"):
     if feat not in _bg_js:
         sys.exit(f"ext-bg.js 缺特征 {feat} —— SW 歌词代理面缺失")
 if 'case "vis"' in _bg_js or "port.__vis" in _bg_js:

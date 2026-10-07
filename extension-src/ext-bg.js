@@ -793,3 +793,245 @@ async function snapCheck(manual) {
     snapChecking = false;
   }
 }
+
+/* ============================================================================
+ * v8.7.52 资源嗅探模块（开关：chrome.storage.local.snifferOn，popup 写入）
+ * ----------------------------------------------------------------------------
+ * 架构律：
+ *   1. 监听器必须 SW 顶层注册（MV3 事件律——SW 休眠唤醒后要能继续收事件）；
+ *      内部以内存门 sniffOn 判定开关，off 时回调即刻 return（微开销）。
+ *   2. 唤醒成本控制：webRequest filter 只放行 media/image/object/
+ *      xmlhttprequest/other 五类资源类型——html/css/js/script/style 等
+ *      高频请求在浏览器层就被过滤，不唤醒 SW；XHR 里 JSON/HTML 响应
+ *      classify 后 99% 丢弃，真正入库的只有可下载媒体与文档。
+ *   3. 数据面：每标签页一份（FIFO 上限 50，URL 去重），内存 Map 为准，
+ *      chrome.storage.session 持久（key sniffer:tab:<id>）——SW 随时可能
+ *      被杀，复活后首次访问惰性重建；绝不 storage.session.clear()（音乐卡
+ *      「按站隐藏」等其它 session 数据共存，只按前缀清理自己的键）。
+ *   4. 提示面：新资源 → per-tab badge 计数（强调紫底）+ tabs.sendMessage
+ *      推 sniffer-float.js 浮球（float 不在时 sendMessage 报错即静默）。
+ *   5. 下载经 SW 代理：content script 无 downloads API，浮球发
+ *      sniffer-download → chrome.downloads.download（filename 已清洗）。
+ *   6. 关闭：清已知 tab 的 badge + 广播 sniffer-off + 按前缀清 session；
+ *      tabs.onRemoved 即时回收该 tab 的内存/持久两份数据。
+ * ==========================================================================*/
+
+var sniffOn = undefined;              /* undefined = 尚未初始化（SW 刚醒） */
+var sniffTabs = new Map();            /* tabId -> { order:[url], byUrl:Map } */
+var SNIFF_MAX = 50;
+var SNIFF_KEY_PREFIX = "sniffer:tab:";
+
+try { chrome.action.setBadgeBackgroundColor({ color: "#8b5cf6" }); } catch (e) { /* noop */ }
+
+(function sniffInit() {
+  try {
+    chrome.storage.local.get("snifferOn", function (o) {
+      sniffOn = !!(o && o.snifferOn);
+      if (sniffOn) sniffWarmTabs();
+    });
+  } catch (e) { sniffOn = false; }
+  try {
+    chrome.storage.onChanged.addListener(function (changes, area) {
+      if (area !== "local" || !changes.snifferOn) return;
+      var next = !!changes.snifferOn.newValue;
+      if (next === sniffOn) return;
+      sniffOn = next;
+      if (next) sniffWarmTabs();
+      else sniffTearDown();
+    });
+  } catch (e) { /* noop */ }
+  try {
+    chrome.tabs.onRemoved.addListener(function (tabId) {
+      sniffTabs.delete(tabId);
+      try { chrome.storage.session.remove(SNIFF_KEY_PREFIX + tabId); } catch (e) { /* noop */ }
+    });
+  } catch (e) { /* noop */ }
+})();
+
+function sniffWarmTabs() {
+  /* SW 复活后重建：把 session 里存活的 tab 数据拉回内存 */
+  try {
+    chrome.storage.session.get(null, function (all) {
+      if (!all) return;
+      Object.keys(all).forEach(function (k) {
+        if (!k.startsWith(SNIFF_KEY_PREFIX)) return;
+        var tabId = Number(k.slice(SNIFF_KEY_PREFIX.length));
+        var v = all[k];
+        if (Number.isInteger(tabId) && Array.isArray(v) && v.length && !sniffTabs.has(tabId)) {
+          var entry = { order: [], byUrl: new Map() };
+          v.forEach(function (it) {
+            entry.order.push(it.url);
+            entry.byUrl.set(it.url, it);
+          });
+          sniffTabs.set(tabId, entry);
+        }
+      });
+    });
+  } catch (e) { /* noop */ }
+}
+
+function sniffPersist(tabId, entry) {
+  try {
+    var flat = entry.order.map(function (u) { return entry.byUrl.get(u); });
+    chrome.storage.session.set(
+      SNIFF_KEY_PREFIX + tabId,
+      JSON.parse(JSON.stringify(flat))
+    );
+  } catch (e) { /* quota/序列化失败：内存态保底 */ }
+}
+
+function sniffTearDown() {
+  sniffTabs.forEach(function (_entry, tabId) {
+    try { chrome.action.setBadgeText({ tabId: tabId, text: "" }); } catch (e) { /* noop */ }
+    try { chrome.tabs.sendMessage(tabId, { type: "sniffer-off" }, function () { void chrome.runtime.lastError; }); } catch (e) { /* noop */ }
+  });
+  sniffTabs.clear();
+  try {
+    chrome.storage.session.get(null, function (all) {
+      if (!all) return;
+      var keys = Object.keys(all).filter(function (k) { return k.startsWith(SNIFF_KEY_PREFIX); });
+      keys.forEach(function (k) {
+        try { chrome.storage.session.remove(k); } catch (e) { /* noop */ }
+      });
+    });
+  } catch (e) { /* noop */ }
+}
+
+/* 资源分类：返回类型 key 或 null（不入库）。扩展名兜底与 MIME 互证——
+   有些服务器给视频流 application/octet-stream，只有扩展名能救。 */
+var SNIFF_EXT = {
+  video: ["mp4", "webm", "mkv", "flv", "mov", "avi", "m4s", "ts", "mpg", "mpeg", "3gp"],
+  audio: ["mp3", "m4a", "flac", "wav", "ogg", "aac", "opus", "wma"],
+  archive: ["zip", "rar", "7z", "tar", "gz", "iso", "bz2", "xz"],
+  doc: ["doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "epub", "apk", "dmg", "exe", "msi", "csv"],
+};
+function sniffClassify(mime, url) {
+  mime = (mime || "").toLowerCase();
+  var m = (url.split("?")[0].split("#")[0]).match(/\.([a-z0-9]{2,5})$/i);
+  var ext = m ? m[1].toLowerCase() : "";
+  if (ext === "m3u8" || mime.indexOf("mpegurl") >= 0) return "stream";
+  if (mime.indexOf("video/") === 0 || SNIFF_EXT.video.indexOf(ext) >= 0) return "video";
+  if (mime.indexOf("audio/") === 0 || mime.indexOf("application/ogg") === 0 || SNIFF_EXT.audio.indexOf(ext) >= 0) return "audio";
+  if (mime === "application/pdf" || ext === "pdf") return "pdf";
+  if (SNIFF_EXT.archive.indexOf(ext) >= 0 || mime.indexOf("zip") >= 0 || mime.indexOf("compressed") >= 0) return "archive";
+  if (SNIFF_EXT.doc.indexOf(ext) >= 0 || mime.indexOf("officedocument") >= 0 || mime.indexOf("msword") >= 0 || mime.indexOf("spreadsheet") >= 0 || mime.indexOf("presentation") >= 0) return "doc";
+  if (mime.indexOf("image/") === 0) return "image"; /* 回调里另查大小：只收大图 */
+  return null;
+}
+
+/* 文件名：content-disposition 优先（filename* 解码 filename），否则 URL 段 */
+function sniffFilename(headers, url) {
+  var cd = null;
+  for (var i = 0; i < (headers || []).length; i++) {
+    if ((headers[i].name || "").toLowerCase() === "content-disposition") cd = headers[i].value;
+  }
+  if (cd) {
+    var mStar = cd.match(/filename\*=(?:UTF-8''|utf-8'')([^;]+)/);
+    if (mStar) { try { return decodeURIComponent(mStar[1].replace(/["']/g, "")); } catch (e) { /* fallthrough */ } }
+    var mPlain = cd.match(/filename="?([^";]+)"?/);
+    if (mPlain) return mPlain[1];
+  }
+  try {
+    var u = new URL(url);
+    var seg = u.pathname.split("/").filter(Boolean).pop();
+    if (seg) return decodeURIComponent(seg);
+    return u.hostname;
+  } catch (e) {
+    return "资源文件";
+  }
+}
+
+function sniffBadge(tabId, n) {
+  try {
+    chrome.action.setBadgeText({ tabId: tabId, text: n > 0 ? String(n) : "" });
+  } catch (e) { /* noop */ }
+}
+
+try {
+  chrome.webRequest.onCompleted.addListener(function (details) {
+    if (!sniffOn) return;                                  /* 开关门 */
+    if (!/^https?:/i.test(details.url || "")) return;      /* 特权页/本地 */
+    var headers = details.responseHeaders || [];
+    var mime = "", size = -1;
+    for (var i = 0; i < headers.length; i++) {
+      var nm = (headers[i].name || "").toLowerCase();
+      if (nm === "content-type") mime = headers[i].value || "";
+      else if (nm === "content-length") size = Number(headers[i].value) || -1;
+    }
+    var type = sniffClassify(mime, details.url);
+    if (!type) return;
+    if (type === "image" && !(size >= 100 * 1024)) return; /* 大图律：<100KB 不入库 */
+    var tabId = details.tabId;
+    if (tabId < 0) return;                                 /* 非标签页请求（SW fetch 等） */
+    var entry = sniffTabs.get(tabId);
+    if (!entry) {
+      entry = { order: [], byUrl: new Map() };
+      sniffTabs.set(tabId, entry);
+    }
+    if (entry.byUrl.has(details.url)) return;              /* 去重：同 URL 只记一次 */
+    var item = {
+      url: details.url,
+      type: type,
+      ext: (details.url.split("?")[0].match(/\.([a-z0-9]{2,5})$/i) || ["", ""])[1].toLowerCase(),
+      name: sniffFilename(headers, details.url),
+      size: size,
+      host: (new URL(details.url).hostname || "").replace(/^www\./, ""),
+      at: Date.now(),
+    };
+    entry.order.push(item.url);
+    entry.byUrl.set(item.url, item);
+    while (entry.order.length > SNIFF_MAX) {               /* FIFO：老资源让位 */
+      var oldUrl = entry.order.shift();
+      entry.byUrl.delete(oldUrl);
+    }
+    sniffPersist(tabId, entry);
+    sniffBadge(tabId, entry.order.length);
+    try {
+      var flat = entry.order.map(function (u) { return entry.byUrl.get(u); });
+      chrome.tabs.sendMessage(tabId, { type: "sniffer-new", items: flat }, function () {
+        void chrome.runtime.lastError;                     /* 浮球未注入：静默 */
+      });
+    } catch (e) { /* noop */ }
+  }, { urls: ["http://*/*", "https://*/*"], types: ["media", "image", "object", "xmlhttprequest", "other"] }, ["responseHeaders"]);
+} catch (e) { /* webRequest 不可用（权限缺失）：嗅探静默不可用 */ }
+
+/* 浮球消息面：ask 拉状态 / clear 清本页 / download 代理下载 */
+try {
+  chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
+    if (!msg || typeof msg.type !== "string") return;
+    if (msg.type === "sniffer-ask") {
+      var tabId = sender.tab && sender.tab.id;
+      var items = Number.isInteger(tabId) && sniffTabs.has(tabId)
+        ? sniffTabs.get(tabId).order.map(function (u) { return sniffTabs.get(tabId).byUrl.get(u); })
+        : [];
+      sendResponse({ type: "sniffer-state", on: !!sniffOn, items: items });
+      return; /* 同步应答 */
+    }
+    if (msg.type === "sniffer-clear") {
+      var tabId2 = sender.tab && sender.tab.id;
+      if (Number.isInteger(tabId2)) {
+        sniffTabs.delete(tabId2);
+        try { chrome.storage.session.remove(SNIFF_KEY_PREFIX + tabId2); } catch (e) { /* noop */ }
+        sniffBadge(tabId2, 0);
+      }
+      return;
+    }
+    if (msg.type === "sniffer-download") {
+      var url = typeof msg.url === "string" && /^https?:/i.test(msg.url) ? msg.url : "";
+      if (!url) { sendResponse({ ok: false }); return; }
+      var name = String(msg.filename || "资源文件")
+        .replace(/[\\/:*?"<>|]/g, "_")     /* Windows 非法字符清洗 */
+        .replace(/^\.+/, "")               /* 防隐藏/路径穿越 */
+        .slice(0, 120) || "资源文件";
+      try {
+        chrome.downloads.download(
+          { url: url, filename: name, saveAs: false },
+          function (id) { void chrome.runtime.lastError; sendResponse({ ok: typeof id === "number" }); }
+        );
+      } catch (e) {
+        sendResponse({ ok: false });
+      }
+      return true; /* 异步应答 */
+    }
+  });
+} catch (e) { /* noop */ }

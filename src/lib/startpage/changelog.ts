@@ -22,6 +22,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.52",
+    title: "PDF 工具箱、站内直搜与资源嗅探",
+    highlights: [
+      "内置 PDF 工具箱（右键菜单打开）：图片转 PDF、PDF 转图片、PDF 合并、提取文本，全程本地处理不上传",
+      "搜索框新增站内直搜：输入关键词一键到哔哩哔哩 / GitHub / 知乎 / 抖音搜索",
+      "搜索框聚焦描边退场卡顿修复：取消选中时高亮边框平滑淡出，不再顿一下",
+      "新增资源嗅探：扩展弹窗开启后，浏览网页时自动发现可下载的视频、音频、大图与文档，圆形浮球提示并可直接下载",
+      "扩展弹窗面板配色改为跟随设置里的强调色",
+    ],
+    channel: "shell",
+  },
+  {
     version: "8.7.51",
     title: "登录体验安全加固",
     highlights: [

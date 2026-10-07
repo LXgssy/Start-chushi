@@ -40,6 +40,39 @@ export const ENGINES: Engine[] = [
   },
 ];
 
+/* v8.7.52 站内直搜：搜索建议下拉底部的直达入口行。
+ * 语义与引擎解耦——引擎管「回车搜哪」，直搜行管「一键换站搜同一个词」；
+ * 空词不展示（无目标词的直搜无意义），URL 形态输入同样跳过（用户要的是
+ * 前往网址本身）。抖音的搜索 URL 是路径段形态，非 ?query= 参数形态。 */
+export interface DirectSite {
+  id: string;
+  name: string;
+  search: (q: string) => string;
+}
+
+export const DIRECT_SITES: DirectSite[] = [
+  {
+    id: "bilibili",
+    name: "哔哩哔哩",
+    search: (q) => `https://search.bilibili.com/all?keyword=${encodeURIComponent(q)}`,
+  },
+  {
+    id: "github",
+    name: "GitHub",
+    search: (q) => `https://github.com/search?q=${encodeURIComponent(q)}`,
+  },
+  {
+    id: "zhihu",
+    name: "知乎",
+    search: (q) => `https://www.zhihu.com/search?type=content&q=${encodeURIComponent(q)}`,
+  },
+  {
+    id: "douyin",
+    name: "抖音",
+    search: (q) => `https://www.douyin.com/search/${encodeURIComponent(q)}`,
+  },
+];
+
 export function getEngine(id: string): Engine {
   return ENGINES.find((e) => e.id === id) ?? ENGINES[0];
 }
