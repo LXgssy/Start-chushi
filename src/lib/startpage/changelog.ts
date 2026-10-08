@@ -22,13 +22,14 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
-    version: "8.7.56",
-    title: "预设弹窗动画统一收尾",
+    version: "8.7.57",
+    title: "预设弹窗动画统一收尾 + 登录模块镜像修复",
     highlights: [
       "预设导入 / 管理弹窗开关动画与指令面板完全同参：Q 弹过冲 + 收场模糊散场，所有居中弹窗节奏一致",
+      "登录模块分发通道修复：云端镜像产物同步到最新编译版本，发版构建恢复完整登录能力",
       "云端快照通道恢复推送：已装用户后台静默吃到 8.7.53 之后的全部页面更新（约 6 小时内）",
     ],
-    channel: "page",
+    channel: "shell",
   },
   {
     version: "8.7.55",
