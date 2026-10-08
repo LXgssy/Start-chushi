@@ -22,6 +22,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.56",
+    title: "预设弹窗动画统一收尾",
+    highlights: [
+      "预设导入 / 管理弹窗开关动画与指令面板完全同参：Q 弹过冲 + 收场模糊散场，所有居中弹窗节奏一致",
+      "云端快照通道恢复推送：已装用户后台静默吃到 8.7.53 之后的全部页面更新（约 6 小时内）",
+    ],
+    channel: "page",
+  },
+  {
     version: "8.7.55",
     title: "搜索框与 PDF 工具箱全面重做",
     highlights: [

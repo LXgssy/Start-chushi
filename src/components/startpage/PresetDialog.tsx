@@ -2,7 +2,8 @@
 
 /* 预设导入 / 管理对话框 — 声明式预设的用户入口。
  * 视觉与动效语言对齐指令面板（glass-card + 弹簧入场 + 磨砂遮罩）。
- * v1.0.8 动效分工：卡片骨架 = 弹簧 y/scale + .card-in 显影 + .dialog-sink 收场
+ * v1.0.8 动效分工：卡片骨架 = 弹簧 y/scale + .card-in 显影
+ * （v8.7.53 弹窗统一律：弹簧/收场与指令面板同参——Q 弹过冲 + .palette-out 收场）；
  * （opacity 全程 CSS 承载，framer v12 WAAPI 律，同 dock panel-rise/panel-sink）；
  * 遮罩 = 磨砂模糊 .veil-in/.veil-out-slow（黑色遮罩已废弃）；
  * 内容过场（含导入/管理互切）= 模糊语言 .content-focus/.view-exit（模糊聚拢/散场）。
@@ -12,14 +13,17 @@
  * 导入支持：粘贴 JSON / 本地文件（.json 预设、.cshz/.zip 预设包，见 pack.ts）。 */
 
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { PresenceClass } from "./PresenceClass";
+import { SPRING_CARD } from "./CommandPalette";
 import { FileUp, Globe, PackageOpen, Plus, Trash2 } from "lucide-react";
 import { ApiGrantStep, collectPendingGrants, revokeGrants, type GrantPending } from "./PresetApiGrant";
 import { parsePreset, SAMPLE_PRESET, type InstalledPreset, type PresetPayload } from "@/lib/startpage/preset";
 import { parsePack } from "@/lib/startpage/pack";
 
-const SPRING = { type: "spring" as const, stiffness: 460, damping: 38 };
+/* v8.7.53 弹窗动画统一律：SPRING 改用指令面板同参 SPRING_CARD（Q 弹过冲），
+ * 退场 dialog-sink → palette-out——用户裁定所有居中弹窗开关动画一致 */
+const SPRING = SPRING_CARD;
 
 export interface PresetDialogState {
   open: boolean;
@@ -65,6 +69,7 @@ function DialogInner({
   onRemove: (id: string) => void;
 }) {
   const [tab, setTab] = useState<"import" | "manage">(initialTab);
+  const reduceMotion = useReducedMotion();
   /* 对话框已开时 palette 再次请求另一视图（导入↔管理）：同步内部 tab */
   useEffect(() => {
     setTab(initialTab);
@@ -235,14 +240,15 @@ function DialogInner({
       aria-modal="true"
       aria-label="预设管理"
     >
-      {/* 卡片骨架：弹簧只驱动 y/scale，显影交 .card-in，退场交 .dialog-sink；
-          Q 弹弹簧仅 ⌘K 专属，此处保持高阻尼无回弹 */}
+      {/* 卡片骨架：弹簧只驱动 y/scale，显影交 .card-in，退场交 .palette-out
+          （v8.7.53 与指令面板统一）；Q 弹过冲全弹窗同参 */}
       <PresenceClass
-        initial={{ y: -10, scale: 0.97 }}
+        initial={reduceMotion ? false : { y: -20, scale: 0.88 }}
         animate={{ y: 0, scale: 1, transition: SPRING }}
         transition={SPRING}
-        exitClass="dialog-sink"
-        duration={0.2}
+        exitClass="palette-out"
+        duration={0.26}
+        style={{ transformOrigin: "top center", willChange: "transform" }}
         className="card-in glass-card backdrop-blur-2xl backdrop-saturate-150 w-full max-w-[560px] overflow-hidden rounded-2xl shadow-2xl"
         onKeyDown={(e) => {
           if (e.key === "Escape") {
