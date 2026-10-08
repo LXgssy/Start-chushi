@@ -8,7 +8,7 @@
 
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AuroraBackground from "@/components/startpage/AuroraBackground";
 import Clock from "@/components/startpage/Clock";
 import SearchBar from "@/components/startpage/SearchBar";
@@ -17,6 +17,7 @@ import Dock from "@/components/startpage/Dock";
 import CommandPalette from "@/components/startpage/CommandPalette";
 import ContextMenu, { CM_ICONS, type ContextMenuAction } from "@/components/startpage/ContextMenu";
 import PresetDocs from "@/components/startpage/PresetDocs";
+import PdfTools from "@/components/startpage/PdfTools";
 import ZenPomodoro from "@/components/startpage/ZenPomodoro";
 import LinkDialog from "@/components/startpage/LinkDialog";
 import PresetWidgets from "@/components/startpage/PresetWidgets";
@@ -256,6 +257,10 @@ function StartPageView() {
   const openSettings = useCallback(() => sp.gotoPanel("settings"), [sp.gotoPanel]);
   const openDevDocs = useCallback(() => sp.setDevDocs(true), [sp.setDevDocs]);
 
+  /* v8.7.55 PDF 工具箱（右键菜单直达；宫格式 13 功能，全程本地） */
+  const [pdfOpen, setPdfOpen] = useState(false);
+  const openPdfTools = useCallback(() => setPdfOpen(true), []);
+
   /* ---------- 右键菜单动作清单（与 CM_ICONS 同源；run 后菜单自动关闭） ---------- */
   const ctxActions = useMemo<ContextMenuAction[]>(
     () => [
@@ -266,9 +271,10 @@ function StartPageView() {
       { id: "zen", label: "禅模式", icon: CM_ICONS.zen, run: openZen },
       { id: "settings", label: "设置", icon: CM_ICONS.settings, run: openSettings, sep: true },
       { id: "dev-docs", label: "开发者文档", icon: CM_ICONS.docs, run: openDevDocs },
+      { id: "pdf-tools", label: "PDF 工具箱", icon: CM_ICONS.pdf, run: openPdfTools },
       { id: "export", label: "导出备份", icon: CM_ICONS.export, run: sp.exportData },
     ],
-    [sp.openPalette, sp.openAddLink, manageLinks, toggleTheme, openZen, openSettings, openDevDocs, sp.exportData]
+    [sp.openPalette, sp.openAddLink, manageLinks, toggleTheme, openZen, openSettings, openDevDocs, openPdfTools, sp.exportData]
   );
 
   /* ---------- 沙箱自定义页 overlay 稳定回调 ---------- */
@@ -517,6 +523,9 @@ function StartPageView() {
 
       {/* 开发者文档（右键菜单直达；portal 到 body，与 ⌘K 内入口同一组件） */}
       <PresetDocs open={sp.devDocs} onClose={() => sp.setDevDocs(false)} />
+
+      {/* v8.7.55 PDF 工具箱（右键菜单直达；portal 到 body） */}
+      <PdfTools open={pdfOpen} onClose={() => setPdfOpen(false)} />
 
       {/* 右下角落款 */}
       <footer

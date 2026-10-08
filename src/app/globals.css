@@ -1263,6 +1263,11 @@ html.cs-drawer-closing .cl-fade-leaf {
 }
 .ctx-in {
   animation: ctx-in-kf calc(0.2s * var(--mo-speed, 1)) cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+  /* v8.7.55 文字复位根修：弹簧 scale 收尾回级联（scale(1)→none）时卡内容
+     重栅格化 = 用户所见「菜单里的字复位」；will-change 常驻合成层后收尾
+     只改合成器矩阵（恒等），纹理零重栅格。退场 ctx-out 同走 transform，
+     常驻层一并受益 */
+  will-change: transform;
 }
 @keyframes ctx-out-kf {
   from {
@@ -1299,20 +1304,24 @@ html.cs-drawer-closing .cl-fade-leaf {
    ⚠ 声明顺序律：*-out 必须在 *-in 之后。
    ================================================================ */
 @keyframes ctx-item-in-kf {
+  /* v8.7.55 二修：入场不再携带任何 transform 位移——级联 stagger 的「聚拢感」
+     全交 blur+opacity（位移正是用户两轮点名的文字复位/位移载体），且
+     will-change 常驻 filter 层后 blur(0)→none 收尾零重栅格化 */
   from {
     opacity: 0;
     filter: blur(8px);
-    transform: translateY(-3px);
   }
   to {
     opacity: 1;
     filter: blur(0);
-    transform: translateY(0);
   }
 }
 .ctx-in .ctx-item {
   animation: ctx-item-in-kf calc(0.34s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) backwards;
   animation-delay: calc(min(var(--ci, 0), 12) * 24ms);
+  /* v8.7.55 复位根修：filter 层常驻（收尾 blur(0)→none 不撤销），文字
+     栅格化一次成型；项内无磨砂元素，常驻 backdrop root 无害 */
+  will-change: filter, opacity;
 }
 @keyframes ctx-item-out-kf {
   from {
@@ -1357,6 +1366,8 @@ html.cs-drawer-closing .cl-fade-leaf {
 }
 .docs-anim > section {
   animation: docs-item-in-kf calc(0.42s * var(--mo-speed, 1)) cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  /* v8.7.55 复位根修同律：blur 收尾层常驻，收尾零重栅格化 */
+  will-change: filter, opacity;
   /* 基础延迟 0.20s（v8.7.8 卡顿修复）：文档 overlay 打开首帧主线程忙于巨量 DOM
      挂载（§01–§15 全量提交）+ 幕布 veil-in / 卡片 card-in 双动画起步——级联若在
      窗口内起跑，动画时钟先行流逝而首帧绘制迟到，前几帧被折叠成一次跳变（用户实测
@@ -1375,6 +1386,13 @@ html.cs-drawer-closing .cl-fade-leaf {
   }
 }
 .dialog-sink .docs-anim > section {
+  animation: docs-item-out-kf 0.16s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+/* v8.7.55 PDF 工具箱关闭同步律：卡片走 .palette-out（指令面板同参）时，
+   正文 docs-anim 分区与卡片同步模糊散场——此前只覆盖 .dialog-sink 一族，
+   palette-out 卡内内容仍以满 opacity 挂在收场动画尾帧上（面板收走后
+   内容「过一会才消失」的错拍根源） */
+.palette-out .docs-anim > section {
   animation: docs-item-out-kf 0.16s cubic-bezier(0.4, 0, 1, 1) forwards;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -1473,6 +1491,22 @@ html.cs-drawer-closing .cl-fade-leaf {
    同参 0.95s/延迟 0.24s 与主列 intro-rise 一致 ---------- */
 .search-pill {
   animation: pill-shell-in 0.95s cubic-bezier(0.22, 1, 0.36, 1) 0.24s backwards;
+  /* v8.7.55 子元素复位根修（三件套）：
+     ① 恒等 transform 基态——入场动画收尾（pill-shell-in 的 to 帧）回级联时
+        transform 从关键帧值切到「有值的恒等变换」而非 none，配合 ③ 的
+        will-change 常驻合成层，纹理全程不重栅格化（「搜索框内部子元素
+        在入场动画/上浮/下沉后复位、位移」的根因 = 层撤销重栅格化）；
+     ② 显式 transition 列表（unlayered 胜 Tailwind utilities）：scale/box-shadow
+        承载聚焦上浮/下沉与阴影（组件类里 transition 已退役），opacity/filter
+        同参承载禅雾化进出（html.zen .search-pill 覆盖值与此处同构，
+        退禅回基态也有过渡）；height 是 framer 内联动画，刻意不在表内 */
+  transform: translateY(0) scale(1);
+  transition:
+    scale 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: transform;
 }
 @keyframes pill-shell-in {
   from {
@@ -1484,7 +1518,12 @@ html.cs-drawer-closing .cl-fade-leaf {
 }
 .search-pill > * {
   animation: pill-content-in 0.95s cubic-bezier(0.22, 1, 0.36, 1) 0.24s backwards;
+  /* v8.7.55 复位根修：内容层（输入行/建议列表）常驻 filter 层——
+     pill-content-in 收尾 blur(0)→none 与级联撤销不再触发文字重栅格化；
+     子树内无磨砂元素，常驻 backdrop root 无害（磨砂存活律） */
+  will-change: filter, opacity;
 }
+
 @keyframes pill-content-in {
   from {
     opacity: 0;
@@ -2216,5 +2255,20 @@ html.cs-drawer:not(.cs-drawer-closing).photo-mode .wallpaper-layer {
   }
   html.cs-drawer:not(.cs-drawer-closing).photo-mode .wallpaper-layer {
     transform: none;
+  }
+}
+
+/* ---------- v8.7.55 搜索框聚焦 × 壁纸联动（用户裁定）：退役聚焦描边，
+   改为选中/退出选中时壁纸跟随搜索框上浮/下沉等参放大/还原。
+   独立 scale 属性与抽屉的 transform 通道互不覆盖（乘积合成，且「抽屉
+   打开」与「搜索聚焦」两个场景天然不共存）；0.5s 同搜索框浮起曲线
+   （globals.css .search-pill transition），同拍放大/还原。
+   html.search-float 由 SearchBar 聚焦态挂载（卸载/失焦移除）。 ---------- */
+html.search-float .wallpaper-layer {
+  scale: 1.025;
+}
+@media (prefers-reduced-motion: reduce) {
+  html.search-float .wallpaper-layer {
+    scale: none;
   }
 }

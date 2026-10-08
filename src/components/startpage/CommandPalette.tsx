@@ -51,7 +51,7 @@ import type { InstalledPreset, PresetAction, PresetPayload } from "@/lib/startpa
 import type { StartLink } from "@/lib/startpage/types";
 
 /* ⌘K 专属 Q 弹弹簧（过冲回弹），高度互切用重阻尼弹簧（不过冲，dock 同参） */
-const SPRING_CARD = { type: "spring" as const, stiffness: 480, damping: 19, mass: 0.9 };
+export const SPRING_CARD = { type: "spring" as const, stiffness: 480, damping: 19, mass: 0.9 };
 const SPRING_HEIGHT = { type: "spring" as const, stiffness: 460, damping: 38 };
 
 const ITEM_CLASS =

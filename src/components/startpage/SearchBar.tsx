@@ -37,7 +37,13 @@ import { memo, useEffect, useRef, useState, type CSSProperties } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowRight, Check, ChevronDown, Search } from "lucide-react";
-import { ENGINES, getEngine, looksLikeUrl, toUrl } from "@/lib/startpage/engines";
+import {
+  WEB_ENGINES,
+  SITE_ENGINES,
+  getEngine,
+  looksLikeUrl,
+  toUrl,
+} from "@/lib/startpage/engines";
 import { openExternalUrl } from "@/lib/startpage/nav";
 import type { Settings } from "@/lib/startpage/types";
 
@@ -146,6 +152,13 @@ function SearchBar({
   const [active, setActive] = useState(-1);
   const engine = getEngine(settings.engineId);
   const suggestOn = settings.searchSuggest;
+
+  /* v8.7.55 聚焦浮起联动壁纸：html.search-float 由 globals.css 承载壁纸层
+     等参缩放（同曲线同时长，视觉一件事）；卸载/失焦移除，防状态残留 */
+  useEffect(() => {
+    document.documentElement.classList.toggle("search-float", focused);
+    return () => document.documentElement.classList.remove("search-float");
+  }, [focused]);
 
   /* 页面级快捷键通过事件请求聚焦搜索框；可携带欲直输的首字符 */
   useEffect(() => {
@@ -282,12 +295,16 @@ function SearchBar({
               setActive(-1);
             }
           }}
-          className={`glass-pill backdrop-blur-2xl backdrop-saturate-150 search-pill group absolute inset-x-0 top-0 z-30 flex flex-col overflow-hidden rounded-[28px] transition duration-500 ${
+          /* v8.7.55：聚焦描边（ring）按用户裁定退役；上浮/下沉 = scale 恒值化
+             （非聚焦 scale-100，聚焦 scale-[1.015]，scale 属性恒有值——
+             聚焦/退出聚焦与入场动画收尾都不再出现 scale→none 的层撤销
+             重栅格化，「内部子元素复位」从根上消除）。transition 显式
+             列表在 globals.css .search-pill（unlayered 胜 utilities） */
+          className={`glass-pill backdrop-blur-2xl backdrop-saturate-150 search-pill group absolute inset-x-0 top-0 z-30 flex flex-col overflow-hidden rounded-[28px] ${
             focused
-              ? "scale-[1.015] shadow-[0_10px_50px_-8px_rgba(0,0,0,0.25)] ring-1 ring-zinc-900/15 dark:ring-white/25"
-              : ""
+              ? "scale-[1.015] shadow-[0_10px_50px_-8px_rgba(0,0,0,0.25)]"
+              : "scale-100"
           }`}
-          style={{ transitionTimingFunction: "cubic-bezier(0.22,1,0.36,1)" }}
         >
           {/* 输入行：恒居顶部、高度锁定；建议列表在其下，由表单 height 动画整体
               揭示。transition 只含默认属性表（不含 height）——禅雾化与聚焦缩放/
@@ -309,13 +326,43 @@ function SearchBar({
                   className="z-50 w-44 overflow-hidden rounded-xl border border-zinc-200/70 bg-white/85 shadow-xl backdrop-blur-2xl data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 dark:border-white/10 dark:bg-[#17171c]/90"
                 >
                   <div className="p-1.5">
-                    {ENGINES.map((e) => (
+                    {/* v8.7.55 引擎选择器分组：搜索引擎 / 站内直搜（四站并入，
+                       退役原建议下拉底部直达行）。直搜项名字前带站点色点 */}
+                    <p className="px-3 pb-1 pt-1.5 text-[10px] font-extralight tracking-widest text-zinc-400 dark:text-zinc-500">
+                      搜索引擎
+                    </p>
+                    {WEB_ENGINES.map((e) => (
                       <Popover.Close
                         key={e.id}
                         onClick={() => onPatchSettings({ engineId: e.id })}
                         className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-zinc-600 transition-colors duration-150 hover:bg-zinc-900/5 dark:text-zinc-300 dark:hover:bg-white/10"
                       >
                         <span className="font-light">{e.name}</span>
+                        {e.id === settings.engineId && (
+                          <Check
+                            className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400"
+                            strokeWidth={1.5}
+                          />
+                        )}
+                      </Popover.Close>
+                    ))}
+                    <p className="px-3 pb-1 pt-2.5 text-[10px] font-extralight tracking-widest text-zinc-400 dark:text-zinc-500">
+                      站内直搜
+                    </p>
+                    {SITE_ENGINES.map((e) => (
+                      <Popover.Close
+                        key={e.id}
+                        onClick={() => onPatchSettings({ engineId: e.id })}
+                        className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-zinc-600 transition-colors duration-150 hover:bg-zinc-900/5 dark:text-zinc-300 dark:hover:bg-white/10"
+                      >
+                        <span className="flex items-center gap-2 font-light">
+                          <span
+                            aria-hidden
+                            className="h-1.5 w-1.5 shrink-0 rounded-full"
+                            style={{ background: e.color }}
+                          />
+                          {e.name}
+                        </span>
                         {e.id === settings.engineId && (
                           <Check
                             className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400"

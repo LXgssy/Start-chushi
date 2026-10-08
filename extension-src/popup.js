@@ -14,6 +14,13 @@
  *   限制数量」）；已开页面经 use-start-data storage 事件热跟随即时出现。
  * 主题：跟随 settings.themeMode（dark/light/system；system 回退
  * prefers-color-scheme），写入期间监听 storage 事件实时跟随。
+ * 强调色（v8.7.52）：跟随 settings.accent —— 启动读 start:settings 后把
+ * hex 写入 --acc（CSS 变量，开关/滑杆/选中态全部引用），storage 事件
+ * 热跟随（设置面板换色，面板开着也不落伍）。
+ * 资源嗅探（v8.7.52）：开关值存 chrome.storage.local 的 snifferOn——
+ * Service Worker 读不到 localStorage（扩展 origin 的 localStorage 只在
+ * 页面进程），嗅探的监听器在 SW 里，故走 chrome.storage；本面板只负责
+ * 写入，嗅探开关的状态渲染也以 chrome.storage.local 为准（非 start:settings）。
  * 完整设置直达：写一次性意图标志 start:ui-intent 后新开 shell.html，
  * 新标签页挂载时消费（读后即焚，30s 时效）打开设置面板。
  * 一切 chrome.* 访问 try/catch（未来若网页版复用此页不崩）。 */
@@ -79,6 +86,15 @@
     document.documentElement.classList.toggle("dark", dark);
   }
 
+  /* ---------- 强调色跟随（v8.7.52）----------
+     settings.accent 是 hex（设置面板色板写入，缺省 #8b5cf6）。只认合法
+     hex，其余静默回退——脏数据不进 CSS。 */
+  function applyAccent() {
+    var acc = readSettings().accent;
+    if (typeof acc !== "string" || !/^#[0-9a-fA-F]{6}$/.test(acc)) return;
+    document.documentElement.style.setProperty("--acc", acc);
+  }
+
   /* ---------- 开关渲染 ---------- */
   function setSw(btn, on) {
     btn.setAttribute("aria-checked", on ? "true" : "false");
@@ -134,6 +150,29 @@
     var v = Number($("#rg-dim").value);
     $("#dim-v").textContent = v + "%";
     writeSettings({ photoDim: v });
+  });
+
+  /* ---------- 资源嗅探（v8.7.52）----------
+     状态源 = chrome.storage.local.snifferOn（SW 消费）；popup 初渲染与
+     storage 变更都从 chrome.storage 读（不与 start:settings 混存）。 */
+  function renderSniffer(on) {
+    setSw($("#sw-sniffer"), !!on);
+  }
+  try {
+    chrome.storage.local.get("snifferOn", function (o) {
+      renderSniffer(o && o.snifferOn);
+    });
+  } catch (e) {
+    /* 无 chrome.storage 宿主：保持缺省关 */
+  }
+  $("#sw-sniffer").addEventListener("click", function () {
+    var on = $("#sw-sniffer").getAttribute("aria-checked") !== "true";
+    setSw($("#sw-sniffer"), on);
+    try {
+      chrome.storage.local.set({ snifferOn: on });
+    } catch (e) {
+      /* 无宿主：UI 已翻，状态下次打开以真实值为准 */
+    }
   });
 
 
@@ -221,7 +260,8 @@
     window.close();
   });
 
-  /* ---------- 实时跟随（设置面板/其他标签页改主题） ---------- */
+  /* ---------- 实时跟随（设置面板/其他标签页改主题/强调色；
+     chrome.storage 变化同步嗅探开关） ---------- */
   try {
     window
       .matchMedia("(prefers-color-scheme: dark)")
@@ -230,8 +270,21 @@
     /* 旧引擎降级：不跟随 */
   }
   window.addEventListener("storage", function (e) {
-    if (e.key === KEY || e.key === null) applyTheme();
+    if (e.key === KEY || e.key === null) {
+      applyTheme();
+      applyAccent();
+    }
   });
+  try {
+    chrome.storage.onChanged.addListener(function (changes, area) {
+      if (area === "local" && changes.snifferOn) {
+        renderSniffer(changes.snifferOn.newValue);
+      }
+    });
+  } catch (e) {
+    /* 无 storage.onChanged 宿主 */
+  }
 
   applyTheme();
+  applyAccent();
 })();

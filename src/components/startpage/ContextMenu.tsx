@@ -20,6 +20,7 @@ import { PresenceClass } from "./PresenceClass";
 import {
   BookOpen,
   Download,
+  FileText,
   Images,
   Leaf,
   ListChecks,
@@ -168,6 +169,7 @@ export default function ContextMenu({
 
 /* ---------- 动作图标集中导出（page 组装 actions 用） ---------- */
 export const CM_ICONS = {
+  pdf: <FileText strokeWidth={1.5} />,
   palette: <CsCommand strokeWidth={1.5} />,
   addLink: <Plus strokeWidth={1.5} />,
   manageLinks: <ListChecks strokeWidth={1.5} />,

@@ -78,6 +78,29 @@ export function useStartSettings(mounted: boolean) {
     }
   }, [mounted, settings.accent]);
 
+  /* ---------- v8.7.55 深浅色镜像：cardDark → chrome.storage.local ----------
+     资源嗅探浮窗（content script，任意网页）与扩展徽章（SW）跟随「初始」
+     的主题档位（dark=1 / light=0）；网页 / gh-pages 环境无 chrome 安全跳过。
+     themeMode=system 的解析结果由上方主题 effect 的 isDark 给出（含
+     matchMedia 与 visibilitychange 重评估），镜像侧零重复逻辑。 */
+  useEffect(() => {
+    if (!mounted) return;
+    try {
+      const ext = (
+        window as unknown as {
+          chrome?: {
+            storage?: { local?: { set?: (o: Record<string, unknown>) => void } };
+          };
+        }
+      ).chrome;
+      if (ext?.storage?.local && typeof ext.storage.local.set === "function") {
+        ext.storage.local.set({ cardDark: isDark ? 1 : 0 });
+      }
+    } catch {
+      /* 非 extension 环境 */
+    }
+  }, [mounted, isDark]);
+
   /* ---------- 流畅模式（低配电脑优化） ----------
      html.cs-lite 全局降级类：globals.css 据此把磨砂玻璃换成纯色底、停装饰
      动画与长驻合成层。入口两处：扩展弹窗快捷面板（popup.js 直改同一
