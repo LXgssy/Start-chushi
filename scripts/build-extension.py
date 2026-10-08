@@ -62,7 +62,7 @@ OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
 EXT_SRC = ROOT / "extension-src"    # v8.2.0 SW/内容脚本源
-VERSION = "8.7.50"
+VERSION = "8.7.55"
 DEST = ROOT / f"download/v{VERSION}/ChuShi-NewTab-v{VERSION}.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():
@@ -171,7 +171,7 @@ print(f"免疫态改写: {_patched} 个 HTML 的根绝对 src/href 已前置空�
 #   ③ 云函数分片通道 op=dist（静态被边缘 WAF 拦时的备用路）。取回结果以
 #   AUTH_SHA256 钉死校验，不匹配即视为失败 → 开源构建（无登录入口），
 #   绝不注入未经验证的内容。
-AUTH_SHA256 = "dbee4862c9478e1278944db40288db66cc998b8d909fc06a580fd406bb030e65"
+AUTH_SHA256 = "b1776839307a6685752b62cb4875de366dfc6f8ade1ece4fc7a14b2e9e8fb794"
 AUTH_URL = "https://chushi-sync.rth1.xyz/ext-chushi-auth.js"
 AUTH_API = "https://chushi-sync.rth1.xyz/api.node.js?op=dist"
 AUTH_STAGE = STAGE / "ext-chushi-auth.js"
