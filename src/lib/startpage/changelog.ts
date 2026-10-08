@@ -22,6 +22,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.59",
+    title: "聚焦壁纸缩放动画补拍",
+    highlights: [
+      "修复选中搜索框时壁纸放大没有过渡动画（瞬时跳变）：补上缺失的缩放过渡通道",
+      "壁纸放大 / 还原与搜索框上浮 / 下沉完全同速：同时长（0.5s）同曲线，同拍起步同拍落座",
+    ],
+    channel: "shell",
+  },
+  {
     version: "8.7.58",
     title: "资源嗅探浮窗显示修复",
     highlights: [

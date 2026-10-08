@@ -2243,8 +2243,16 @@ html.photo-mode .veil-hold-2xl {
   /* v8.7.12 与抽屉凝聚动画严格同步（用户指令「壁纸的放大速度也要和抽屉
      的打开动画同步」）：同时长同曲线 cubic-bezier(0.5,0,0.3,1)——模糊让位
      与壁纸浮出同拍起步同拍落座（凝聚 v8.7.16 加快后同步 0.50s→0.40s）。
-     回缩（closing 摘除放大态失配）同走本条与散场同窗。 */
-  transition: transform 0.40s cubic-bezier(0.5, 0, 0.3, 1);
+     回缩（closing 摘除放大态失配）同走本条与散场同窗。
+     v8.7.59 聚焦联动补拍：search-float 的壁纸放大走独立 scale 属性（与
+     transform 通道互不覆盖），不在上表 → v8.7.55 落地时只写了目标值漏了
+     过渡，缩放瞬时跳变（用户实测「选中搜索框后壁纸缩放没有动画」）。
+     补 scale 通道同参 .search-pill 浮起（0.5s cubic-bezier(0.22,1,0.36,1)），
+     选中/退出选中与搜索框上浮/下沉同拍放大/还原；scale 亦为合成层动画，
+     cs-lite 流畅模式零磨砂照常流畅。 */
+  transition:
+    transform 0.40s cubic-bezier(0.5, 0, 0.3, 1),
+    scale 0.5s cubic-bezier(0.22, 1, 0.36, 1);
 }
 html.cs-drawer:not(.cs-drawer-closing).photo-mode .wallpaper-layer {
   transform: scale(1.08);
