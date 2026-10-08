@@ -62,7 +62,7 @@ OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
 EXT_SRC = ROOT / "extension-src"    # v8.2.0 SW/内容脚本源
-VERSION = "8.7.57"
+VERSION = "8.7.58"
 DEST = ROOT / f"download/v{VERSION}/ChuShi-NewTab-v{VERSION}.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():
@@ -319,7 +319,10 @@ manifest = {
     "content_scripts": [
         {
             "matches": ["http://*/*", "https://*/*"],
-            "js": ["ext-card.js"],
+            # v8.7.58：+sniffer-float.js 恢复注册——v8.7.55 重构误删整条注入链
+            # （manifest 注册+舞台复制+语法门+特征门全被删，浮窗静默断供：
+            #  SW 照常嗅探/上 badge，但浮窗脚本永不注入 → 「开启后浮窗不显示」）
+            "js": ["ext-card.js", "sniffer-float.js"],
             "run_at": "document_idle",
             "all_frames": False,
         },
@@ -363,7 +366,8 @@ shutil.copy2(EXT_SRC / "ext-bg.js", STAGE / "ext-bg.js")
 # v8.4.4：云端更新壳三件（壳页 + 壳桥 + 页面端 shim/顶层桥）
 # v8.4.5：+ cs-snap/sw.js（快照 SW：子路径作用域，真实目录过保留名规则）
 # v8.5.0：+ 弹窗快捷面板（popup.html + popup.js）
-for _shell in ("shell.html", "shell-bridge.js", "shim-page.js", "cs-bridge.js", "popup.html", "popup.js"):
+# v8.7.58：+sniffer-float.js（v8.7.55 误删恢复——浮窗脚本必须随包进扩展根）
+for _shell in ("shell.html", "shell-bridge.js", "shim-page.js", "cs-bridge.js", "popup.html", "popup.js", "sniffer-float.js"):
     shutil.copy2(EXT_SRC / _shell, STAGE / _shell)
 if (STAGE / "cs-snap").exists():
     shutil.rmtree(STAGE / "cs-snap")
@@ -390,13 +394,15 @@ for must in ("manifest.json", "_locales/zh_CN/messages.json", "icons/icon128.png
              # v8.4.4 云端更新壳三件 + v8.4.5 快照 SW（子路径作用域）
              "shell.html", "shell-bridge.js", "shim-page.js", "cs-bridge.js", "cs-snap/sw.js",
              # v8.5.0 弹窗快捷面板
-             "popup.html", "popup.js"):
+             "popup.html", "popup.js",
+             # v8.7.58 资源嗅探浮窗（v8.7.55 误删恢复）
+             "sniffer-float.js"):
     if not (STAGE / must).exists():
         sys.exit(f"缺 {must}——产物不完整")
 # v8.2.1 门：SW/内容脚本语法自检（node --check；拼接后的 ext-card.js 才是真产物）
 # v8.4.4：+ 壳桥三件（shell-bridge/shim-page/cs-bridge）同门
 # v8.4.5：+ 快照 SW（cs-snap/sw.js）同门
-for ext_file in ("ext-bg.js", "ext-card.js", "shell-bridge.js", "shim-page.js", "cs-bridge.js", "cs-snap/sw.js"):
+for ext_file in ("ext-bg.js", "ext-card.js", "shell-bridge.js", "shim-page.js", "cs-bridge.js", "cs-snap/sw.js", "sniffer-float.js"):
     r = subprocess.run(["node", "--check", str(STAGE / ext_file)], capture_output=True, text=True)
     if r.returncode != 0:
         sys.exit(f"{ext_file} 语法门 FAIL: {r.stderr[:300]}")
@@ -466,7 +472,9 @@ for feat in ("chushi-spectrum", "spectrum-boot", "chushi-card", 'case "lyric":',
              "chrome.scripting.executeScript",              # v8.3.1：补针执行面
              "chrome.tabs.onUpdated",                      # v8.3.1：complete 补针钩子
              "SNAP_MIRRORS", "version.json",               # v8.4.5：云端静默更新器
-             "chushi-snap", "SNAP_ALARM", "snapCheck"):    # v8.4.5：IDB 库名/报警/检查入口
+             "chushi-snap", "SNAP_ALARM", "snapCheck",    # v8.4.5：IDB 库名/报警/检查入口
+             "snifferOn", "sniffTabs",                       # v8.7.58 恢复（v8.7.52 原有）：嗅探归集
+             "webRequest.onCompleted", "sniffer-download", "downloads.download"):
     if feat not in _bg_js:
         sys.exit(f"ext-bg.js 缺特征 {feat} —— SW 歌词代理面缺失")
 if 'case "vis"' in _bg_js or "port.__vis" in _bg_js:

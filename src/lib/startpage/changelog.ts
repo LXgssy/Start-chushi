@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.58",
+    title: "资源嗅探浮窗显示修复",
+    highlights: [
+      "修复资源嗅探浮窗不显示：上一版重构误删浮窗脚本的注入注册，开关打开后浮窗从未出现（图标角标照常走，页面里却始终没有浮球）",
+      "开启嗅探时已打开的网页立即弹出浮球，无需刷新页面；嗅探到的资源同步带出",
+      "启动竞态修复：冷启动瞬间打开页面时浮窗不再漏显示",
+    ],
+    channel: "shell",
+  },
+  {
     version: "8.7.57",
     title: "预设弹窗动画统一收尾 + 登录模块镜像修复",
     highlights: [

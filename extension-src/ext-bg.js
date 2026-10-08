@@ -865,7 +865,10 @@ try {
       var next = !!changes.snifferOn.newValue;
       if (next === sniffOn) return;
       sniffOn = next;
-      if (next) sniffWarmTabs();
+      if (next) {
+        sniffWarmTabs();
+        sniffAnnounceOn();   /* v8.7.58：已开页面补针+热显示（修复「开启后浮窗不显示」） */
+      }
       else sniffTearDown();
     });
   } catch (e) { /* noop */ }
@@ -877,23 +880,60 @@ try {
   } catch (e) { /* noop */ }
 })();
 
-function sniffWarmTabs() {
-  /* SW 复活后重建：把 session 里存活的 tab 数据拉回内存 */
+function sniffWarmTabs(cb) {
+  /* SW 复活后重建：把 session 里存活的 tab 数据拉回内存；v8.7.58 可选回调
+     （ask 异步应答分支等 warm 完成再回复，避免竞态空列表） */
+  var done = function () { if (cb) { try { cb(); } catch (e) { /* noop */ } } };
   try {
     chrome.storage.session.get(null, function (all) {
-      if (!all) return;
-      Object.keys(all).forEach(function (k) {
-        if (!k.startsWith(SNIFF_KEY_PREFIX)) return;
-        var tabId = Number(k.slice(SNIFF_KEY_PREFIX.length));
-        var v = all[k];
-        if (Number.isInteger(tabId) && Array.isArray(v) && v.length && !sniffTabs.has(tabId)) {
-          var entry = { order: [], byUrl: new Map() };
-          v.forEach(function (it) {
-            entry.order.push(it.url);
-            entry.byUrl.set(it.url, it);
-          });
-          sniffTabs.set(tabId, entry);
-        }
+      if (all) {
+        Object.keys(all).forEach(function (k) {
+          if (!k.startsWith(SNIFF_KEY_PREFIX)) return;
+          var tabId = Number(k.slice(SNIFF_KEY_PREFIX.length));
+          var v = all[k];
+          if (Number.isInteger(tabId) && Array.isArray(v) && v.length && !sniffTabs.has(tabId)) {
+            var entry = { order: [], byUrl: new Map() };
+            v.forEach(function (it) {
+              entry.order.push(it.url);
+              entry.byUrl.set(it.url, it);
+            });
+            sniffTabs.set(tabId, entry);
+          }
+        });
+      }
+      done();
+    });
+  } catch (e) { done(); }
+}
+
+/* v8.7.58 开启广播：开关打开时向所有已存标签页补针+推送开启态。
+   v8.7.55 前 manifest 注入仅在页面加载时 boot 一次（ask → on:false → 自毁），
+   开关后开已开页面零通知 → 「开启后浮窗不显示」（用户实测缺陷）。
+   补针幂等：sniffer-float.js 顶层 __chushiSnifferMounted 守卫，同世界
+   重复注入直接 return，广播由存活实例处理。 */
+function sniffAnnounceOn() {
+  try {
+    chrome.tabs.query({}, function (tabs) {
+      (tabs || []).forEach(function (t) {
+        if (!t.id || !/^https?:/i.test(t.url || "")) return;  /* 特权页/本地：不可注入 */
+        var flat = function () {
+          return sniffTabs.has(t.id)
+            ? sniffTabs.get(t.id).order.map(function (u) { return sniffTabs.get(t.id).byUrl.get(u); })
+            : [];
+        };
+        var push = function () {
+          try {
+            chrome.tabs.sendMessage(t.id, { type: "sniffer-state", on: true, items: flat() }, function () { void chrome.runtime.lastError; });
+          } catch (e) { /* noop */ }
+        };
+        try {
+          /* 补针：扩展安装/更新前已开的页面无 content script；已注入页由
+             顶层守卫幂等跳过，随后广播照常送达存活实例 */
+          chrome.scripting.executeScript(
+            { target: { tabId: t.id }, files: ["sniffer-float.js"] },
+            function () { void chrome.runtime.lastError; push(); }
+          );
+        } catch (e) { push(); }
       });
     });
   } catch (e) { /* noop */ }
@@ -1030,10 +1070,26 @@ try {
     if (!msg || typeof msg.type !== "string") return;
     if (msg.type === "sniffer-ask") {
       var tabId = sender.tab && sender.tab.id;
-      var items = Number.isInteger(tabId) && sniffTabs.has(tabId)
-        ? sniffTabs.get(tabId).order.map(function (u) { return sniffTabs.get(tabId).byUrl.get(u); })
-        : [];
-      sendResponse({ type: "sniffer-state", on: !!sniffOn, items: items });
+      /* v8.7.58 冷启动竞态修复：SW 刚醒时 sniffOn=undefined，storage 初始化
+         是异步的——旧代码同步应答 on:false → 浮窗自毁且 boot 只跑一次，
+         之后永不显示。改为：未初始化时等 storage 读到 + warm 完成再异步应答。 */
+      var respond = function () {
+        var items = Number.isInteger(tabId) && sniffTabs.has(tabId)
+          ? sniffTabs.get(tabId).order.map(function (u) { return sniffTabs.get(tabId).byUrl.get(u); })
+          : [];
+        try { sendResponse({ type: "sniffer-state", on: !!sniffOn, items: items }); } catch (e) { /* noop */ }
+      };
+      if (sniffOn === undefined) {
+        try {
+          chrome.storage.local.get("snifferOn", function (o) {
+            sniffOn = !!(o && o.snifferOn);
+            if (sniffOn) sniffWarmTabs(respond);
+            else respond();
+          });
+        } catch (e) { sniffOn = false; respond(); }
+        return true; /* 异步应答（通道保持开放） */
+      }
+      respond();
       return; /* 同步应答 */
     }
     if (msg.type === "sniffer-clear") {
