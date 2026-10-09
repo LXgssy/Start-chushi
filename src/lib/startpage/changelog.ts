@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.63",
+    title: "搜索框复位期描边错位根修",
+    highlights: [
+      "修复取消选中搜索框时上下描边错位、收尾瞬间复位的问题：聚焦缩放通道退役",
+      "选中 / 取消选中只剩投影与描边环的淡入淡出，底板磨砂全程不再滞后",
+      "描边形态保持 8.7.54 不变：大模糊投影 + 框外 1px 描边环",
+    ],
+    channel: "shell",
+  },
+  {
     version: "8.7.62",
     title: "选中描边回退 8.7.54 与描边均匀性修复",
     highlights: [

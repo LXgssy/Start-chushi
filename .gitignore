@@ -96,3 +96,7 @@ scripts/ci-status-*
 
 # v8.7.50 闭源登录模块注入产物（CI 专用，永不入库）
 /ext-assets/
+
+# build deliverables (keep out of tailwind scan & repo)
+/download/
+/_next/

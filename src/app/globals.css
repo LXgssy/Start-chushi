@@ -1495,14 +1495,18 @@ html.cs-drawer-closing .cl-fade-leaf {
      ① 恒等 transform 基态——入场动画收尾（pill-shell-in 的 to 帧）回级联时
         transform 从关键帧值切到「有值的恒等变换」而非 none，配合 ③ 的
         will-change 常驻合成层，纹理全程不重栅格化（「搜索框内部子元素
-        在入场动画/上浮/下沉后复位、位移」的根因 = 层撤销重栅格化）；
-     ② 显式 transition 列表（unlayered 胜 Tailwind utilities）：scale/box-shadow
-        承载聚焦上浮/下沉与阴影（组件类里 transition 已退役），opacity/filter
-        同参承载禅雾化进出（html.zen .search-pill 覆盖值与此处同构，
-        退禅回基态也有过渡）；height 是 framer 内联动画，刻意不在表内 */
+        在入场动画后复位、位移」的根因 = 层撤销重栅格化）；
+     ② 显式 transition 列表（unlayered 胜 Tailwind utilities）：box-shadow
+        承载聚焦投影与描边环的淡入淡出（组件类里 transition 已退役），
+        opacity/filter 同参承载禅雾化进出（html.zen .search-pill 覆盖值
+        与此处同构，退禅回基态也有过渡）；height 是 framer 内联动画，
+        刻意不在表内。
+        v8.7.63：scale 通道退役——compositor-only scale 过渡不触发主帧，
+        Chrome 对底板磨砂取样在过渡期全程冻结（磨砂内容滞后于收缩中的
+        边框 → 上下描边读感错位，收尾补采样瞬间归位 = 复位期「错位复位」
+        的根因）；聚焦态不再做几何变更，浮起感由 box-shadow 通道独自承载 */
   transform: translateY(0) scale(1);
   transition:
-    scale 0.5s cubic-bezier(0.22, 1, 0.36, 1),
     box-shadow 0.5s cubic-bezier(0.22, 1, 0.36, 1),
     opacity 0.5s cubic-bezier(0.22, 1, 0.36, 1),
     filter 0.5s cubic-bezier(0.22, 1, 0.36, 1);

@@ -364,25 +364,26 @@ function SearchBar({
               setActive(-1);
             }
           }}
-          /* v8.7.62：选中描边回退 v8.7.54——大模糊投影 + 框外 1px ring
-             （ring-zinc-900/15 / dark:ring-white/25，box-shadow 通道过渡
-             0.5s 同拍，globals.css .search-pill）。
-             v8.7.61：底板跟随根修——backdrop-filter 不再与 scale 同元素
+          /* v8.7.63：scale 通道整体退役——compositor-only scale 过渡不触发
+             主帧，Chrome 对底板磨砂取样在过渡期全程冻结（磨砂内容滞后于
+             收缩/放大中的边框 → 上下描边读感错位，过渡收尾补采样瞬间归位
+             = 复位期「错位复位」的根因）。聚焦/取消选中只剩 box-shadow 纯
+             绘制通道（大模糊投影 + 框外描边环同拍淡入淡出），无几何变更 =
+             物理上不可能错位；描边形态与 v8.7.54 完全一致不动。
+             v8.7.62：取消选中后下边描边不均匀根修——裁剪职责下放到内容
+             裁剪层（输入行+建议列表包裹层），底板描边脱离 clip 边界，
+             四边同参渲染。
+             v8.7.61：底板跟随根修——backdrop-filter 不再与变换同元素
              （Chrome 对同元素磨砂取样区不随缩放重算 → 上浮后底板脱框、
-             描边读感位移的根因），玻璃底板拆独立子层随父级整体缩放。
-             v8.7.62 取消选中后下边描边不均匀根修：v8.7.61 把描边随底板
-             画在了 form overflow-hidden 的裁剪边界线上——直边描边恰好压
-             clip 线被抗锯齿吃半像素（聚焦态被投影掩盖，取消选中后露出
-             下边发虚不匀）。裁剪职责下放到内容裁剪层（输入行+建议列表
-             包裹层），底板描边彻底脱离 clip 边界，四边同参渲染。 */
+             描边读感位移的根因），玻璃底板拆独立子层。 */
           className={`search-pill group absolute inset-x-0 top-0 z-30 flex flex-col rounded-[28px] ${
             focused
-              ? "scale-[1.015] shadow-[0_10px_50px_-8px_rgba(0,0,0,0.25)] ring-1 ring-zinc-900/15 dark:ring-white/25"
-              : "scale-100"
+              ? "shadow-[0_10px_50px_-8px_rgba(0,0,0,0.25)] ring-1 ring-zinc-900/15 dark:ring-white/25"
+              : ""
           }`}
         >
           {/* 玻璃底板：磨砂/底色/描边全在这层（.glass-pill 变体规则全部
-              命中子层），pointer-events 穿透、随表单缩放整体移动 */}
+              命中子层），pointer-events 穿透、随表单整体移动（高度动画跟随） */}
           <div
             aria-hidden
             className="glass-pill backdrop-blur-2xl backdrop-saturate-150 pointer-events-none absolute inset-0 rounded-[28px]"
