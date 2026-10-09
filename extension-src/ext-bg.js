@@ -845,25 +845,40 @@ async function snapCheck(manual) {
 }
 
 /* ============================================================================
- * v8.7.52 资源嗅探模块（开关：chrome.storage.local.snifferOn，popup 写入）
+ * v8.7.66 资源嗅探数据面 v2（嗅探机制整体重写，方案源自 Ghost-Downloader-3
+ * browser_extension 的 Resource Bridge + MSE Probe 架构，弃用 v8.7.52 旧机制）
  * ----------------------------------------------------------------------------
- * 架构律：
- *   1. 监听器必须 SW 顶层注册（MV3 事件律——SW 休眠唤醒后要能继续收事件）；
- *      内部以内存门 sniffOn 判定开关，off 时回调即刻 return（微开销）。
- *   2. 唤醒成本控制：webRequest filter 只放行 media/image/object/
- *      xmlhttprequest/other 五类资源类型——html/css/js/script/style 等
- *      高频请求在浏览器层就被过滤，不唤醒 SW；XHR 里 JSON/HTML 响应
- *      classify 后 99% 丢弃，真正入库的只有可下载媒体与文档。
+ * 旧机制缺陷（用户：「根本没办法嗅探网页的视频以及图片」）：
+ *   ① 只靠 SW webRequest 响应侧分类——MSE 播放器的无扩展名 octet-stream
+ *     分段（抖音/快手式）、blob: 会话、无 content-length 的分块图片全部漏网；
+ *   ② onCompleted 才入库——大流要等传完才知道；
+ *   ③ 无页面侧信息面——DOM 里的图片/视频海报完全盲区。
+ * 新架构 = 三通道同归集（数据面仍是每标签页 FIFO + session 持久 + 浮球推送）：
+ *   A. SW webRequest onResponseStarted（重写）：首字节即入库（不等传完），
+ *     cat-catch 大扩展名表分类（视频 18 + 音频 10 + HLS/DASH MIME 集），
+ *     media 类型直接捕获（GD3 shouldCaptureNetworkResource 同款），
+ *     图片门放宽：无 content-length（chunked）时图片扩展名放行；
+ *   B. 主世界探针 sniffer-probe.js（NEW，GD3 MSE Probe 移植）：
+ *     fetch/XHR/createObjectURL/addSourceBuffer 四钩子 → postMessage 信号
+ *     → sniffer-bridge.js（ISOLATED 桥，NEW）分类去重 → 本文件新消息口
+ *     sniffer-page-media 入库（MSE 会话助推：无扩展名 octet-stream 在
+ *     媒体活跃窗口内判视频分段——无主播放器分段唯一的抓手）；
+ *   C. 桥内 DOM 图片扫描（GD3 DOM-side discovery 路）：img ≥200px +
+ *     video poster + 显式 src，MutationObserver 追懒加载。
+ * 架构律（承 v8.7.52 全部不变项）：
+ *   1. 监听器必须 SW 顶层注册（MV3 事件律）；内存门 sniffOn，off 即刻 return。
+ *   2. 唤醒成本控制：webRequest filter 仍只放行 media/image/object/
+ *     xmlhttprequest/other 五类；桥只在分类命中后才 sendMessage（不因
+ *     无关请求唤醒 SW）。
  *   3. 数据面：每标签页一份（FIFO 上限 50，URL 去重），内存 Map 为准，
- *      chrome.storage.session 持久（key sniffer:tab:<id>）——SW 随时可能
- *      被杀，复活后首次访问惰性重建；绝不 storage.session.clear()（音乐卡
- *      「按站隐藏」等其它 session 数据共存，只按前缀清理自己的键）。
- *   4. 提示面：新资源 → per-tab badge 计数（强调紫底）+ tabs.sendMessage
- *      推 sniffer-float.js 浮球（float 不在时 sendMessage 报错即静默）。
- *   5. 下载经 SW 代理：content script 无 downloads API，浮球发
- *      sniffer-download → chrome.downloads.download（filename 已清洗）。
- *   6. 关闭：清已知 tab 的 badge + 广播 sniffer-off + 按前缀清 session；
- *      tabs.onRemoved 即时回收该 tab 的内存/持久两份数据。
+ *     chrome.storage.session 持久（key sniffer:tab:<id>）；绝不
+ *     storage.session.clear()（按前缀清自己的键）。
+ *   4. 提示面：per-tab badge + tabs.sendMessage 推浮球（协议不变：
+ *     sniffer-new/sniffer-off/sniffer-state）。
+ *   5. 下载经 SW 代理：sniffer-download → chrome.downloads.download。
+ *   6. 关闭：清 badge + 广播 sniffer-off + 按前缀清 session；
+ *     tabs.onRemoved 回收。探针/桥常驻注入但属性门控（data-chushi-sniff），
+ *     关闭态零开销。
  * ==========================================================================*/
 
 var sniffOn = undefined;              /* undefined = 尚未初始化（SW 刚醒） */
@@ -1016,25 +1031,60 @@ function sniffTearDown() {
   } catch (e) { /* noop */ }
 }
 
-/* 资源分类：返回类型 key 或 null（不入库）。扩展名兜底与 MIME 互证——
-   有些服务器给视频流 application/octet-stream，只有扩展名能救。 */
-var SNIFF_EXT = {
-  video: ["mp4", "webm", "mkv", "flv", "mov", "avi", "m4s", "ts", "mpg", "mpeg", "3gp"],
-  audio: ["mp3", "m4a", "flac", "wav", "ogg", "aac", "opus", "wma"],
-  archive: ["zip", "rar", "7z", "tar", "gz", "iso", "bz2", "xz"],
-  doc: ["doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "epub", "apk", "dmg", "exe", "msi", "csv"],
+/* 资源分类 v2：cat-catch 规则表（移植自 GD3 shared/cat-catch.ts），返回类型
+ *   key 或 null（不入库）。扩展名兜底与 MIME 互证——有些服务器给视频流
+ *   application/octet-stream，只有扩展名能救；reqType 为 "media" 时（媒体
+ *   元素请求）无从判型直接按视频收（GD3 shouldCaptureNetworkResource 同款）。
+ *   URL 查询参数 mime= 兜底（googlevideo 系：mime=video%2Fmp4）。 */
+var SNIFF_VIDEO_EXT = {
+  "3gp": 1, asf: 1, avi: 1, divx: 1, f4v: 1, flv: 1, hlv: 1, mkv: 1,
+  mov: 1, mp4: 1, mpeg: 1, mpeg4: 1, movie: 1, ogv: 1, ts: 1, vid: 1,
+  webm: 1, wmv: 1,
 };
-function sniffClassify(mime, url) {
-  mime = (mime || "").toLowerCase();
+var SNIFF_AUDIO_EXT = {
+  aac: 1, acc: 1, flac: 1, m4a: 1, mp3: 1, ogg: 1, opus: 1,
+  wav: 1, weba: 1, wma: 1,
+};
+var SNIFF_IMAGE_EXT = {
+  jpg: 1, jpeg: 1, png: 1, gif: 1, webp: 1, bmp: 1, avif: 1, heic: 1,
+};
+function sniffExtOf(url) {
   var m = (url.split("?")[0].split("#")[0]).match(/\.([a-z0-9]{2,5})$/i);
-  var ext = m ? m[1].toLowerCase() : "";
-  if (ext === "m3u8" || mime.indexOf("mpegurl") >= 0) return "stream";
-  if (mime.indexOf("video/") === 0 || SNIFF_EXT.video.indexOf(ext) >= 0) return "video";
-  if (mime.indexOf("audio/") === 0 || mime.indexOf("application/ogg") === 0 || SNIFF_EXT.audio.indexOf(ext) >= 0) return "audio";
+  return m ? m[1].toLowerCase() : "";
+}
+function sniffIsHlsMime(mime) {
+  return mime === "application/vnd.apple.mpegurl" ||
+    mime === "application/x-mpegurl" || mime === "application/mpegurl" ||
+    mime === "application/octet-stream-m3u8" ||
+    /\/(vnd\.apple\.mpegurl|x-mpegurl|mpegurl|octet-stream-m3u8)$/.test(mime);
+}
+function sniffClassify(mime, url, reqType) {
+  mime = (mime || "").split(";")[0].trim().toLowerCase();
+  var ext = sniffExtOf(url);
+  if (ext === "m3u8" || ext === "m3u" || ext === "mpd" || sniffIsHlsMime(mime) ||
+      mime === "application/dash+xml") return "stream";
+  if (!mime && !ext) {
+    try {  /* URL 查询参数 mime= 兜底（googlevideo 系） */
+      var pm = new URL(url).searchParams.get("mime");
+      if (pm) mime = String(pm).toLowerCase();
+    } catch (e) { /* noop */ }
+  }
+  if (mime.indexOf("video/") === 0) return "video";
+  if (ext === "m4s") return "video";                     /* DASH 分段：B 站主力 */
+  if (mime.indexOf("audio/") === 0 || mime === "application/ogg") return "audio";
+  if (SNIFF_VIDEO_EXT[ext]) return "video";
+  if (SNIFF_AUDIO_EXT[ext]) return "audio";
+  if (reqType === "media" || mime === "video/mp2t") return "video";
   if (mime === "application/pdf" || ext === "pdf") return "pdf";
-  if (SNIFF_EXT.archive.indexOf(ext) >= 0 || mime.indexOf("zip") >= 0 || mime.indexOf("compressed") >= 0) return "archive";
-  if (SNIFF_EXT.doc.indexOf(ext) >= 0 || mime.indexOf("officedocument") >= 0 || mime.indexOf("msword") >= 0 || mime.indexOf("spreadsheet") >= 0 || mime.indexOf("presentation") >= 0) return "doc";
-  if (mime.indexOf("image/") === 0) return "image"; /* 回调里另查大小：只收大图 */
+  if (ext === "zip" || ext === "rar" || ext === "7z" || ext === "tar" ||
+      ext === "gz" || ext === "iso" || ext === "bz2" || ext === "xz" ||
+      mime.indexOf("zip") >= 0 || mime.indexOf("compressed") >= 0) return "archive";
+  if (ext === "doc" || ext === "docx" || ext === "xls" || ext === "xlsx" ||
+      ext === "ppt" || ext === "pptx" || ext === "txt" || ext === "epub" ||
+      ext === "apk" || ext === "csv" ||
+      mime.indexOf("officedocument") >= 0 || mime.indexOf("msword") >= 0 ||
+      mime.indexOf("spreadsheet") >= 0 || mime.indexOf("presentation") >= 0) return "doc";
+  if (mime.indexOf("image/") === 0 || SNIFF_IMAGE_EXT[ext]) return "image";
   return null;
 }
 
@@ -1067,7 +1117,9 @@ function sniffBadge(tabId, n) {
 }
 
 try {
-  chrome.webRequest.onCompleted.addListener(function (details) {
+  /* v8.7.66 换 onResponseStarted（GD3 同款）：首字节到达即入库（headers
+   *   已定然、206 可见），大流不必等传完；onCompleted 旧通道退役 */
+  chrome.webRequest.onResponseStarted.addListener(function (details) {
     if (!sniffOn) return;                                  /* 开关门 */
     if (!/^https?:/i.test(details.url || "")) return;      /* 特权页/本地 */
     var headers = details.responseHeaders || [];
@@ -1077,9 +1129,15 @@ try {
       if (nm === "content-type") mime = headers[i].value || "";
       else if (nm === "content-length") size = Number(headers[i].value) || -1;
     }
-    var type = sniffClassify(mime, details.url);
+    var type = sniffClassify(mime, details.url, details.type);
     if (!type) return;
-    if (type === "image" && !(size >= 100 * 1024)) return; /* 大图律：<100KB 不入库 */
+    if (type === "image") {
+      /* 大图律 v2 放宽：有实大 <100KB 不入库；无 content-length（chunked）
+         时仅图片扩展名放行（分块大图唯一入口；小图标多带 content-length
+         会被实大门拦住，DOM 图片扫描另有版面门） */
+      if (size >= 0 && size < 100 * 1024) return;
+      if (size < 0 && !SNIFF_IMAGE_EXT[sniffExtOf(details.url)]) return;
+    }
     var tabId = details.tabId;
     if (tabId < 0) return;                                 /* 非标签页请求（SW fetch 等） */
     var entry = sniffTabs.get(tabId);
@@ -1091,7 +1149,7 @@ try {
     var item = {
       url: details.url,
       type: type,
-      ext: (details.url.split("?")[0].match(/\.([a-z0-9]{2,5})$/i) || ["", ""])[1].toLowerCase(),
+      ext: sniffExtOf(details.url),
       name: sniffFilename(headers, details.url),
       size: size,
       host: (new URL(details.url).hostname || "").replace(/^www\./, ""),
@@ -1114,7 +1172,58 @@ try {
   }, { urls: ["http://*/*", "https://*/*"], types: ["media", "image", "object", "xmlhttprequest", "other"] }, ["responseHeaders"]);
 } catch (e) { /* webRequest 不可用（权限缺失）：嗅探静默不可用 */ }
 
-/* 浮球消息面：ask 拉状态 / clear 清本页 / download 代理下载 */
+/* v8.7.66 页面媒体入库（探针→桥→SW 通道 B/C）：与 webRequest 通道同归集
+ *   （同 FIFO/去重/持久/badge/浮球推送）；返回是否有新增。桥侧已分类去重，
+ *   此处只做二次验证（协议白名单 + URL 合法性 + 同 URL 幂等）。 */
+function sniffIngestPage(tabId, items) {
+  if (!sniffOn) return false;
+  if (!Number.isInteger(tabId) || tabId < 0 || !Array.isArray(items) || !items.length) return false;
+  var ALLOWED = { video: 1, audio: 1, image: 1, pdf: 1, doc: 1, archive: 1, stream: 1 };
+  var entry = sniffTabs.get(tabId);
+  if (!entry) {
+    entry = { order: [], byUrl: new Map() };
+    sniffTabs.set(tabId, entry);
+  }
+  var added = 0;
+  for (var i = 0; i < items.length; i++) {
+    var it = items[i];
+    if (!it || typeof it.url !== "string" || !/^https?:/i.test(it.url)) continue;
+    if (!ALLOWED[it.type]) continue;
+    if (entry.byUrl.has(it.url)) continue;
+    var hostOf = "";
+    try { hostOf = (new URL(it.url).hostname || "").replace(/^www\./, ""); } catch (e) { continue; }
+    var name = String(it.name || "").slice(0, 160);
+    var item = {
+      url: it.url,
+      type: it.type,
+      ext: typeof it.ext === "string" ? it.ext.slice(0, 8).toLowerCase() : "",
+      name: name || sniffFilename([], it.url),
+      size: Number(it.size) >= 0 ? Number(it.size) : 0,
+      host: String(it.host || "").replace(/^www\./, "") || hostOf,
+      at: Date.now(),
+    };
+    entry.order.push(item.url);
+    entry.byUrl.set(item.url, item);
+    added++;
+  }
+  while (entry.order.length > SNIFF_MAX) {
+    var oldUrl = entry.order.shift();
+    entry.byUrl.delete(oldUrl);
+  }
+  if (!added) return false;
+  sniffPersist(tabId, entry);
+  sniffBadge(tabId, entry.order.length);
+  try {
+    var flat = entry.order.map(function (u) { return entry.byUrl.get(u); });
+    chrome.tabs.sendMessage(tabId, { type: "sniffer-new", items: flat }, function () {
+      void chrome.runtime.lastError;
+    });
+  } catch (e) { /* noop */ }
+  return true;
+}
+
+/* 浮球消息面：ask 拉状态 / clear 清本页 / download 代理下载 /
+ *   page-media 页面媒体入库（v8.7.66 桥通道） */
 try {
   chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
     if (!msg || typeof msg.type !== "string") return;
@@ -1141,6 +1250,26 @@ try {
       }
       respond();
       return; /* 同步应答 */
+    }
+    if (msg.type === "sniffer-page-media") {
+      var tabId3 = sender.tab && sender.tab.id;
+      if (!Number.isInteger(tabId3) || tabId3 < 0) { sendResponse({ ok: false }); return; }
+      var ingest = function () {
+        var ok = false;
+        try { ok = sniffIngestPage(tabId3, msg.items); } catch (e) { ok = false; }
+        try { sendResponse({ ok: ok }); } catch (e) { /* noop */ }
+      };
+      if (sniffOn === undefined) {   /* SW 冷启动：等 storage 读到再入库 */
+        try {
+          chrome.storage.local.get("snifferOn", function (o) {
+            sniffOn = !!(o && o.snifferOn);
+            if (sniffOn) sniffWarmTabs(ingest); else ingest();
+          });
+        } catch (e) { sniffOn = false; ingest(); }
+        return true; /* 异步应答 */
+      }
+      ingest();
+      return;
     }
     if (msg.type === "sniffer-clear") {
       var tabId2 = sender.tab && sender.tab.id;

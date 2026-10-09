@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.66",
+    title: "资源嗅探重写与搜索引擎选择器打磨",
+    highlights: [
+      "资源嗅探整体重写（借鉴 Ghost Downloader 方案）：页面探针直接挂钩视频流的加载通道，内嵌播放器分段、无扩展名视频、HLS 播放列表都能发现",
+      "图片嗅探回归：网页内的大图与视频封面自动进入嗅探列表，懒加载图也能热收",
+      "修复搜索框浮起状态下点开搜索引擎切换弹窗会位移的问题：弹窗打开期间浮起态保持稳定",
+      "被选中的搜索引擎选框填充灰色底，一眼可辨当前引擎",
+    ],
+    channel: "shell",
+  },
+  {
     version: "8.7.65",
     title: "搜索框上浮动画还原与浮窗预设门",
     highlights: [

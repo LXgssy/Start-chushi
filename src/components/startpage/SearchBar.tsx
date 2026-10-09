@@ -502,10 +502,21 @@ function SearchBar({
               揭示。transition 只含默认属性表（不含 height）——禅雾化与聚焦缩放/
               阴影照常，且不与 framer 逐帧内联 height 打架 */}
           <div className="relative flex h-14 shrink-0 items-center gap-2 px-3">
-            {/* 引擎选择 */}
+            {/* 引擎选择
+                v8.7.66 弹窗位移根修（用户：「搜索框浮起状态点引擎切换，弹窗会位移」）：
+                旧链 = mousedown 点 Trigger → 输入框 blur → 浮起态塌陷（rAF scale
+                1.015→1 动画 0.5s）→ Radix 在动画中途测量锚点矩形开弹窗 → 表单
+                继续回落、锚点随缩放漂移数 px → 弹窗停在被测位置与扳机错位。
+                修复 = 焦点保持三件套：①Trigger onMouseDown preventDefault
+                （浏览器不转移焦点，输入框全程持焦，浮起态稳如磐石）；
+                ②Content onOpenAutoFocus/onCloseAutoFocus preventDefault
+                （Radix 开/关都不夺焦/还焦扳机）；③选项 onMouseDown
+                preventDefault（选引擎同样不 blur）。锚点几何全程静止，
+                弹窗物理上无位移可发生 */}
             <Popover.Root>
               <Popover.Trigger
                 aria-label="切换搜索引擎"
+                onMouseDown={(e) => e.preventDefault()}
                 className="search-trigger flex h-9 shrink-0 items-center gap-1 rounded-full px-3 text-xs font-normal tracking-wide text-zinc-500 transition-colors duration-300 hover:bg-zinc-900/5 hover:text-zinc-800 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-100"
               >
                 <span>{engine.name}</span>
@@ -515,6 +526,10 @@ function SearchBar({
                 <Popover.Content
                   sideOffset={10}
                   align="start"
+                  /* v8.7.66 焦点保持（位移根修配套）：开/关弹窗都不动焦点
+                     ——开时不夺焦（防输入框 blur 塌浮起态），关时不还焦扳机 */
+                  onOpenAutoFocus={(e) => e.preventDefault()}
+                  onCloseAutoFocus={(e) => e.preventDefault()}
                   /* v8.7.60 材质统一（用户：「弹窗面板材质没有统一成磨砂玻璃」）：
                      原白底 85% 太实，模糊层几乎不可见；改与 .glass-card
                      （设置/便签等全 app 面板基准材质）同参：62% 底 +
@@ -532,13 +547,16 @@ function SearchBar({
                       <Popover.Close
                         key={e.id}
                         onClick={() => onPatchSettings({ engineId: e.id })}
+                        onMouseDown={(ev) => ev.preventDefault()}
                         /* v8.7.60 选中态（用户裁定）：对勾退役，改选框框住整行
                            （ring 内沿 1.5px，box-shadow 通道不挤布局）；
                            v8.7.61：框色跟强调色 var(--ui-accent)（用户裁定），
-                           transition 显式含 box-shadow 让框的出现/消失顺滑 */
+                           transition 显式含 box-shadow 让框的出现/消失顺滑；
+                           v8.7.66：选框内填灰底（用户裁定「选中的引擎框里
+                           填充灰色」），亮/暗同参两列表一致 */
                         className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-zinc-600 transition-[background-color,box-shadow] duration-150 hover:bg-zinc-900/5 dark:text-zinc-300 dark:hover:bg-white/10 ${
                           e.id === settings.engineId
-                            ? "ring-[1.5px] ring-inset ring-[color:var(--ui-accent)]"
+                            ? "bg-zinc-200/70 ring-[1.5px] ring-inset ring-[color:var(--ui-accent)] dark:bg-white/10"
                             : ""
                         }`}
                       >
@@ -552,9 +570,10 @@ function SearchBar({
                       <Popover.Close
                         key={e.id}
                         onClick={() => onPatchSettings({ engineId: e.id })}
+                        onMouseDown={(ev) => ev.preventDefault()}
                         className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-zinc-600 transition-[background-color,box-shadow] duration-150 hover:bg-zinc-900/5 dark:text-zinc-300 dark:hover:bg-white/10 ${
                           e.id === settings.engineId
-                            ? "ring-[1.5px] ring-inset ring-[color:var(--ui-accent)]"
+                            ? "bg-zinc-200/70 ring-[1.5px] ring-inset ring-[color:var(--ui-accent)] dark:bg-white/10"
                             : ""
                         }`}
                       >

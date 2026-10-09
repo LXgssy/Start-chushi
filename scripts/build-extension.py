@@ -62,7 +62,7 @@ OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
 EXT_SRC = ROOT / "extension-src"    # v8.2.0 SW/内容脚本源
-VERSION = "8.7.65"
+VERSION = "8.7.66"
 DEST = ROOT / f"download/v{VERSION}/ChuShi-NewTab-v{VERSION}.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():
@@ -342,6 +342,32 @@ manifest = {
             "all_frames": False,
         },
         {
+            # v8.7.66 嗅探重写（Ghost-Downloader-3 方案）：主世界探针——
+            # fetch/XHR/createObjectURL/addSourceBuffer 四钩子拦媒体流信号，
+            # MSE 无扩展名分段与 blob 会话唯一入口；document_start 抢在
+            # 页面脚本前装钩（晚了钩不到页面自身发出的请求）；all_frames：
+            # iframe 内嵌播放器同样探；world MAIN：钩的是页面真实原型，
+            # 隔离世界的包装只对扩展自身上下文生效、毫无意义。
+            # 开关门：探针每次上报前查 data-chushi-sniff 属性（桥按
+            # snifferOn 设置），关闭态零上报零窥探。
+            "matches": ["http://*/*", "https://*/*"],
+            "js": ["sniffer-probe.js"],
+            "run_at": "document_start",
+            "all_frames": True,
+            "world": "MAIN",
+        },
+        {
+            # v8.7.66 嗅探重写：ISOLATED 桥——探针信号分类/去重/批量转发
+            # SW（分类命中才 sendMessage，不因无关请求唤醒 SW）+ DOM 图片
+            # 扫描（img ≥200px + video poster + MutationObserver 追懒加载）
+            # + 门控面（读 snifferOn 设 data-chushi-sniff 属性，热跟随）。
+            # document_start：早于页面脚本发请求，信号面无空窗。
+            "matches": ["http://*/*", "https://*/*"],
+            "js": ["sniffer-bridge.js"],
+            "run_at": "document_start",
+            "all_frames": True,
+        },
+        {
             "matches": ["https://lxgssy.github.io/*"],
             "js": ["shim-page.js"],
             "run_at": "document_start",
@@ -382,7 +408,8 @@ shutil.copy2(EXT_SRC / "ext-bg.js", STAGE / "ext-bg.js")
 # v8.4.5：+ cs-snap/sw.js（快照 SW：子路径作用域，真实目录过保留名规则）
 # v8.5.0：+ 弹窗快捷面板（popup.html + popup.js）
 # v8.7.58：+sniffer-float.js（v8.7.55 误删恢复——浮窗脚本必须随包进扩展根）
-for _shell in ("shell.html", "shell-bridge.js", "shim-page.js", "cs-bridge.js", "popup.html", "popup.js", "sniffer-float.js"):
+# v8.7.66：+嗅探探针/桥（GD3 方案重写——主世界探针 + ISOLATED 桥随包进扩展根）
+for _shell in ("shell.html", "shell-bridge.js", "shim-page.js", "cs-bridge.js", "popup.html", "popup.js", "sniffer-float.js", "sniffer-probe.js", "sniffer-bridge.js"):
     shutil.copy2(EXT_SRC / _shell, STAGE / _shell)
 if (STAGE / "cs-snap").exists():
     shutil.rmtree(STAGE / "cs-snap")
@@ -411,13 +438,14 @@ for must in ("manifest.json", "_locales/zh_CN/messages.json", "icons/icon128.png
              # v8.5.0 弹窗快捷面板
              "popup.html", "popup.js",
              # v8.7.58 资源嗅探浮窗（v8.7.55 误删恢复）
-             "sniffer-float.js"):
+             # v8.7.66 嗅探重写：探针+桥（缺任一 = 新机制静默断供）
+             "sniffer-float.js", "sniffer-probe.js", "sniffer-bridge.js"):
     if not (STAGE / must).exists():
         sys.exit(f"缺 {must}——产物不完整")
 # v8.2.1 门：SW/内容脚本语法自检（node --check；拼接后的 ext-card.js 才是真产物）
 # v8.4.4：+ 壳桥三件（shell-bridge/shim-page/cs-bridge）同门
 # v8.4.5：+ 快照 SW（cs-snap/sw.js）同门
-for ext_file in ("ext-bg.js", "ext-card.js", "shell-bridge.js", "shim-page.js", "cs-bridge.js", "cs-snap/sw.js", "sniffer-float.js"):
+for ext_file in ("ext-bg.js", "ext-card.js", "shell-bridge.js", "shim-page.js", "cs-bridge.js", "cs-snap/sw.js", "sniffer-float.js", "sniffer-probe.js", "sniffer-bridge.js"):
     r = subprocess.run(["node", "--check", str(STAGE / ext_file)], capture_output=True, text=True)
     if r.returncode != 0:
         sys.exit(f"{ext_file} 语法门 FAIL: {r.stderr[:300]}")
@@ -489,7 +517,10 @@ for feat in ("chushi-spectrum", "spectrum-boot", "chushi-card", 'case "lyric":',
              "SNAP_MIRRORS", "version.json",               # v8.4.5：云端静默更新器
              "chushi-snap", "SNAP_ALARM", "snapCheck",    # v8.4.5：IDB 库名/报警/检查入口
              "snifferOn", "sniffTabs",                       # v8.7.58 恢复（v8.7.52 原有）：嗅探归集
-             "webRequest.onCompleted", "sniffer-download", "downloads.download"):
+             "webRequest.onResponseStarted",               # v8.7.66：响应首字节入库通道（onCompleted 退役）
+             "SNIFF_VIDEO_EXT", "SNIFF_AUDIO_EXT",         # v8.7.66：cat-catch 大表分类
+             "sniffIngestPage", "sniffer-page-media",      # v8.7.66：探针桥入库口
+             "sniffer-download", "downloads.download"):
     if feat not in _bg_js:
         sys.exit(f"ext-bg.js 缺特征 {feat} —— SW 歌词代理面缺失")
 if 'case "vis"' in _bg_js or "port.__vis" in _bg_js:
@@ -514,6 +545,15 @@ if "background" not in _m or "service_worker" not in _m["background"]:
     sys.exit("manifest 缺 background.service_worker——悬浮卡数据面缺失")
 if not _m.get("content_scripts") or "ext-card.js" not in _m["content_scripts"][0].get("js", []):
     sys.exit("manifest 缺 content_scripts(ext-card.js)——悬浮卡缺失")
+# v8.7.66 门：嗅探探针/桥 manifest 注册必须完整（GD3 方案双脚本）
+# ——探针缺 MAIN world/world 错填 = 钩不到页面真实原型，整条新嗅探链断供
+_cs_list = _m.get("content_scripts", [])
+_probe = next((c for c in _cs_list if "sniffer-probe.js" in c.get("js", [])), None)
+_bridge = next((c for c in _cs_list if "sniffer-bridge.js" in c.get("js", [])), None)
+if not _probe or _probe.get("world") != "MAIN" or _probe.get("run_at") != "document_start" or not _probe.get("all_frames"):
+    sys.exit("manifest 缺 sniffer-probe.js MAIN world 注入（document_start/all_frames）——嗅探新机制断供")
+if not _bridge or _bridge.get("run_at") != "document_start" or not _bridge.get("all_frames"):
+    sys.exit("manifest 缺 sniffer-bridge.js 注入（document_start/all_frames）——嗅探信号桥断供")
 if "http://127.0.0.1:26911/*" not in _m.get("host_permissions", []):
     sys.exit("manifest 缺频谱助手端口 26911 host_permissions")
 if "scripting" not in _m.get("permissions", []):
