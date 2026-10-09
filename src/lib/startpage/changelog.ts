@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.65",
+    title: "搜索框上浮动画还原与浮窗预设门",
+    highlights: [
+      "搜索框上浮 / 下沉动画还原旧版形态：缩放生长感回归，磨砂全程实时跟随",
+      "未安装 SMTC 音乐预设时，网易云装了初始桥也不再在网页弹出音乐浮窗",
+      "卸载 SMTC 预设后浮窗立即退散，重装后自动恢复",
+    ],
+    channel: "shell",
+  },
+  {
     version: "8.7.64",
     title: "禅模式磨砂修复与搜索框上浮回归",
     highlights: [

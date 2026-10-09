@@ -1,6 +1,12 @@
 /* ============================================================================
  * 「初始」ext-bg v8.3.1 —— MV3 Service Worker：跨页面音乐卡状态中继
  *
+ * v8.7.65 悬浮卡武装门（cardArmed，用户实测：未装 SMTC 预设但网易云装了
+ *   初始桥 → 网页音乐浮窗凭空出现）：hub 数据面（探测/真值/命令/频谱助手）
+ *   是「初始 · SMTC 音乐」预设的家族功能——预设未在装时 SW 不与 hub 通话。
+ *   武装位由「初始」页面侧镜像（chrome.storage.local.cardArmed，缺省
+ *   false = 未武装诚实降级）；onChanged 热跟随，卸载预设当拍退散。
+ *   ne 数据面（内置播放器）不受此门。
  * v8.3.1 注入兜底（用户实机：快捷服务进入网页浮窗不显示）：manifest 注入
  *   在某些环境偶发缺席（干净 Chromium 三路径实测全过 = 环境性缺针）——
  *   卡片首连后 tabs 全量清扫 + tabs.onUpdated complete 逐个补针
@@ -109,6 +115,43 @@ let specSentOn = null; /* v8.2.6：paused 空转帧翻转门（null=未发过）
 
 const cards = new Set();
 
+/* v8.7.65 悬浮卡武装门（cardArmed，页面侧镜像见 use-start-presets）：
+   hub 数据面（探测/真值/命令/频谱助手）是「初始 · SMTC 音乐」预设的
+   家族功能——预设未在装时 SW 不与 hub 通话（桥在装≠浮窗该显，用户实测：
+   未装 SMTC 预设、网易云装了初始桥 → 网页音乐浮窗凭空出现）。
+   缺省 false = 未武装诚实降级（与「hub 不在场不广播」同宪法，SW 启动即
+   读真值）；onChanged 热跟随：升 true 立即补拉一拍真值+频谱循环（卡片
+   已在线场合免等下拍），降 false 立即弃真值并广播空帧（卡侧 has=false
+   自然隐没，卸载预设当拍退散）。
+   ne 数据面（内置播放器 v8.7.24）不受此门——由播放器预设自身在装+放歌
+   驱动；歌词代理照旧（ne 缓存未命中时同曲 hub 兜底仍可用，无真值则无
+   请求入口）。 */
+var cardArmed = false;
+try {
+  chrome.storage.local.get("cardArmed", function (o) {
+    cardArmed = !!(o && o.cardArmed);
+  });
+} catch (e) { cardArmed = false; }
+try {
+  chrome.storage.onChanged.addListener(function (ch, area) {
+    if (area !== "local" || !ch.cardArmed) return;
+    var next = !!ch.cardArmed.newValue;
+    if (next === cardArmed) return;
+    cardArmed = next;
+    if (next) {
+      if (cards.size > 0) {
+        void pollState();
+        if (specWanted() > 0) ensureSpecLoop();
+      }
+    } else {
+      state = null;
+      stateAt = 0;
+      if (specTimer) { clearInterval(specTimer); specTimer = null; specPort = null; }
+      if (cards.size > 0) void pollState(); /* 立即广播 ne-or-null：卡侧退散不等下拍 */
+    }
+  });
+} catch (e) { /* noop */ }
+
 async function getJson(url, timeout) {
   try {
     const ctrl = new AbortController();
@@ -174,7 +217,9 @@ function cleanTrack(j) {
 /* v8.7.24：广播真值 = ne/hub 仲裁赢家（ne 优先窗见 neWins）；无赢家发 null
    （卡侧 has=false 自然隐没——hub 缺席且 ne 失新时不再留幽灵锚点） */
 async function pollState() {
-  if (hubPort || (await discoverHub())) {
+  /* v8.7.65 武装门：未装 SMTC 预设不探测 hub、不拉真值——广播只剩 ne 真
+     值或空帧（卡侧 has=false 隐没），桥在装也不再上浮窗 */
+  if (cardArmed && (hubPort || (await discoverHub()))) {
     const j = await getJson(`http://127.0.0.1:${hubPort}/api/state`, 1500);
     if (j) { state = cleanTrack(j); stateAt = Date.now(); }
     else hubPort = null;
@@ -218,7 +263,9 @@ function specWanted() {
 }
 let specBusy = false; /* v8.2.4 在飞守卫：助手失联时 50ms 定时器 × 450ms 超时会堆请求 */
 function ensureSpecLoop() {
-  if (specTimer || specWanted() === 0) return;
+  /* v8.7.65 武装门：频谱助手（chushi-spectrum，hub 家族）未装预设不拉起
+     ——ne 频谱走 neSpecFrame 消息面不经此循环，不受影响 */
+  if (!cardArmed || specTimer || specWanted() === 0) return;
   void discoverSpec();
   specTimer = setInterval(async () => {
     if (specBusy || specWanted() === 0) return;
@@ -280,6 +327,9 @@ function stopSpecLoop() {
 
 async function sendCmd(cmd, position) {
   if (!CMD_SET.has(cmd)) return false;
+  /* v8.7.65 武装门：未装 SMTC 预设不代理 hub 命令（浮窗显示的是 ne 真值
+     时误控桌面网易云 = 错靶控制，命令面与真值面同门同开同关） */
+  if (!cardArmed) return false;
   if (!hubPort && !(await discoverHub())) return false;
   const body = { cmd };
   if (cmd === "seek" && typeof position === "number" && Number.isFinite(position)) {

@@ -77,6 +77,57 @@ const SUG_DEBOUNCE_MS = 180;
 /** 联想请求超时 */
 const SUG_TIMEOUT_MS = 3000;
 
+/* ============================================================================
+ * v8.7.65 上浮/下沉动画（v8.7.54 旧版观感回归，主线程 rAF 驱动）
+ * 聚焦 scale 1→1.015、取消选中回落 1——曲线/时长与旧版 CSS transition 完全
+ * 同参（0.5s cubic-bezier(0.22,1,0.36,1)，套用旧效果）。
+ * 为什么不走 CSS 过渡（字面上的「套用旧代码」）：transform 过渡在 Chrome
+ * 是 compositor-only 动画，过渡期不产生主帧，底板磨砂（glass-pill 子层的
+ * backdrop-filter）取样全程冻结在起始帧、收尾补采样瞬间归位——v8.7.63
+ * 「错位复位」根因（新律⑬：磨砂子树上方禁布 compositor 几何动画）。
+ * rAF 每帧写一次 transform = 每帧一次样式提交 → 每帧一次主帧，与建议列表
+ * framer 高度动画同机制，磨砂逐帧重取样：旧观感与新律两全。
+ * v8.7.64 的 top 位移方案退役：布局位移读感是「平移」不是「生长」，与旧版
+ * 观感无关（用户裁定「现在的效果和之前一点关系没有」）。
+ * ==========================================================================*/
+const FLOAT_SCALE = 1.015;
+const FLOAT_MS = 500;
+
+/** CSS cubic-bezier(x1,y1,x2,y2) 同义解算（牛顿迭代 + 二分兜底）——旧版
+ *  transition 缓动曲线在 rAF 通道的等价实现 */
+function cubicBezier(x1: number, y1: number, x2: number, y2: number): (x: number) => number {
+  const cx = 3 * x1;
+  const bx = 3 * (x2 - x1) - cx;
+  const ax = 1 - cx - bx;
+  const cy = 3 * y1;
+  const by = 3 * (y2 - y1) - cy;
+  const ay = 1 - cy - by;
+  const sampleX = (t: number) => ((ax * t + bx) * t + cx) * t;
+  const sampleY = (t: number) => ((ay * t + by) * t + cy) * t;
+  const sampleDX = (t: number) => (3 * ax * t + 2 * bx) * t + cx;
+  return (x: number) => {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    let t = x;
+    for (let i = 0; i < 8; i++) {
+      const err = sampleX(t) - x;
+      if (Math.abs(err) < 1e-6) return sampleY(t);
+      const d = sampleDX(t);
+      if (Math.abs(d) < 1e-7) break;
+      t -= err / d;
+    }
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 20; i++) {
+      t = (lo + hi) / 2;
+      if (sampleX(t) < x) lo = t;
+      else hi = t;
+    }
+    return sampleY(t);
+  };
+}
+const floatEase = cubicBezier(0.22, 1, 0.36, 1);
+
 /** 百度 sugrec 联想源（扩展环境 fetch 直取 / 网页版 JSONP） */
 function fetchSuggest(q: string, cb: (list: string[]) => void) {
   if (location.protocol === "chrome-extension:") {
@@ -220,6 +271,12 @@ function SearchBar({
   onPatchSettings: (patch: Partial<Settings>) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  /* v8.7.65 上浮动画载体：pill 驱动 scale，glass 伴随透明 outline 微抖强制
+     磨砂重取样（见文件头 v8.7.65 注释块）；floatScaleRef 跨次聚焦续接
+     （快速切换从当前实际缩放值起步，不回跳） */
+  const pillRef = useRef<HTMLFormElement>(null);
+  const glassRef = useRef<HTMLDivElement>(null);
+  const floatScaleRef = useRef(1);
   const [query, setQuery] = useState("");
   const [focused, setFocused] = useState(false);
   const [sugs, setSugs] = useState<string[]>([]);
@@ -283,6 +340,52 @@ function SearchBar({
       window.clearTimeout(t);
     };
   }, [query, focused, suggestOn]);
+
+  /* v8.7.65 上浮/下沉动画主通道（旧版 scale 观感回归）：聚焦 1→1.015、
+     取消选中回落 1，rAF 逐帧写 transform（机制详见文件头 v8.7.65 注释块
+     —— CSS transform 过渡 = compositor-only 不产生主帧，磨砂取样冻结，
+     新律⑬；rAF 每帧主帧与 framer 高度动画同机制，磨砂逐帧重取样）。
+     玻璃子层每帧透明 outline 0/0.02px 微抖（视觉零痕迹）强制重绘，
+     保证磨砂重取样不被渲染管线跳帧合并。聚焦期间投影/描边环淡入淡出
+     仍走 box-shadow 纯绘制通道（className 切换 + CSS transition），
+     与本动画并行互不干扰。 */
+  useEffect(() => {
+    const pill = pillRef.current;
+    if (!pill) return;
+    const from = floatScaleRef.current;
+    const to = focused ? FLOAT_SCALE : 1;
+    if (Math.abs(to - from) < 0.0005) {
+      floatScaleRef.current = to;
+      pill.style.transform = focused ? `scale(${FLOAT_SCALE})` : "";
+      return;
+    }
+    let raf = 0;
+    let tick = 0;
+    const t0 = performance.now();
+    const glass = glassRef.current;
+    const step = (now: number) => {
+      const p = Math.min(1, (now - t0) / FLOAT_MS);
+      const s = from + (to - from) * floatEase(p);
+      floatScaleRef.current = s;
+      pill.style.transform = `scale(${s.toFixed(5)})`;
+      /* 磨砂重取样保险：透明 outline 微抖强制玻璃层重绘 */
+      if (glass) {
+        glass.style.outline = tick++ % 2 ? "0px solid transparent" : "0.02px solid transparent";
+      }
+      if (p < 1) {
+        raf = requestAnimationFrame(step);
+      } else {
+        floatScaleRef.current = to;
+        pill.style.transform = to === 1 ? "" : `scale(${FLOAT_SCALE})`;
+        if (glass) glass.style.outline = "";
+      }
+    };
+    raf = requestAnimationFrame(step);
+    return () => {
+      cancelAnimationFrame(raf);
+      if (glassRef.current) glassRef.current.style.outline = "";
+    };
+  }, [focused]);
 
   function navigate(url: string, newTab: boolean) {
     /* 扩展壳 iframe 内提升到顶层框架（拒绝连接修复）；网页版行为不变 */
@@ -364,32 +467,29 @@ function SearchBar({
               setActive(-1);
             }
           }}
-          /* v8.7.64：上浮/下沉动画回归——浮起改由 top 位移承载（聚焦 -top-1
-             = -4px，与基态 top-0 互斥写在聚焦分支防同类冲突）：top 是布局
-             通道属性，Chrome 永不合成器化，逐帧主线程重排重绘 → 底板磨砂
-             逐帧重取样（与建议列表 framer 高度动画同机制），既保住浮起感
-             又不落入新律⑬的合成器几何动画冻结窗口。
-             v8.7.63：scale 通道退役——compositor-only scale 过渡不触发
-             主帧，Chrome 对底板磨砂取样在过渡期全程冻结（磨砂内容滞后于
-             收缩/放大中的边框 → 上下描边读感错位，过渡收尾补采样瞬间归位
-             = 复位期「错位复位」的根因）。聚焦/取消选中只剩 box-shadow 纯
-             绘制通道（大模糊投影 + 框外描边环同拍淡入淡出），无几何变更 =
-             物理上不可能错位；描边形态与 v8.7.54 完全一致不动。
+          /* v8.7.65：上浮动画改 rAF 逐帧驱动 scale（effect 见上），聚焦态
+             几何变更只有磨砂重取样安全的 transform（每帧主帧）；top 位移
+             通道退役（v8.7.64 方案观感不符旧版，用户裁定）。
+             v8.7.63：聚焦/取消选中的投影 + 框外描边环走 box-shadow 纯
+             绘制通道（大模糊投影 + ring 同拍淡入淡出），描边形态与
+             v8.7.54 完全一致不动。
              v8.7.62：取消选中后下边描边不均匀根修——裁剪职责下放到内容
              裁剪层（输入行+建议列表包裹层），底板描边脱离 clip 边界，
              四边同参渲染。
              v8.7.61：底板跟随根修——backdrop-filter 不再与变换同元素
              （Chrome 对同元素磨砂取样区不随缩放重算 → 上浮后底板脱框、
-             描边读感位移的根因），玻璃底板拆独立子层。 */
-          className={`search-pill group absolute inset-x-0 z-30 flex flex-col rounded-[28px] ${
+             描边读感位移的根因），玻璃底板拆独立子层（本结构至今沿用）。 */
+          ref={pillRef}
+          className={`search-pill group absolute inset-x-0 top-0 z-30 flex flex-col rounded-[28px] ${
             focused
-              ? "-top-1 shadow-[0_10px_50px_-8px_rgba(0,0,0,0.25)] ring-1 ring-zinc-900/15 dark:ring-white/25"
-              : "top-0"
+              ? "shadow-[0_10px_50px_-8px_rgba(0,0,0,0.25)] ring-1 ring-zinc-900/15 dark:ring-white/25"
+              : ""
           }`}
         >
           {/* 玻璃底板：磨砂/底色/描边全在这层（.glass-pill 变体规则全部
               命中子层），pointer-events 穿透、随表单整体移动（高度动画跟随） */}
           <div
+            ref={glassRef}
             aria-hidden
             className="glass-pill backdrop-blur-2xl backdrop-saturate-150 pointer-events-none absolute inset-0 rounded-[28px]"
           />

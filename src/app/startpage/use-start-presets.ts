@@ -211,6 +211,30 @@ export function useStartPresets({
     [setPresets, toast]
   );
 
+  /* ---------- v8.7.65 悬浮卡武装位镜像（cardArmed） ----------
+     三态悬浮卡（网页音乐浮窗）与其桥数据面是「初始 · SMTC 音乐」预设的
+     家族功能——预设未在装时，扩展后台不得因网易云装了初始桥就把音乐
+     浮窗推上所有网页（用户实测报障）。预设安装态活在本页 localStorage，
+     SW 读不到 → 镜像到 chrome.storage.local.cardArmed，SW 侧（ext-bg.js）
+     以此门控 hub 探测/真值/命令/频谱全链（缺省未武装 = 诚实降级）。
+     写入环境律（与 cardAcc/cardDark 镜像同款）：扩展内页真 API / 壳内
+     shim 桥 / 纯网页静默。挂载即写 + 预设增删热跟随（卸载预设立即
+     降武装，浮窗当拍退散）。ne 数据面（内置播放器 v8.7.24）不受此门
+     ——由播放器预设自身在装+放歌驱动。 ---------- */
+  useEffect(() => {
+    try {
+      const ext = (window as unknown as {
+        chrome?: { storage?: { local?: { set?: (o: Record<string, unknown>) => void } } };
+      }).chrome;
+      if (!ext?.storage?.local || typeof ext.storage.local.set !== "function") return;
+      ext.storage.local.set({
+        cardArmed: presets.some((p) => p.name === "初始 · SMTC 音乐"),
+      });
+    } catch {
+      /* 纯网页环境（gh-pages 预览）静默 */
+    }
+  }, [presets]);
+
   /* ---------- 沙箱脚本派生 ---------- */
   const sandboxScripts = useMemo<SandboxScript[]>(
     () =>

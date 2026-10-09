@@ -1496,22 +1496,23 @@ html.cs-drawer-closing .cl-fade-leaf {
         transform 从关键帧值切到「有值的恒等变换」而非 none，配合 ③ 的
         will-change 常驻合成层，纹理全程不重栅格化（「搜索框内部子元素
         在入场动画后复位、位移」的根因 = 层撤销重栅格化）；
-     ② 显式 transition 列表（unlayered 胜 Tailwind utilities）：top 承载
-        聚焦上浮/下沉位移（v8.7.64 回归），box-shadow 承载聚焦投影与描边
-        环的淡入淡出（组件类里 transition 已退役）；height 是 framer 内联
-        动画，刻意不在表内。
-        v8.7.64：opacity/filter 通道从 form 撤出——禅雾化改道子层（见
-        html.zen .search-pill），form 是磨砂子层的祖先，自身任何 filter/
-        opacity 都会成为 backdrop root 杀死 glass-pill 磨砂（磨砂存活律）。
-        v8.7.63：scale 通道退役——compositor-only scale 过渡不触发主帧，
-        Chrome 对底板磨砂取样在过渡期全程冻结（磨砂内容滞后于收缩中的
-        边框 → 上下描边读感错位，收尾补采样瞬间归位 = 复位期「错位复位」
-        的根因）；浮起改由 top 位移承载（布局通道永不合成器化，逐帧主
-        线程重排 → 磨砂逐帧重取样，与建议列表高度动画同机制） */
+     ② 显式 transition 列表（unlayered 胜 Tailwind utilities）：box-shadow
+        承载聚焦投影与描边环的淡入淡出（组件类里 transition 已退役）；
+        v8.7.65 起聚焦上浮/下沉的 scale 由组件内 rAF 逐帧写 transform 承载
+        （不走 transition），height 是 framer 内联动画，均刻意不在表内。 */
   transform: translateY(0) scale(1);
-  transition:
-    top 0.5s cubic-bezier(0.22, 1, 0.36, 1),
-    box-shadow 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+  /* v8.7.65：top 位移通道退役（v8.7.64 方案观感不符旧版，用户裁定）——
+     聚焦上浮/下沉改由组件内 rAF 逐帧写 transform 承载（旧版 scale(1.015)
+     同参回归，每帧主帧 → 磨砂逐帧重取样，见 SearchBar.tsx v8.7.65 注释块），
+     本表只剩 box-shadow（聚焦投影+描边环淡入淡出）。
+        v8.7.63：scale 过渡通道退役——compositor-only scale 过渡不触发
+     主帧，Chrome 对底板磨砂取样在过渡期全程冻结（磨砂内容滞后于收缩中的
+     边框 → 上下描边读感错位，收尾补采样瞬间归位 = 复位期「错位复位」
+     的根因）。
+        v8.7.64：opacity/filter 通道从 form 撤出——禅雾化改道子层（见
+     html.zen .search-pill），form 是磨砂子层的祖先，自身任何 filter/
+     opacity 都会成为 backdrop root 杀死 glass-pill 磨砂（磨砂存活律）。 */
+  transition: box-shadow 0.5s cubic-bezier(0.22, 1, 0.36, 1);
   will-change: transform;
 }
 @keyframes pill-shell-in {
