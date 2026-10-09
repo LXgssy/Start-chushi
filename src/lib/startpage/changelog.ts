@@ -22,6 +22,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.60",
+    title: "搜索框聚焦视觉与引擎选择器打磨",
+    highlights: [
+      "选中搜索框时壁纸由放大改为反向收缩，与搜索框上浮同拍（同时长同曲线）",
+      "删除聚焦时的加粗描边投影：聚焦态只剩搜索框上浮与壁纸联动，退出选中不再有突兀的散场",
+      "搜索引擎选择弹窗材质统一为全应用磨砂玻璃基准（62% 透明底 + 20px 背景模糊 + 饱和提升）",
+      "站内直搜选项的色点升级为站点品牌图标（B站 / GitHub / 知乎 / 抖音）",
+      "当前选中的搜索引擎改为选框框住整行，不再用对勾标记",
+    ],
+    channel: "shell",
+  },
+  {
     version: "8.7.59",
     title: "聚焦壁纸缩放动画补拍",
     highlights: [

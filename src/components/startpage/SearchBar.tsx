@@ -33,10 +33,17 @@
  * 检索，与引擎语义解耦。3s 超时/出错静默降级为无建议，不阻塞输入。
  */
 
-import { memo, useEffect, useRef, useState, type CSSProperties } from "react";
+import {
+  memo,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowRight, Check, ChevronDown, Search } from "lucide-react";
+import { ArrowRight, ChevronDown, Search } from "lucide-react";
 import {
   WEB_ENGINES,
   SITE_ENGINES,
@@ -113,6 +120,68 @@ function fetchSuggest(q: string, cb: (list: string[]) => void) {
   script.src = `https://www.baidu.com/sugrec?prod=pc&wd=${encodeURIComponent(q)}&cb=${name}`;
   script.onerror = () => done([]);
   document.head.appendChild(script);
+}
+
+/* ============================================================================
+ * v8.7.60 直搜站点品牌简标（用户：「直搜选项左边都有一个点，改成站点图标」）
+ * 色点退役；改品牌色圆角方块底 + 白色标识形。内联 SVG 零网络零异步——
+ * 选择器小弹窗不适配 favicon 多源回退的加载闪烁与失败回落；形标取各站
+ * 公认符号的极简摹写：B站=TV、GitHub=octocat、知乎=知、抖音=音符。
+ * 底色沿用 engines.ts 的 color 字段（品牌色语义不变，只是从点变底）。
+ * ==========================================================================*/
+const SITE_GLYPHS: Record<string, ReactNode> = {
+  bilibili: (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M8 3.2 10.4 6M16 3.2 13.6 6" />
+      <rect x="4" y="6" width="16" height="12.2" rx="3" />
+      <path d="M9.3 12.4h.01M14.7 12.4h.01" strokeWidth="2.7" />
+    </svg>
+  ),
+  github: (
+    <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden>
+      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
+    </svg>
+  ),
+  zhihu: (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <text
+        x="12"
+        y="17.6"
+        textAnchor="middle"
+        fontSize="14"
+        fontWeight="600"
+        fontFamily="-apple-system,'PingFang SC','Microsoft YaHei UI',sans-serif"
+      >
+        知
+      </text>
+    </svg>
+  ),
+  douyin: (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M17.6 3c.4 2.1 1.7 3.4 3.8 3.6v2.7c-1.4 0-2.7-.4-3.8-1.2v6c0 3.3-2.3 5.4-5.3 5.4-2.9 0-5-2.1-5-4.9 0-3 2.5-5.1 5.8-4.8v2.8c-1.7-.3-3.1.6-3.1 2 0 1.3 1 2.2 2.4 2.2 1.5 0 2.5-1 2.5-2.7V3h2.7z" />
+    </svg>
+  ),
+};
+
+function SiteGlyph({ id, color }: { id: string; color?: string }) {
+  return (
+    <span
+      aria-hidden
+      className="flex h-4 w-4 shrink-0 items-center justify-center rounded-[5px] text-white"
+      style={{ background: color ?? "#71717a" }}
+    >
+      <span className="flex h-3 w-3 items-center justify-center [&>svg]:h-full [&>svg]:w-full">
+        {SITE_GLYPHS[id]}
+      </span>
+    </span>
+  );
 }
 
 function SearchHint({ query, above }: { query: string; above: boolean }) {
@@ -299,11 +368,13 @@ function SearchBar({
              （非聚焦 scale-100，聚焦 scale-[1.015]，scale 属性恒有值——
              聚焦/退出聚焦与入场动画收尾都不再出现 scale→none 的层撤销
              重栅格化，「内部子元素复位」从根上消除）。transition 显式
-             列表在 globals.css .search-pill（unlayered 胜 utilities） */
+             列表在 globals.css .search-pill（unlayered 胜 utilities）。
+             v8.7.60：聚焦阴影（大模糊投影，壁纸上像一圈加粗描边）按用户
+             裁定退役——聚焦态只留 scale 上浮 + 壁纸反向收缩联动，
+             退场零过渡残留（阴影为重绘属性，0.5s 过渡在合成器掉帧
+             正是「取消选中后消失卡一下」的根因） */
           className={`glass-pill backdrop-blur-2xl backdrop-saturate-150 search-pill group absolute inset-x-0 top-0 z-30 flex flex-col overflow-hidden rounded-[28px] ${
-            focused
-              ? "scale-[1.015] shadow-[0_10px_50px_-8px_rgba(0,0,0,0.25)]"
-              : "scale-100"
+            focused ? "scale-[1.015]" : "scale-100"
           }`}
         >
           {/* 输入行：恒居顶部、高度锁定；建议列表在其下，由表单 height 动画整体
@@ -323,11 +394,16 @@ function SearchBar({
                 <Popover.Content
                   sideOffset={10}
                   align="start"
-                  className="z-50 w-44 overflow-hidden rounded-xl border border-zinc-200/70 bg-white/85 shadow-xl backdrop-blur-2xl data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 dark:border-white/10 dark:bg-[#17171c]/90"
+                  /* v8.7.60 材质统一（用户：「弹窗面板材质没有统一成磨砂玻璃」）：
+                     原白底 85% 太实，模糊层几乎不可见；改与 .glass-card
+                     （设置/便签等全 app 面板基准材质）同参：62% 底 +
+                     blur(20px) saturate(1.5)，深色 60% 底同源 */
+                  className="z-50 w-44 overflow-hidden rounded-xl border border-[rgba(24,22,36,0.09)] bg-white/[0.62] shadow-xl backdrop-blur-[20px] backdrop-saturate-150 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 dark:border-[rgba(255,255,255,0.08)] dark:bg-[#16161b]/60"
                 >
                   <div className="p-1.5">
                     {/* v8.7.55 引擎选择器分组：搜索引擎 / 站内直搜（四站并入，
-                       退役原建议下拉底部直达行）。直搜项名字前带站点色点 */}
+                       退役原建议下拉底部直达行）。v8.7.60：直搜项名字前
+                       站点色点升级为品牌简标，选中态改选框框住 */}
                     <p className="px-3 pb-1 pt-1.5 text-[10px] font-extralight tracking-widest text-zinc-400 dark:text-zinc-500">
                       搜索引擎
                     </p>
@@ -335,15 +411,16 @@ function SearchBar({
                       <Popover.Close
                         key={e.id}
                         onClick={() => onPatchSettings({ engineId: e.id })}
-                        className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-zinc-600 transition-colors duration-150 hover:bg-zinc-900/5 dark:text-zinc-300 dark:hover:bg-white/10"
+                        /* v8.7.60 选中态（用户裁定）：对勾退役，改选框框住整行
+                           （ring 内沿 1.5px 中性框，box-shadow 通道不挤布局）；
+                           transition 显式含 box-shadow 让框的出现/消失同 hover 顺滑 */
+                        className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-zinc-600 transition-[background-color,box-shadow] duration-150 hover:bg-zinc-900/5 dark:text-zinc-300 dark:hover:bg-white/10 ${
+                          e.id === settings.engineId
+                            ? "ring-[1.5px] ring-inset ring-zinc-400/90 dark:ring-zinc-500/90"
+                            : ""
+                        }`}
                       >
                         <span className="font-light">{e.name}</span>
-                        {e.id === settings.engineId && (
-                          <Check
-                            className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400"
-                            strokeWidth={1.5}
-                          />
-                        )}
                       </Popover.Close>
                     ))}
                     <p className="px-3 pb-1 pt-2.5 text-[10px] font-extralight tracking-widest text-zinc-400 dark:text-zinc-500">
@@ -353,22 +430,17 @@ function SearchBar({
                       <Popover.Close
                         key={e.id}
                         onClick={() => onPatchSettings({ engineId: e.id })}
-                        className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-zinc-600 transition-colors duration-150 hover:bg-zinc-900/5 dark:text-zinc-300 dark:hover:bg-white/10"
+                        className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-zinc-600 transition-[background-color,box-shadow] duration-150 hover:bg-zinc-900/5 dark:text-zinc-300 dark:hover:bg-white/10 ${
+                          e.id === settings.engineId
+                            ? "ring-[1.5px] ring-inset ring-zinc-400/90 dark:ring-zinc-500/90"
+                            : ""
+                        }`}
                       >
+                        {/* v8.7.60：色点退役（用户裁定），改站点品牌简标 */}
                         <span className="flex items-center gap-2 font-light">
-                          <span
-                            aria-hidden
-                            className="h-1.5 w-1.5 shrink-0 rounded-full"
-                            style={{ background: e.color }}
-                          />
+                          <SiteGlyph id={e.id} color={e.color} />
                           {e.name}
                         </span>
-                        {e.id === settings.engineId && (
-                          <Check
-                            className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400"
-                            strokeWidth={1.5}
-                          />
-                        )}
                       </Popover.Close>
                     ))}
                   </div>

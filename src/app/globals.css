@@ -2267,13 +2267,15 @@ html.cs-drawer:not(.cs-drawer-closing).photo-mode .wallpaper-layer {
 }
 
 /* ---------- v8.7.55 搜索框聚焦 × 壁纸联动（用户裁定）：退役聚焦描边，
-   改为选中/退出选中时壁纸跟随搜索框上浮/下沉等参放大/还原。
+   改为选中/退出选中时壁纸跟随搜索框上浮/下沉等参缩放/还原。
+   v8.7.60 方向反转（用户裁定「把选中搜索框壁纸放大改成壁纸缩小」）：
+   搜索框聚焦上浮 1.015，壁纸反向收缩 0.985（1/1.015 对称等比），主体更聚焦。
    独立 scale 属性与抽屉的 transform 通道互不覆盖（乘积合成，且「抽屉
    打开」与「搜索聚焦」两个场景天然不共存）；0.5s 同搜索框浮起曲线
-   （globals.css .search-pill transition），同拍放大/还原。
+   （globals.css .search-pill transition），同拍收缩/还原。
    html.search-float 由 SearchBar 聚焦态挂载（卸载/失焦移除）。 ---------- */
 html.search-float .wallpaper-layer {
-  scale: 1.025;
+  scale: 0.985;
 }
 @media (prefers-reduced-motion: reduce) {
   html.search-float .wallpaper-layer {
