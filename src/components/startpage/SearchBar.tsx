@@ -364,22 +364,20 @@ function SearchBar({
               setActive(-1);
             }
           }}
-          /* v8.7.61：描边效果按用户裁定回退 v8.7.55——聚焦态大模糊投影恢复
-             （box-shadow 通道过渡 0.5s 同拍，globals.css .search-pill）。
-             v8.7.55：上浮/下沉 = scale 恒值化（非聚焦 scale-100，聚焦
-             scale-[1.015]，scale 属性恒有值——聚焦/退出聚焦与入场动画
-             收尾都不再出现 scale→none 的层撤销重栅格化，「内部子元素
-             复位」从根上消除）。transition 显式列表在 globals.css
-             .search-pill（unlayered 胜 utilities）。
-             v8.7.61 结构重排：玻璃底板（磨砂+底色+描边）拆为独立子层
-             （首子元素 .glass-pill），backdrop-filter 不再与 scale 同元素
-             ——Chrome 对「transform/scale 同元素上的 backdrop-filter」
-             取样区不随缩放重算，上浮后底板脱框 → 描边读感位移（上粗下细）
-             的根因；拆层后底板/描边/阴影同属一个渲染子树被父级整体缩放，
-             物理上不可能错位。 */
-          className={`search-pill group absolute inset-x-0 top-0 z-30 flex flex-col overflow-hidden rounded-[28px] ${
+          /* v8.7.62：选中描边回退 v8.7.54——大模糊投影 + 框外 1px ring
+             （ring-zinc-900/15 / dark:ring-white/25，box-shadow 通道过渡
+             0.5s 同拍，globals.css .search-pill）。
+             v8.7.61：底板跟随根修——backdrop-filter 不再与 scale 同元素
+             （Chrome 对同元素磨砂取样区不随缩放重算 → 上浮后底板脱框、
+             描边读感位移的根因），玻璃底板拆独立子层随父级整体缩放。
+             v8.7.62 取消选中后下边描边不均匀根修：v8.7.61 把描边随底板
+             画在了 form overflow-hidden 的裁剪边界线上——直边描边恰好压
+             clip 线被抗锯齿吃半像素（聚焦态被投影掩盖，取消选中后露出
+             下边发虚不匀）。裁剪职责下放到内容裁剪层（输入行+建议列表
+             包裹层），底板描边彻底脱离 clip 边界，四边同参渲染。 */
+          className={`search-pill group absolute inset-x-0 top-0 z-30 flex flex-col rounded-[28px] ${
             focused
-              ? "scale-[1.015] shadow-[0_10px_50px_-8px_rgba(0,0,0,0.25)]"
+              ? "scale-[1.015] shadow-[0_10px_50px_-8px_rgba(0,0,0,0.25)] ring-1 ring-zinc-900/15 dark:ring-white/25"
               : "scale-100"
           }`}
         >
@@ -389,6 +387,11 @@ function SearchBar({
             aria-hidden
             className="glass-pill backdrop-blur-2xl backdrop-saturate-150 pointer-events-none absolute inset-0 rounded-[28px]"
           />
+          {/* v8.7.62 内容裁剪层：裁剪职责自 form 下放（form 撤 overflow-hidden
+              ——否则底板描边压在裁剪线上被抗锯齿吃半像素，下边发虚不匀）；
+              h-full+min-h-0 跟随表单高度动画收缩，rounded-[28px] 承担
+              建议行底部圆角裁剪（与原 form 裁剪同参同位） */}
+          <div className="relative h-full min-h-0 overflow-hidden rounded-[28px]">
           {/* 输入行：恒居顶部、高度锁定；建议列表在其下，由表单 height 动画整体
               揭示。transition 只含默认属性表（不含 height）——禅雾化与聚焦缩放/
               阴影照常，且不与 framer 逐帧内联 height 打架 */}
@@ -543,6 +546,8 @@ function SearchBar({
               </button>
             ))}
           </div>
+          </div>
+          {/* /v8.7.62 内容裁剪层 */}
         </motion.form>
       </div>
 

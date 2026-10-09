@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.62",
+    title: "选中描边回退 8.7.54 与描边均匀性修复",
+    highlights: [
+      "选中搜索框的描边效果回退 8.7.54：大模糊投影 + 框外 1px 描边环",
+      "修复取消选中后搜索框下边描边发虚不匀：描边不再压在裁剪边界上",
+      "搜索框上浮 / 下沉时底板、描边、投影整体同步跟随",
+    ],
+    channel: "shell",
+  },
+  {
     version: "8.7.61",
     title: "聚焦描边回归与资源嗅探修复",
     highlights: [
