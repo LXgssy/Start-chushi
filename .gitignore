@@ -100,3 +100,6 @@ scripts/ci-status-*
 # build deliverables (keep out of tailwind scan & repo)
 /download/
 /_next/
+
+# release pull-back stray
+/rel.zip
