@@ -22,6 +22,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.64",
+    title: "禅模式磨砂修复与搜索框上浮回归",
+    highlights: [
+      "修复进入 / 退出禅模式后搜索框磨砂消失：雾化通道撤离搜索框本体，改道底板与内容子层",
+      "搜索框选中上浮 / 下沉动画回归：以位移 + 投影承载，磨砂全程不再冻结",
+    ],
+    channel: "shell",
+  },
+  {
     version: "8.7.63",
     title: "搜索框复位期描边错位根修",
     highlights: [

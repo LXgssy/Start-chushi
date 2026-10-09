@@ -1496,20 +1496,22 @@ html.cs-drawer-closing .cl-fade-leaf {
         transform 从关键帧值切到「有值的恒等变换」而非 none，配合 ③ 的
         will-change 常驻合成层，纹理全程不重栅格化（「搜索框内部子元素
         在入场动画后复位、位移」的根因 = 层撤销重栅格化）；
-     ② 显式 transition 列表（unlayered 胜 Tailwind utilities）：box-shadow
-        承载聚焦投影与描边环的淡入淡出（组件类里 transition 已退役），
-        opacity/filter 同参承载禅雾化进出（html.zen .search-pill 覆盖值
-        与此处同构，退禅回基态也有过渡）；height 是 framer 内联动画，
-        刻意不在表内。
+     ② 显式 transition 列表（unlayered 胜 Tailwind utilities）：top 承载
+        聚焦上浮/下沉位移（v8.7.64 回归），box-shadow 承载聚焦投影与描边
+        环的淡入淡出（组件类里 transition 已退役）；height 是 framer 内联
+        动画，刻意不在表内。
+        v8.7.64：opacity/filter 通道从 form 撤出——禅雾化改道子层（见
+        html.zen .search-pill），form 是磨砂子层的祖先，自身任何 filter/
+        opacity 都会成为 backdrop root 杀死 glass-pill 磨砂（磨砂存活律）。
         v8.7.63：scale 通道退役——compositor-only scale 过渡不触发主帧，
         Chrome 对底板磨砂取样在过渡期全程冻结（磨砂内容滞后于收缩中的
         边框 → 上下描边读感错位，收尾补采样瞬间归位 = 复位期「错位复位」
-        的根因）；聚焦态不再做几何变更，浮起感由 box-shadow 通道独自承载 */
+        的根因）；浮起改由 top 位移承载（布局通道永不合成器化，逐帧主
+        线程重排 → 磨砂逐帧重取样，与建议列表高度动画同机制） */
   transform: translateY(0) scale(1);
   transition:
-    box-shadow 0.5s cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 0.5s cubic-bezier(0.22, 1, 0.36, 1),
-    filter 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+    top 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.5s cubic-bezier(0.22, 1, 0.36, 1);
   will-change: transform;
 }
 @keyframes pill-shell-in {
@@ -1524,7 +1526,13 @@ html.cs-drawer-closing .cl-fade-leaf {
   animation: pill-content-in 0.95s cubic-bezier(0.22, 1, 0.36, 1) 0.24s backwards;
   /* v8.7.55 复位根修：内容层（输入行/建议列表）常驻 filter 层——
      pill-content-in 收尾 blur(0)→none 与级联撤销不再触发文字重栅格化；
-     子树内无磨砂元素，常驻 backdrop root 无害（磨砂存活律） */
+     子树内无磨砂元素，常驻 backdrop root 无害（磨砂存活律）。
+     v8.7.64：禅雾化过渡通道常驻子层两侧状态（保证进禅雾化、退禅显影
+     都有拍）：底板走自身 opacity 淡出（自身 opacity 不改自身磨砂取样），
+     内容层走 opacity+blur 雾化，同拍 0.5s */
+  transition:
+    opacity 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.5s cubic-bezier(0.22, 1, 0.36, 1);
   will-change: filter, opacity;
 }
 
@@ -1675,9 +1683,11 @@ main .cl-links .link-intro-ring {
 /* ================================================================
    禅模式进出：雾化散场/聚拢——雾化 filter 只作用于无玻璃子树
    （zen-fade=时钟段 / cl-widgets=iframe 容器）；玻璃载体（zen-gone 磁贴墙 /
-   zen-dock / search-pill）退场一律 opacity+blur(12px) 雾化 + visibility
-   末帧隐没（玻璃载体已由退禅 defrostGlass 强制重挂兜底磨砂复原，见
-   use-start-zen.ts——雾化观感与磨砂存活双满足）。
+   zen-dock）退场一律 opacity+blur(12px) 雾化 + visibility 末帧隐没（玻璃
+   载体已由退禅 defrostGlass 强制重挂兜底磨砂复原，见 use-start-zen.ts——
+   雾化观感与磨砂存活双满足）。search-pill 例外：v8.7.61 拆层后磨砂在
+   子层，form 上雾化会杀死子层磨砂取样——雾化通道下放子层（见其规则区
+   v8.7.64 改道注释）。
    ================================================================ */
 .zen-fade {
   transition:
@@ -1749,19 +1759,28 @@ html.zen .zen-dock {
     filter 0.65s cubic-bezier(0.22, 1, 0.36, 1),
     visibility 0s 0.65s;
 }
-/* 搜索药丸禅退场：opacity+blur(12px) 与时钟段同语言散场/显影；zen 态
-   专属 transition 只在禅窗内生效；退禅由基线 Tailwind transition（含
-   opacity/filter，duration-500）接管显影，visibility 即时可见，聚焦缩放/
-   阴影过渡不受影响。 */
+/* 搜索药丸禅退场（v8.7.64 改道·磨砂存活律）：form 是 glass-pill 磨砂
+   子层的【祖先】，form 上任何 opacity/filter 都会把 form 变成 backdrop
+   root，子层磨砂取样随即死亡——v8.7.61 拆层后禅雾化一直误杀磨砂（退禅
+   后肉眼可见磨砂消失），defrost 重挂也救不回（重挂发生在 html.zen 移除
+   前，毒物仍在；dock 未拆层所以同款雾化不受伤）。雾化通道全数下放：
+   底板走自身 opacity 淡出，内容层走 opacity+blur 雾化（.search-pill > *
+   常驻两侧过渡）；form 只管 visibility 末帧隐没、pointer-events 与聚焦
+   投影/描边环的同步淡出。退禅 visibility 即时可见，子层过渡承接显影。 */
 html.zen .search-pill {
-  opacity: 0;
-  filter: blur(12px);
   visibility: hidden;
   pointer-events: none;
+  box-shadow: 0 0 0 0 transparent;
   transition:
-    opacity 0.5s cubic-bezier(0.22, 1, 0.36, 1),
-    filter 0.5s cubic-bezier(0.22, 1, 0.36, 1),
-    visibility 0s 0.5s;
+    visibility 0s 0.5s,
+    box-shadow 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+html.zen .search-pill .glass-pill {
+  opacity: 0;
+}
+html.zen .search-pill > :not(.glass-pill) {
+  opacity: 0;
+  filter: blur(12px);
 }
 
 /* ---------- 禅模式覆盖层（迷你时钟/迷你番茄钟/提示词宿主）：常驻 DOM +

@@ -364,7 +364,12 @@ function SearchBar({
               setActive(-1);
             }
           }}
-          /* v8.7.63：scale 通道整体退役——compositor-only scale 过渡不触发
+          /* v8.7.64：上浮/下沉动画回归——浮起改由 top 位移承载（聚焦 -top-1
+             = -4px，与基态 top-0 互斥写在聚焦分支防同类冲突）：top 是布局
+             通道属性，Chrome 永不合成器化，逐帧主线程重排重绘 → 底板磨砂
+             逐帧重取样（与建议列表 framer 高度动画同机制），既保住浮起感
+             又不落入新律⑬的合成器几何动画冻结窗口。
+             v8.7.63：scale 通道退役——compositor-only scale 过渡不触发
              主帧，Chrome 对底板磨砂取样在过渡期全程冻结（磨砂内容滞后于
              收缩/放大中的边框 → 上下描边读感错位，过渡收尾补采样瞬间归位
              = 复位期「错位复位」的根因）。聚焦/取消选中只剩 box-shadow 纯
@@ -376,10 +381,10 @@ function SearchBar({
              v8.7.61：底板跟随根修——backdrop-filter 不再与变换同元素
              （Chrome 对同元素磨砂取样区不随缩放重算 → 上浮后底板脱框、
              描边读感位移的根因），玻璃底板拆独立子层。 */
-          className={`search-pill group absolute inset-x-0 top-0 z-30 flex flex-col rounded-[28px] ${
+          className={`search-pill group absolute inset-x-0 z-30 flex flex-col rounded-[28px] ${
             focused
-              ? "shadow-[0_10px_50px_-8px_rgba(0,0,0,0.25)] ring-1 ring-zinc-900/15 dark:ring-white/25"
-              : ""
+              ? "-top-1 shadow-[0_10px_50px_-8px_rgba(0,0,0,0.25)] ring-1 ring-zinc-900/15 dark:ring-white/25"
+              : "top-0"
           }`}
         >
           {/* 玻璃底板：磨砂/底色/描边全在这层（.glass-pill 变体规则全部
