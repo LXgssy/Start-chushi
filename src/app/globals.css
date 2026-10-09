@@ -1895,8 +1895,10 @@ html.cs-lite.dark .cl-panel,
 html.cs-lite.dark .cl-dockwidget {
   background: rgba(24, 24, 27, 0.94) !important;
 }
-/* 磨砂随流畅模式关停——玻璃卡片退 0.94 实底后不再保留 backdrop 合成开销 */
+/* 磨砂随流畅模式关停——玻璃卡片退 0.94 实底后不再保留 backdrop 合成开销
+   （v8.7.61 补 .glass-pill：搜索药丸底板拆层后磨砂在子层上，同样关停） */
 html.cs-lite .glass-card,
+html.cs-lite .glass-pill,
 html.cs-lite .cl-panel,
 html.cs-lite .cl-dockwidget {
   backdrop-filter: none !important;
@@ -2244,15 +2246,9 @@ html.photo-mode .veil-hold-2xl {
      的打开动画同步」）：同时长同曲线 cubic-bezier(0.5,0,0.3,1)——模糊让位
      与壁纸浮出同拍起步同拍落座（凝聚 v8.7.16 加快后同步 0.50s→0.40s）。
      回缩（closing 摘除放大态失配）同走本条与散场同窗。
-     v8.7.59 聚焦联动补拍：search-float 的壁纸放大走独立 scale 属性（与
-     transform 通道互不覆盖），不在上表 → v8.7.55 落地时只写了目标值漏了
-     过渡，缩放瞬时跳变（用户实测「选中搜索框后壁纸缩放没有动画」）。
-     补 scale 通道同参 .search-pill 浮起（0.5s cubic-bezier(0.22,1,0.36,1)），
-     选中/退出选中与搜索框上浮/下沉同拍放大/还原；scale 亦为合成层动画，
-     cs-lite 流畅模式零磨砂照常流畅。 */
-  transition:
-    transform 0.40s cubic-bezier(0.5, 0, 0.3, 1),
-    scale 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+     （v8.7.55→v8.7.60 曾有的聚焦壁纸缩放联动已整体退役：v8.7.61 用户
+     裁定「把选中搜索框后壁纸放大/缩小的效果删了」，壁纸回归纯抽屉联动。） */
+  transition: transform 0.40s cubic-bezier(0.5, 0, 0.3, 1);
 }
 html.cs-drawer:not(.cs-drawer-closing).photo-mode .wallpaper-layer {
   transform: scale(1.08);
@@ -2266,19 +2262,6 @@ html.cs-drawer:not(.cs-drawer-closing).photo-mode .wallpaper-layer {
   }
 }
 
-/* ---------- v8.7.55 搜索框聚焦 × 壁纸联动（用户裁定）：退役聚焦描边，
-   改为选中/退出选中时壁纸跟随搜索框上浮/下沉等参缩放/还原。
-   v8.7.60 方向反转（用户裁定「把选中搜索框壁纸放大改成壁纸缩小」）：
-   搜索框聚焦上浮 1.015，壁纸反向收缩 0.985（1/1.015 对称等比），主体更聚焦。
-   独立 scale 属性与抽屉的 transform 通道互不覆盖（乘积合成，且「抽屉
-   打开」与「搜索聚焦」两个场景天然不共存）；0.5s 同搜索框浮起曲线
-   （globals.css .search-pill transition），同拍收缩/还原。
-   html.search-float 由 SearchBar 聚焦态挂载（卸载/失焦移除）。 ---------- */
-html.search-float .wallpaper-layer {
-  scale: 0.985;
-}
-@media (prefers-reduced-motion: reduce) {
-  html.search-float .wallpaper-layer {
-    scale: none;
-  }
-}
+/* ---------- v8.7.55→v8.7.60 搜索框聚焦 × 壁纸联动（已退役）：
+   v8.7.61 用户裁定「把选中搜索框后壁纸放大/缩小的效果删了」，
+   html.search-float 挂类链与壁纸缩放规则全部撤销，壁纸层不再参与聚焦态。 ---------- */

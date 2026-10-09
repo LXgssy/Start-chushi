@@ -165,7 +165,12 @@ const SITE_GLYPHS: Record<string, ReactNode> = {
   ),
   douyin: (
     <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-      <path d="M17.6 3c.4 2.1 1.7 3.4 3.8 3.6v2.7c-1.4 0-2.7-.4-3.8-1.2v6c0 3.3-2.3 5.4-5.3 5.4-2.9 0-5-2.1-5-4.9 0-3 2.5-5.1 5.8-4.8v2.8c-1.7-.3-3.1.6-3.1 2 0 1.3 1 2.2 2.4 2.2 1.5 0 2.5-1 2.5-2.7V3h2.7z" />
+      {/* v8.7.61 音符居中：路径实绘 bbox x∈[7.3,21.4] y∈[3,19.5]，质心
+          (14.35,11.25) 偏右上——translate(-2.35,0.75) 归中到 (12,12) */}
+      <path
+        transform="translate(-2.35 0.75)"
+        d="M17.6 3c.4 2.1 1.7 3.4 3.8 3.6v2.7c-1.4 0-2.7-.4-3.8-1.2v6c0 3.3-2.3 5.4-5.3 5.4-2.9 0-5-2.1-5-4.9 0-3 2.5-5.1 5.8-4.8v2.8c-1.7-.3-3.1.6-3.1 2 0 1.3 1 2.2 2.4 2.2 1.5 0 2.5-1 2.5-2.7V3h2.7z"
+      />
     </svg>
   ),
 };
@@ -222,14 +227,9 @@ function SearchBar({
   const engine = getEngine(settings.engineId);
   const suggestOn = settings.searchSuggest;
 
-  /* v8.7.55 聚焦浮起联动壁纸：html.search-float 由 globals.css 承载壁纸层
-     等参缩放（同曲线同时长，视觉一件事）；卸载/失焦移除，防状态残留 */
-  useEffect(() => {
-    document.documentElement.classList.toggle("search-float", focused);
-    return () => document.documentElement.classList.remove("search-float");
-  }, [focused]);
-
-  /* 页面级快捷键通过事件请求聚焦搜索框；可携带欲直输的首字符 */
+  /* 页面级快捷键通过事件请求聚焦搜索框；可携带欲直输的首字符
+     （v8.7.55→v8.7.60 曾有的聚焦壁纸联动已整体退役：v8.7.61 用户裁定
+     「把选中搜索框后壁纸放大/缩小的效果删了」，html.search-float 随之撤销） */
   useEffect(() => {
     const onFocus = (e: Event) => {
       const detail = (e as CustomEvent).detail as { char?: string } | undefined;
@@ -364,23 +364,35 @@ function SearchBar({
               setActive(-1);
             }
           }}
-          /* v8.7.55：聚焦描边（ring）按用户裁定退役；上浮/下沉 = scale 恒值化
-             （非聚焦 scale-100，聚焦 scale-[1.015]，scale 属性恒有值——
-             聚焦/退出聚焦与入场动画收尾都不再出现 scale→none 的层撤销
-             重栅格化，「内部子元素复位」从根上消除）。transition 显式
-             列表在 globals.css .search-pill（unlayered 胜 utilities）。
-             v8.7.60：聚焦阴影（大模糊投影，壁纸上像一圈加粗描边）按用户
-             裁定退役——聚焦态只留 scale 上浮 + 壁纸反向收缩联动，
-             退场零过渡残留（阴影为重绘属性，0.5s 过渡在合成器掉帧
-             正是「取消选中后消失卡一下」的根因） */
-          className={`glass-pill backdrop-blur-2xl backdrop-saturate-150 search-pill group absolute inset-x-0 top-0 z-30 flex flex-col overflow-hidden rounded-[28px] ${
-            focused ? "scale-[1.015]" : "scale-100"
+          /* v8.7.61：描边效果按用户裁定回退 v8.7.55——聚焦态大模糊投影恢复
+             （box-shadow 通道过渡 0.5s 同拍，globals.css .search-pill）。
+             v8.7.55：上浮/下沉 = scale 恒值化（非聚焦 scale-100，聚焦
+             scale-[1.015]，scale 属性恒有值——聚焦/退出聚焦与入场动画
+             收尾都不再出现 scale→none 的层撤销重栅格化，「内部子元素
+             复位」从根上消除）。transition 显式列表在 globals.css
+             .search-pill（unlayered 胜 utilities）。
+             v8.7.61 结构重排：玻璃底板（磨砂+底色+描边）拆为独立子层
+             （首子元素 .glass-pill），backdrop-filter 不再与 scale 同元素
+             ——Chrome 对「transform/scale 同元素上的 backdrop-filter」
+             取样区不随缩放重算，上浮后底板脱框 → 描边读感位移（上粗下细）
+             的根因；拆层后底板/描边/阴影同属一个渲染子树被父级整体缩放，
+             物理上不可能错位。 */
+          className={`search-pill group absolute inset-x-0 top-0 z-30 flex flex-col overflow-hidden rounded-[28px] ${
+            focused
+              ? "scale-[1.015] shadow-[0_10px_50px_-8px_rgba(0,0,0,0.25)]"
+              : "scale-100"
           }`}
         >
+          {/* 玻璃底板：磨砂/底色/描边全在这层（.glass-pill 变体规则全部
+              命中子层），pointer-events 穿透、随表单缩放整体移动 */}
+          <div
+            aria-hidden
+            className="glass-pill backdrop-blur-2xl backdrop-saturate-150 pointer-events-none absolute inset-0 rounded-[28px]"
+          />
           {/* 输入行：恒居顶部、高度锁定；建议列表在其下，由表单 height 动画整体
               揭示。transition 只含默认属性表（不含 height）——禅雾化与聚焦缩放/
               阴影照常，且不与 framer 逐帧内联 height 打架 */}
-          <div className="flex h-14 shrink-0 items-center gap-2 px-3">
+          <div className="relative flex h-14 shrink-0 items-center gap-2 px-3">
             {/* 引擎选择 */}
             <Popover.Root>
               <Popover.Trigger
@@ -412,11 +424,12 @@ function SearchBar({
                         key={e.id}
                         onClick={() => onPatchSettings({ engineId: e.id })}
                         /* v8.7.60 选中态（用户裁定）：对勾退役，改选框框住整行
-                           （ring 内沿 1.5px 中性框，box-shadow 通道不挤布局）；
-                           transition 显式含 box-shadow 让框的出现/消失同 hover 顺滑 */
+                           （ring 内沿 1.5px，box-shadow 通道不挤布局）；
+                           v8.7.61：框色跟强调色 var(--ui-accent)（用户裁定），
+                           transition 显式含 box-shadow 让框的出现/消失顺滑 */
                         className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-zinc-600 transition-[background-color,box-shadow] duration-150 hover:bg-zinc-900/5 dark:text-zinc-300 dark:hover:bg-white/10 ${
                           e.id === settings.engineId
-                            ? "ring-[1.5px] ring-inset ring-zinc-400/90 dark:ring-zinc-500/90"
+                            ? "ring-[1.5px] ring-inset ring-[color:var(--ui-accent)]"
                             : ""
                         }`}
                       >
@@ -432,11 +445,12 @@ function SearchBar({
                         onClick={() => onPatchSettings({ engineId: e.id })}
                         className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm text-zinc-600 transition-[background-color,box-shadow] duration-150 hover:bg-zinc-900/5 dark:text-zinc-300 dark:hover:bg-white/10 ${
                           e.id === settings.engineId
-                            ? "ring-[1.5px] ring-inset ring-zinc-400/90 dark:ring-zinc-500/90"
+                            ? "ring-[1.5px] ring-inset ring-[color:var(--ui-accent)]"
                             : ""
                         }`}
                       >
-                        {/* v8.7.60：色点退役（用户裁定），改站点品牌简标 */}
+                        {/* v8.7.60：色点退役（用户裁定），改站点品牌简标
+                            v8.7.61：选框颜色跟强调色（用户裁定） */}
                         <span className="flex items-center gap-2 font-light">
                           <SiteGlyph id={e.id} color={e.color} />
                           {e.name}
@@ -499,7 +513,7 @@ function SearchBar({
             aria-hidden={!showDrop}
             data-open={showDrop ? "true" : undefined}
             onMouseLeave={() => setActive(-1)}
-            className={`search-sug-list${cascade ? " sug-cascade" : ""}${
+            className={`search-sug-list relative${cascade ? " sug-cascade" : ""}${
               cascadeOut ? " sug-cascade-out" : ""
             }`}
           >

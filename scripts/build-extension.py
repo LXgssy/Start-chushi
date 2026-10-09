@@ -62,7 +62,7 @@ OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
 EXT_SRC = ROOT / "extension-src"    # v8.2.0 SW/内容脚本源
-VERSION = "8.7.60"
+VERSION = "8.7.61"
 DEST = ROOT / f"download/v{VERSION}/ChuShi-NewTab-v{VERSION}.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():
@@ -300,7 +300,22 @@ manifest = {
     # 直接拿不到坐标（只能手动搜城市）；网页版走标准 Web 权限流程，不受影响。
     # PRIVACY.md / README 一直按「扩展声明 geolocation」描述，本次补齐实现。
     # v8.4.5：+alarms——云端静默更新器周期检查（ext-bg.js 更新器，6h）。
-    "permissions": ["storage", "tabs", "scripting", "geolocation", "alarms"],
+    # v8.7.61：+webRequest——资源嗅探数据面（ext-bg 顶层
+    # chrome.webRequest.onCompleted 监听 media/image/object/xhr/other 五类
+    # 响应分类入库）。v8.7.55→v8.7.60 嗅探「浮窗能开但永远零资源」的根因：
+    # manifest 从未声明 webRequest，API 面不存在，监听器注册抛错被顶层
+    # try/catch 静默吞掉——本地静态验证只查代码链存在，查不出权限缺失。
+    # +downloads——嗅探下载代理（浮球 sniffer-download → SW
+    # chrome.downloads.download；content script 无 downloads API，架构律⑤）。
+    "permissions": [
+        "storage",
+        "tabs",
+        "scripting",
+        "geolocation",
+        "alarms",
+        "webRequest",
+        "downloads",
+    ],
     # v8.7.42 预设 API 开放律：预设声明的远端域经用户在导入授权步骤逐域授予
     # （chrome.permissions.request 由用户手势触发，弹域清单确认弹窗）。可选权限
     # 声明不影响安装时提示文案；SW csProxyFetch 在 fetch 前复核 permissions.contains
@@ -505,6 +520,13 @@ if "scripting" not in _m.get("permissions", []):
     sys.exit("manifest 缺 scripting 权限——v8.3.1 注入兜底缺失")
 if "http://*/*" not in _m.get("host_permissions", []) or "https://*/*" not in _m.get("host_permissions", []):
     sys.exit("manifest 缺 http/https 通配 host_permissions——v8.3.1 补针无执行权")
+# v8.7.61 门：资源嗅探双权限（webRequest 数据面 + downloads 下载代理）
+# ——v8.7.55 以来权限层缺失致 webRequest.onCompleted 注册静默失败，
+# 嗅探浮窗永远零资源（代码链五处全在也白搭）；此门保证权限层永不回退。
+if "webRequest" not in _m.get("permissions", []):
+    sys.exit("manifest 缺 webRequest 权限——v8.7.61 资源嗅探数据面失效根因，永不回退")
+if "downloads" not in _m.get("permissions", []):
+    sys.exit("manifest 缺 downloads 权限——嗅探下载代理 chrome.downloads.download 失效")
 # v8.4.5 门：本地直载壳三要素（路由 + 地址栏收敛 + 站点 SW）+ alarms + 快照沙箱特权
 if _m.get("optional_host_permissions") != ["https://*/*", "http://127.0.0.1/*", "http://localhost/*"]:
     sys.exit("manifest 缺 optional_host_permissions——v8.7.42 预设 API 开放律")

@@ -22,6 +22,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.61",
+    title: "聚焦描边回归与资源嗅探修复",
+    highlights: [
+      "选中搜索框的壁纸放大 / 缩小联动整体移除：壁纸不再跟随搜索框聚焦",
+      "聚焦描边与大模糊投影回归：搜索框底板随上浮整体跟随，描边不再上粗下细",
+      "搜索引擎选中的选框颜色跟随强调色设置",
+      "抖音直搜图标的音符图案在图标内居中",
+      "资源嗅探修复：补齐缺失的 webRequest / downloads 权限，嗅探与一键下载恢复正常",
+    ],
+    channel: "shell",
+  },
+  {
     version: "8.7.60",
     title: "搜索框聚焦视觉与引擎选择器打磨",
     highlights: [
