@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.70",
+    date: "2026-10-10",
+    title: "搜索框底板随动复位——下沉收尾描边位移确定性根修",
+    highlights: [
+      "根修取消选中后下沉动画播完、底板（磨砂玻璃层）残留位移且事后才突兀归位的问题：底板改为在下沉收尾与搜索框同一笔提交里整层重建，新栅格只能落在最终位置，残留位移从机制上不可能再发生",
+      "上浮驻留态收尾保留强制重栅格兜底；磨砂取样、描边形态与动画观感完全不变",
+    ],
+    channel: "shell",
+  },
+  {
     version: "8.7.69",
     title: "B 站完整视频下载与描边弧线彻底根修",
     highlights: [

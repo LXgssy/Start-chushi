@@ -1533,7 +1533,11 @@ html.cs-drawer-closing .cl-fade-leaf {
      祖先缩放（raster scale 钉死于页面比例）：动画期重栅格全部发生在
      同一比例 → 栅格逐位等同静息态，弧线相位漂移物理性消失。
      transform 不是 grouping 属性，不构成 backdrop root，磨砂存活律不受
-     影响（form 自 v8.7.55 起同参数常驻，磨砂正常）。 */
+     影响（form 自 v8.7.55 起同参数常驻，磨砂正常）。
+     v8.7.70 增补：钉死只保证「动画期重栅格同相位」，不保证最后一次
+     重栅格恰好落在终态（真机 GPU 启发式不落地即残留中间相位）——
+     下沉收尾由 SearchBar 的底板随动复位（DOM 摘插强制合成层重建）
+     确定性兜底，本钉死保留作动画期相位一致性辅助。 */
   will-change: transform;
 }
 @keyframes pill-shell-in {

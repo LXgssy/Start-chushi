@@ -351,7 +351,10 @@ function SearchBar({
      与本动画并行互不干扰。
      v8.7.69：收尾加重栅格脉冲（0.62px 透明 outline 一拍）+ 玻璃层
      will-change 栅格钉死（globals.css）——真机分数 DPR 下沉收尾后
-     圆角弧线描边位移（残留中间比例栅格的吸附相位差）双保险根修。 */
+     圆角弧线描边位移（残留中间比例栅格的吸附相位差）双保险根修。
+     v8.7.70：下沉收尾升级为底板随动复位——DOM 摘插强制玻璃合成层
+     重建，新层首栅格确定性落在静息相位（脉冲依赖的栅格启发式真机
+     不落地，详见收尾分支注释）；上浮收尾保留脉冲兜底。 */
   useEffect(() => {
     const pill = pillRef.current;
     if (!pill) return;
@@ -384,22 +387,49 @@ function SearchBar({
       } else {
         floatScaleRef.current = to;
         pill.style.transform = to === 1 ? "" : `scale(${FLOAT_SCALE})`;
-        /* v8.7.69 收尾重栅格脉冲（描边弧线位移兜底保险）：终态样式落定的同
-           一笔样式更新里把 outline 拉到 0.62px 透明——亚像素 0.02↔0.04 的
-           损伤矩形会被取整丢弃，0.62px 在分数 DPR 下 ≥1 设备像素，必然
-           产生整层失效 → 玻璃层在最终变换态（scale 恒等落定）完整重栅格
-           一次，动画期可能残留的中间比例吸附相位被末态栅格覆盖（真机
-           GPU 栅格化在无头环境不可复现，此脉冲与 globals.css 的
-           will-change 栅格钉死双保险，两者任一生效即无位移）。
-           双 rAF 后回 0.02 基线（paint bounds 复位，v8.7.68 基线律不变）。 */
         if (glass) {
-          glass.style.outline = "0.62px solid transparent";
-          settleRaf = requestAnimationFrame(() => {
+          if (to === 1) {
+            /* v8.7.70 底板随动复位（用户实测诊断落地：「下沉播完后底板没有
+               跟随搜索框整体正确复位，取消选中后还要进行一次突兀去掉位移
+               去复位」）：v8.7.68 环同层化与 v8.7.69 栅格钉死+outline 脉冲
+               都建立在合成器栅格启发式之上——真机 GPU（Windows 分数 DPR）
+               上启发式不落地，动画期烙进栅格的中间相位要等下一次偶然重绘
+               才被纠正，正是用户所见「底板残留位移+事后突兀归位」。根修
+               改为确定性机制：下沉终态样式落定的同一笔 JS 同步块里把玻璃
+               底板从 DOM 摘下再原位插回——LayoutObject、PaintLayer、cc
+               合成层全链销毁重建，新层首栅格只能落在最终几何（表单 scale
+               已恒等=静息相位），「残留中间相位」物理性不存在；摘与插在
+               同一个同步块内完成，渲染帧之间底板从未缺席，零闪烁。
+               两个前置同笔写入：① glass.style.animation="none"——reattach
+               会重启 CSS 入场动画（pill-content-in，0.24s 延迟 + backwards
+               填充 = 底板先消失再淡入，灾难级闪烁），入场动画在 mount 已
+               播完，此后永久压制零视觉影响，还杜绝后续任何重挂载重播；
+               ② outline 回 0.02 常驻基线（v8.7.68 基线律：禁清零态）。
+               v8.7.69 的 0.62px 脉冲对下沉收尾退役（层重建本身即最强重
+               栅格），上浮收尾（scale 1.015 驻留态）仍保留脉冲兜底。 */
+            glass.style.animation = "none";
+            glass.style.outline = "0.02px solid transparent";
+            const parent = glass.parentNode;
+            const next = glass.nextSibling;
+            if (parent) {
+              parent.removeChild(glass);
+              if (next) parent.insertBefore(glass, next);
+              else parent.appendChild(glass);
+            }
+          } else {
+            /* v8.7.69 收尾重栅格脉冲（上浮驻留态兜底）：终态样式落定的同
+               一笔样式更新里把 outline 拉到 0.62px 透明——亚像素 0.02↔0.04
+               的损伤矩形会被取整丢弃，0.62px 在分数 DPR 下 ≥1 设备像素，
+               必然产生整层失效 → 玻璃层在上浮最终变换态完整重栅格一次。
+               双 rAF 后回 0.02 基线（v8.7.68 基线律不变）。 */
+            glass.style.outline = "0.62px solid transparent";
             settleRaf = requestAnimationFrame(() => {
-              if (glassRef.current)
-                glassRef.current.style.outline = "0.02px solid transparent";
+              settleRaf = requestAnimationFrame(() => {
+                if (glassRef.current)
+                  glassRef.current.style.outline = "0.02px solid transparent";
+              });
             });
-          });
+          }
         }
       }
     };
