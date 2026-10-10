@@ -230,8 +230,20 @@
     py = Math.min(Math.max(8, py), Math.max(8, window.innerHeight - 420));
     panel.style.left = px + "px";
     panel.style.top = py + "px";
-    toast.style.left = Math.max(8, px) + "px";
-    toast.style.top = Math.max(8, by - 44) + "px";
+    placeToast();
+  }
+  /* v8.7.68 提示词改挂在嗅探面板上方（用户：「提示嗅探到多少资源的提示词
+     位置放到嗅探弹窗的上方」）：旧定位锚在浮球上沿（by - 44），新定位 =
+     面板左缘对齐 + 面板顶沿上方 10px 间距（toast 高度实时测，
+     display:none 时 offsetHeight=0 走 33px 兑底）；面板开合/拖球跟随时
+     toast 同步跟随（placePanel 尾链），高度不足时 clamp 到视口上沿。 */
+  function placeToast() {
+    if (toast.style.display === "none") return;
+    var px2 = Math.max(8, parseFloat(panel.style.left) || 0);
+    var py2 = parseFloat(panel.style.top) || 0;
+    var th = toast.offsetHeight || 33;
+    toast.style.left = px2 + "px";
+    toast.style.top = Math.max(8, py2 - th - 10) + "px";
   }
   window.addEventListener("resize", function () {
     if (state.on) applyBallPos();
@@ -443,6 +455,7 @@
     toast.textContent = msg;
     toast.style.display = "block";
     void toast.offsetHeight;
+    placeToast();
     toast.classList.add("show");
     if (state.toastTimer) clearTimeout(state.toastTimer);
     state.toastTimer = setTimeout(function () {
