@@ -22,6 +22,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.67",
+    title: "站点图标铺满磁贴与主色打底",
+    highlights: [
+      "「站点图标」风格与自绘未收录站点升级为同款观感：图标铺满整块磁贴，不再小图居中",
+      "磁贴底色自动取自站点图标的主色，与自绘图标观感统一；灰阶图标自动回落原配色",
+    ],
+    channel: "shell",
+  },
+  {
     version: "8.7.66",
     title: "资源嗅探重写与搜索引擎选择器打磨",
     highlights: [

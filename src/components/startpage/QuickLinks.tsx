@@ -60,6 +60,7 @@ import {
   useSelfdrawIcon,
   hexHue,
 } from "@/lib/startpage/selfdraw-icons";
+import { useFaviconDom } from "@/lib/startpage/favicon-dom";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -129,15 +130,31 @@ function TileIcon({
      未达（miss）→ 回落站点图标链；loading（数据拉取中）显示字母，不闪 favicon
      半帧。自绘册是增强而非依赖：fetch 失败永远只是降级，不阻塞磁贴。 */
   const sd = useSelfdrawIcon(host, iconStyle === "selfdraw");
-  /* v8.7.45 主色磁贴面：自绘命中时描边环/底色都跟随条目主色 dom（环与面同族）；
-     无饱和主色（白/深灰策略底）取 null 回落 host 色相，环保持原有主题行为。 */
-  const effHue =
-    sd.state === "hit" ? (hexHue(sd.entry.dom) ?? hue) : hue;
+  /* v8.7.67 主色打底扩展到 favicon 路径：站点图标风格 + 自绘风格未收录站
+     （showFavicon 分支）也改为「图标铺满 + 主色打底」——主色从图标位图
+     端上提取（扩展页 host 权限免 CORS fetch → 同源 canvas），灰阶 logo /
+     取色失败回落 null，底色保持原域名色相渐变。接口与自绘 dom 同族
+     （#RRGGBB），hexHue 直接复用。 */
   const showFavicon =
     (iconStyle === "favicon" || (iconStyle === "selfdraw" && sd.state === "miss")) &&
     !!host &&
     !exhausted &&
     !!src;
+  /* v8.7.67 主色打底扩展到 favicon 路径：站点图标风格 + 自绘风格未收录站
+     （showFavicon 分支）也改为「图标铺满 + 主色打底」——主色从图标位图
+     端上提取（扩展页 host 权限免 CORS fetch → 同源 canvas），灰阶 logo /
+     取色失败回落 null，底色保持原域名色相渐变。接口与自绘 dom 同族
+     （#RRGGBB），hexHue 直接复用。（置于 showFavicon 之后：hook 入参依赖它） */
+  const dom = useFaviconDom(showFavicon ? src : null);
+  /* v8.7.45 主色磁贴面：描边环/底色跟随主色（自绘 dom 或 favicon 提取色，
+     环与面同族）；无饱和主色（白/深灰策略底）取 null 回落 host 色相，
+     环保持原有主题行为。 */
+  const effHue =
+    sd.state === "hit"
+      ? (hexHue(sd.entry.dom) ?? hue)
+      : dom
+        ? (hexHue(dom) ?? hue)
+        : hue;
 
   /* v8.6.7 三层拆分（入场三通道，见 globals.css intro-tile-*）：
    *   包裹层（link-intro-tile）只动 transform；霜层（link-intro-frost）承载
@@ -214,12 +231,16 @@ function TileIcon({
           (intro ? "link-intro-body" : "")
         }
         style={{
-          /* v8.7.45：自绘命中 → 磁贴面 = 条目主色 dom 实底（图标铺满同色无缝，
-             色相渐变退役）；其余风格维持原色相渐变（色相亦随主色对齐） */
+          /* v8.7.45→v8.7.67：自绘命中 → 条目主色 dom 实底；favicon 路径
+             （站点图标风格 / 自绘未收录）主色提取成功 → 提取色实底（图标
+             铺满 + 主色打底，与自绘同观感）；提取失败/字母磁贴维持原色相
+             渐变（色相亦随主色对齐） */
           background:
             sd.state === "hit"
               ? sd.entry.dom
-              : "linear-gradient(135deg, hsl(" +
+              : dom
+                ? dom
+                : "linear-gradient(135deg, hsl(" +
                 effHue +
                 " 42% var(--tile-grad-l1, 62%) / var(--tile-grad-a1, 0.22)), hsl(" +
                 ((effHue + 40) % 360) +
@@ -237,13 +258,17 @@ function TileIcon({
             dangerouslySetInnerHTML={{ __html: selfdrawSvg(sd.entry) }}
           />
         ) : showFavicon ? (
+          /* v8.7.67 图标铺满律：favicon 与自绘画作同待遇——absolute inset-0
+             铺满磁贴面，object-cover 对齐自绘 slice（长边裁满短边不留空带），
+             四角由磁贴自身 rounded+overflow-hidden 统一裁切；小图居中+
+             rounded-md 旧形态退役。底色 = 端上提取的图标主色实底（提取中/
+             失败显示原色相渐变，见 dom 定义处注释） */
           <img
             key={src}
             src={src}
             alt=""
-            width={sm ? 28 : 32}
-            height={sm ? 28 : 32}
             loading="lazy"
+            decoding="async"
             draggable={false}
             referrerPolicy="no-referrer"
             onLoad={() => {
@@ -254,7 +279,7 @@ function TileIcon({
               if (idx + 1 < sources.length) setIdx(idx + 1);
               else setExhausted(true);
             }}
-            className={sm ? "h-7 w-7 rounded-md object-contain" : "h-8 w-8 rounded-md object-contain"}
+            className="absolute inset-0 h-full w-full object-cover"
           />
         ) : (
           <span className="tile-letter text-xl font-light tracking-wide text-zinc-100">
