@@ -48,6 +48,8 @@
     toastTimer: 0,
     /* v8.7.69 B 站完整视频下载（仅 B 站视频页出现；SPA 导航换 BV 重置） */
     bili: { bvid: "", page: 1, pages: 0, resolving: false, resolved: null, error: "", downloading: 0 },
+    /* v8.7.71 YouTube 完整视频下载（仅 watch 页出现；SPA 导航换视频重置） */
+    yt: { vid: "", resolving: false, resolved: null, error: "", downloading: 0, progress: null },
   };
 
   /* ---------- Shadow DOM 舞台 ---------- */
@@ -420,6 +422,121 @@
     return p + "%";
   }
 
+  /* ---------- v8.7.71 YouTube 完整视频下载（Ghost Downloader 能力移植） ----------
+     与 B 站区同架构：面板惰性解析（SW 拉 watch 页 → ytInitialPlayerResponse）
+     → MP4 档位列表 → 一键分流下载+浏览器内 remuxYT 合并 → 落盘。 */
+  function detectYt() {
+    var m = String(location.href).match(/youtube\.com\/watch\?[^#]*\bv=([\w-]{11})/);
+    var vid = m ? m[1] : "";
+    if (vid !== state.yt.vid) {
+      state.yt = { vid: vid, resolving: false, resolved: null, error: "", downloading: 0, progress: null };
+    }
+  }
+  function ytResolve() {
+    if (!state.yt.vid || state.yt.resolving || state.yt.resolved || state.yt.error) return;
+    state.yt.resolving = true;
+    if (state.panelOpen) renderPanel();
+    send({ type: "yt-resolve", videoId: state.yt.vid }, function (resp) {
+      state.yt.resolving = false;
+      if (resp && resp.type === "yt-resolve-reply") {
+        if (resp.ok) state.yt.resolved = resp.info;
+        else state.yt.error = String(resp.error || "resolve-fail");
+      } else {
+        state.yt.error = "sw-offline";
+      }
+      if (state.panelOpen) renderPanel();
+    });
+  }
+  function ytStart(itag, label) {
+    if (state.yt.downloading) return;
+    var info = state.yt.resolved;
+    if (!info) return;
+    state.yt.downloading = itag;
+    renderPanel();
+    showToast("开始下载「" + info.title + "」完整视频…");
+    send(
+      { type: "yt-download", videoId: state.yt.vid, itag: itag, label: label, title: info.title },
+      function (resp) {
+        if (!resp || resp.ok !== true) {
+          state.yt.downloading = 0;
+          if (state.panelOpen) renderPanel();
+          showToast("下载启动失败：" + ((resp && resp.error) || "未知错误"));
+        }
+      }
+    );
+  }
+  function ytProgress(msg) {
+    var y = state.yt;
+    if (!y.downloading) return;
+    y.progress = { stage: msg.stage, loaded: msg.loaded || 0, total: msg.total || 0 };
+    var stageLabel = msg.stage === "video" ? "视频" : msg.stage === "audio" ? "音频" : "合并中";
+    var pct = y.progress.total ? Math.min(100, Math.round((y.progress.loaded / y.progress.total) * 100)) : 0;
+    var mb = msg.loaded ? "（" + (msg.loaded / 1048576).toFixed(1) + "MB" + (msg.total ? "/" + (msg.total / 1048576).toFixed(1) + "MB" : "") + "）" : "";
+    if (state.toastTimer) clearTimeout(state.toastTimer);
+    toast.textContent = "下载" + stageLabel + " " + pct + "% " + mb;
+    toast.style.display = "block";
+    void toast.offsetHeight;
+    placeToast();
+    toast.classList.add("show");
+    biliToastHold = setTimeout(function () {
+      toast.classList.remove("show");
+      setTimeout(function () { if (!state.yt.downloading) toast.style.display = "none"; }, 320);
+    }, 60000);
+    if (state.panelOpen) renderPanel();
+  }
+  function ytDone(msg) {
+    var y = state.yt;
+    y.downloading = 0;
+    y.progress = null;
+    if (biliToastHold) { clearTimeout(biliToastHold); biliToastHold = 0; }
+    if (msg.ok) showToast("完整视频已保存到下载列表 ✓");
+    else showToast("完整视频下载失败：" + (msg.error || "未知错误") + "（YouTube 风控可能拦截，可稍后重试）");
+    if (state.panelOpen) renderPanel();
+  }
+  function ytBlockHtml() {
+    detectYt();
+    if (!state.yt.vid) return "";
+    var y = state.yt;
+    var head =
+      '<div class="bili-h">' +
+      '<span class="bili-ic" style="background:#ff0033">Y</span>' +
+      '<span class="bili-t" title="' + esc(y.resolved ? y.resolved.title : y.vid) + '">' +
+      esc(y.resolved ? y.resolved.title : "YouTube 完整视频") + "</span>" +
+      "</div>";
+    var body;
+    if (y.resolving) {
+      body = '<div class="bili-load">正在解析视频画质…</div>';
+    } else if (y.error) {
+      body = '<div class="bili-err">解析失败：' + esc(y.error) +
+        (/playability-LIVE_STREAM|LOGIN_REQUIRED/i.test(y.error) ? "（该视频需登录或不支持下载）" : "") + "</div>";
+    } else if (y.resolved) {
+      var info = y.resolved;
+      var rows = (info.qualities || []).concat(info.progressive || []);
+      var qs = rows
+        .map(function (q) {
+          var busy = y.downloading === q.itag;
+          var anyBusy = !!y.downloading;
+          var pct = busy && y.progress && y.progress.total
+            ? biliPctText(y.progress.loaded, y.progress.total) : "";
+          return (
+            '<div class="bq">' +
+            '<span class="l" title="' + esc(q.label + (q.codecs ? " · " + q.codecs : "")) + '">' + esc(q.label) + "</span>" +
+            '<span class="s">' + fmtSize(q.size) + (q.single ? " · 一体" : " · 含音轨") + "</span>" +
+            (pct ? '<span class="pc">' + pct + "</span>" : "") +
+            '<button data-act="yt-dl" data-q="' + q.itag + '" data-l="' + esc(q.label) + '"' +
+            (anyBusy ? " disabled" : "") + ">" + (busy ? "下载中" : "合并下载") + "</button>" +
+            "</div>"
+          );
+        })
+        .join("");
+      body = qs || '<div class="bili-err">当前无可下载的 MP4 档位（VP9/AV1 档暂不支持合并）</div>';
+      body += '<div class="bili-tip">音视频自动合并为完整 MP4（浏览器内完成，无需本地程序）；部分视频受 YouTube 风控限制</div>';
+    } else {
+      body = '<div class="bili-load">…</div>';
+    }
+    return '<div class="bili">' + head + body + "</div>";
+  }
+
   /* v8.7.69 B 站完整视频下载区（仅 B 站视频页渲染；首开面板时惰性解析） */
   function biliBlockHtml() {
     detectBili();
@@ -472,6 +589,8 @@
   function renderPanel() {
     detectBili();
     if (state.bili.bvid) biliResolve();
+    detectYt();
+    if (state.yt.vid) ytResolve();
     var rows = state.items
       .map(function (it, i) {
         var meta = TYPE_META[it.type] || TYPE_META.file;
@@ -504,6 +623,7 @@
       '<button class="ib" data-act="hide" title="收起" aria-label="收起面板">' + ICON_X + "</button>" +
       "</div>" +
       biliBlockHtml() +
+      ytBlockHtml() +
       '<div class="list">' +
       (rows ||
         '<div class="empty">' + ICON_DOWN_DOC +
@@ -535,6 +655,11 @@
     if (act === "bili-dl") {
       var qn = parseInt(btn.getAttribute("data-q"), 10);
       if (qn) biliStart(qn, btn);
+      return;
+    }
+    if (act === "yt-dl") {
+      var yitag = parseInt(btn.getAttribute("data-q"), 10);
+      if (yitag) ytStart(yitag, btn.getAttribute("data-l") || "");
       return;
     }
     if (act === "hide") return togglePanel(false);
@@ -605,6 +730,7 @@
      downloading 存续时持续刷新，done 后按结果收尾）。 */
   var biliToastHold = 0;
   function biliProgress(msg) {
+    if (msg.kind === "yt") return ytProgress(msg);
     var b = state.bili;
     if (!b.downloading) return;
     b.progress = { stage: msg.stage, loaded: msg.loaded || 0, total: msg.total || 0 };
@@ -625,6 +751,7 @@
     if (state.panelOpen) renderPanel();
   }
   function biliDone(msg) {
+    if (msg.kind === "yt") return ytDone(msg);
     var b = state.bili;
     var wasQn = b.downloading;
     b.downloading = 0;
