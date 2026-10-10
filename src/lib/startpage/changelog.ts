@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.69",
+    title: "B 站完整视频下载与描边弧线彻底根修",
+    highlights: [
+      "资源嗅探面板新增「哔哩哔哩完整视频」：在 B 站视频页一键选清晰度，音视频自动合并成单个完整 MP4（浏览器内完成，无需安装本地程序）",
+      "登录 B 站后可下 1080P 及更高；未登录最高 480P。分段资源（m4s）直下也随新通道修通",
+      "彻底根修搜索框下沉收尾后描边（左圆角与上/下边）残留位移：玻璃层栅格比例全程钉死 + 收尾强制末态重栅格双保险",
+    ],
+    channel: "shell",
+  },
+  {
     version: "8.7.68",
     title: "下沉描边位移根修与嗅探提示归位",
     highlights: [

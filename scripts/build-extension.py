@@ -62,7 +62,7 @@ OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
 EXT_SRC = ROOT / "extension-src"    # v8.2.0 SW/内容脚本源
-VERSION = "8.7.68"
+VERSION = "8.7.69"
 DEST = ROOT / f"download/v{VERSION}/ChuShi-NewTab-v{VERSION}.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():
@@ -307,6 +307,12 @@ manifest = {
     # try/catch 静默吞掉——本地静态验证只查代码链存在，查不出权限缺失。
     # +downloads——嗅探下载代理（浮球 sniffer-download → SW
     # chrome.downloads.download；content script 无 downloads API，架构律⑤）。
+    # v8.7.69：+offscreen——B 站完整视频下载的合并主战场（MV3 SW 无 DOM，
+    # createObjectURL/Blob 必须在扩展页语境；offscreen 文档是唯一正解）。
+    # +declarativeNetRequestWithHostAccess——B 站 CDN 请求补 Referer 的唯一
+    # 合法通道（fetch 规范禁止设 Referer 头；chrome.downloads 直连 CDN 缺
+    # referer 被 403）。WithHostAccess 变体 = 仅对已授予 host 的请求生效，
+    # 与既有 host_permissions 通配配套，不新增安装提示。
     "permissions": [
         "storage",
         "tabs",
@@ -315,6 +321,8 @@ manifest = {
         "alarms",
         "webRequest",
         "downloads",
+        "offscreen",
+        "declarativeNetRequestWithHostAccess",
     ],
     # v8.7.42 预设 API 开放律：预设声明的远端域经用户在导入授权步骤逐域授予
     # （chrome.permissions.request 由用户手势触发，弹域清单确认弹窗）。可选权限
@@ -409,7 +417,8 @@ shutil.copy2(EXT_SRC / "ext-bg.js", STAGE / "ext-bg.js")
 # v8.5.0：+ 弹窗快捷面板（popup.html + popup.js）
 # v8.7.58：+sniffer-float.js（v8.7.55 误删恢复——浮窗脚本必须随包进扩展根）
 # v8.7.66：+嗅探探针/桥（GD3 方案重写——主世界探针 + ISOLATED 桥随包进扩展根）
-for _shell in ("shell.html", "shell-bridge.js", "shim-page.js", "cs-bridge.js", "popup.html", "popup.js", "sniffer-float.js", "sniffer-probe.js", "sniffer-bridge.js"):
+# v8.7.69：+B 站完整下载三件（核心库 + offscreen 文档/控制器，SW importScripts bili-core）
+for _shell in ("shell.html", "shell-bridge.js", "shim-page.js", "cs-bridge.js", "popup.html", "popup.js", "sniffer-float.js", "sniffer-probe.js", "sniffer-bridge.js", "bili-core.js", "offscreen-bili.html", "offscreen-bili.js"):
     shutil.copy2(EXT_SRC / _shell, STAGE / _shell)
 if (STAGE / "cs-snap").exists():
     shutil.rmtree(STAGE / "cs-snap")
@@ -439,13 +448,15 @@ for must in ("manifest.json", "_locales/zh_CN/messages.json", "icons/icon128.png
              "popup.html", "popup.js",
              # v8.7.58 资源嗅探浮窗（v8.7.55 误删恢复）
              # v8.7.66 嗅探重写：探针+桥（缺任一 = 新机制静默断供）
-             "sniffer-float.js", "sniffer-probe.js", "sniffer-bridge.js"):
+             "sniffer-float.js", "sniffer-probe.js", "sniffer-bridge.js",
+             # v8.7.69 B 站完整下载：核心库 + offscreen 文档/控制器
+             "bili-core.js", "offscreen-bili.html", "offscreen-bili.js"):
     if not (STAGE / must).exists():
         sys.exit(f"缺 {must}——产物不完整")
 # v8.2.1 门：SW/内容脚本语法自检（node --check；拼接后的 ext-card.js 才是真产物）
 # v8.4.4：+ 壳桥三件（shell-bridge/shim-page/cs-bridge）同门
 # v8.4.5：+ 快照 SW（cs-snap/sw.js）同门
-for ext_file in ("ext-bg.js", "ext-card.js", "shell-bridge.js", "shim-page.js", "cs-bridge.js", "cs-snap/sw.js", "sniffer-float.js", "sniffer-probe.js", "sniffer-bridge.js"):
+for ext_file in ("ext-bg.js", "ext-card.js", "shell-bridge.js", "shim-page.js", "cs-bridge.js", "cs-snap/sw.js", "sniffer-float.js", "sniffer-probe.js", "sniffer-bridge.js", "bili-core.js", "offscreen-bili.js"):
     r = subprocess.run(["node", "--check", str(STAGE / ext_file)], capture_output=True, text=True)
     if r.returncode != 0:
         sys.exit(f"{ext_file} 语法门 FAIL: {r.stderr[:300]}")
@@ -520,7 +531,11 @@ for feat in ("chushi-spectrum", "spectrum-boot", "chushi-card", 'case "lyric":',
              "webRequest.onResponseStarted",               # v8.7.66：响应首字节入库通道（onCompleted 退役）
              "SNIFF_VIDEO_EXT", "SNIFF_AUDIO_EXT",         # v8.7.66：cat-catch 大表分类
              "sniffIngestPage", "sniffer-page-media",      # v8.7.66：探针桥入库口
-             "sniffer-download", "downloads.download"):
+             "sniffer-download", "downloads.download",
+             # v8.7.69：B 站完整视频下载编排层
+             "BiliOrch", "bili-core.js", "wbi/playurl", "web-interface/nav",
+             "updateSessionRules", "offscreen.createDocument",
+             "bili-offscreen-job", "bili-progress", "declarativeNetRequest"):
     if feat not in _bg_js:
         sys.exit(f"ext-bg.js 缺特征 {feat} —— SW 歌词代理面缺失")
 if 'case "vis"' in _bg_js or "port.__vis" in _bg_js:
@@ -554,6 +569,11 @@ if not _probe or _probe.get("world") != "MAIN" or _probe.get("run_at") != "docum
     sys.exit("manifest 缺 sniffer-probe.js MAIN world 注入（document_start/all_frames）——嗅探新机制断供")
 if not _bridge or _bridge.get("run_at") != "document_start" or not _bridge.get("all_frames"):
     sys.exit("manifest 缺 sniffer-bridge.js 注入（document_start/all_frames）——嗅探信号桥断供")
+# v8.7.69 门：B 站完整下载三件套（offscreen + DNR 权限缺失 = API 面不存在，
+# 监听器拋错被 try/catch 静默吞——v8.7.55 webRequest 同款教训）
+for _perm in ("offscreen", "declarativeNetRequestWithHostAccess"):
+    if _perm not in _m.get("permissions", []):
+        sys.exit(f"manifest 缺 {_perm} 权限——B 站完整下载断供")
 if "http://127.0.0.1:26911/*" not in _m.get("host_permissions", []):
     sys.exit("manifest 缺频谱助手端口 26911 host_permissions")
 if "scripting" not in _m.get("permissions", []):

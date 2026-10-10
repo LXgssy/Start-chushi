@@ -348,7 +348,10 @@ function SearchBar({
      玻璃子层每帧透明 outline 0/0.02px 微抖（视觉零痕迹）强制重绘，
      保证磨砂重取样不被渲染管线跳帧合并。聚焦期间投影/描边环淡入淡出
      仍走 box-shadow 纯绘制通道（className 切换 + CSS transition），
-     与本动画并行互不干扰。 */
+     与本动画并行互不干扰。
+     v8.7.69：收尾加重栅格脉冲（0.62px 透明 outline 一拍）+ 玻璃层
+     will-change 栅格钉死（globals.css）——真机分数 DPR 下沉收尾后
+     圆角弧线描边位移（残留中间比例栅格的吸附相位差）双保险根修。 */
   useEffect(() => {
     const pill = pillRef.current;
     if (!pill) return;
@@ -360,6 +363,7 @@ function SearchBar({
       return;
     }
     let raf = 0;
+    let settleRaf = 0;
     let tick = 0;
     const t0 = performance.now();
     const glass = glassRef.current;
@@ -380,12 +384,29 @@ function SearchBar({
       } else {
         floatScaleRef.current = to;
         pill.style.transform = to === 1 ? "" : `scale(${FLOAT_SCALE})`;
-        if (glass) glass.style.outline = "0.02px solid transparent";
+        /* v8.7.69 收尾重栅格脉冲（描边弧线位移兜底保险）：终态样式落定的同
+           一笔样式更新里把 outline 拉到 0.62px 透明——亚像素 0.02↔0.04 的
+           损伤矩形会被取整丢弃，0.62px 在分数 DPR 下 ≥1 设备像素，必然
+           产生整层失效 → 玻璃层在最终变换态（scale 恒等落定）完整重栅格
+           一次，动画期可能残留的中间比例吸附相位被末态栅格覆盖（真机
+           GPU 栅格化在无头环境不可复现，此脉冲与 globals.css 的
+           will-change 栅格钉死双保险，两者任一生效即无位移）。
+           双 rAF 后回 0.02 基线（paint bounds 复位，v8.7.68 基线律不变）。 */
+        if (glass) {
+          glass.style.outline = "0.62px solid transparent";
+          settleRaf = requestAnimationFrame(() => {
+            settleRaf = requestAnimationFrame(() => {
+              if (glassRef.current)
+                glassRef.current.style.outline = "0.02px solid transparent";
+            });
+          });
+        }
       }
     };
     raf = requestAnimationFrame(step);
     return () => {
       cancelAnimationFrame(raf);
+      cancelAnimationFrame(settleRaf);
       if (glassRef.current) glassRef.current.style.outline = "0.02px solid transparent";
     };
   }, [focused]);

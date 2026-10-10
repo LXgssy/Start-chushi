@@ -56,6 +56,12 @@
 
 "use strict";
 
+/* v8.7.69 B 站完整视频下载：WBI 签名与 fMP4 合并器在 bili-core.js
+   （零依赖纯 JS；SW 只用 BiliWbi，BiliRemux 主战场在 offscreen 文档） */
+try {
+  importScripts("bili-core.js");
+} catch (e) { /* 文件缺失（异常构建）：B 站功能降级，其余不受影响 */ }
+
 /* storage.session 默认不对内容脚本开放——卡片「按站隐藏（会话级）」需要
    显式放行（SW 启动即设，幂等）。 */
 try {
@@ -1296,6 +1302,296 @@ try {
         sendResponse({ ok: false });
       }
       return true; /* 异步应答 */
+    }
+  });
+} catch (e) { /* noop */ }
+
+/* ==================================================================== */
+/* v8.7.69 B 站完整视频下载编排（GD3 bili_pack 同能力，纯浏览器实现）     */
+/* -------------------------------------------------------------------- */
+/* 数据流：浮窗面板(标签页) → SW(resolve=解析清晰度 / download=启动下载)   */
+/*   → offscreen 文档(流式拉 m4s + BiliRemux 合并 + chrome.downloads 落盘) */
+/*   → 进度/完成经 SW 转回标签页 toast。                                   */
+/* 关键件：                                                               */
+/*   · WBI 签名（bili-core.js BiliWbi）：playurl 必须，密钥来自 nav API，  */
+/*     SW 内存缓存 1h（SW 冷启自动重取）。                                 */
+/*   · cookies：SW fetch credentials:include + host_permissions 通配       */
+/*     （v8.7.55 遗产）→ 用户在浏览器登录的 B 站态直接生效（VIP 清晰度）。  */
+/*   · DNR 会话规则：B 站 CDN（upos/bilivideo/akamaized/szbdyd）请求统一   */
+/*     补 Referer: https://www.bilibili.com/——扩展上下文 fetch 的 Referer  */
+/*     是禁止头（fetch 规范剥离），chrome.downloads 直连 CDN 同样缺 referer */
+/*     会被 403；DNR modifyHeaders 是唯一合法改写通道（顺带把 v8.7.52 起    */
+/*     嗅探 m4s 分段的直下下载也从 403 修通）。                             */
+/*   · offscreen：MV3 SW 无 DOM（createObjectURL 不可用），合并产物 Blob    */
+/*     必须在扩展页语境创建——chrome.offscreen 文档是唯一正解（架构律⑤）。   */
+/* ==================================================================== */
+var BiliOrch = (function () {
+  var DNR_RULE_ID = 9001;
+  var QUALITY_LABEL = {
+    127: "超高清 8K", 126: "杜比视界", 125: "HDR 真彩", 120: "超高清 4K",
+    116: "1080P 60帧", 112: "1080P 高码率", 100: "智能修复", 80: "1080P",
+    74: "720P 60帧", 64: "720P", 32: "480P", 16: "360P", 6: "240P", 5: "仅音频",
+  };
+  var wbiCache = { mixin: "", at: 0, isLogin: false };
+
+  function fetchJson(url, opts) {
+    var o = Object.assign({ credentials: "include", cache: "no-store" }, opts || {});
+    return fetch(url, o).then(function (r) {
+      if (!r.ok) throw new Error("http-" + r.status);
+      return r.json();
+    });
+  }
+
+  function ensureWbi() {
+    if (wbiCache.mixin && Date.now() - wbiCache.at < 3600000) {
+      return Promise.resolve(wbiCache.mixin);
+    }
+    return fetchJson("https://api.bilibili.com/x/web-interface/nav").then(function (j) {
+      var keys = (typeof BiliWbi !== "undefined") && BiliWbi.keysFromNav(j.data);
+      if (!keys) throw new Error("wbi-key");
+      wbiCache.mixin = keys.mixin;
+      wbiCache.at = Date.now();
+      wbiCache.isLogin = !!(j.data && j.data.isLogin);
+      return keys.mixin;
+    });
+  }
+
+  function wbiGet(path, params) {
+    return ensureWbi().then(function (mixin) {
+      var qs = BiliWbi.sign(params, mixin);
+      return fetchJson("https://api.bilibili.com" + path + "?" + qs);
+    });
+  }
+
+  /* BV 号清洗（面板已验，此处兜底） */
+  function normBvid(v) {
+    var m = String(v || "").match(/BV[0-9A-Za-z]{10}/);
+    return m ? m[0] : "";
+  }
+
+  function resolve(bvid, pageNo) {
+    bvid = normBvid(bvid);
+    if (!bvid) return Promise.reject(new Error("bvid"));
+    return fetchJson("https://api.bilibili.com/x/web-interface/view?bvid=" + bvid).then(function (v) {
+      if (v.code !== 0) throw new Error("view-" + v.code + ":" + (v.message || ""));
+      var d = v.data;
+      var pages = (d.pages && d.pages.length ? d.pages : [{ page: 1, cid: d.cid, part: d.title }]);
+      var page = Math.min(Math.max(1, pageNo || 1), pages.length);
+      var cid = pages[page - 1].cid;
+      return wbiGet("/x/player/wbi/playurl", {
+        bvid: bvid, cid: cid, qn: 0, fnval: 16, fnver: 0, fourk: 1, platform: "pc",
+      }).then(function (p) {
+        if (p.code !== 0) throw new Error("play-" + p.code + ":" + (p.message || ""));
+        var dash = p.data && p.data.dash;
+        if (!dash || !dash.video || !dash.video.length) throw new Error("no-dash");
+        /* 视频档位：同 id 留最高码率；avc 优先于 hevc（兼容性） */
+        var byId = {};
+        dash.video.forEach(function (ve) {
+          var old = byId[ve.id];
+          if (!old) { byId[ve.id] = ve; return; }
+          var oldAvc = /^avc/i.test(old.codecs || "");
+          var newAvc = /^avc/i.test(ve.codecs || "");
+          if ((newAvc && !oldAvc) || (newAvc === oldAvc && (ve.bandwidth || 0) > (old.bandwidth || 0))) byId[ve.id] = ve;
+        });
+        var dur = (d.dur || 0) || Math.round((pages[page - 1] && (pages[page - 1].duration || 0)) * 1000);
+        var qualities = Object.keys(byId).map(function (id) {
+          var ve = byId[id];
+          return {
+            id: +id,
+            label: QUALITY_LABEL[id] || String(id),
+            codecs: ve.codecs || "",
+            size: ve.size || Math.round((ve.bandwidth || 0) * dur / 8),
+          };
+        }).sort(function (a, b) { return b.id - a.id; });
+        /* 音频：常规轨里挑最高码率（flac/杜比 v1 不做） */
+        var audio = null;
+        if (dash.audio && dash.audio.length) {
+          audio = dash.audio.reduce(function (a, b2) { return (b2.bandwidth || 0) > (a.bandwidth || 0) ? b2 : a; });
+          audio = { id: audio.id, size: audio.size || 0, bandwidth: audio.bandwidth || 0 };
+        }
+        return {
+          ok: true,
+          bvid: bvid,
+          cid: cid,
+          title: d.title,
+          page: page,
+          pages: pages.map(function (pg) { return { page: pg.page, part: pg.part }; }),
+          dur: dur,
+          login: wbiCache.isLogin,
+          qualities: qualities,
+          audio: audio,
+        };
+      });
+    });
+  }
+
+  function ensureDnr() {
+    try {
+      return chrome.declarativeNetRequest.updateSessionRules({
+        removeRuleIds: [DNR_RULE_ID],
+        addRules: [{
+          id: DNR_RULE_ID,
+          priority: 1,
+          action: {
+            type: "modifyHeaders",
+            requestHeaders: [
+              { header: "Referer", operation: "set", value: "https://www.bilibili.com/" },
+            ],
+          },
+          condition: {
+            requestDomains: ["bilivideo.com", "akamaized.net", "szbdyd.com", "bstar1.com"],
+            resourceTypes: ["xmlhttprequest", "media", "other"],
+          },
+        }],
+      });
+    } catch (e) { return Promise.resolve(); }
+  }
+
+  var offscreenCreating = false;
+  function ensureOffscreen() {
+    return new Promise(function (resolve) {
+      try {
+        chrome.offscreen.hasDocument(function (has) {
+          if (has) { resolve(true); return; }
+          offscreenCreating = true;
+          var create = function (reason) {
+            chrome.offscreen.createDocument({
+              url: "offscreen-bili.html",
+              reasons: [reason],
+              justification: "B 站完整视频下载：拉取音视频流并在浏览器内合并落盘",
+            }, function () {
+              void chrome.runtime.lastError;
+              offscreenCreating = false;
+              resolve(true);
+            });
+          };
+          try { create("BLOBS"); } catch (e) { create("DOM_SCRAPING"); }
+        });
+      } catch (e) { resolve(false); }
+    });
+  }
+
+  function startDownload(msg) {
+    /* msg: {bvid, qn, page, title} —— URL 时效敏感，收到即重新解析 */
+    return ensureDnr().then(function () {
+      return resolve(msg.bvid, msg.page);
+    }).then(function (info) {
+      var ve = null;
+      for (var i = 0; i < info.qualities.length; i++) {
+        if (info.qualities[i].id === msg.qn) { ve = info.qualities[i]; break; }
+      }
+      if (!ve) throw new Error("quality-gone");
+      return ensureOffscreen().then(function () {
+        return resolve2Urls(info, ve.id).then(function (urls) {
+          var safe = String(msg.title || info.title || "bilibili")
+            .replace(/[\\/:*?"<>|]/g, "_").slice(0, 80);
+          var job = {
+            type: "bili-offscreen-job",
+            job: "remux",
+            tabId: msg.tabId,
+            videoUrl: urls.video,
+            audioUrl: urls.audio,
+            filename: safe + "_" + ve.label + ".mp4",
+            totalSize: ve.size + (info.audio ? info.audio.size : 0),
+          };
+          return new Promise(function (res2) {
+            try {
+              chrome.runtime.sendMessage(job, function (resp) {
+                void chrome.runtime.lastError;
+                res2({ ok: true, started: true, title: info.title });
+              });
+            } catch (e) { res2({ ok: false, error: "offscreen-send" }); }
+          });
+        });
+      });
+    });
+  }
+
+  /* 二次解析取 base_url（resolve 不带 URL——时效敏感，下载时才取） */
+  function resolve2Urls(info, qn) {
+    return wbiGet("/x/player/wbi/playurl", {
+      bvid: info.bvid, cid: info.cid, qn: qn, fnval: 16, fnver: 0, fourk: 1, platform: "pc",
+    }).then(function (p) {
+      if (p.code !== 0) throw new Error("play2-" + p.code);
+      var dash = p.data && p.data.dash;
+      if (!dash) throw new Error("no-dash2");
+      var ve = null;
+      for (var i = 0; i < dash.video.length; i++) {
+        if (dash.video[i].id === qn) {
+          if (!ve || (/^avc/i.test(dash.video[i].codecs || "") && !/^avc/i.test(ve.codecs || ""))) ve = dash.video[i];
+        }
+      }
+      if (!ve) throw new Error("quality-gone2");
+      var au = null;
+      if (dash.audio && dash.audio.length) {
+        au = dash.audio.reduce(function (a, b2) { return (b2.bandwidth || 0) > (a.bandwidth || 0) ? b2 : a; });
+      }
+      return { video: ve.base_url, audio: au ? au.base_url : null };
+    });
+  }
+
+  return { resolve: resolve, startDownload: startDownload, normBvid: normBvid };
+})();
+
+/* B 站消息面（独立监听器：面板 resolve/download + offscreen 进度回转） */
+try {
+  chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
+    if (!msg || typeof msg.type !== "string") return;
+    if (msg.type === "bili-resolve") {
+      var pageNo = msg.page || 1;
+      BiliOrch.resolve(msg.bvid, pageNo).then(function (info) {
+        try { sendResponse({ type: "bili-resolve-reply", ok: true, info: info }); }
+        catch (e) { /* noop */ }
+      }).catch(function (e) {
+        try { sendResponse({ type: "bili-resolve-reply", ok: false, error: String(e && e.message || e) }); } catch (e2) { /* noop */ }
+      });
+      return true; /* 异步应答 */
+    }
+    if (msg.type === "bili-download") {
+      var tabId = sender.tab && sender.tab.id;
+      var job = {
+        bvid: msg.bvid, qn: msg.qn, page: msg.page || 1,
+        title: msg.title || "", tabId: tabId,
+      };
+      BiliOrch.startDownload(job).then(function (r) {
+        try { sendResponse({ type: "bili-download-reply", ok: r.ok, error: r.error, title: r.title }); } catch (e) { /* noop */ }
+      }).catch(function (e) {
+        try { sendResponse({ type: "bili-download-reply", ok: false, error: String(e && e.message || e) }); } catch (e2) { /* noop */ }
+      });
+      return true; /* 异步应答 */
+    }
+    if (msg.type === "bili-progress" || msg.type === "bili-done") {
+      /* offscreen → 标签页转投（sender 无 tab；目标 tabId 在消息里） */
+      var target = msg.tabId;
+      if (Number.isInteger(target) && target >= 0) {
+        try {
+          chrome.tabs.sendMessage(target, {
+            type: msg.type, stage: msg.stage, loaded: msg.loaded, total: msg.total,
+            ok: msg.ok, error: msg.error, handedOff: msg.handedOff,
+          }, function () { void chrome.runtime.lastError; });
+        } catch (e) { /* 标签页已关：忽略 */ }
+      }
+      if (msg.type === "bili-done") {
+        /* 任务收尾：offscreen 空闲即关（省驻留；blob 生命周期由下载系统持有） */
+        try {
+          chrome.offscreen.hasDocument(function (has) {
+            if (has) {
+              chrome.offscreen.closeDocument(function () { void chrome.runtime.lastError; });
+            }
+          });
+        } catch (e) { /* noop */ }
+      }
+      return;
+    }
+    if (msg.type === "bili-blob-download") {
+      /* offscreen 无 downloads API 时的兜底：SW 代下扩展 blob URL */
+      try {
+        chrome.downloads.download(
+          { url: msg.blobUrl, filename: String(msg.filename || "bilibili.mp4").replace(/[\\/:*?"<>|]/g, "_"), saveAs: false },
+          function (id) { void chrome.runtime.lastError; }
+        );
+      } catch (e) { /* noop */ }
+      return;
     }
   });
 } catch (e) { /* noop */ }

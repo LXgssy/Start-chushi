@@ -1522,6 +1522,19 @@ html.cs-drawer-closing .cl-fade-leaf {
    只限定搜索框内 glass-pill 实例，全 app .glass-pill 基线不受影响。 */
 .search-pill .glass-pill {
   transition: box-shadow 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+  /* v8.7.69 栅格尺度钉死律（描边弧线收尾位移彻底根修）：玻璃层跟 form
+     同入常驻合成机制（v8.7.55 三件套同款）。真机（Windows 分数 DPR +
+     GPU 栅格化）上浮/下沉期间祖先 transform 缩放连续变化，玻璃层理想
+     栅格比例逐帧漂移，动画期每帧重栅格（outline 微抖 + 环过渡都触发
+     重绘）把「最后一个中间尺度」的吸附相位烙进栅格；收尾后理想比例回
+     1.0 但低于重栅格阈值 → 残留栅格与静息态圆角弧线差一个亚像素相位
+     ——直边读不出（≤0.2px）、圆角弧线最敏感（1px 级，用户所见「左圆角
+     + 上边下边描边位移」）。will-change:transform 让合成器停止追逐
+     祖先缩放（raster scale 钉死于页面比例）：动画期重栅格全部发生在
+     同一比例 → 栅格逐位等同静息态，弧线相位漂移物理性消失。
+     transform 不是 grouping 属性，不构成 backdrop root，磨砂存活律不受
+     影响（form 自 v8.7.55 起同参数常驻，磨砂正常）。 */
+  will-change: transform;
 }
 @keyframes pill-shell-in {
   from {
