@@ -1522,23 +1522,21 @@ html.cs-drawer-closing .cl-fade-leaf {
    只限定搜索框内 glass-pill 实例，全 app .glass-pill 基线不受影响。 */
 .search-pill .glass-pill {
   transition: box-shadow 0.5s cubic-bezier(0.22, 1, 0.36, 1);
-  /* v8.7.69 栅格尺度钉死律（描边弧线收尾位移彻底根修）：玻璃层跟 form
-     同入常驻合成机制（v8.7.55 三件套同款）。真机（Windows 分数 DPR +
-     GPU 栅格化）上浮/下沉期间祖先 transform 缩放连续变化，玻璃层理想
-     栅格比例逐帧漂移，动画期每帧重栅格（outline 微抖 + 环过渡都触发
-     重绘）把「最后一个中间尺度」的吸附相位烙进栅格；收尾后理想比例回
-     1.0 但低于重栅格阈值 → 残留栅格与静息态圆角弧线差一个亚像素相位
-     ——直边读不出（≤0.2px）、圆角弧线最敏感（1px 级，用户所见「左圆角
-     + 上边下边描边位移」）。will-change:transform 让合成器停止追逐
-     祖先缩放（raster scale 钉死于页面比例）：动画期重栅格全部发生在
-     同一比例 → 栅格逐位等同静息态，弧线相位漂移物理性消失。
-     transform 不是 grouping 属性，不构成 backdrop root，磨砂存活律不受
-     影响（form 自 v8.7.55 起同参数常驻，磨砂正常）。
-     v8.7.70 增补：钉死只保证「动画期重栅格同相位」，不保证最后一次
-     重栅格恰好落在终态（真机 GPU 启发式不落地即残留中间相位）——
-     下沉收尾由 SearchBar 的底板随动复位（DOM 摘插强制合成层重建）
-     确定性兜底，本钉死保留作动画期相位一致性辅助。 */
-  will-change: transform;
+  /* v8.7.69 栅格尺度钉死（will-change:transform）已于 v8.7.72 实测退役。
+     双用户视频（v8.7.68/70 真机逐帧配准）+ 本地复现 A/B 定案：钉死让
+     玻璃层栅格比例不追随祖先缩放，叠加动画期逐帧 outline 微抖的逐帧
+     paint damage，描边被烙死在动画早期的栅格相位——整个下沉期描边与
+     transform 脱钩（真机实测顶边 -0.2px 恒定不动，磨砂内容同期平滑
+     跟踪=主帧一直在产生），动画终态的整树重建一次性纠正 = 用户所见
+     「下沉完后描边位移 + 事后突兀复位」。去钉后最坏情况 = 纹理被合成
+     器拉伸 = 几何恒正确（仅动画期亚像素软化），描边相位漂移物理性
+     不存在。玻璃层仍有 backdrop-filter 自带合成层，层化不受影响；
+     transform 非 grouping 属性不构成 backdrop root，磨砂存活律不受
+     影响。
+     新律（描边载体层禁钉死律）：任何会被祖先 transform 连续缩放的
+     描边/边框载体层，禁用 will-change 栅格钉死，也禁动画期逐帧改写
+     其绘制属性（paint damage 冻结描边栅格）——逐帧更新交给驱动缩放
+     的 rAF 主帧，终态由 SearchBar 的整树摘插确定性兜底。 */
 }
 @keyframes pill-shell-in {
   from {

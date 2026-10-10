@@ -271,8 +271,8 @@ function SearchBar({
   onPatchSettings: (patch: Partial<Settings>) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  /* v8.7.65 上浮动画载体：pill 驱动 scale，glass 伴随透明 outline 微抖强制
-     磨砂重取样（见文件头 v8.7.65 注释块）；floatScaleRef 跨次聚焦续接
+  /* v8.7.65 上浮动画载体：pill 驱动 scale（v8.7.72 起 glass 侧零伴随写——
+     outline 微抖已实测退役，见动画 effect 头注释）；floatScaleRef 跨次聚焦续接
      （快速切换从当前实际缩放值起步，不回跳） */
   const pillRef = useRef<HTMLFormElement>(null);
   const glassRef = useRef<HTMLDivElement>(null);
@@ -348,10 +348,8 @@ function SearchBar({
      取消选中回落 1，rAF 逐帧写 transform（机制详见文件头 v8.7.65 注释块
      —— CSS transform 过渡 = compositor-only 不产生主帧，磨砂取样冻结，
      新律⑬；rAF 每帧主帧与 framer 高度动画同机制，磨砂逐帧重取样）。
-     玻璃子层每帧透明 outline 0/0.02px 微抖（视觉零痕迹）强制重绘，
-     保证磨砂重取样不被渲染管线跳帧合并。聚焦期间投影/描边环淡入淡出
-     仍走 box-shadow 纯绘制通道（className 切换 + CSS transition），
-     与本动画并行互不干扰。
+     聚焦期间投影/描边环淡入淡出仍走 box-shadow 纯绘制通道
+     （className 切换 + CSS transition），与本动画并行互不干扰。
      v8.7.69：收尾加重栅格脉冲 + 玻璃层 will-change 栅格钉死
      （globals.css）——真机分数 DPR 下沉收尾后圆角弧线描边位移
      （残留中间比例栅格的吸附相位差）双保险根修。
@@ -372,7 +370,20 @@ function SearchBar({
      mount 已播完，永久压制零视觉影响）。上浮收尾改玻璃层随动复位
      （焦点在输入框上，form/裁剪层摘插会闪断焦点；玻璃是 pointer-
      events-none 兄弟层，摘插零焦点语义），脉冲退役——层重建即最
-     强重栅格。 */
+     强重栅格。
+     v8.7.72 描边冻结根修（用户第六轮反馈，双视频+本地复现定案）：
+     v8.7.65 起动画期逐帧透明 outline 0.02↔0.04px 微抖（「磨砂重取
+     样保险」）实测为描边冻结元凶——逐帧 paint damage 把玻璃层钉在
+     动画早期的栅格相位反复重绘，描边（border+环，烙在同一栅格里）
+     与持续变化的 transform 脱钩：真机（分数 DPR+GPU）整个下沉期描
+     边冻结在聚焦相位（双视频实测：顶边 −0.2px 恒定不动，磨砂内容
+     同期平滑跟踪=主帧一直在产生），动画终态的整树重建一次性纠正
+     =用户所见「下沉完后描边位移+事后突兀复位」。rAF 主帧本身就逐
+     帧驱动磨砂重取样（本复现实测：去微抖后磨砂 dx 曲线平滑归零
+     resp≈1.0），微抖是 CSS transition 时代的化石保险，退役。同轮
+     globals.css 玻璃层 will-change 钉死一并退役（钉死=栅格比例不
+     追随缩放=描边永久相位错；去钉后最坏情况=纹理被拉伸=几何恒
+     正确仅动画期亚像素软化）。终态整树摘插保留作确定性兑底。 */
   useEffect(() => {
     const pill = pillRef.current;
     if (!pill) return;
@@ -384,7 +395,6 @@ function SearchBar({
       return;
     }
     let raf = 0;
-    let tick = 0;
     const t0 = performance.now();
     const glass = glassRef.current;
     const step = (now: number) => {
@@ -392,13 +402,10 @@ function SearchBar({
       const s = from + (to - from) * floatEase(p);
       floatScaleRef.current = s;
       pill.style.transform = `scale(${s.toFixed(5)})`;
-      /* 磨砂重取样保险：透明 outline 微抖强制玻璃层重绘。
-         v8.7.68：抖动基线 0.02↔0.04px（outline 基线已常驻 0.02，见 JSX），
-         收尾停回基线值而非清空——paint bounds 全生命周期恒定，
-         非整数 DPR 下末帧不再多出一次栅格化重分配扰动。 */
-      if (glass) {
-        glass.style.outline = tick++ % 2 ? "0.02px solid transparent" : "0.04px solid transparent";
-      }
+      /* v8.7.72：动画期不再对玻璃写任何样式（旧版逐帧 outline 微抖
+         已退役，见 effect 头注释——paint damage 冻结描边栅格实测
+         实锤）。描边/磨砂的逐帧更新完全由本 rAF 的 transform 主帧
+         驱动，玻璃层零额外失效源。 */
       if (p < 1) {
         raf = requestAnimationFrame(step);
       } else {
@@ -559,9 +566,9 @@ function SearchBar({
               常驻 border 同层化 = 同一次栅格化 snap 恒一致，位移物理性消失。
               form 只保留大模糊投影（模糊纹理对半像素不敏感）。
               v8.7.68 outline 基线常驻化：0.02px 亚像素透明 outline 从 mount
-              起恒定（paint bounds 全生命周期不变），动画期微抖改
-              0.02/0.04 交替、收尾停回基线 0.02——消除「清除 outline」这个
-              末帧栅格化扰动源；0.02/0.04 均亚像素透明，视觉零痕迹。 */}
+              起恒定（paint bounds 全生命周期不变）；v8.7.72 起动画期不再
+              对本层写任何样式（微抖退役，实测为描边冻结元凶——见动画
+              effect 头注释），outline 恒为基线零扰动。 */}
           <div
             ref={glassRef}
             aria-hidden
