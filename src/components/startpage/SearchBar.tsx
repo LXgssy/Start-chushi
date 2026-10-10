@@ -368,22 +368,25 @@ function SearchBar({
       const s = from + (to - from) * floatEase(p);
       floatScaleRef.current = s;
       pill.style.transform = `scale(${s.toFixed(5)})`;
-      /* 磨砂重取样保险：透明 outline 微抖强制玻璃层重绘 */
+      /* 磨砂重取样保险：透明 outline 微抖强制玻璃层重绘。
+         v8.7.68：抖动基线 0.02↔0.04px（outline 基线已常驻 0.02，见 JSX），
+         收尾停回基线值而非清空——paint bounds 全生命周期恒定，
+         非整数 DPR 下末帧不再多出一次栅格化重分配扰动。 */
       if (glass) {
-        glass.style.outline = tick++ % 2 ? "0px solid transparent" : "0.02px solid transparent";
+        glass.style.outline = tick++ % 2 ? "0.02px solid transparent" : "0.04px solid transparent";
       }
       if (p < 1) {
         raf = requestAnimationFrame(step);
       } else {
         floatScaleRef.current = to;
         pill.style.transform = to === 1 ? "" : `scale(${FLOAT_SCALE})`;
-        if (glass) glass.style.outline = "";
+        if (glass) glass.style.outline = "0.02px solid transparent";
       }
     };
     raf = requestAnimationFrame(step);
     return () => {
       cancelAnimationFrame(raf);
-      if (glassRef.current) glassRef.current.style.outline = "";
+      if (glassRef.current) glassRef.current.style.outline = "0.02px solid transparent";
     };
   }, [focused]);
 
@@ -482,16 +485,32 @@ function SearchBar({
           ref={pillRef}
           className={`search-pill group absolute inset-x-0 top-0 z-30 flex flex-col rounded-[28px] ${
             focused
-              ? "shadow-[0_10px_50px_-8px_rgba(0,0,0,0.25)] ring-1 ring-zinc-900/15 dark:ring-white/25"
+              ? "shadow-[0_10px_50px_-8px_rgba(0,0,0,0.25)]"
               : ""
           }`}
         >
           {/* 玻璃底板：磨砂/底色/描边全在这层（.glass-pill 变体规则全部
-              命中子层），pointer-events 穿透、随表单整体移动（高度动画跟随） */}
+              命中子层），pointer-events 穿透、随表单整体移动（高度动画跟随）。
+              v8.7.68 描边环下沉到本层（用户：「取消选中下沉动画后左圆角+
+              上边下边描边位移」）：环原画在 form（缩放载体）的 box-shadow 上，
+              非整数 DPR 真机（Windows 125%/150%）下沉结束的重栅格化里 ring
+              与 glass border 各自 snap → 描边相对底板/双描边之间跳变
+              （实验实锤：DPR=2 整数环境全零位移，仅分数 DPR 现象）；环与
+              常驻 border 同层化 = 同一次栅格化 snap 恒一致，位移物理性消失。
+              form 只保留大模糊投影（模糊纹理对半像素不敏感）。
+              v8.7.68 outline 基线常驻化：0.02px 亚像素透明 outline 从 mount
+              起恒定（paint bounds 全生命周期不变），动画期微抖改
+              0.02/0.04 交替、收尾停回基线 0.02——消除「清除 outline」这个
+              末帧栅格化扰动源；0.02/0.04 均亚像素透明，视觉零痕迹。 */}
           <div
             ref={glassRef}
             aria-hidden
-            className="glass-pill backdrop-blur-2xl backdrop-saturate-150 pointer-events-none absolute inset-0 rounded-[28px]"
+            className={`glass-pill backdrop-blur-2xl backdrop-saturate-150 pointer-events-none absolute inset-0 rounded-[28px] ${
+              focused
+                ? "ring-1 ring-zinc-900/15 dark:ring-white/25"
+                : ""
+            }`}
+            style={{ outline: "0.02px solid transparent" }}
           />
           {/* v8.7.62 内容裁剪层：裁剪职责自 form 下放（form 撤 overflow-hidden
               ——否则底板描边压在裁剪线上被抗锯齿吃半像素，下边发虚不匀）；

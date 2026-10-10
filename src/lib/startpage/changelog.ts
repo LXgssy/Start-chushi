@@ -22,6 +22,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.68",
+    title: "下沉描边位移根修与嗅探提示归位",
+    highlights: [
+      "修复取消选中搜索框后描边（左圆角 / 上边 / 下边）在下沉动画结束时位移：描边环并入玻璃底板同层绘制，收尾不再各走各的栅格",
+      "嗅探到新资源的提示词改挂在嗅探面板上方，跟随面板开合与拖拽",
+    ],
+    channel: "shell",
+  },
+  {
     version: "8.7.67",
     title: "站点图标铺满磁贴与主色打底",
     highlights: [

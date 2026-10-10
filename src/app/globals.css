@@ -1515,6 +1515,14 @@ html.cs-drawer-closing .cl-fade-leaf {
   transition: box-shadow 0.5s cubic-bezier(0.22, 1, 0.36, 1);
   will-change: transform;
 }
+/* v8.7.68 描边环同拍过渡：聚焦描边环（ring-1 box-shadow 通道）从 form
+   下沉到玻璃子层（与常驻 border 同层同次栅格化，非整数 DPR 下沉收尾
+   snap 恒一致——位移根修，机制见 SearchBar.tsx v8.7.68 注释块），本表
+   承担环的 0.5s 同拍淡入淡出（与 form 投影同曲线同拍，v8.7.54 形态）。
+   只限定搜索框内 glass-pill 实例，全 app .glass-pill 基线不受影响。 */
+.search-pill .glass-pill {
+  transition: box-shadow 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
 @keyframes pill-shell-in {
   from {
     background-color: transparent;
