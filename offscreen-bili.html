@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<!-- 「初始」B 站完整视频下载 offscreen 文档（v8.7.69）
+     由 SW 按需创建（chrome.offscreen），承担重活：流式拉取音视频 m4s
+     （DNR 会话规则补 Referer，扩展上下文免 CORS）→ 内存合并（bili-core.js
+     的 BiliRemux）→ Blob → chrome.downloads 落盘。进度经 runtime 消息回
+     SW 再转标签页浮窗。单实例单任务（busy 时拒绝新任务）。 -->
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>chushi-bili-offscreen</title>
+</head>
+<body>
+  <script src="bili-core.js"></script>
+  <script src="offscreen-bili.js"></script>
+</body>
+</html>

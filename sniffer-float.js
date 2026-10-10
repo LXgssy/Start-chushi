@@ -46,6 +46,8 @@
     panelOpen: false,
     booted: false,   /* 首次拿到状态 */
     toastTimer: 0,
+    /* v8.7.69 B 站完整视频下载（仅 B 站视频页出现；SPA 导航换 BV 重置） */
+    bili: { bvid: "", page: 1, pages: 0, resolving: false, resolved: null, error: "", downloading: 0 },
   };
 
   /* ---------- Shadow DOM 舞台 ---------- */
@@ -124,6 +126,26 @@
     ":host(.framedark) .meta .sub{color:#71717a;}",
     ":host(.framedark) .act button{color:#a1a1aa;}",
     ":host(.framedark) .act button:hover{background:rgba(255,255,255,.08);color:#f4f4f5;}",
+    /* v8.7.69 B 站完整视频下载区（面板顶部，浮窗面板样式语言同族） */
+    ".bili{padding:9px 10px 8px;border-bottom:1px solid rgba(24,22,36,.07);}",
+    ".bili-h{display:flex;align-items:center;gap:6px;margin-bottom:6px;}",
+    ".bili-ic{flex-shrink:0;width:18px;height:18px;border-radius:5px;background:#fb7299;color:#fff;font-size:10px;font-weight:700;line-height:18px;text-align:center;}",
+    ".bili-t{font-size:11.5px;font-weight:450;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;}",
+    ".bili-p{flex-shrink:0;font-size:9.5px;color:#a1a1aa;}",
+    ".bq{display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:8px;}",
+    ".bq:hover{background:rgba(24,22,36,.045);}",
+    ".bq .l{flex-shrink:0;width:80px;font-size:11px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
+    ".bq .s{flex:1;font-size:9.5px;color:#a1a1aa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
+    ".bq button{flex-shrink:0;border:0;background:color-mix(in srgb,var(--acc,#8b5cf6) 12%,transparent);color:var(--acc,#8b5cf6);font-size:10px;font-weight:500;padding:3px 10px;border-radius:999px;cursor:pointer;transition:background .15s ease;}",
+    ".bq button:hover{background:color-mix(in srgb,var(--acc,#8b5cf6) 22%,transparent);}",
+    ".bq button:disabled{opacity:.55;cursor:default;}",
+    ".bq .pc{flex-shrink:0;width:38px;font-size:9.5px;color:var(--acc,#8b5cf6);text-align:right;font-variant-numeric:tabular-nums;}",
+    ".bili-tip{margin-top:5px;font-size:9px;font-weight:300;color:#a1a1aa;line-height:1.5;}",
+    ".bili-err{padding:2px 6px;font-size:10.5px;line-height:1.6;color:#ef4444;}",
+    ".bili-load{padding:6px;font-size:10.5px;color:#a1a1aa;}",
+    ":host(.framedark) .bq:hover{background:rgba(255,255,255,.06);}",
+    ":host(.framedark) .bili-tip{color:#71717a;}",
+    ":host(.framedark) .bili-p{color:#71717a;}",
   ].join("");
 
   var style = document.createElement("style");
@@ -341,7 +363,115 @@
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12"/><path d="M18 6 6 18"/></svg>';
   var ICON_DOWN_DOC =
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5v11"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M4.5 20h15"/></svg>';
+  /* ---------- v8.7.69 B 站完整视频下载 ---------- */
+  function detectBili() {
+    /* SPA 导航友好：每次渲染面板时重检（开销一次正则） */
+    var m = String(location.href).match(/bilibili\.com\/(?:video\/)?(BV[0-9A-Za-z]{10})/);
+    var bvid = m ? m[1] : "";
+    var pm = String(location.href).match(/[?&]p=(\d+)/);
+    var page = pm ? Math.max(1, parseInt(pm[1], 10) || 1) : 1;
+    if (bvid !== state.bili.bvid || page !== state.bili.page) {
+      state.bili = { bvid: bvid, page: page, pages: 0, resolving: false, resolved: null, error: "", downloading: 0 };
+    }
+  }
+  function biliResolve() {
+    if (!state.bili.bvid || state.bili.resolving || state.bili.resolved || state.bili.error) return;
+    state.bili.resolving = true;
+    if (state.panelOpen) renderPanel();
+    send({ type: "bili-resolve", bvid: state.bili.bvid, page: state.bili.page }, function (resp) {
+      state.bili.resolving = false;
+      if (resp && resp.type === "bili-resolve-reply") {
+        if (resp.ok) {
+          state.bili.resolved = resp.info;
+          state.bili.pages = (resp.info.pages && resp.info.pages.length) || 0;
+        } else {
+          state.bili.error = String(resp.error || "resolve-fail");
+        }
+      } else {
+        state.bili.error = "sw-offline";
+      }
+      if (state.panelOpen) renderPanel();
+    });
+  }
+  function biliStart(qn, btn) {
+    if (state.bili.downloading) return;
+    var info = state.bili.resolved;
+    if (!info) return;
+    state.bili.downloading = qn;
+    renderPanel();
+    showToast("开始下载「" + info.title + "」完整视频…");
+    send(
+      {
+        type: "bili-download",
+        bvid: state.bili.bvid, qn: qn, page: state.bili.page, title: info.title,
+      },
+      function (resp) {
+        if (!resp || resp.ok !== true) {
+          state.bili.downloading = 0;
+          if (state.panelOpen) renderPanel();
+          showToast("下载启动失败：" + ((resp && resp.error) || "未知错误"));
+        }
+      }
+    );
+  }
+  function biliPctText(loaded, total) {
+    if (!total) return "";
+    var p = Math.min(100, Math.round((loaded / total) * 100));
+    return p + "%";
+  }
+
+  /* v8.7.69 B 站完整视频下载区（仅 B 站视频页渲染；首开面板时惰性解析） */
+  function biliBlockHtml() {
+    detectBili();
+    if (!state.bili.bvid) return "";
+    var b = state.bili;
+    var head =
+      '<div class="bili-h">' +
+      '<span class="bili-ic">B</span>' +
+      '<span class="bili-t" title="' + esc(b.resolved ? b.resolved.title : b.bvid) + '">' +
+      esc(b.resolved ? b.resolved.title : "哔哩哔哩完整视频") + "</span>" +
+      (b.pages > 1 ? '<span class="bili-p">P' + b.page + "/" + b.pages + "</span>" : "") +
+      "</div>";
+    var body;
+    if (b.resolving) {
+      body = '<div class="bili-load">正在解析视频清晰度…</div>';
+    } else if (b.error) {
+      body = '<div class="bili-err">解析失败：' + esc(b.error) +
+        (/101|login/i.test(b.error) ? "（可在浏览器登录 B 站后重试）" : "") + "</div>";
+    } else if (b.resolved) {
+      var info = b.resolved;
+      var qs = (info.qualities || [])
+        .map(function (q) {
+          var busy = b.downloading === q.id;
+          var anyBusy = !!b.downloading;
+          var pct = busy && b.progress && b.progress.total
+            ? biliPctText(b.progress.loaded, b.progress.total) : "";
+          return (
+            '<div class="bq">' +
+            '<span class="l" title="' + esc(q.label + " · " + q.codecs) + '">' + esc(q.label) + "</span>" +
+            '<span class="s">' + fmtSize(q.size) + (info.audio ? " · 含音轨" : " · 无音轨") + "</span>" +
+            (pct ? '<span class="pc">' + pct + "</span>" : "") +
+            '<button data-act="bili-dl" data-q="' + q.id + '"' +
+            (anyBusy ? " disabled" : "") + ">" + (busy ? "下载中" : "合并下载") + "</button>" +
+            "</div>"
+          );
+        })
+        .join("");
+      body = qs || '<div class="bili-err">当前无可下载清晰度（可尝试登录 B 站后重试）</div>';
+      if (info.login === false) {
+        body += '<div class="bili-tip">未登录 B 站：最高 480P；浏览器登录后可下 1080P 及更高</div>';
+      } else {
+        body += '<div class="bili-tip">音视频自动合并为完整 MP4（浏览器内完成，无需本地程序）</div>';
+      }
+    } else {
+      body = '<div class="bili-load">…</div>';
+    }
+    return '<div class="bili">' + head + body + "</div>";
+  }
+
   function renderPanel() {
+    detectBili();
+    if (state.bili.bvid) biliResolve();
     var rows = state.items
       .map(function (it, i) {
         var meta = TYPE_META[it.type] || TYPE_META.file;
@@ -373,6 +503,7 @@
       '<button class="ib" data-act="clear" title="清空列表" aria-label="清空列表">' + ICON_TRASH + "</button>" +
       '<button class="ib" data-act="hide" title="收起" aria-label="收起面板">' + ICON_X + "</button>" +
       "</div>" +
+      biliBlockHtml() +
       '<div class="list">' +
       (rows ||
         '<div class="empty">' + ICON_DOWN_DOC +
@@ -401,6 +532,11 @@
     var btn = e.target && e.target.closest ? e.target.closest("button") : null;
     if (!btn) return;
     var act = btn.getAttribute("data-act");
+    if (act === "bili-dl") {
+      var qn = parseInt(btn.getAttribute("data-q"), 10);
+      if (qn) biliStart(qn, btn);
+      return;
+    }
     if (act === "hide") return togglePanel(false);
     if (act === "clear") {
       send({ type: "sniffer-clear" });
@@ -464,6 +600,45 @@
     }, 3500);
   }
 
+  /* v8.7.69 B 站下载进度/完成（toast 实时进度 + 按钮态回填）。
+     进度期间 toast 常驻（showToast 会重置 3.5s 计时，改手动控灯：
+     downloading 存续时持续刷新，done 后按结果收尾）。 */
+  var biliToastHold = 0;
+  function biliProgress(msg) {
+    var b = state.bili;
+    if (!b.downloading) return;
+    b.progress = { stage: msg.stage, loaded: msg.loaded || 0, total: msg.total || 0 };
+    var stageLabel = msg.stage === "video" ? "视频" : msg.stage === "audio" ? "音频" : "合并中";
+    var pct = b.progress.total ? Math.min(100, Math.round((b.progress.loaded / b.progress.total) * 100)) : 0;
+    var mb = msg.loaded ? "（" + (msg.loaded / 1048576).toFixed(1) + "MB" + (msg.total ? "/" + (msg.total / 1048576).toFixed(1) + "MB" : "") + "）" : "";
+    /* 进度期重置 toast 计时器：走 showToast 的样式刷新但不让 3.5s 收走 */
+    if (state.toastTimer) clearTimeout(state.toastTimer);
+    toast.textContent = "下载" + stageLabel + " " + pct + "% " + mb;
+    toast.style.display = "block";
+    void toast.offsetHeight;
+    placeToast();
+    toast.classList.add("show");
+    biliToastHold = setTimeout(function () {
+      toast.classList.remove("show");
+      setTimeout(function () { if (!state.bili.downloading) toast.style.display = "none"; }, 320);
+    }, 60000);
+    if (state.panelOpen) renderPanel();
+  }
+  function biliDone(msg) {
+    var b = state.bili;
+    var wasQn = b.downloading;
+    b.downloading = 0;
+    b.progress = null;
+    if (biliToastHold) { clearTimeout(biliToastHold); biliToastHold = 0; }
+    if (msg.ok) {
+      showToast("完整视频已保存到下载列表 ✓");
+    } else {
+      showToast("完整视频下载失败：" + (msg.error || "未知错误") + "（可改用下方分段直下）");
+    }
+    if (state.panelOpen) renderPanel();
+    void wasQn;
+  }
+
   /* ---------- 消息面 ---------- */
   function send(msg, cb) {
     try {
@@ -517,6 +692,10 @@
         ball.style.display = "flex";
         applyBallPos();
         applyItems(msg.items || [], { notify: true });
+      } else if (msg.type === "bili-progress") {
+        biliProgress(msg);
+      } else if (msg.type === "bili-done") {
+        biliDone(msg);
       } else if (msg.type === "sniffer-off") {
         destroy();
       } else if (msg.type === "sniffer-state") {
