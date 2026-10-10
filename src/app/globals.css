@@ -2314,3 +2314,13 @@ html.cs-drawer:not(.cs-drawer-closing).photo-mode .wallpaper-layer {
 /* ---------- v8.7.55→v8.7.60 搜索框聚焦 × 壁纸联动（已退役）：
    v8.7.61 用户裁定「把选中搜索框后壁纸放大/缩小的效果删了」，
    html.search-float 挂类链与壁纸缩放规则全部撤销，壁纸层不再参与聚焦态。 ---------- */
+
+/* ---------- v8.7.71 登录图标移至左上角（用户裁定）：
+   闭源登录模块（ext-chushi-auth.js）在 app 文档注入 .csa-avatar
+   （position:fixed; top:16px; right:16px; z-index:2147483000），其样式节点
+   由 JS 运行时插入、晚于本表加载。此处以更高优先级（html 前缀 + important）
+   钉死左上角，right 归 auto —— 模块后续升级改类名时自然失效回右上，不破。 */
+html .csa-avatar {
+  left: 16px !important;
+  right: auto !important;
+}

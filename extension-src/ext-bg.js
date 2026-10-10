@@ -1325,6 +1325,31 @@ try {
 /*   · offscreen：MV3 SW 无 DOM（createObjectURL 不可用），合并产物 Blob    */
 /*     必须在扩展页语境创建——chrome.offscreen 文档是唯一正解（架构律⑤）。   */
 /* ==================================================================== */
+/* offscreen 文档单例（v8.7.71 提升：B 站/YouTube 双编排共用） */
+var offscreenCreating = false;
+function ensureOffscreen() {
+  return new Promise(function (resolve) {
+    try {
+      chrome.offscreen.hasDocument(function (has) {
+        if (has) { resolve(true); return; }
+        offscreenCreating = true;
+        var create = function (reason) {
+          chrome.offscreen.createDocument({
+            url: "offscreen-bili.html",
+            reasons: [reason],
+            justification: "完整视频下载：拉取音视频流并在浏览器内合并落盘（B 站/YouTube）",
+          }, function () {
+            void chrome.runtime.lastError;
+            offscreenCreating = false;
+            resolve(true);
+          });
+        };
+        try { create("BLOBS"); } catch (e) { create("DOM_SCRAPING"); }
+      });
+    } catch (e) { resolve(false); }
+  });
+}
+
 var BiliOrch = (function () {
   var DNR_RULE_ID = 9001;
   var QUALITY_LABEL = {
@@ -1393,14 +1418,25 @@ var BiliOrch = (function () {
           var newAvc = /^avc/i.test(ve.codecs || "");
           if ((newAvc && !oldAvc) || (newAvc === oldAvc && (ve.bandwidth || 0) > (old.bandwidth || 0))) byId[ve.id] = ve;
         });
-        var dur = (d.dur || 0) || Math.round((pages[page - 1] && (pages[page - 1].duration || 0)) * 1000);
+        /* v8.7.71 体积虚高根修（用户：「显示视频 12G 实际 14MB」）：旧算式
+           bandwidth(bit/s) × dur / 8 中 dur 混用毫秒（view API fallback 的
+           pages[].duration 是秒，旧码 ×1000 化成 ms；playurl timelength 也是
+           ms）——bit/s × ms / 8 = 真实字节的 1000 倍。统一改秒口径：优先
+           playurl timelength（媒体真实时长 ms）/1000，退 view duration（秒）。
+           B 站带宽是平均码率估算，与实际编码偏差 ±10~20% 属正常量级 */
+        var timelength = (p.data && p.data.timelength) || 0;
+        var durSec = timelength
+          ? timelength / 1000
+          : ((d.duration || 0) ||
+            ((pages[page - 1] && pages[page - 1].duration) || 0));
+        var dur = timelength || Math.round(durSec * 1000); /* 兼容旧字段（ms） */
         var qualities = Object.keys(byId).map(function (id) {
           var ve = byId[id];
           return {
             id: +id,
             label: QUALITY_LABEL[id] || String(id),
             codecs: ve.codecs || "",
-            size: ve.size || Math.round((ve.bandwidth || 0) * dur / 8),
+            size: ve.size || Math.round((ve.bandwidth || 0) * durSec / 8),
           };
         }).sort(function (a, b) { return b.id - a.id; });
         /* 音频：常规轨里挑最高码率（flac/杜比 v1 不做） */
@@ -1445,30 +1481,6 @@ var BiliOrch = (function () {
         }],
       });
     } catch (e) { return Promise.resolve(); }
-  }
-
-  var offscreenCreating = false;
-  function ensureOffscreen() {
-    return new Promise(function (resolve) {
-      try {
-        chrome.offscreen.hasDocument(function (has) {
-          if (has) { resolve(true); return; }
-          offscreenCreating = true;
-          var create = function (reason) {
-            chrome.offscreen.createDocument({
-              url: "offscreen-bili.html",
-              reasons: [reason],
-              justification: "B 站完整视频下载：拉取音视频流并在浏览器内合并落盘",
-            }, function () {
-              void chrome.runtime.lastError;
-              offscreenCreating = false;
-              resolve(true);
-            });
-          };
-          try { create("BLOBS"); } catch (e) { create("DOM_SCRAPING"); }
-        });
-      } catch (e) { resolve(false); }
-    });
   }
 
   function startDownload(msg) {
@@ -1533,6 +1545,233 @@ var BiliOrch = (function () {
   return { resolve: resolve, startDownload: startDownload, normBvid: normBvid };
 })();
 
+/* ==========================================================================
+ * v8.7.71 YouTube 完整视频下载（用户：「把 Ghost Downloader 的 youtube 视频
+ * 下载也移植到资源嗅探」）——对齐 v8.7.69 B 站架构：纯浏览器内完成，免本地
+ * 程序免 ffmpeg。能力边界（与 GD3 桌面端诚实对齐）：
+ *   ·嗅探/解析/下载/合并全部在扩展内完成：SW 拉取 watch 页解析
+ *    ytInitialPlayerResponse（浏览器 cookies 随 host 通配自动携带，年龄
+ *    限制视频随登录态可用）→ 自适应分流（video mp4 + audio m4a）→
+ *    offscreen 流式拉取 → remuxYT（stbl 表抽取+复用 BiliRemux mux）→
+ *    渐进 MP4 落盘。DNR 会话规则给 googlevideo.com 补 Referer（fetch
+ *    规范禁设 Referer 的唯一合法改写通道，与 B 站律同源）。
+ *   ·仅列 MP4 档位（avc1 视频轨 + mp4a 音轨）：VP9/AV1 档位需要 WebM
+ *    合流器，v1 不做，面板只呈现可完整合并的清晰度（诚实呈现）。
+ *   ·YouTube 风控（SABR/PO 令牌）可能令部分视频的流 URL 403：面板
+ *    诚实报错提示，不虚假承诺。
+ * ======================================================================== */
+var YtOrch = (function () {
+  "use strict";
+  var DNR_RULE_ID_YT = 9002;
+
+  function ensureDnrYt() {
+    try {
+      return chrome.declarativeNetRequest.updateSessionRules({
+        removeRuleIds: [DNR_RULE_ID_YT],
+        addRules: [{
+          id: DNR_RULE_ID_YT,
+          priority: 1,
+          action: {
+            type: "modifyHeaders",
+            requestHeaders: [
+              { header: "Referer", operation: "set", value: "https://www.youtube.com/" },
+              { header: "Origin", operation: "remove" },
+            ],
+          },
+          condition: {
+            requestDomains: ["googlevideo.com", "youtube.com", "ytimg.com"],
+            resourceTypes: ["xmlhttprequest", "media", "other"],
+          },
+        }],
+      });
+    } catch (e) { return Promise.resolve(); }
+  }
+
+  function normVideoId(v) {
+    var m = String(v || "").match(/[\w-]{11}/);
+    return m ? m[0] : "";
+  }
+
+  /* watch 页 HTML → ytInitialPlayerResponse JSON（括号深度扫描，免依赖） */
+  function extractPlayerResponse(html) {
+    var key = "ytInitialPlayerResponse";
+    var at = html.indexOf(key);
+    while (at >= 0) {
+      var brace = html.indexOf("{", at + key.length);
+      var nextKey = html.indexOf(key, at + key.length);
+      if (brace >= 0 && (nextKey < 0 || brace < nextKey)) {
+        var depth = 0, inStr = false, esc = false;
+        for (var i = brace; i < html.length; i++) {
+          var c = html[i];
+          if (inStr) {
+            if (esc) esc = false;
+            else if (c === "\\") esc = true;
+            else if (c === '"') inStr = false;
+            continue;
+          }
+          if (c === '"') inStr = true;
+          else if (c === "{") depth++;
+          else if (c === "}") {
+            depth--;
+            if (depth === 0) {
+              try { return JSON.parse(html.slice(brace, i + 1)); } catch (e) { break; }
+            }
+          }
+        }
+      }
+      at = nextKey;
+    }
+    return null;
+  }
+
+  function fetchWatch(videoId) {
+    return fetch("https://www.youtube.com/watch?v=" + videoId + "&hl=zh-CN&has_verified=1", {
+      credentials: "include", cache: "no-store",
+    }).then(function (r) {
+      if (!r.ok) throw new Error("watch-http-" + r.status);
+      return r.text();
+    }).then(function (html) {
+      var pr = extractPlayerResponse(html);
+      if (!pr) throw new Error("no-player-response");
+      if (pr.playabilityStatus && pr.playabilityStatus.status !== "OK") {
+        throw new Error("playability-" + pr.playabilityStatus.status);
+      }
+      return pr;
+    });
+  }
+
+  function fmtFromFormats(formats, itag) {
+    for (var i = 0; i < formats.length; i++) {
+      if (formats[i].itag === itag) return formats[i];
+    }
+    return null;
+  }
+
+  function codecsOf(mime) {
+    var m = /codecs="([^"]+)"/.exec(String(mime || ""));
+    return m ? m[1] : "";
+  }
+
+  function parse(pr) {
+    var vd = pr.videoDetails || {};
+    var sd = pr.streamingData || {};
+    var adapt = sd.adaptiveFormats || [];
+    var prog = sd.formats || [];
+    var durSec = +(vd.lengthSeconds || 0);
+    /* 视频档位：仅 video/mp4（avc1 优先，同清晰度取高码率），按高度降序 */
+    var byH = {};
+    adapt.forEach(function (f) {
+      if (!/video\/mp4/i.test(f.mimeType || "")) return;
+      if (!f.url) return; /* 无直链（加密/PO 令牌档）不诚实列出 */
+      var h = f.height || 0;
+      if (!h) return;
+      var old = byH[h];
+      var fAvc = /^avc1/.test(codecsOf(f.mimeType));
+      var oAvc = old ? /^avc1/.test(codecsOf(old.mimeType)) : false;
+      if (!old || (fAvc && !oAvc) || (fAvc === oAvc && (f.bitrate || 0) > (old.bitrate || 0))) byH[h] = f;
+    });
+    var audio = null;
+    adapt.forEach(function (f) {
+      if (!/audio\/mp4/i.test(f.mimeType || "")) return;
+      if (!f.url) return;
+      if (!audio || (f.bitrate || 0) > (audio.bitrate || 0)) audio = f;
+    });
+    var qualities = Object.keys(byH).map(function (h) {
+      var f = byH[h];
+      var size = Number(f.contentLength) || Math.round(((f.bitrate || 0) * durSec) / 8);
+      return {
+        itag: f.itag,
+        label: (f.qualityLabel || String(h)).replace("p60", "P60").replace("p", "P"),
+        height: h,
+        fps: f.fps || 0,
+        codecs: codecsOf(f.mimeType),
+        size: size,
+      };
+    }).sort(function (a, b) { return b.height - a.height; });
+    var audioInfo = audio ? {
+      itag: audio.itag,
+      size: Number(audio.contentLength) || Math.round(((audio.bitrate || 0) * durSec) / 8),
+    } : null;
+    /* 渐进档（音视一体，单文件直下免合并）作附加行 */
+    var progressive = prog.filter(function (f) { return /video\/mp4/i.test(f.mimeType || "") && f.url; })
+      .map(function (f) {
+        return {
+          itag: f.itag,
+          label: (f.qualityLabel || "").replace("p", "P") + "（一体）",
+          height: f.height || 0,
+          fps: f.fps || 0,
+          codecs: codecsOf(f.mimeType),
+          size: Number(f.contentLength) || Math.round(((f.bitrate || 0) * durSec) / 8),
+          single: true,
+        };
+      });
+    return {
+      ok: true,
+      videoId: vd.videoId || "",
+      title: vd.title || "YouTube 视频",
+      author: vd.author || "",
+      dur: durSec,
+      isLive: !!vd.isLiveContent,
+      qualities: qualities,
+      progressive: progressive,
+      audio: audioInfo,
+    };
+  }
+
+  function resolve(videoId) {
+    videoId = normVideoId(videoId);
+    if (!videoId) return Promise.reject(new Error("video-id"));
+    return fetchWatch(videoId).then(function (pr) { return parse(pr); });
+  }
+
+  function startDownload(msg) {
+    /* URL 时效敏感：收到即重新解析取新签名流 URL */
+    var videoId = normVideoId(msg.videoId);
+    if (!videoId) return Promise.reject(new Error("video-id"));
+    return ensureDnrYt().then(function () {
+      return fetchWatch(videoId).then(function (pr) {
+        var info = parse(pr);
+        var adapt = (pr.streamingData && pr.streamingData.adaptiveFormats) || [];
+        var prog = (pr.streamingData && pr.streamingData.formats) || [];
+        var ve = fmtFromFormats(adapt, msg.itag) || fmtFromFormats(prog, msg.itag);
+        if (!ve || !ve.url) throw new Error("quality-gone");
+        /* 档位形态：纯音频（单下）/ 渐进一体（单文件已含双轨）/ 自适应视频
+           （需配音频轨合并）。一体档误挂独立音轨会双音轨，这里分流清晰 */
+        var isAudioOnly = /^audio\//i.test(ve.mimeType || "");
+        var isProgressive = !!fmtFromFormats(prog, ve.itag);
+        var au = (!isAudioOnly && !isProgressive && info.audio)
+          ? fmtFromFormats(adapt, info.audio.itag)
+          : null;
+        var audioUrl = au && au.url ? au.url : null;
+        var safe = String(msg.title || info.title || "youtube")
+          .replace(/[\\/:*?"<>|]/g, "_").slice(0, 80);
+        return ensureOffscreen().then(function () {
+          var job = {
+            type: "bili-offscreen-job",
+            job: "remux",
+            tabId: msg.tabId,
+            muxer: "yt",
+            videoUrl: ve.url,
+            audioUrl: audioUrl,
+            filename: safe + "_" + (msg.label || "") + ".mp4",
+            totalSize: (Number(ve.contentLength) || 0) + (au ? Number(au.contentLength) || 0 : 0),
+          };
+          return new Promise(function (res2) {
+            try {
+              chrome.runtime.sendMessage(job, function (resp) {
+                void chrome.runtime.lastError;
+                res2({ ok: true, started: true, title: info.title });
+              });
+            } catch (e) { res2({ ok: false, error: "offscreen-send" }); }
+          });
+        });
+      });
+    });
+  }
+
+  return { resolve: resolve, startDownload: startDownload, normVideoId: normVideoId };
+})();
+
 /* B 站消息面（独立监听器：面板 resolve/download + offscreen 进度回转） */
 try {
   chrome.runtime.onMessage.addListener(function (msg, sender, sendResponse) {
@@ -1560,6 +1799,27 @@ try {
       });
       return true; /* 异步应答 */
     }
+    if (msg.type === "yt-resolve") {
+      YtOrch.resolve(msg.videoId).then(function (info) {
+        try { sendResponse({ type: "yt-resolve-reply", ok: true, info: info }); }
+        catch (e) { /* noop */ }
+      }).catch(function (e) {
+        try { sendResponse({ type: "yt-resolve-reply", ok: false, error: String(e && e.message || e) }); } catch (e2) { /* noop */ }
+      });
+      return true; /* 异步应答 */
+    }
+    if (msg.type === "yt-download") {
+      var ytabId = sender.tab && sender.tab.id;
+      YtOrch.startDownload({
+        videoId: msg.videoId, itag: msg.itag, label: msg.label || "",
+        title: msg.title || "", tabId: ytabId,
+      }).then(function (r) {
+        try { sendResponse({ type: "yt-download-reply", ok: r.ok, error: r.error, title: r.title }); } catch (e) { /* noop */ }
+      }).catch(function (e) {
+        try { sendResponse({ type: "yt-download-reply", ok: false, error: String(e && e.message || e) }); } catch (e2) { /* noop */ }
+      });
+      return true; /* 异步应答 */
+    }
     if (msg.type === "bili-progress" || msg.type === "bili-done") {
       /* offscreen → 标签页转投（sender 无 tab；目标 tabId 在消息里） */
       var target = msg.tabId;
@@ -1567,7 +1827,7 @@ try {
         try {
           chrome.tabs.sendMessage(target, {
             type: msg.type, stage: msg.stage, loaded: msg.loaded, total: msg.total,
-            ok: msg.ok, error: msg.error, handedOff: msg.handedOff,
+            ok: msg.ok, error: msg.error, handedOff: msg.handedOff, kind: msg.kind,
           }, function () { void chrome.runtime.lastError; });
         } catch (e) { /* 标签页已关：忽略 */ }
       }

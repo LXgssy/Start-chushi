@@ -276,6 +276,9 @@ function SearchBar({
      （快速切换从当前实际缩放值起步，不回跳） */
   const pillRef = useRef<HTMLFormElement>(null);
   const glassRef = useRef<HTMLDivElement>(null);
+  /* v8.7.71 整树随动复位：内容裁剪层 ref（pill-content-in 载体之二，
+     下沉收尾同笔压制其入场动画重播） */
+  const clipRef = useRef<HTMLDivElement>(null);
   const floatScaleRef = useRef(1);
   const [query, setQuery] = useState("");
   const [focused, setFocused] = useState(false);
@@ -349,12 +352,27 @@ function SearchBar({
      保证磨砂重取样不被渲染管线跳帧合并。聚焦期间投影/描边环淡入淡出
      仍走 box-shadow 纯绘制通道（className 切换 + CSS transition），
      与本动画并行互不干扰。
-     v8.7.69：收尾加重栅格脉冲（0.62px 透明 outline 一拍）+ 玻璃层
-     will-change 栅格钉死（globals.css）——真机分数 DPR 下沉收尾后
-     圆角弧线描边位移（残留中间比例栅格的吸附相位差）双保险根修。
+     v8.7.69：收尾加重栅格脉冲 + 玻璃层 will-change 栅格钉死
+     （globals.css）——真机分数 DPR 下沉收尾后圆角弧线描边位移
+     （残留中间比例栅格的吸附相位差）双保险根修。
      v8.7.70：下沉收尾升级为底板随动复位——DOM 摘插强制玻璃合成层
-     重建，新层首栅格确定性落在静息相位（脉冲依赖的栅格启发式真机
-     不落地，详见收尾分支注释）；上浮收尾保留脉冲兜底。 */
+     重建，新层首栅格确定性落在静息相位。
+     v8.7.71 整树随动复位：v8.7.70 真机仍有复现（用户实测视频
+     l2wfvu0080j），用户诊断指向的「底板」不只玻璃一层——form（缩放
+     载体，will-change 常驻合成层，涂大模糊投影）与内容裁剪层（
+     will-change 常驻层，圆角裁剪掩码）同样在动画期栅格化、同样可能
+     烙进中间相位，而 v8.7.70 只重建了玻璃。收尾改为【form 整树摘插】
+     ：form 自 DOM 摘下原位插回，全子树 LayoutObject/PaintLayer/cc
+     合成层全链销毁重建，玻璃/裁剪层/form 自身新层首栅格只能落在终
+     态几何——任何一层的残留相位物理性不存在。摘与插同一同步块，渲
+     染帧之间整树零缺席。三处前置同笔压制（CSS 动画在摘下时取消、
+     插回时重播——pill-shell-in 0.95s/0.24s 延迟 backwards 填充是
+     灾难级闪烁）：form(pill-shell-in) + 玻璃(pill-content-in) +
+     裁剪层(pill-content-in) 全部 inline animation=none（入场动画
+     mount 已播完，永久压制零视觉影响）。上浮收尾改玻璃层随动复位
+     （焦点在输入框上，form/裁剪层摘插会闪断焦点；玻璃是 pointer-
+     events-none 兄弟层，摘插零焦点语义），脉冲退役——层重建即最
+     强重栅格。 */
   useEffect(() => {
     const pill = pillRef.current;
     if (!pill) return;
@@ -366,7 +384,6 @@ function SearchBar({
       return;
     }
     let raf = 0;
-    let settleRaf = 0;
     let tick = 0;
     const t0 = performance.now();
     const glass = glassRef.current;
@@ -389,46 +406,39 @@ function SearchBar({
         pill.style.transform = to === 1 ? "" : `scale(${FLOAT_SCALE})`;
         if (glass) {
           if (to === 1) {
-            /* v8.7.70 底板随动复位（用户实测诊断落地：「下沉播完后底板没有
-               跟随搜索框整体正确复位，取消选中后还要进行一次突兀去掉位移
-               去复位」）：v8.7.68 环同层化与 v8.7.69 栅格钉死+outline 脉冲
-               都建立在合成器栅格启发式之上——真机 GPU（Windows 分数 DPR）
-               上启发式不落地，动画期烙进栅格的中间相位要等下一次偶然重绘
-               才被纠正，正是用户所见「底板残留位移+事后突兀归位」。根修
-               改为确定性机制：下沉终态样式落定的同一笔 JS 同步块里把玻璃
-               底板从 DOM 摘下再原位插回——LayoutObject、PaintLayer、cc
-               合成层全链销毁重建，新层首栅格只能落在最终几何（表单 scale
-               已恒等=静息相位），「残留中间相位」物理性不存在；摘与插在
-               同一个同步块内完成，渲染帧之间底板从未缺席，零闪烁。
-               两个前置同笔写入：① glass.style.animation="none"——reattach
-               会重启 CSS 入场动画（pill-content-in，0.24s 延迟 + backwards
-               填充 = 底板先消失再淡入，灾难级闪烁），入场动画在 mount 已
-               播完，此后永久压制零视觉影响，还杜绝后续任何重挂载重播；
-               ② outline 回 0.02 常驻基线（v8.7.68 基线律：禁清零态）。
-               v8.7.69 的 0.62px 脉冲对下沉收尾退役（层重建本身即最强重
-               栅格），上浮收尾（scale 1.015 驻留态）仍保留脉冲兜底。 */
+            /* v8.7.71 整树随动复位（终局根修，机制详见 effect 头注释）：
+               下沉终态样式落定的同一笔 JS 同步块内——①三处 CSS 动画同笔
+               压制（form/glass/clip，摘下会取消、插回会重播，必须先压）；
+               ②玻璃 outline 回 0.02 常驻基线（v8.7.68 基线律）；③form
+               整树摘插。新层首栅格确定性落在静息几何，用户诊断的「底板
+               没有跟随整体正确复位」在玻璃/裁剪/form 三层上同时不可能
+               发生；摘与插同一同步块，渲染帧之间整树零缺席零闪烁。 */
+            pill.style.animation = "none";
             glass.style.animation = "none";
+            if (clipRef.current) clipRef.current.style.animation = "none";
             glass.style.outline = "0.02px solid transparent";
-            const parent = glass.parentNode;
-            const next = glass.nextSibling;
+            const parent = pill.parentNode;
+            const next = pill.nextSibling;
             if (parent) {
-              parent.removeChild(glass);
-              if (next) parent.insertBefore(glass, next);
-              else parent.appendChild(glass);
+              parent.removeChild(pill);
+              if (next) parent.insertBefore(pill, next);
+              else parent.appendChild(pill);
             }
           } else {
-            /* v8.7.69 收尾重栅格脉冲（上浮驻留态兜底）：终态样式落定的同
-               一笔样式更新里把 outline 拉到 0.62px 透明——亚像素 0.02↔0.04
-               的损伤矩形会被取整丢弃，0.62px 在分数 DPR 下 ≥1 设备像素，
-               必然产生整层失效 → 玻璃层在上浮最终变换态完整重栅格一次。
-               双 rAF 后回 0.02 基线（v8.7.68 基线律不变）。 */
-            glass.style.outline = "0.62px solid transparent";
-            settleRaf = requestAnimationFrame(() => {
-              settleRaf = requestAnimationFrame(() => {
-                if (glassRef.current)
-                  glassRef.current.style.outline = "0.02px solid transparent";
-              });
-            });
+            /* v8.7.71 上浮收尾：玻璃层随动复位（脉冲退役）。焦点在输入框
+               上，form/裁剪层摘插会闪断焦点触发循环 blur；玻璃是
+               pointer-events-none 兄弟层，摘插零焦点语义，层重建即最强
+               重栅格——新层首栅格落在 scale(1.015) 驻留几何。同笔压制
+               pill-content-in 重播 + outline 回基线。 */
+            glass.style.animation = "none";
+            glass.style.outline = "0.02px solid transparent";
+            const gparent = glass.parentNode;
+            const gnext = glass.nextSibling;
+            if (gparent) {
+              gparent.removeChild(glass);
+              if (gnext) gparent.insertBefore(glass, gnext);
+              else gparent.appendChild(glass);
+            }
           }
         }
       }
@@ -436,7 +446,6 @@ function SearchBar({
     raf = requestAnimationFrame(step);
     return () => {
       cancelAnimationFrame(raf);
-      cancelAnimationFrame(settleRaf);
       if (glassRef.current) glassRef.current.style.outline = "0.02px solid transparent";
     };
   }, [focused]);
@@ -567,7 +576,7 @@ function SearchBar({
               ——否则底板描边压在裁剪线上被抗锯齿吃半像素，下边发虚不匀）；
               h-full+min-h-0 跟随表单高度动画收缩，rounded-[28px] 承担
               建议行底部圆角裁剪（与原 form 裁剪同参同位） */}
-          <div className="relative h-full min-h-0 overflow-hidden rounded-[28px]">
+          <div ref={clipRef} className="relative h-full min-h-0 overflow-hidden rounded-[28px]">
           {/* 输入行：恒居顶部、高度锁定；建议列表在其下，由表单 height 动画整体
               揭示。transition 只含默认属性表（不含 height）——禅雾化与聚焦缩放/
               阴影照常，且不与 framer 逐帧内联 height 打架 */}

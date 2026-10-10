@@ -29,10 +29,10 @@
     try { chrome.runtime.sendMessage(msg, function () { void chrome.runtime.lastError; }); } catch (e) { /* noop */ }
   }
 
-  function reportProgress(tabId, stage, loaded, total) {
+  function reportProgress(tabId, stage, loaded, total, kind) {
     reply({
       type: "bili-progress", tabId: tabId, stage: stage,
-      loaded: loaded, total: total || 0,
+      loaded: loaded, total: total || 0, kind: kind || "bili",
     });
   }
 
@@ -108,29 +108,39 @@
   }
 
   function handleJob(msg) {
-    if (busy) { reply({ type: "bili-done", tabId: msg.tabId, ok: false, error: "busy" }); return; }
+    if (busy) { reply({ type: "bili-done", tabId: msg.tabId, ok: false, error: "busy", kind: msg.muxer === "yt" ? "yt" : "bili" }); return; }
     busy = true;
     var tabId = msg.tabId;
+    var kind = msg.muxer === "yt" ? "yt" : "bili";
+    /* v8.7.71 muxer 开关：B 站 m4s = fMP4（remuxBuffers），
+       YouTube adaptive = 常规 MP4（remuxYT，stbl 表抽取）；返回同形 */
+    /* muxer 选择在下方合并处内联三元（yt 通道单文件形态需 audioBuf 回退
+       videoBuf，无法用单值 muxFn 表达） */
     var videoBuf = null, audioBuf = null;
 
     var chain = Promise.resolve();
     if (msg.videoUrl) {
       chain = chain.then(function () {
         return fetchWithProgress(msg.videoUrl, tabId, "video", function (loaded, total) {
-          reportProgress(tabId, "video", loaded, total);
+          reportProgress(tabId, "video", loaded, total, kind);
         });
       }).then(function (buf) { videoBuf = buf; });
     }
     if (msg.audioUrl) {
       chain = chain.then(function () {
         return fetchWithProgress(msg.audioUrl, tabId, "audio", function (loaded, total) {
-          reportProgress(tabId, "audio", loaded, total);
+          reportProgress(tabId, "audio", loaded, total, kind);
         });
       }).then(function (buf) { audioBuf = buf; });
     }
     chain = chain.then(function () {
-      reportProgress(tabId, "merge", 0, 0);
-      var r = BiliRemux.remuxBuffers(videoBuf, audioBuf);
+      reportProgress(tabId, "merge", 0, 0, kind);
+      /* yt 通道单文件形态（一体档/纯音频）：audioUrl 缺省时从同一缓冲抽双轨
+         （extractTracksStbl 同文件取 vide+soun），统一走 remuxYT；无音频轨则
+         自动退化为单轨输出 */
+      var r = kind === "yt"
+        ? BiliRemux.remuxYT(videoBuf, audioBuf || videoBuf)
+        : BiliRemux.remuxBuffers(videoBuf, audioBuf);
       videoBuf = audioBuf = null; /* 释放原始流内存 */
       return r.bytes;
     }).then(function (bytes) {
@@ -149,9 +159,9 @@
         return { ok: true, handedOff: true };
       });
     }).then(function (res) {
-      reply({ type: "bili-done", tabId: tabId, ok: true, handedOff: !!(res && res.handedOff) });
+      reply({ type: "bili-done", tabId: tabId, ok: true, handedOff: !!(res && res.handedOff), kind: kind });
     }).catch(function (err) {
-      reply({ type: "bili-done", tabId: tabId, ok: false, error: String((err && err.message) || err) });
+      reply({ type: "bili-done", tabId: tabId, ok: false, error: String((err && err.message) || err), kind: kind });
     }).then(function () {
       busy = false;
     });

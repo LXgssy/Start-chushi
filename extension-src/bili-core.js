@@ -632,7 +632,200 @@ var BiliRemux = (function () {
     return { bytes: mux(vt, at), video: vt, audio: at };
   }
 
-  return { extractTrack: extractTrack, mux: mux, remuxBuffers: remuxBuffers };
+  /* ========================================================================
+   * v8.7.71 渐进 MP4（stbl 表）轨道抽取——YouTube 移植（Ghost Downloader
+   * 的 YouTube 下载能力对齐：自适应分流下载 + 浏览器内合并）。
+   * YouTube 的 progressive/adaptive MP4 是常规 ISO 布局：moov/stbl 表驱动
+   * （stts/ctts/stsc/stsz/stco 展开），无 moof/trun 分片。本抽取器产出与
+   * extractTrack（fMP4）完全同形的 track，直接进 mux 合并。
+   * flags 语义对齐律：trackStats 以 bit16 判同步（0=sync）——视频按 stss
+   * 标注（sync 0x02000000 / 非同步 0x01010000），音频全同步。
+   * ====================================================================== */
+  function findBox(v, start, end, type) {
+    var hit = null;
+    walkBoxes(v, start, end, function (t, s, h, z, p) {
+      if (t === type && !hit) hit = { start: s, size: z, payload: p };
+    });
+    return hit;
+  }
+  function extractTracksStbl(buf) {
+    var v = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+    var moov = findBox(v, 0, v.length, "moov");
+    if (!moov) return [];
+    var tracks = [];
+    walkBoxes(v, moov.payload, moov.start + moov.size, function (t, s, h, z, p) {
+      if (t !== "trak") return;
+      var tr = {
+        handler: "", timescale: 0, duration: 0, codecEntry: null, codec: "",
+        codecType4: "", width: 0, height: 0, samples: [], firstDts: 0,
+        sampleCount: 0, trackId: 0,
+      };
+      /* tkhd：track id + 宽高 */
+      var tkhd = findBox(v, p, s + z, "tkhd");
+      if (tkhd) {
+        var ver = v[tkhd.payload];
+        var base = tkhd.payload + 4 + (ver === 0 ? 8 : 16);
+        tr.trackId = u32(v, base);
+        tr.width = u32(v, tkhd.start + tkhd.size - 8) / 65536;
+        tr.height = u32(v, tkhd.start + tkhd.size - 4) / 65536;
+      }
+      /* edts/elst：首条目 media_time 归零位（YouTube AAC priming 裁剪） */
+      var edts = findBox(v, p, s + z, "edts");
+      if (edts) {
+        var elst = findBox(v, edts.payload, edts.start + edts.size, "elst");
+        if (elst) {
+          var ev = v[elst.payload];
+          var eo = elst.payload + 8; /* ver/flags(4) + entry_count(4) */
+          if (ev === 0) tr.firstDts = i32(v, eo + 4);
+          else if (ev === 1) {
+            /* v1：segment_duration u64(eo..eo+8) + media_time i64(eo+8..eo+16)；
+               取值在 2^31 内时用低 32 位，高位非零视为异常归零 */
+            tr.firstDts = u32(v, eo + 8) === 0 ? i32(v, eo + 12) : 0;
+          }
+        }
+      }
+      /* mdia */
+      var mdia = findBox(v, p, s + z, "mdia");
+      if (!mdia) return;
+      var mdhd = findBox(v, mdia.payload, mdia.start + mdia.size, "mdhd");
+      if (mdhd) {
+        var mv = v[mdhd.payload];
+        var mo = mdhd.payload + 4 + (mv === 0 ? 8 : 16);
+        tr.timescale = u32(v, mo);
+        tr.duration = mv === 0 ? u32(v, mo + 4) : u64(v, mo + 4);
+      }
+      var hdlr = findBox(v, mdia.payload, mdia.start + mdia.size, "hdlr");
+      if (hdlr) tr.handler = type4(v, hdlr.payload + 8);
+      var minf = findBox(v, mdia.payload, mdia.start + mdia.size, "minf");
+      var stbl = minf ? findBox(v, minf.payload, minf.start + minf.size, "stbl") : null;
+      if (!stbl) return;
+      var s0 = stbl.payload, s1 = stbl.start + stbl.size;
+      /* stsd：样本条目原样搬运（avcC/esds 全在里头） */
+      var stsd = findBox(v, s0, s1, "stsd");
+      if (stsd && u32(v, stsd.payload + 4) > 0) {
+        var eStart = stsd.payload + 8;
+        var eSize = u32(v, eStart);
+        tr.codecEntry = v.slice(eStart, eStart + eSize);
+        tr.codecType4 = type4(tr.codecEntry, 4);
+        var ct = tr.codecType4;
+        tr.codec = ct === "avc1" || ct === "avc3" ? "avc"
+          : ct === "hev1" || ct === "hvc1" ? "hevc"
+            : ct === "mp4a" ? "aac" : ct;
+      }
+      /* stts → 每采样时长 */
+      var stts = findBox(v, s0, s1, "stts");
+      var durs = [];
+      if (stts) {
+        var n1 = u32(v, stts.payload + 4);
+        for (var i = 0; i < n1; i++) {
+          var c1 = u32(v, stts.payload + 8 + i * 8);
+          var d1 = u32(v, stts.payload + 12 + i * 8);
+          for (var j = 0; j < c1; j++) durs.push(d1);
+        }
+      }
+      /* ctts → 每采样合成偏移（v0 无符号 / v1 有符号） */
+      var cttsMap = null;
+      var ctts = findBox(v, s0, s1, "ctts");
+      if (ctts) {
+        var cv = v[ctts.payload];
+        var n2 = u32(v, ctts.payload + 4);
+        cttsMap = [];
+        var idx = 0;
+        for (var i2 = 0; i2 < n2; i2++) {
+          var c2 = u32(v, ctts.payload + 8 + i2 * 8);
+          var o2 = cv === 0 ? u32(v, ctts.payload + 12 + i2 * 8) : i32(v, ctts.payload + 12 + i2 * 8);
+          for (var j2 = 0; j2 < c2; j2++) cttsMap[idx++] = o2;
+        }
+      }
+      /* stss → 同步帧（1-based 采样号） */
+      var syncSet = null;
+      var stss = findBox(v, s0, s1, "stss");
+      if (stss) {
+        syncSet = {};
+        var n3 = u32(v, stss.payload + 4);
+        for (var i3 = 0; i3 < n3; i3++) syncSet[u32(v, stss.payload + 8 + i3 * 4)] = true;
+      }
+      /* stsz → 每采样尺寸（固定/变长两态） */
+      var stsz = findBox(v, s0, s1, "stsz");
+      if (!stsz) return;
+      var fixedSize = u32(v, stsz.payload + 4);
+      var count = u32(v, stsz.payload + 8);
+      var sizes = [];
+      if (fixedSize) { for (var i4 = 0; i4 < count; i4++) sizes.push(fixedSize); }
+      else { for (var i5 = 0; i5 < count; i5++) sizes.push(u32(v, stsz.payload + 12 + i5 * 4)); }
+      /* stsc → 每 chunk 采样数 */
+      var stsc = findBox(v, s0, s1, "stsc");
+      if (!stsc) return;
+      var n4 = u32(v, stsc.payload + 4);
+      var scRuns = [];
+      for (var i6 = 0; i6 < n4; i6++) {
+        scRuns.push({
+          first: u32(v, stsc.payload + 8 + i6 * 12),
+          perChunk: u32(v, stsc.payload + 12 + i6 * 12),
+        });
+      }
+      /* stco/co64 → chunk 绝对偏移 */
+      var stco = findBox(v, s0, s1, "stco");
+      var co64 = stco ? null : findBox(v, s0, s1, "co64");
+      if (!stco && !co64) return;
+      var nChunks = u32(v, (stco || co64).payload + 4);
+      var chunkOffs = [];
+      for (var i7 = 0; i7 < nChunks; i7++) {
+        chunkOffs.push(stco ? u32(v, stco.payload + 8 + i7 * 4)
+          : u64(v, co64.payload + 8 + i7 * 8));
+      }
+      /* 展开：chunk × (stsc 段内 perChunk) × stsz，绝对偏移累计 */
+      var si = 0;
+      var isVideo = tr.handler === "vide";
+      for (var ci = 0; ci < nChunks && si < count; ci++) {
+        var per = 0;
+        for (var ri = scRuns.length - 1; ri >= 0; ri--) {
+          if (ci + 1 >= scRuns[ri].first) { per = scRuns[ri].perChunk; break; }
+        }
+        var cursor = chunkOffs[ci];
+        for (var k = 0; k < per && si < count; k++) {
+          var sz2 = sizes[si];
+          if (!sz2) break;
+          var fl = 0x02000000; /* 默认同步 */
+          if (isVideo && syncSet && !syncSet[si + 1]) fl = 0x01010000;
+          tr.samples.push({
+            off: cursor, size: sz2,
+            duration: durs[si] || 1,
+            cts: cttsMap ? (cttsMap[si] || 0) : 0,
+            flags: fl,
+          });
+          cursor += sz2;
+          si++;
+          tr.sampleCount++;
+        }
+      }
+      if (tr.timescale && tr.codecEntry && tr.samples.length) tracks.push(tr);
+    });
+    return tracks;
+  }
+
+  /* remuxYT：常规 MP4 双流合并（视频流取 vide 轨、音频流取 soun 轨）。
+     接口/返回与 remuxBuffers 完全同形（offscreen 侧 muxer 开关切换）。 */
+  function remuxYT(videoBuf, audioBuf) {
+    var vt = null, at = null;
+    if (videoBuf) {
+      var vts = extractTracksStbl(videoBuf);
+      for (var i = 0; i < vts.length; i++) if (vts[i].handler === "vide") { vt = vts[i]; break; }
+    }
+    if (audioBuf) {
+      var ats = extractTracksStbl(audioBuf);
+      for (var j = 0; j < ats.length; j++) if (ats[j].handler === "soun") { at = ats[j]; break; }
+    }
+    if (vt && vt.handler !== "vide" && at && at.handler === "vide") {
+      var t = vt; vt = at; at = t;
+    }
+    if (!vt && !at) throw new Error("no-tracks");
+    if (vt) vt._src = videoBuf instanceof Uint8Array ? videoBuf : new Uint8Array(videoBuf);
+    if (at) at._src = audioBuf instanceof Uint8Array ? audioBuf : new Uint8Array(audioBuf);
+    return { bytes: mux(vt, at), video: vt, audio: at };
+  }
+
+  return { extractTrack: extractTrack, extractTracksStbl: extractTracksStbl, mux: mux, remuxBuffers: remuxBuffers, remuxYT: remuxYT };
 })();
 
 /* Node 单测 / CommonJS 导出 */

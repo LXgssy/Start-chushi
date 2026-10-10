@@ -22,6 +22,19 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.71",
+    date: "2026-10-10",
+    title: "YouTube 完整视频下载入库 + 搜索框描边终局根修 + 体积显示修复",
+    highlights: [
+      "资源嗅探新增「YouTube 完整视频」：在 YouTube 视频页一键选画质，音视频自动合并成单个完整 MP4（浏览器内完成，无需本地程序，Ghost Downloader 同款能力移植）",
+      "YouTube 档位仅列可直接完整合并的 MP4（VP9/AV1 暂不支持）；部分视频受平台风控限制时会如实提示",
+      "搜索框下沉收尾描边位移终局根修：从只重建玻璃层升级为整树确定性重建（表单/磨砂/裁剪三层全部新建栅格），残留位移在任何层级都不再可能发生",
+      "修复 B 站清晰度体积显示虚高约 1000 倍的问题（显示 12G 实际 14MB）",
+      "登录图标移至左上角",
+    ],
+    channel: "shell",
+  },
+  {
     version: "8.7.70",
     date: "2026-10-10",
     title: "搜索框底板随动复位——下沉收尾描边位移确定性根修",
