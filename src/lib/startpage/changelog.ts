@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.82",
+    date: "2026-10-11",
+    title: "回退磨砂底板通道改动（复位/卡顿根修）",
+    channel: "page",
+    highlights: [
+      "回退 v8.7.80/81 对磨砂底板的通道改动：那两版引入了聚焦收尾的一次复位与描边加粗卡顿",
+      "磨砂底板恢复 v8.7.79 结构（随内容 transform 载体），动画通道、时长、观感与 v8.7.79 逐项一致",
+    ],
+  },
+  {
     version: "8.7.81",
     date: "2026-10-11",
     title: "磨砂底板改裁剪通道（复位与卡顿根修）",

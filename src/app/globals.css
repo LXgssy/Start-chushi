@@ -1558,27 +1558,7 @@ html.cs-drawer-closing .cl-fade-leaf {
    will-change 常驻合成层与 glass/clip 同律——ring 自身四值布局插值
    的重栅格化发生在独立层内 1:1 布局相位，不受祖先 transform 矩阵
    污染（这正是本层存在的意义），纯矢量无磨砂效果，无 backdrop root
-   副作用（磨砂存活律不受影响）。 *//* ---------- v8.7.81 磨砂底板：几何静止 + 裁剪通道承载生长 ----------
-   用户实测 v8.7.80（磨砂底板走布局通道）两处退化：上浮收尾一次「复位」+ 描边
-   加粗明显卡顿。原因：布局通道每帧真实重排并让磨砂面板全量重渲染，终帧又有一次
-   迟到的重渲染。
-   本版把底板做成【几何恒定】：静态尺寸恒为聚焦态（left/top -0.75%、宽高 +1.5%，
-   永不由 JS 改写），生长改由 clip-path 承载（rAF 逐帧写 inset，纯绘制通道、
-   单调收尾、终帧即静息几何）；静息 inset = 0.75/(1+1.5%) ≈ 0.7389%（底板坐标系），
-   与表单盒逐位重合。于是磨砂面板的边框盒/变换矩阵全程不变，既没有可被推迟的
-   重渲染，也没有每帧重排——观感（圆角/模糊/底色）与 v8.7.79 一致，仅倒角与模糊
-   不随 1.5% 放大（≈0.4px / 0.6px，不可辨）。
-   上场动画与禅雾化两条通道保持不变（后者由 html.zen .search-pill .glass-pill
-   后代选择器命中）。 ---------- */
-.search-pill > .glass-pill {
-  left: -0.75%;
-  top: -0.75%;
-  width: calc(100% + 1.5%);
-  height: calc(100% + 1.5%);
-  clip-path: inset(0.7389% round 28px);
-  animation: pill-content-in 0.95s cubic-bezier(0.22, 1, 0.36, 1) 0.24s backwards;
-}
-
+   副作用（磨砂存活律不受影响）。 */
 .search-pill > .search-ring {
   border: 1px solid rgba(24, 22, 36, 0.1);
   animation: pill-content-in 0.95s cubic-bezier(0.22, 1, 0.36, 1) 0.24s backwards;
