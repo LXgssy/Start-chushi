@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.92",
+    date: "2026-10-11",
+    title: "磨砂尺寸离散跳变（收尾变长终修）",
+    channel: "page",
+    highlights: [
+      "按 C 方案修复上浮收尾左右两头变长：磨砂层尺寸改为按选中态离散跳变，全程不参与动画，不再有被推迟的收尾重绘",
+      "静息/聚焦两个稳定态磨砂精确贴合药丸；描边位移修复保留，磨砂/底色/入场观感不变"
+    ],
+  },
+  {
     version: "8.7.91",
     date: "2026-10-11",
     title: "撤回自身变换通道，回到 v8.7.81",

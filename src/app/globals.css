@@ -1570,13 +1570,22 @@ html.cs-drawer-closing .cl-fade-leaf {
    不随 1.5% 放大（≈0.4px / 0.6px，不可辨）。
    上场动画与禅雾化两条通道保持不变（后者由 html.zen .search-pill .glass-pill
    后代选择器命中）。 ---------- */
+/* ---------- v8.7.92 C 方案：磨砂尺寸离散跳变（磨砂层全程不参与动画） ----------
+   三版互证 + 流畅模式实测（backdrop-filter 全关后两症状同时消失）结论：磨砂层
+   任何几何变化都会走磨砂重渲染路径——clip 令重绘推迟（收尾变长）、自身 transform
+   令取样区不重算（描边位移）、祖先 clip 构成 backdrop root（磨砂死亡）。
+   故磨砂层必须完全静止：不写 transform、不写 clip、不写逐帧布局。本版把尺寸改为
+   按 focused 离散跳变（React 一次重渲染切换类），两个稳定态各自精确贴合药丸，
+   仅 0.5s 动画过程内存在一小段边带偏差（运动中极不显眼），收尾不再有迟到重绘。
+   基态 = 元素自身 absolute inset-0（静息尺寸），只保留入场动画。 ---------- */
 .search-pill > .glass-pill {
+  animation: pill-content-in 0.95s cubic-bezier(0.22, 1, 0.36, 1) 0.24s backwards;
+}
+.search-pill > .glass-pill.search-pill-glass-focus {
   left: -0.75%;
   top: -0.75%;
   width: calc(100% + 1.5%);
   height: calc(100% + 1.5%);
-  clip-path: inset(0.7389% round 28px);
-  animation: pill-content-in 0.95s cubic-bezier(0.22, 1, 0.36, 1) 0.24s backwards;
 }
 
 .search-pill > .search-ring {
