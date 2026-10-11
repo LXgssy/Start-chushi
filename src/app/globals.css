@@ -1523,28 +1523,59 @@ html.cs-drawer-closing .cl-fade-leaf {
   transition: box-shadow 0.5s cubic-bezier(0.22, 1, 0.36, 1);
   will-change: transform;
 }
-/* v8.7.68 描边环同拍过渡：聚焦描边环（ring-1 box-shadow 通道）从 form
-   下沉到玻璃子层（与常驻 border 同层同次栅格化，非整数 DPR 下沉收尾
-   snap 恒一致——位移根修，机制见 SearchBar.tsx v8.7.68 注释块），本表
-   承担环的 0.5s 同拍淡入淡出（与 form 投影同曲线同拍，v8.7.54 形态）。
-   只限定搜索框内 glass-pill 实例，全 app .glass-pill 基线不受影响。 */
+/* v8.7.79 描边退役出玻璃层（双向通道拆分②）：常驻 border 与聚焦环全部
+   迁到 .search-ring 独立层（form 直子层、transform 载体 float 的兄弟，
+   描边像素离开 backdrop-filter 相位抽奖载体与 transform 子树——机制见
+   SearchBar.tsx v8.7.79 注释块），box-shadow 同拍过渡随环迁层。本层用
+   border-width:0 退役描边（而非 border-color:transparent）：掠影模式的
+   html.photo-mode.dark .glass-pill border-color 变体 specificity 更高
+   但只改颜色，width 0 时颜色无从着色，全主题变体通杀。玻璃层回归
+   v8.7.67 纯净态（只余磨砂+底色）；0.02px outline paint-bounds 保险
+   保留在组件内联样式上。
+   v8.7.68 描边环同拍过渡的历史（已随 v8.7.79 迁出）：环曾从 form 下沉
+   到玻璃子层求「同层同次栅格化」，实测未能根治（环与 border 仍在相位
+   抽奖载体上）。
+   v8.7.69 栅格尺度钉死（will-change:transform）已于 v8.7.72 实测退役。
+   双用户视频（v8.7.68/70 真机逐帧配准）+ 本地复现 A/B 定案：钉死让
+   玻璃层栅格比例不追随祖先缩放，叠加动画期逐帧 outline 微抖的逐帧
+   paint damage，描边被烙死在动画早期的栅格相位——整个下沉期描边与
+   transform 脱钩（真机实测顶边 -0.2px 恒定不动，磨砂内容同期平滑
+   跟踪=主帧一直在产生），动画终态的整树重建一次性纠正 = 用户所见
+   「下沉完后描边位移 + 事后突兀复位」。
+   新律（描边载体层禁钉死律）：任何会被祖先 transform 连续缩放的
+   描边/边框载体层，禁用 will-change 栅格钉死，也禁动画期逐帧改写
+   其绘制属性（paint damage 冻结描边栅格）——v8.7.79 起描边环走独立
+   布局插值层，本律对玻璃层的 outline 微抖禁令同样继续有效。 */
 .search-pill .glass-pill {
-  transition: box-shadow 0.5s cubic-bezier(0.22, 1, 0.36, 1);
-  /* v8.7.69 栅格尺度钉死（will-change:transform）已于 v8.7.72 实测退役。
-     双用户视频（v8.7.68/70 真机逐帧配准）+ 本地复现 A/B 定案：钉死让
-     玻璃层栅格比例不追随祖先缩放，叠加动画期逐帧 outline 微抖的逐帧
-     paint damage，描边被烙死在动画早期的栅格相位——整个下沉期描边与
-     transform 脱钩（真机实测顶边 -0.2px 恒定不动，磨砂内容同期平滑
-     跟踪=主帧一直在产生），动画终态的整树重建一次性纠正 = 用户所见
-     「下沉完后描边位移 + 事后突兀复位」。去钉后最坏情况 = 纹理被合成
-     器拉伸 = 几何恒正确（仅动画期亚像素软化），描边相位漂移物理性
-     不存在。玻璃层仍有 backdrop-filter 自带合成层，层化不受影响；
-     transform 非 grouping 属性不构成 backdrop root，磨砂存活律不受
-     影响。
-     新律（描边载体层禁钉死律）：任何会被祖先 transform 连续缩放的
-     描边/边框载体层，禁用 will-change 栅格钉死，也禁动画期逐帧改写
-     其绘制属性（paint damage 冻结描边栅格）——逐帧更新交给驱动缩放
-     的 rAF 主帧，终态由 SearchBar 的整树摘插确定性兜底。 */
+  border-width: 0;
+}
+/* v8.7.79 描边环独立层（双向通道拆分②，机制见 SearchBar.tsx v8.7.79
+   注释块）：常驻 border 四态同参（基线/暗色/掠影明暗，与 .glass-pill
+   基线逐值一致——描边像素迁移前后视觉逐位等价）；入场动画与禅雾化
+   过渡随层位显式承接（ring 是 form 直子层，不命中 .search-pill >
+   .search-float > * 通道，需自带上场）；box-shadow 过渡承担聚焦环
+   0.5s 同拍淡入淡出（与 form 投影同曲线同拍，v8.7.54 形态）；
+   will-change 常驻合成层与 glass/clip 同律——ring 自身四值布局插值
+   的重栅格化发生在独立层内 1:1 布局相位，不受祖先 transform 矩阵
+   污染（这正是本层存在的意义），纯矢量无磨砂效果，无 backdrop root
+   副作用（磨砂存活律不受影响）。 */
+.search-pill > .search-ring {
+  border: 1px solid rgba(24, 22, 36, 0.1);
+  animation: pill-content-in 0.95s cubic-bezier(0.22, 1, 0.36, 1) 0.24s backwards;
+  transition:
+    box-shadow 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: filter, opacity;
+}
+.dark .search-pill > .search-ring {
+  border-color: rgba(255, 255, 255, 0.09);
+}
+html.photo-mode.dark .search-pill > .search-ring {
+  border-color: rgb(255 255 255 / 0.14);
+}
+html.photo-mode:not(.dark) .search-pill > .search-ring {
+  border-color: rgba(20, 20, 25, 0.1);
 }
 @keyframes pill-shell-in {
   from {
@@ -1818,6 +1849,13 @@ html.zen .search-pill .glass-pill {
 html.zen .search-pill > .search-float > :not(.glass-pill) {
   opacity: 0;
   filter: blur(12px);
+}
+/* v8.7.79 禅雾化适配：描边 ring 层是 form 直子层（float 兄弟），不命中
+   内容层通道——描边随玻璃底板走自身 opacity 淡出（同拍 0.5s，与底板
+   同语义：细线描边不做 blur 发散，玻璃底板同样只淡不糊）；transition
+   已在 .search-ring 常驻表内，此处只写终态。 */
+html.zen .search-pill > .search-ring {
+  opacity: 0;
 }
 
 /* ---------- 禅模式覆盖层（迷你时钟/迷你番茄钟/提示词宿主）：常驻 DOM +

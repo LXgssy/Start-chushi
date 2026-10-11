@@ -78,53 +78,59 @@ const SUG_DEBOUNCE_MS = 180;
 const SUG_TIMEOUT_MS = 3000;
 
 /* ============================================================================
- * v8.7.78 上浮/下沉动画（v8.7.54 旧版观感回归——中心对称 calc 布局通道）
- * 聚焦「四周均匀生长 1.5%」、取消选中回落，曲线/时长与旧版 CSS transition
- * 完全同参（0.5s cubic-bezier(0.22,1,0.36,1)）。
+ * v8.7.79 上浮/下沉动画（终局方案：双向通道拆分——transform 老通道回归
+ * 保观感 + 描边 overlay 布局隔离根治位移）
+ * 聚焦「四周均匀生长 1.5%」、取消选中回落，曲线/时长与旧版完全同参
+ * （0.5s cubic-bezier(0.22,1,0.36,1)）。
  *
- * 根因定案不变（v8.7.77，用户决定性实测「开启流畅模式后所谓描边位移反而
- * 消失了」+ v8.7.76 用户视频逐帧取证）：
- *   流畅模式与磨砂模式的渲染差异只有三项（backdrop-filter 关停 /
- *   will-change 清零 / 实底），其中真正承载「描边位移」的是第一项的孪生
- *   机制——磨砂模式下 glass（backdrop-filter 子层）必须独占合成层，而祖先
- *   form 跑 rAF transform 动画时，Chrome 在分数 DPR 下对该层的栅格相位与
- *   真实布局几何脱节：每次重栅格化（动画收尾摘插 / ring box-shadow 过渡
- *   结束帧 / 时钟走字等任何后续 damage）都可能把层落在不同相位——用户
- *   视频实测：下沉收尾单帧跳变 +0.54px，跳变后仍偏离前静息 1.05px 停留
- *   约 1s，再经 ~1.4s 渐进漂移才复位。9 轮「事后纠正」补丁（环同层化/
- *   栅格钉死/玻璃摘插/整树摘插/双退役/描边移层/真 border）全部失效的
- *   根因：它们都在赌「下一次重栅格化落对相位」，而相位选择本身不受控。
- *   流畅模式无位移的本质 = 没有 transform 合成层动画，glass 的栅格相位
- *   从头到尾只有布局几何这一个决定因素。
- *   ——动画必须留在布局通道（每帧真实重排+重栅格化，任何中间帧的栅格都
- *   落在「当时布局」上，不存在合成器纹理拉伸/相位残留）。
+ * 用户终局裁定（v8.7.78 实测反馈）：「能不能在使用老代码的同时把描边位移
+ * 的问题修复，现在的效果跟以前完全没法比」——布局通道（v8.7.77 zoom /
+ * v8.7.78 四值 calc）虽然几何等价，但每帧真实重排+全量重栅格化+磨砂逐帧
+ * 重取样的开销在真机上直接踩扔帧率/顺滑度，观感与 v8.7.65–67 的 transform
+ * 合成器通道完全无法相比。观感必须回到老通道，位移必须在老通道上根治。
  *
- * v8.7.78 观感回归（用户实测：「上浮的效果和之前表现不一样」）——v8.7.77
- * 的 zoom 通道存在两个实测渲染缺陷（scripts/zoom-vs-scale-ab.cjs DPR1.5
- * 最小复现实测）：
- *   ① zoom 写在 form（absolute inset-x-0 拉伸盒）上，横向放大被
- *      left:0/right:0 双约束完全吞掉——rect 宽度纹丝不动（580→580）；
- *   ② zoom 的缩放原点是左上角——left/top 零位移，生长只向右下。
- *   合成观感 = 上浮「四周均匀生长」几乎消失，只剩高度向下微长，正是
- *   用户所见「效果不一样」。
- * 修复 = 载体改内层 .search-float（relative 流内盒，无拉伸约束）+ 中心
- *   对称四值插值（rAF 逐帧写，全部布局属性）：
- *     left / top     = -(0.75×p)%
- *     width / height = calc(100% + (1.5×p)%)
- *   % 基准 = form 盒，四值联动恒中心对称，与 transform scale(1+0.015p)
- *   的几何逐位等价（relative 偏移是光学位移、不扰动布局占位），观感
- *   完整回归 v8.7.65 旧版；全程零 transform/zoom 写入，布局通道根治
- *   机理（每帧真实重排+重栅格化、终帧物理落驻留几何）原样保留。
- * 驻留态 = 常量 calc（纯 CSS 自适应：建议展开 framer 改 form 高时内层
- *   height:calc(100%+1.5%) 随每次布局自动跟随，零 JS）；静息 = 移除
- *   inline 回 Tailwind 基线（100%）。设计权衡明记：内容布局值（文字/
- *   图标/内边距）不随容器生长缩放（与 transform 光学全缩放的差异在
- *   0.25px 量级、肉眼不可辨），换取文字零重排与布局通道纯净。
- * 收尾摘插（v8.7.70 玻璃摘插 / v8.7.71 整树摘插）已随 transform 通道
- *   退役（v8.7.77 起）：布局通道每帧已是真实重栅格化，终帧天然落驻息
- *   相位，摘插本身即是多余的相位抽奖。
- * floatScaleRef 跨次聚焦续接语义不变（存进度 p∈[0,1]）。quick blur
- * 分支（from≈to）同笔落终态保持通道一致。
+ * 根因终局论证（在 v8.7.77 定案「transform 合成层动画使 backdrop-filter
+ * 玻璃子层栅格相位与布局几何脱节」之上再深一层——可分离性）：
+ *   历轮用户取证（视频 l2wfvu0080j / l2ud8ayyd71 + 流畅模式对照）抱怨的
+ *   始终只有「描边」位移（1px 高对比细线半像素跳变极其显眼），磨砂内容
+ *   平滑跟踪从未被抱怨——说明受害面可以与磨砂本体分离。而描边（常驻
+ *   border + 聚焦 ring）v8.7.68 起全部画在 glass（backdrop-filter 层）
+ *   上：backdrop-filter 效果在栅格阶段应用，其重栅格化与祖先 transform
+ *   合成矩阵耦合（分数 DPR 下相位脱节不受控）——描边像素恰好在唯一的
+ *   相位抽奖载体上，这是 v8.7.68–78 九轮补丁（环同层化/栅格钉死/玻璃
+ *   摘插/整树摘插/双退役/描边移层/真 border/zoom/calc）全部失败的共性：
+ *   描边始终没离开过玻璃层/transform 子树。
+ *   纯矢量绘制层（无 backdrop-filter）的栅格化永远发生在自身 1:1 布局
+ *   坐标系；祖先 transform 只在合成阶段整体变换显示、不改变层内纹理
+ *   相位；动画收尾矩阵归 1 = 显示恢复层纹理原样 = 布局几何精确——零
+ *   跳变是物理保证，不再赌任何「下一次重栅格化落对相位」。
+ *
+ * v8.7.79 拆分：
+ *   ① transform 通道回归（观感保真）：rAF 逐帧写内层 .search-float 的
+ *      transform = scale(1+0.015p)——v8.7.65–67 老代码同款合成器插值。
+ *      载体放 float（form 内 relative 流内盒）而非 form 本身：描边 ring
+ *      层是 form 直子层（float 兄弟），transform 必须写在 float 才能让
+ *      ring 留在 transform 子树之外（写在 form 上则 ring 被双重缩放）。
+ *      磨砂重取样由每帧 transform 样式提交的主帧照常承载（新律⑬，与
+ *      v8.7.65 同机制同节拍）。
+ *   ② 描边布局通道（位移根治）：新独立层 .search-ring（form 直子层、
+ *      absolute inset-0、pointer-events-none），承接全部描边（常驻 border
+ *      + 聚焦 ring-1 box-shadow，自 glass 层迁出）；rAF 同进度写中心对称
+ *      四值：left/top = -(0.75×p)%，width/height = calc(100%+(1.5×p)%)，
+ *      与 transform scale(1+0.015p) 几何逐位等价（inset-0 拉伸盒上
+ *      over-constrained 时 right/bottom 被规范忽略，四值恒中心对称）。
+ *      同一 rAF 回调内双写（transform 先、四值后）= 同一次样式提交同
+ *      一帧，双通道几何同步无隙。
+ *   ③ glass 层回归 v8.7.67 纯净态：只余磨砂+底色（border 随描边退役，
+ *      outline 0.02px paint-bounds 保险保留）；收尾无摘插/无脉冲/无
+ *      outline 写——不制造任何额外重栅格化诱因。glass 自身的栅格相位
+ *      在 transform 通道下仍可能亚像素抽奖，但受害面只剩磨砂纹理
+ *      （低对比模糊，不可辨），用户可见的描边位移物理性消失。
+ * 驻留态：transform=scale(1.015) 常驻 + ring 常量 calc（纯 CSS 自适应：
+ *   建议展开 framer 改 form 高时 height:calc(100%+1.5%) 随每次布局自动
+ *   跟随，零 JS）；静息 = 双通道 inline 全移。floatScaleRef 跨次聚焦
+ *   续接语义不变（存进度 p∈[0,1]）。quick blur 分支（from≈to）同笔落
+ *   终态保持双通道一致。
  * ==========================================================================*/
 const FLOAT_PCT = 1.5;
 const FLOAT_HALF = 0.75;
@@ -165,10 +171,12 @@ function cubicBezier(x1: number, y1: number, x2: number, y2: number): (x: number
 }
 const floatEase = cubicBezier(0.22, 1, 0.36, 1);
 
-/** v8.7.78 上浮进度落笔：p=0 移除全部 inline（回 Tailwind 基线 100%），
+/** v8.7.79 描边环布局通道落笔：p=0 移除全部 inline（回 inset-0 基线），
  *  p∈(0,1] 写中心对称四值（left/top 负偏移补偿 + width/height calc 生长）。
- *  % 基准 = form 盒，四值联动恒中心对称（机制见文件头 v8.7.78 注释块）。 */
-function applyFloatProgress(el: HTMLDivElement, p: number) {
+ *  % 基准 = form 盒（ring 为 form 直子层拉伸盒），四值联动恒中心对称
+ *  （机制见文件头 v8.7.79 注释块）。 */
+function applyFloatProgress(el: HTMLDivElement | null, p: number) {
+  if (!el) return;
   if (p <= 0) {
     el.style.top = "";
     el.style.left = "";
@@ -180,6 +188,18 @@ function applyFloatProgress(el: HTMLDivElement, p: number) {
   el.style.left = `-${(FLOAT_HALF * p).toFixed(4)}%`;
   el.style.width = `calc(100% + ${(FLOAT_PCT * p).toFixed(4)}%)`;
   el.style.height = `calc(100% + ${(FLOAT_PCT * p).toFixed(4)}%)`;
+}
+
+/** v8.7.79 上浮 transform 通道落笔（v8.7.65 老代码通道原样回归）：p=0 移除
+ *  inline（回级联基态），p∈(0,1] 写 scale(1+0.015p)（合成器插值，观感与
+ *  v8.7.65–67 完全一致）。 */
+function applyFloatScale(el: HTMLDivElement | null, p: number) {
+  if (!el) return;
+  if (p <= 0) {
+    el.style.transform = "";
+    return;
+  }
+  el.style.transform = `scale(${(1 + (FLOAT_PCT / 100) * p).toFixed(5)})`;
 }
 
 /** 百度 sugrec 联想源（扩展环境 fetch 直取 / 网页版 JSONP） */
@@ -325,12 +345,15 @@ function SearchBar({
   onPatchSettings: (patch: Partial<Settings>) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  /* v8.7.78 上浮动画载体：内层 .search-float 盒驱动中心对称四值布局插值
-     （机制见文件头 v8.7.78 注释块）；floatScaleRef 跨次聚焦续接（快速
-     切换从当前生长进度起步，不回跳）。v8.7.77 的 pillRef 随 zoom 通道
-     退役（form 不再被直接驱动，缩放落在内层载体）。 */
-  /* v8.7.78 布局缩放载体层 ref（glass/clip 的父盒）。 */
+  /* v8.7.79 transform 载体层 ref（glass/clip 的父盒）：上浮 scale 插值
+     落点（v8.7.65 老通道回归，机制见文件头 v8.7.79 注释块）；
+     floatScaleRef 跨次聚焦续接（快速切换从当前生长进度起步，不回跳）。
+     v8.7.77 的 pillRef 随 zoom 通道退役（form 不再被直接驱动，缩放落在
+     内层载体，v8.7.79 双通道拆分后仍落在 float）。 */
   const floatRef = useRef<HTMLDivElement>(null);
+  /* v8.7.79 描边环独立层 ref（form 直子层、transform 子树外；机制见
+     文件头 v8.7.79 注释块）——四值插值落点，与 floatScaleRef 同源同进度 */
+  const ringRef = useRef<HTMLDivElement>(null);
   /* 玻璃底板 ref：v8.7.77 起不再对玻璃做摘插/伴随写，ref 仅保留结构位
      （背景层语义标记）；内容裁剪层同。 */
   const glassRef = useRef<HTMLDivElement>(null);
@@ -400,25 +423,25 @@ function SearchBar({
     };
   }, [query, focused, suggestOn]);
 
-  /* v8.7.78 上浮/下沉动画主通道（中心对称 calc 布局插值，机制详见文件头
-     v8.7.78 注释块——根因定案沿 v8.7.77：动画必须留在布局通道，每帧真实
-     重排+重栅格化，磨砂逐帧重取样新律⑬照常满足，终态物理落驻留几何；
-     载体与数值形态升级为内层四值 %，观感完整回归旧版中心生长）。
-     聚焦期间投影/描边环淡入淡出仍走 box-shadow 纯绘制通道
-     （className 切换 + CSS transition），与本动画并行互不干扰。
-     v8.7.65–v8.7.76 的 transform 通道九轮修复（环同层化/栅格钉死/玻璃摘插/
-     整树摘插/双退役/描边移层/真 border/回退）与 v8.7.77 的 form zoom
-     通道全部随本通道退役，机制考古见 git 历史 v8.7.68–77 提交说明。 */
+  /* v8.7.79 上浮/下沉动画主通道（双向通道拆分，机制详见文件头 v8.7.79
+     注释块）：transform 通道（float，v8.7.65 老代码原样回归保观感）+
+     描边布局通道（ring 独立层四值插值根治位移），同一 rAF 同进度双写。
+     聚焦期间投影（form）/描边环（ring 层）淡入淡出仍走 box-shadow 纯
+     绘制通道（className 切换 + CSS transition），与本动画并行互不干扰。
+     v8.7.65–v8.7.78 的九轮补丁与 zoom/calc 通道全部退役，机制考古见
+     git 历史 v8.7.68–78 提交说明。 */
   useEffect(() => {
     const float = floatRef.current;
     if (!float) return;
+    const ring = ringRef.current;
     const from = floatScaleRef.current;
     const to = focused ? 1 : 0;
     if (Math.abs(to - from) < 0.0005) {
       floatScaleRef.current = to;
-      /* quick 分支：终态同笔落定（聚焦驻留 = 常量 calc；静息 = 移除，
-         布局回归基线——与动画收尾终态完全同形） */
-      applyFloatProgress(float, to);
+      /* quick 分支：终态同笔落定（聚焦驻留 = scale(1.015)+常量 calc；
+         静息 = 双通道 inline 全移——与动画收尾终态完全同形） */
+      applyFloatScale(float, to);
+      applyFloatProgress(ring, to);
       return;
     }
     let raf = 0;
@@ -429,12 +452,13 @@ function SearchBar({
       settled = true;
       cancelAnimationFrame(raf);
       window.clearTimeout(bail);
-      /* 终态落定：静息移除全部 inline（布局归 Tailwind 基线 100%），
-         聚焦驻留常量 calc（% 值随 form 高度变化纯 CSS 自适应）。
-         移除属性保证样式失效→最终一帧重排，栅格必然落在原始布局几何。
-         无摘插/无脉冲/无 outline 写。 */
+      /* 终态落定：静息双通道 inline 全移（float transform 归级联基态、
+         ring 回 inset-0 布局基线）；聚焦驻留 transform=scale(1.015) +
+         ring 常量 calc（% 值随 form 高度变化纯 CSS 自适应）。无摘插/
+         无脉冲/无 outline 写——收尾不制造任何额外重栅格化诱因。 */
       floatScaleRef.current = to;
-      applyFloatProgress(float, to);
+      applyFloatScale(float, to);
+      applyFloatProgress(ring, to);
     };
     /* 双保险收尾：①p≥0.999 早收（ease 尾段剩余几何差 <0.01px，视觉零差，
        不为最后 0.1% 等一帧）；②超时兜底（掉帧/帧调度停滞下收尾不悬挂，
@@ -448,9 +472,12 @@ function SearchBar({
       }
       const cur = from + (to - from) * floatEase(p);
       floatScaleRef.current = cur;
-      /* 四值每帧 = 每帧一次真实布局+重栅格化（含 glass 磨砂重取样），
-         无合成器纹理复用——中间帧相位只取决于当时布局，残留态不存在 */
-      applyFloatProgress(float, cur);
+      /* 双通道同帧同进度写入：同一 rAF 回调内 transform 先、四值后，
+         同一次样式提交同一次主帧——两通道几何逐位同步（公式等价性见
+         文件头注释）。磨砂重取样由每帧 transform 样式提交的主帧照常
+         承载（v8.7.65 新律⑬原机制原节拍）。 */
+      applyFloatScale(float, cur);
+      applyFloatProgress(ring, cur);
       raf = requestAnimationFrame(step);
     };
     raf = requestAnimationFrame(step);
@@ -540,11 +567,14 @@ function SearchBar({
               setActive(-1);
             }
           }}
-          /* v8.7.78：上浮动画改 rAF 逐帧驱动内层 .search-float 的中心对称
-             四值 calc 布局插值（机制见文件头 v8.7.78 注释块；effect 见上），
-             聚焦态几何变更只有磨砂重取样安全的布局生长（每帧主帧）；top
-             位移通道退役（v8.7.64 方案观感不符旧版，用户裁定）；
-             v8.7.77 的 form zoom 通道随观感缺陷实测退役。
+          /* v8.7.79：上浮 scale 落内层 .search-float（rAF 逐帧 transform，
+             v8.7.65 老通道回归保观感），描边环落 .search-ring 独立层
+             （四值布局插值，位移根治）——双向通道拆分机制见文件头
+             v8.7.79 注释块与各自层位注释；聚焦态几何变更 = transform
+             样式提交（每帧主帧，磨砂重取样照常）；top 位移通道退役
+             （v8.7.64 方案观感不符旧版，用户裁定）；v8.7.77 form zoom
+             通道（拉伸盒横向被吞+原点左上）与 v8.7.78 四值 calc 通道
+             （布局级每帧全量重栅格化，真机观感大幅退化）随拆分退役。
              v8.7.63：聚焦/取消选中的投影 + 框外描边环走 box-shadow 纯
              绘制通道（大模糊投影 + ring 同拍淡入淡出），描边形态与
              v8.7.54 完全一致不动。
@@ -560,38 +590,34 @@ function SearchBar({
               : ""
           }`}
         >
-          {/* v8.7.78 布局缩放载体层：glass/clip 的父盒，聚焦上浮的中心对称
-              四值插值打在本层（机制见文件头 v8.7.78 注释块）。relative 流内
-              盒（无 absolute 拉伸约束——v8.7.77 zoom 写在拉伸盒上横向被
-              吞、原点左上角的观感教训），h-full/w-full 为静息基线，动画期
-              /驻留期 inline 覆盖；shrink-0 必须——flex-col 主轴上生长后的
-              高（form 高×1.015）会被默认 flex-shrink:1 压回容器高，纵向
-              生长静默失效（e2e G2 hR=1.0 实锤）。刻意不命中 .search-pill > * 通道
-              （入场动画/禅雾化照旧只打 glass/clip，本层零动画零过渡纯
-              布局载体）。relative 偏移是光学位移：负 left/top 补偿生长
-              的一半量即恒中心对称，且不扰动 form 内布局占位。 */}
+          {/* v8.7.79 transform 载体层：glass/clip 的父盒，聚焦上浮的 scale
+              插值打在本层（v8.7.65 老通道原样回归，机制见文件头 v8.7.79
+              注释块——描边 ring 层是本层的兄弟，transform 写在本层才能让
+              ring 留在 transform 子树之外）。relative 流内盒（无 absolute
+              拉伸约束——v8.7.77 zoom 写在拉伸盒上横向被吞、原点左上角的
+              观感教训），h-full/w-full 为静息基线；shrink-0 必须——flex-col
+              主轴上生长后的高（form 高×1.015）会被默认 flex-shrink:1 压回
+              容器高，纵向生长静默失效（e2e G2 hR=1.0 实锤）。transform
+              不改布局，本层占位与 form 内布局零扰动（观感与 v8.7.65–67
+              完全同构：合成器插值、每帧主帧承载磨砂重取样）。 */}
           <div ref={floatRef} className="search-float relative flex h-full w-full shrink-0 flex-col">
-          {/* 玻璃底板：磨砂/底色/描边全在这层（.glass-pill 变体规则全部
-              命中子层），pointer-events 穿透、随表单整体移动（高度动画跟随）。
-              v8.7.68 描边环下沉到本层（用户：「取消选中下沉动画后左圆角+
-              上边下边描边位移」）：环原画在 form（缩放载体）的 box-shadow 上，
-              非整数 DPR 真机（Windows 125%/150%）下沉结束的重栅格化里 ring
-              与 glass border 各自 snap → 描边相对底板/双描边之间跳变
-              （实验实锤：DPR=2 整数环境全零位移，仅分数 DPR 现象）；环与
-              常驻 border 同层化 = 同一次栅格化 snap 恒一致，位移物理性消失。
-              form 只保留大模糊投影（模糊纹理对半像素不敏感）。
-              v8.7.68 outline 基线常驻化：0.02px 亚像素透明 outline 从 mount
-              起恒定（paint bounds 全生命周期不变）；v8.7.72 起动画期不再
-              对本层写任何样式（微抖退役，实测为描边冻结元凶——见动画
-              effect 头注释），outline 恒为基线零扰动。 */}
+          {/* 玻璃底板：磨砂/底色在这层（.glass-pill 变体规则全部命中子层），
+              pointer-events 穿透、随表单整体移动（高度动画跟随）。
+              v8.7.79 描边退役出玻璃层：常驻 border 与聚焦 ring 全部迁到
+              .search-ring 独立层（描边像素必须离开 backdrop-filter 相位
+              抽奖载体与 transform 子树，机制见文件头 v8.7.79 注释块），
+              本层回归 v8.7.67 纯净态（只余磨砂+底色，border 由 globals.css
+              限定搜索框实例退役）；v8.7.68 引入的 0.02px 亚像素透明
+              outline paint-bounds 保险保留（恒定基线零扰动）。
+              v8.7.68 描边环下沉到本层的历史（已随 v8.7.79 迁出）：环原画
+              在 form（缩放载体）的 box-shadow 上，非整数 DPR 真机下沉结束
+              的重栅格化里 ring 与 glass border 各自 snap 导致跳变，当时以
+              「同层同次栅格化」对冲——实测未能根治（环与 border 仍在相位
+              抽奖载体上，历轮取证描边依旧位移）。 */}
           <div
             ref={glassRef}
             aria-hidden
-            className={`glass-pill backdrop-blur-2xl backdrop-saturate-150 pointer-events-none absolute inset-0 rounded-[28px] ${
-              focused
-                ? "ring-1 ring-zinc-900/15 dark:ring-white/25"
-                : ""
-            }`}
+            className="glass-pill backdrop-blur-2xl backdrop-saturate-150 pointer-events-none absolute inset-0 rounded-[28px]"
             style={{ outline: "0.02px solid transparent" }}
           />
           {/* v8.7.62 内容裁剪层：裁剪职责自 form 下放（form 撤 overflow-hidden
@@ -775,7 +801,29 @@ function SearchBar({
           </div>
           {/* /v8.7.62 内容裁剪层 */}
           </div>
-          {/* /v8.7.78 布局缩放载体层 */}
+          {/* /v8.7.79 transform 载体层（描边 ring 层为下者的兄弟，留在
+              transform 子树之外） */}
+          {/* v8.7.79 描边环独立层：form 直子层、float 兄弟——刻意留在
+              transform 子树之外。纯矢量描边层（无 backdrop-filter）的
+              栅格化永远发生在自身 1:1 布局坐标系，祖先 transform 只在
+              合成阶段整体变换显示、不改层内纹理相位，收尾矩阵归 1 =
+              显示恢复层纹理原样 = 布局几何精确，描边位移物理性消失
+              （机制见文件头 v8.7.79 注释块）。常驻 border + 聚焦 ring-1
+              （自 glass 迁入，globals.css 四态同参）；rAF 同进度四值插值
+              打在本层（applyFloatProgress，与 float 的 transform 同帧同
+              笔同步）；动画期/驻留期 inline 覆盖 inset-0 基线，
+              over-constrained 下 right/bottom 被规范忽略、四值恒中心
+              对称。DOM 在 float 之后 = 描边绘制在磨砂之上；
+              pointer-events-none 保持交互穿透（与 glass 同语义）。 */}
+          <div
+            ref={ringRef}
+            aria-hidden
+            className={`search-ring pointer-events-none absolute inset-0 rounded-[28px] ${
+              focused
+                ? "ring-1 ring-zinc-900/15 dark:ring-white/25"
+                : ""
+            }`}
+          />
         </motion.form>
       </div>
 
