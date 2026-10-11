@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.80",
+    date: "2026-10-11",
+    title: "磨砂底板迁出 transform 子树（位移终修）",
+    channel: "page",
+    highlights: [
+      "修复聚焦/取消选中后描边仍卡在左上：v8.7.79 只把描边搬出了 transform 子树，磨砂玻璃底板仍在里面，位移照旧",
+      "磨砂底板改走与描边同一条布局通道（同一个 rAF、同一中心对称几何），从此不在任何被 transform 的子树内；内容仍走原 transform 通道，上浮手感与动画时长/曲线不变",
+    ],
+  },
+  {
     version: "8.7.79",
     date: "2026-10-11",
     title: "上浮动画回归原版顺滑，描边位移就此终结",
