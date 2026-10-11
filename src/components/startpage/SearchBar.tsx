@@ -132,61 +132,9 @@ const SUG_TIMEOUT_MS = 3000;
  *   续接语义不变（存进度 p∈[0,1]）。quick blur 分支（from≈to）同笔落
  *   终态保持双通道一致。
  * ==========================================================================*/
-/* ================= v8.7.83 诊断钩子（DIAG 关时零操作、零视觉影响） =================
-   开启：新标签页 F12 → localStorage.setItem("cs:diag","1"); location.reload()
-   关闭：localStorage.removeItem("cs:diag"); location.reload()
-   开启后：上浮幅度 ×5、时长 ×4（把亚像素位移放大到肉眼可见），叠一个红色虚线
-   基准框（= ring 的几何位置，每帧跟随），逐帧记录 float/ring/glass/form 的
-   getBoundingClientRect 与 getAnimations() 到 window.__csDiagLog，并自动跑
-   3 轮聚焦/取消选中。复现后：copy(JSON.stringify(window.__csDiagLog)) 发回。 */
-const DIAG = (() => { try { return localStorage.getItem("cs:diag") === "1"; } catch { return false; } })();
-let diagRef: HTMLDivElement | null = null;
-function diagSetup() {
-  if (!DIAG) return;
-  diagRef = document.createElement("div");
-  diagRef.setAttribute("data-cs-diag-ref", "1");
-  diagRef.style.cssText = "position:fixed;left:0;top:0;width:0;height:0;pointer-events:none;z-index:2147483647;outline:1px dashed #ff0044;border-radius:28px";
-  document.body.appendChild(diagRef);
-  (window as unknown as Record<string, unknown>).__csDiagLog = [];
-  try {
-    localStorage.removeItem("cs:diagLog");
-    localStorage.setItem("cs:diagState", JSON.stringify({
-      at: new Date().toISOString(), dpr: devicePixelRatio, w: innerWidth, h: innerHeight,
-      screen: screen.width + "x" + screen.height, href: location.href,
-      topFrame: window === window.top, ua: navigator.userAgent.slice(0, 120),
-    }));
-  } catch { /* 私有模式等：忽略 */ }
-  console.log("[cs-diag] DPR=" + devicePixelRatio + " screen=" + screen.width + "x" + screen.height +
-    " | 上浮 x5 / 时长 x4 | 复现后执行 copy(JSON.stringify(window.__csDiagLog))");
-}
-function diagTick(p: number, els: Array<[string, HTMLElement | null]>) {
-  if (!DIAG) return;
-  const log = (window as unknown as { __csDiagLog?: unknown[] }).__csDiagLog;
-  if (!log) return;
-  const row: Record<string, unknown> = { t: Math.round(performance.now()), p: +p.toFixed(5) };
-  for (const [name, el] of els) {
-    if (!el) { row[name] = null; continue; }
-    const b = el.getBoundingClientRect();
-    row[name] = [+b.x.toFixed(3), +b.y.toFixed(3), +b.width.toFixed(3), +b.height.toFixed(3)];
-    const an = el.getAnimations().map((a) => ((a as CSSAnimation).animationName || "t") + ":" + Math.round(Number(a.currentTime) || 0));
-    if (an.length) row[name + "_anim"] = an;
-  }
-  log.push(row);
-  /* v8.7.84：日志同时落 localStorage（顶层/子框架都能取），节流 + 截尾防超配额 */
-  if (log.length % 10 === 0 || p < 0) {
-    try { localStorage.setItem("cs:diagLog", JSON.stringify(log.slice(-800))); } catch { /* 配额满忽略 */ }
-  }
-  const rb = els.find((x) => x[0] === "ring")?.[1];
-  if (diagRef && rb) {
-    const b = rb.getBoundingClientRect();
-    diagRef.style.left = b.x + "px"; diagRef.style.top = b.y + "px";
-    diagRef.style.width = b.width + "px"; diagRef.style.height = b.height + "px";
-  }
-}
-
-const FLOAT_PCT = 1.5 * (DIAG ? 5 : 1);
+const FLOAT_PCT = 1.5;
 const FLOAT_HALF = 0.75;
-const FLOAT_MS = 500 * (DIAG ? 4 : 1);
+const FLOAT_MS = 500;
 
 /** CSS cubic-bezier(x1,y1,x2,y2) 同义解算（牛顿迭代 + 二分兜底）——旧版
  *  transition 缓动曲线在 rAF 通道的等价实现 */
@@ -252,6 +200,21 @@ function applyFloatScale(el: HTMLDivElement | null, p: number) {
     return;
   }
   el.style.transform = `scale(${(1 + (FLOAT_PCT / 100) * p).toFixed(5)})`;
+}
+
+/** v8.7.81 磨砂底板裁剪通道（v8.7.80 布局通道的抖动/复位根修）：底板几何
+ *  恒定（CSS 静态 = 聚焦态尺寸，永不写 layout/transform），生长由 clip-path
+ *  承载——纯绘制通道、逐帧单调、终帧物理落在静息几何，不存在「等合成器追赶」
+ *  的中间相位；也不产生 v8.7.80 布局通道那样的每帧重排 + 磨砂全量重渲染开销。
+ *  p=0 移除 inline（回 CSS 静息 inset），p>0 居中对称裁开。 */
+function applyGlassClip(el: HTMLDivElement | null, p: number) {
+  if (!el) return;
+  if (p <= 0) {
+    el.style.clipPath = "";
+    return;
+  }
+  const rest = FLOAT_HALF / (1 + FLOAT_PCT / 100);   // 静息裁边（底板坐标系 %）
+  el.style.clipPath = `inset(${(rest * (1 - p)).toFixed(4)}% round 28px)`;
 }
 
 /** 百度 sugrec 联想源（扩展环境 fetch 直取 / 网页版 JSONP） */
@@ -482,27 +445,11 @@ function SearchBar({
      绘制通道（className 切换 + CSS transition），与本动画并行互不干扰。
      v8.7.65–v8.7.78 的九轮补丁与 zoom/calc 通道全部退役，机制考古见
      git 历史 v8.7.68–78 提交说明。 */
-  /* v8.7.83 诊断钩子（DIAG 关时零操作）：建基准框 + 日志，并自动跑 3 轮聚焦/取消选中 */
-  useEffect(() => {
-    if (!DIAG) return;
-    diagSetup();
-    const input = inputRef.current;
-    let i = 0;
-    const t = window.setInterval(() => {
-      i += 1;
-      if (i % 2 === 1) input?.focus();
-      else input?.blur();
-      if (i >= 6) window.clearInterval(t);
-    }, 2500);
-    return () => window.clearInterval(t);
-  }, []);
-
   useEffect(() => {
     const float = floatRef.current;
     if (!float) return;
     const ring = ringRef.current;
-    const pillEl = (ring ? ring.closest(".search-pill") : null) as HTMLElement | null;
-    const glassEl = (pillEl ? pillEl.querySelector(":scope > .glass-pill") : null) as HTMLElement | null;
+      const glass = glassRef.current;   // v8.7.80 磨砂底板走同一布局通道
     const from = floatScaleRef.current;
     const to = focused ? 1 : 0;
     if (Math.abs(to - from) < 0.0005) {
@@ -511,7 +458,7 @@ function SearchBar({
          静息 = 双通道 inline 全移——与动画收尾终态完全同形） */
       applyFloatScale(float, to);
       applyFloatProgress(ring, to);
-      if (DIAG) diagTick(-1, [["float", float], ["ring", ring], ["pill", pillEl]]);
+      applyGlassClip(glass, to);
       return;
     }
     let raf = 0;
@@ -529,7 +476,7 @@ function SearchBar({
       floatScaleRef.current = to;
       applyFloatScale(float, to);
       applyFloatProgress(ring, to);
-      if (DIAG) diagTick(-1, [["float", float], ["ring", ring], ["pill", pillEl]]);
+      applyGlassClip(glass, to);
     };
     /* 双保险收尾：①p≥0.999 早收（ease 尾段剩余几何差 <0.01px，视觉零差，
        不为最后 0.1% 等一帧）；②超时兜底（掉帧/帧调度停滞下收尾不悬挂，
@@ -549,7 +496,7 @@ function SearchBar({
          承载（v8.7.65 新律⑬原机制原节拍）。 */
       applyFloatScale(float, cur);
       applyFloatProgress(ring, cur);
-      if (DIAG) diagTick(cur, [["float", float], ["ring", ring], ["glass", glassEl], ["pill", pillEl]]);
+        applyGlassClip(glass, cur);
       raf = requestAnimationFrame(step);
     };
     raf = requestAnimationFrame(step);
@@ -662,17 +609,19 @@ function SearchBar({
               : ""
           }`}
         >
-          {/* v8.7.79 transform 载体层：glass/clip 的父盒，聚焦上浮的 scale
-              插值打在本层（v8.7.65 老通道原样回归，机制见文件头 v8.7.79
-              注释块——描边 ring 层是本层的兄弟，transform 写在本层才能让
-              ring 留在 transform 子树之外）。relative 流内盒（无 absolute
-              拉伸约束——v8.7.77 zoom 写在拉伸盒上横向被吞、原点左上角的
-              观感教训），h-full/w-full 为静息基线；shrink-0 必须——flex-col
-              主轴上生长后的高（form 高×1.015）会被默认 flex-shrink:1 压回
-              容器高，纵向生长静默失效（e2e G2 hR=1.0 实锤）。transform
-              不改布局，本层占位与 form 内布局零扰动（观感与 v8.7.65–67
-              完全同构：合成器插值、每帧主帧承载磨砂重取样）。 */}
-          <div ref={floatRef} className="search-float relative flex h-full w-full shrink-0 flex-col">
+          {/* v8.7.80 玻璃底板迁出 transform 子树（磨砂层禁钉死律·终版）：
+              用户隔离实验已定案「动画 transform × 磨砂层」的组合是位移根因
+              （开流畅模式关停全部 backdrop-filter 后位移消失）。v8.7.79 只把
+              描边 ring 搬出 transform 子树，磨砂底板仍在 .search-float 内 →
+              磨砂面本身仍走合成器通道，重渲染被推迟，肉眼可见的依旧是同一条
+              「卡在左上」的边。
+              本版把磨砂底板一并交给 applyFloatProgress（与 ring 同一函数、同一
+              -- 中心对称四值 left/top=-(0.75p)% + width/height=calc(100%+1.5p)%），
+              DOM 上从 .search-float 内移到 form 直子层（先于 float → 绘制层级
+              不变）：磨砂层从此不在任何被 transform 的子树内，几何由布局确定，
+              不存在「等待合成器追赶」的中间相位；内容仍走 transform 老通道
+              （观感与 v8.7.65–67 一致），描边仍走独立 ring 层。三者在同一 rAF
+              回调内同帧写入，磨砂边与描边边逐位重合。 */}
           {/* 玻璃底板：磨砂/底色在这层（.glass-pill 变体规则全部命中子层），
               pointer-events 穿透、随表单整体移动（高度动画跟随）。
               v8.7.79 描边退役出玻璃层：常驻 border 与聚焦 ring 全部迁到
@@ -686,12 +635,31 @@ function SearchBar({
               的重栅格化里 ring 与 glass border 各自 snap 导致跳变，当时以
               「同层同次栅格化」对冲——实测未能根治（环与 border 仍在相位
               抽奖载体上，历轮取证描边依旧位移）。 */}
+          {/* v8.7.86 纯包壳：承载会动的 clip-path（v8.7.81 的裁剪通道，位移已修好），
+              磨砂元素自身尺寸/变换/绘制范围全程恒定 → 重绘不被推迟，收尾不再补笔复位。
+              本层无磨砂、无 filter/opacity 动画（绝不构成 backdrop root）。 */}
           <div
             ref={glassRef}
             aria-hidden
-            className="glass-pill backdrop-blur-2xl backdrop-saturate-150 pointer-events-none absolute inset-0 rounded-[28px]"
-            style={{ outline: "0.02px solid transparent" }}
-          />
+            className="search-frost-clip pointer-events-none absolute inset-0 rounded-[28px]"
+          >
+            <div
+              aria-hidden
+              className="glass-pill backdrop-blur-2xl backdrop-saturate-150 pointer-events-none absolute inset-0 rounded-[28px]"
+              style={{ outline: "0.02px solid transparent" }}
+            />
+          </div>
+          {/* v8.7.79 transform 载体层：glass/clip 的父盒，聚焦上浮的 scale
+              插值打在本层（v8.7.65 老通道原样回归，机制见文件头 v8.7.79
+              注释块——描边 ring 层是本层的兄弟，transform 写在本层才能让
+              ring 留在 transform 子树之外）。relative 流内盒（无 absolute
+              拉伸约束——v8.7.77 zoom 写在拉伸盒上横向被吞、原点左上角的
+              观感教训），h-full/w-full 为静息基线；shrink-0 必须——flex-col
+              主轴上生长后的高（form 高×1.015）会被默认 flex-shrink:1 压回
+              容器高，纵向生长静默失效（e2e G2 hR=1.0 实锤）。transform
+              不改布局，本层占位与 form 内布局零扰动（观感与 v8.7.65–67
+              完全同构：合成器插值、每帧主帧承载磨砂重取样）。 */}
+          <div ref={floatRef} className="search-float relative flex h-full w-full shrink-0 flex-col">
           {/* v8.7.62 内容裁剪层：裁剪职责自 form 下放（form 撤 overflow-hidden
               ——否则底板描边压在裁剪线上被抗锯齿吃半像素，下边发虚不匀）；
               h-full+min-h-0 跟随表单高度动画收缩，rounded-[28px] 承担

@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.86",
+    date: "2026-10-11",
+    title: "恢复 v8.7.81 裁剪通道 · 收尾复位根修",
+    channel: "page",
+    highlights: [
+      "回到 v8.7.81 的裁剪通道（已修好描边位移），并修掉它的收尾复位：会动的 clip 从磨砂元素挪到外层纯包壳，磨砂元素绘制范围全程恒定，重绘不再被推迟",
+      "描边位移修复与磨砂/底色/入场/禅雾化观感均保持 v8.7.81 原样",
+    ],
+  },
+  {
     version: "8.7.85",
     date: "2026-10-11",
     title: "磨砂面边界藏进描边（绘制滞后根治）",
