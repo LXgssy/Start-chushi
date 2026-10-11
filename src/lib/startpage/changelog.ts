@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.81",
+    date: "2026-10-11",
+    title: "磨砂底板改裁剪通道（复位与卡顿根修）",
+    channel: "page",
+    highlights: [
+      "修复聚焦上浮收尾的一次复位、以及描边加粗过程中的卡顿：上一版让磨砂底板走布局通道，每帧重排并全量重渲染磨砂面板",
+      "磨砂底板改为几何恒定 + 裁剪通道承载生长，内容与描边的动画通道、时长、曲线、观感均不变",
+    ],
+  },
+  {
     version: "8.7.80",
     date: "2026-10-11",
     title: "磨砂底板迁出 transform 子树（位移终修）",

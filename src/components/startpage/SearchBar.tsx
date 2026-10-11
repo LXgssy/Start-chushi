@@ -202,6 +202,21 @@ function applyFloatScale(el: HTMLDivElement | null, p: number) {
   el.style.transform = `scale(${(1 + (FLOAT_PCT / 100) * p).toFixed(5)})`;
 }
 
+/** v8.7.81 磨砂底板裁剪通道（v8.7.80 布局通道的抖动/复位根修）：底板几何
+ *  恒定（CSS 静态 = 聚焦态尺寸，永不写 layout/transform），生长由 clip-path
+ *  承载——纯绘制通道、逐帧单调、终帧物理落在静息几何，不存在「等合成器追赶」
+ *  的中间相位；也不产生 v8.7.80 布局通道那样的每帧重排 + 磨砂全量重渲染开销。
+ *  p=0 移除 inline（回 CSS 静息 inset），p>0 居中对称裁开。 */
+function applyGlassClip(el: HTMLDivElement | null, p: number) {
+  if (!el) return;
+  if (p <= 0) {
+    el.style.clipPath = "";
+    return;
+  }
+  const rest = FLOAT_HALF / (1 + FLOAT_PCT / 100);   // 静息裁边（底板坐标系 %）
+  el.style.clipPath = `inset(${(rest * (1 - p)).toFixed(4)}% round 28px)`;
+}
+
 /** 百度 sugrec 联想源（扩展环境 fetch 直取 / 网页版 JSONP） */
 function fetchSuggest(q: string, cb: (list: string[]) => void) {
   if (location.protocol === "chrome-extension:") {
@@ -443,7 +458,7 @@ function SearchBar({
          静息 = 双通道 inline 全移——与动画收尾终态完全同形） */
       applyFloatScale(float, to);
       applyFloatProgress(ring, to);
-      applyFloatProgress(glass, to);
+      applyGlassClip(glass, to);
       return;
     }
     let raf = 0;
@@ -461,7 +476,7 @@ function SearchBar({
       floatScaleRef.current = to;
       applyFloatScale(float, to);
       applyFloatProgress(ring, to);
-      applyFloatProgress(glass, to);
+      applyGlassClip(glass, to);
     };
     /* 双保险收尾：①p≥0.999 早收（ease 尾段剩余几何差 <0.01px，视觉零差，
        不为最后 0.1% 等一帧）；②超时兜底（掉帧/帧调度停滞下收尾不悬挂，
@@ -481,7 +496,7 @@ function SearchBar({
          承载（v8.7.65 新律⑬原机制原节拍）。 */
       applyFloatScale(float, cur);
       applyFloatProgress(ring, cur);
-        applyFloatProgress(glass, cur);
+        applyGlassClip(glass, cur);
       raf = requestAnimationFrame(step);
     };
     raf = requestAnimationFrame(step);
