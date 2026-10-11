@@ -202,19 +202,21 @@ function applyFloatScale(el: HTMLDivElement | null, p: number) {
   el.style.transform = `scale(${(1 + (FLOAT_PCT / 100) * p).toFixed(5)})`;
 }
 
-/** v8.7.81 磨砂底板裁剪通道（v8.7.80 布局通道的抖动/复位根修）：底板几何
- *  恒定（CSS 静态 = 聚焦态尺寸，永不写 layout/transform），生长由 clip-path
- *  承载——纯绘制通道、逐帧单调、终帧物理落在静息几何，不存在「等合成器追赶」
- *  的中间相位；也不产生 v8.7.80 布局通道那样的每帧重排 + 磨砂全量重渲染开销。
- *  p=0 移除 inline（回 CSS 静息 inset），p>0 居中对称裁开。 */
-function applyGlassClip(el: HTMLDivElement | null, p: number) {
+/** v8.7.88 磨砂生长改走【自身 transform】（v8.7.81 clip 通道的收尾残留根修）：
+ *  clip-path 会改变磨砂元素【自身】的绘制范围——诊断包实测：绘制范围每帧一变，
+ *  backdrop 的重绘就被推迟，动画停下后才补上那一笔（用户所见「上浮播完后左右
+ *  两头再变长一点」）。transform 是合成器操作，不改布局、不改绘制范围 → 没有
+ *  可被推迟的重绘、也没有收尾补笔。
+ *  磨砂元素已在 v8.7.81 拆到内容的 transform 树【之外】，自身变换不形成 backdrop
+ *  root（磨砂存活律无虞）；缩放曲线/时长/中心对称与内容层 scale(1+0.015p) 逐位一致。
+ *  p=0 移除 inline（回级联基态 = 静息尺寸）。 */
+function applyGlassScale(el: HTMLDivElement | null, p: number) {
   if (!el) return;
   if (p <= 0) {
-    el.style.clipPath = "";
+    el.style.transform = "";
     return;
   }
-  const rest = FLOAT_HALF / (1 + FLOAT_PCT / 100);   // 静息裁边（底板坐标系 %）
-  el.style.clipPath = `inset(${(rest * (1 - p)).toFixed(4)}% round 28px)`;
+  el.style.transform = \`scale(\${(1 + (FLOAT_PCT / 100) * p).toFixed(5)})\`;
 }
 
 /** 百度 sugrec 联想源（扩展环境 fetch 直取 / 网页版 JSONP） */
@@ -458,7 +460,7 @@ function SearchBar({
          静息 = 双通道 inline 全移——与动画收尾终态完全同形） */
       applyFloatScale(float, to);
       applyFloatProgress(ring, to);
-      applyGlassClip(glass, to);
+      applyGlassScale(glass, to);
       return;
     }
     let raf = 0;
@@ -476,7 +478,7 @@ function SearchBar({
       floatScaleRef.current = to;
       applyFloatScale(float, to);
       applyFloatProgress(ring, to);
-      applyGlassClip(glass, to);
+      applyGlassScale(glass, to);
     };
     /* 双保险收尾：①p≥0.999 早收（ease 尾段剩余几何差 <0.01px，视觉零差，
        不为最后 0.1% 等一帧）；②超时兜底（掉帧/帧调度停滞下收尾不悬挂，
@@ -496,7 +498,7 @@ function SearchBar({
          承载（v8.7.65 新律⑬原机制原节拍）。 */
       applyFloatScale(float, cur);
       applyFloatProgress(ring, cur);
-        applyGlassClip(glass, cur);
+        applyGlassScale(glass, cur);
       raf = requestAnimationFrame(step);
     };
     raf = requestAnimationFrame(step);
