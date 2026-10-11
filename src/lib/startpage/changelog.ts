@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.93",
+    date: "2026-10-11",
+    title: "撤回离散跳变，恢复平滑磨砂",
+    channel: "page",
+    highlights: [
+      "C 方案（磨砂尺寸离散跳变）观感不可接受，本版撤回，恢复 v8.7.81 的平滑生长与磨砂观感",
+      "搜索框回到：磨砂平滑、描边位移已修"
+    ],
+  },
+  {
     version: "8.7.92",
     date: "2026-10-11",
     title: "磨砂尺寸离散跳变（收尾变长终修）",
