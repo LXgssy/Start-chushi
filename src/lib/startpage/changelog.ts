@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.90",
+    date: "2026-10-11",
+    title: "磨砂生长改走自身变换（收尾变长根修）",
+    channel: "page",
+    highlights: [
+      "修复上浮播完后（仍选中）搜索框左右两头再变长一点：磨砂生长由 clip-path 改为磨砂元素自身的 transform，绘制范围不再变化，重绘不再被推迟",
+      "磨砂/底色/入场/禅雾化/描边通道观感不变，位移修复保留"
+    ],
+  },
+  {
     version: "8.7.89",
     date: "2026-10-11",
     title: "恢复 v8.7.87 健康态",
