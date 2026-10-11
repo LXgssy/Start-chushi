@@ -132,9 +132,49 @@ const SUG_TIMEOUT_MS = 3000;
  *   续接语义不变（存进度 p∈[0,1]）。quick blur 分支（from≈to）同笔落
  *   终态保持双通道一致。
  * ==========================================================================*/
-const FLOAT_PCT = 1.5;
+/* ================= v8.7.83 诊断钩子（DIAG 关时零操作、零视觉影响） =================
+   开启：新标签页 F12 → localStorage.setItem("cs:diag","1"); location.reload()
+   关闭：localStorage.removeItem("cs:diag"); location.reload()
+   开启后：上浮幅度 ×5、时长 ×4（把亚像素位移放大到肉眼可见），叠一个红色虚线
+   基准框（= ring 的几何位置，每帧跟随），逐帧记录 float/ring/glass/form 的
+   getBoundingClientRect 与 getAnimations() 到 window.__csDiagLog，并自动跑
+   3 轮聚焦/取消选中。复现后：copy(JSON.stringify(window.__csDiagLog)) 发回。 */
+const DIAG = (() => { try { return localStorage.getItem("cs:diag") === "1"; } catch { return false; } })();
+let diagRef: HTMLDivElement | null = null;
+function diagSetup() {
+  if (!DIAG) return;
+  diagRef = document.createElement("div");
+  diagRef.setAttribute("data-cs-diag-ref", "1");
+  diagRef.style.cssText = "position:fixed;left:0;top:0;width:0;height:0;pointer-events:none;z-index:2147483647;outline:1px dashed #ff0044;border-radius:28px";
+  document.body.appendChild(diagRef);
+  (window as unknown as Record<string, unknown>).__csDiagLog = [];
+  console.log("[cs-diag] DPR=" + devicePixelRatio + " screen=" + screen.width + "x" + screen.height +
+    " | 上浮 x5 / 时长 x4 | 复现后执行 copy(JSON.stringify(window.__csDiagLog))");
+}
+function diagTick(p: number, els: Array<[string, HTMLElement | null]>) {
+  if (!DIAG) return;
+  const log = (window as unknown as { __csDiagLog?: unknown[] }).__csDiagLog;
+  if (!log) return;
+  const row: Record<string, unknown> = { t: Math.round(performance.now()), p: +p.toFixed(5) };
+  for (const [name, el] of els) {
+    if (!el) { row[name] = null; continue; }
+    const b = el.getBoundingClientRect();
+    row[name] = [+b.x.toFixed(3), +b.y.toFixed(3), +b.width.toFixed(3), +b.height.toFixed(3)];
+    const an = el.getAnimations().map((a) => ((a as CSSAnimation).animationName || "t") + ":" + Math.round(Number(a.currentTime) || 0));
+    if (an.length) row[name + "_anim"] = an;
+  }
+  log.push(row);
+  const rb = els.find((x) => x[0] === "ring")?.[1];
+  if (diagRef && rb) {
+    const b = rb.getBoundingClientRect();
+    diagRef.style.left = b.x + "px"; diagRef.style.top = b.y + "px";
+    diagRef.style.width = b.width + "px"; diagRef.style.height = b.height + "px";
+  }
+}
+
+const FLOAT_PCT = 1.5 * (DIAG ? 5 : 1);
 const FLOAT_HALF = 0.75;
-const FLOAT_MS = 500;
+const FLOAT_MS = 500 * (DIAG ? 4 : 1);
 
 /** CSS cubic-bezier(x1,y1,x2,y2) 同义解算（牛顿迭代 + 二分兜底）——旧版
  *  transition 缓动曲线在 rAF 通道的等价实现 */
@@ -430,10 +470,27 @@ function SearchBar({
      绘制通道（className 切换 + CSS transition），与本动画并行互不干扰。
      v8.7.65–v8.7.78 的九轮补丁与 zoom/calc 通道全部退役，机制考古见
      git 历史 v8.7.68–78 提交说明。 */
+  /* v8.7.83 诊断钩子（DIAG 关时零操作）：建基准框 + 日志，并自动跑 3 轮聚焦/取消选中 */
+  useEffect(() => {
+    if (!DIAG) return;
+    diagSetup();
+    const input = inputRef.current;
+    let i = 0;
+    const t = window.setInterval(() => {
+      i += 1;
+      if (i % 2 === 1) input?.focus();
+      else input?.blur();
+      if (i >= 6) window.clearInterval(t);
+    }, 2500);
+    return () => window.clearInterval(t);
+  }, []);
+
   useEffect(() => {
     const float = floatRef.current;
     if (!float) return;
     const ring = ringRef.current;
+    const pillEl = (ring ? ring.closest(".search-pill") : null) as HTMLElement | null;
+    const glassEl = (pillEl ? pillEl.querySelector(":scope > .glass-pill") : null) as HTMLElement | null;
     const from = floatScaleRef.current;
     const to = focused ? 1 : 0;
     if (Math.abs(to - from) < 0.0005) {
@@ -442,6 +499,7 @@ function SearchBar({
          静息 = 双通道 inline 全移——与动画收尾终态完全同形） */
       applyFloatScale(float, to);
       applyFloatProgress(ring, to);
+      if (DIAG) diagTick(-1, [["float", float], ["ring", ring], ["pill", pillEl]]);
       return;
     }
     let raf = 0;
@@ -459,6 +517,7 @@ function SearchBar({
       floatScaleRef.current = to;
       applyFloatScale(float, to);
       applyFloatProgress(ring, to);
+      if (DIAG) diagTick(-1, [["float", float], ["ring", ring], ["pill", pillEl]]);
     };
     /* 双保险收尾：①p≥0.999 早收（ease 尾段剩余几何差 <0.01px，视觉零差，
        不为最后 0.1% 等一帧）；②超时兜底（掉帧/帧调度停滞下收尾不悬挂，
@@ -478,6 +537,7 @@ function SearchBar({
          承载（v8.7.65 新律⑬原机制原节拍）。 */
       applyFloatScale(float, cur);
       applyFloatProgress(ring, cur);
+      if (DIAG) diagTick(cur, [["float", float], ["ring", ring], ["glass", glassEl], ["pill", pillEl]]);
       raf = requestAnimationFrame(step);
     };
     raf = requestAnimationFrame(step);

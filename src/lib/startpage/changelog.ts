@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.83",
+    date: "2026-10-11",
+    title: "诊断包：搜索框聚焦动画逐帧取证",
+    channel: "page",
+    highlights: [
+      "新增默认关闭的诊断钩子（localStorage cs:diag=1 开启）：上浮幅度 ×5、时长 ×4，叠红色虚线几何基准框，逐帧记录 float/ring/glass/form 几何与运行中动画",
+      "关闭（default）时零操作、零视觉影响，正常使用完全不变",
+    ],
+  },
+  {
     version: "8.7.82",
     date: "2026-10-11",
     title: "回退磨砂底板通道改动（复位/卡顿根修）",
