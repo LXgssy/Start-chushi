@@ -148,6 +148,14 @@ function diagSetup() {
   diagRef.style.cssText = "position:fixed;left:0;top:0;width:0;height:0;pointer-events:none;z-index:2147483647;outline:1px dashed #ff0044;border-radius:28px";
   document.body.appendChild(diagRef);
   (window as unknown as Record<string, unknown>).__csDiagLog = [];
+  try {
+    localStorage.removeItem("cs:diagLog");
+    localStorage.setItem("cs:diagState", JSON.stringify({
+      at: new Date().toISOString(), dpr: devicePixelRatio, w: innerWidth, h: innerHeight,
+      screen: screen.width + "x" + screen.height, href: location.href,
+      topFrame: window === window.top, ua: navigator.userAgent.slice(0, 120),
+    }));
+  } catch { /* 私有模式等：忽略 */ }
   console.log("[cs-diag] DPR=" + devicePixelRatio + " screen=" + screen.width + "x" + screen.height +
     " | 上浮 x5 / 时长 x4 | 复现后执行 copy(JSON.stringify(window.__csDiagLog))");
 }
@@ -164,6 +172,10 @@ function diagTick(p: number, els: Array<[string, HTMLElement | null]>) {
     if (an.length) row[name + "_anim"] = an;
   }
   log.push(row);
+  /* v8.7.84：日志同时落 localStorage（顶层/子框架都能取），节流 + 截尾防超配额 */
+  if (log.length % 10 === 0 || p < 0) {
+    try { localStorage.setItem("cs:diagLog", JSON.stringify(log.slice(-800))); } catch { /* 配额满忽略 */ }
+  }
   const rb = els.find((x) => x[0] === "ring")?.[1];
   if (diagRef && rb) {
     const b = rb.getBoundingClientRect();

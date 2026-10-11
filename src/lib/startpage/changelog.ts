@@ -22,6 +22,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.84",
+    date: "2026-10-11",
+    title: "诊断包：日志落 localStorage（跨框架可取）",
+    channel: "page",
+    highlights: [
+      "诊断日志改为同时写入 localStorage（cs:diagLog）并新增 cs:diagState 状态标记：顶层框架即可一条命令取回，不再受框架上下文限制",
+    ],
+  },
+  {
     version: "8.7.83",
     date: "2026-10-11",
     title: "诊断包：搜索框聚焦动画逐帧取证",
