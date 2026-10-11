@@ -22,6 +22,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.74",
+    date: "2026-10-10",
+    title: "v8.7.73 描边层 CSS 落位修正",
+    channel: "page",
+    highlights: [
+      "修正 v8.7.73 描边载体层的样式落位：该块此前被误插进「玻璃层过渡」规则内部被判无效，导致搜索框描边一度不显示",
+    ],
+  },
+  {
     version: "8.7.73",
     date: "2026-10-10",
     title: "描边位移真正根因修复（描边载体层去磨砂化）",

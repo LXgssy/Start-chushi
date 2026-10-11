@@ -1522,6 +1522,23 @@ html.cs-drawer-closing .cl-fade-leaf {
    只限定搜索框内 glass-pill 实例，全 app .glass-pill 基线不受影响。 */
 .search-pill .glass-pill {
   transition: box-shadow 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+  /* v8.7.69 栅格尺度钉死（will-change:transform）已于 v8.7.72 实测退役。
+     双用户视频（v8.7.68/70 真机逐帧配准）+ 本地复现 A/B 定案：钉死让
+     玻璃层栅格比例不追随祖先缩放，叠加动画期逐帧 outline 微抖的逐帧
+     paint damage，描边被烙死在动画早期的栅格相位——整个下沉期描边与
+     transform 脱钩（真机实测顶边 -0.2px 恒定不动，磨砂内容同期平滑
+     跟踪=主帧一直在产生），动画终态的整树重建一次性纠正 = 用户所见
+     「下沉完后描边位移 + 事后突兀复位」。去钉后最坏情况 = 纹理被合成
+     器拉伸 = 几何恒正确（仅动画期亚像素软化），描边相位漂移物理性
+     不存在。玻璃层仍有 backdrop-filter 自带合成层，层化不受影响；
+     transform 非 grouping 属性不构成 backdrop root，磨砂存活律不受
+     影响。
+     新律（描边载体层禁钉死律）：任何会被祖先 transform 连续缩放的
+     描边/边框载体层，禁用 will-change 栅格钉死，也禁动画期逐帧改写
+     其绘制属性（paint damage 冻结描边栅格）——逐帧更新交给驱动缩放
+     的 rAF 主帧，终态由 SearchBar 的整树摘插确定性兜底。 */
+}
+
 /* ---------- v8.7.73 描边载体层去磨砂化（描边位移真正根因） ----------
    v8.7.60→v8.7.72 六轮都在这条线的「何时/如何让磨砂层重栅格化」上打转：
    will-change 栅格钉死、rAF 逐帧主帧、outline 微抖保险、收尾整树摘插……
@@ -1563,22 +1580,6 @@ html.photo-mode.dark .search-pill-stroke {
     0 0 0 1px var(--cs-stroke-ring);
 }
 
-  /* v8.7.69 栅格尺度钉死（will-change:transform）已于 v8.7.72 实测退役。
-     双用户视频（v8.7.68/70 真机逐帧配准）+ 本地复现 A/B 定案：钉死让
-     玻璃层栅格比例不追随祖先缩放，叠加动画期逐帧 outline 微抖的逐帧
-     paint damage，描边被烙死在动画早期的栅格相位——整个下沉期描边与
-     transform 脱钩（真机实测顶边 -0.2px 恒定不动，磨砂内容同期平滑
-     跟踪=主帧一直在产生），动画终态的整树重建一次性纠正 = 用户所见
-     「下沉完后描边位移 + 事后突兀复位」。去钉后最坏情况 = 纹理被合成
-     器拉伸 = 几何恒正确（仅动画期亚像素软化），描边相位漂移物理性
-     不存在。玻璃层仍有 backdrop-filter 自带合成层，层化不受影响；
-     transform 非 grouping 属性不构成 backdrop root，磨砂存活律不受
-     影响。
-     新律（描边载体层禁钉死律）：任何会被祖先 transform 连续缩放的
-     描边/边框载体层，禁用 will-change 栅格钉死，也禁动画期逐帧改写
-     其绘制属性（paint damage 冻结描边栅格）——逐帧更新交给驱动缩放
-     的 rAF 主帧，终态由 SearchBar 的整树摘插确定性兜底。 */
-}
 @keyframes pill-shell-in {
   from {
     background-color: transparent;
