@@ -78,12 +78,12 @@ const SUG_DEBOUNCE_MS = 180;
 const SUG_TIMEOUT_MS = 3000;
 
 /* ============================================================================
- * v8.7.77 上浮/下沉动画（v8.7.54 旧版观感回归，主线程 rAF 驱动——通道升级 zoom）
- * 聚焦 scale 1→1.015、取消选中回落 1，曲线/时长与旧版 CSS transition 完全
- * 同参（0.5s cubic-bezier(0.22,1,0.36,1)）。
+ * v8.7.78 上浮/下沉动画（v8.7.54 旧版观感回归——中心对称 calc 布局通道）
+ * 聚焦「四周均匀生长 1.5%」、取消选中回落，曲线/时长与旧版 CSS transition
+ * 完全同参（0.5s cubic-bezier(0.22,1,0.36,1)）。
  *
- * v8.7.77 通道迁移 transform → zoom（用户决定性实测：「开启流畅模式后所谓
- * 描边位移反而消失了」+ v8.7.76 用户视频逐帧取证）：
+ * 根因定案不变（v8.7.77，用户决定性实测「开启流畅模式后所谓描边位移反而
+ * 消失了」+ v8.7.76 用户视频逐帧取证）：
  *   流畅模式与磨砂模式的渲染差异只有三项（backdrop-filter 关停 /
  *   will-change 清零 / 实底），其中真正承载「描边位移」的是第一项的孪生
  *   机制——磨砂模式下 glass（backdrop-filter 子层）必须独占合成层，而祖先
@@ -96,20 +96,38 @@ const SUG_TIMEOUT_MS = 3000;
  *   根因：它们都在赌「下一次重栅格化落对相位」，而相位选择本身不受控。
  *   流畅模式无位移的本质 = 没有 transform 合成层动画，glass 的栅格相位
  *   从头到尾只有布局几何这一个决定因素。
- * 根治 = 让动画退出 transform 通道：zoom 是布局属性，每帧写入都触发真实
- *   重排+重栅格化（磨砂逐帧重取样照常满足新律⑬），任何中间帧的栅格都
- *   落在「当时布局」上，不存在合成器纹理拉伸/相位残留；收尾 zoom 归 1
- *   时布局与静息完全一致，最后一帧栅格物理上就是静息相位。观感仍为
- *   「真缩放生长」（布局级缩放，与 transform scale 肉眼无差），v8.7.64
- *   被否的 top 平移方案（平移≠生长）不适用本通道。
- * 收尾摘插（v8.7.70 玻璃摘插 / v8.7.71 整树摘插）随 transform 通道退役：
- *   zoom 下每帧已是真实重栅格化，终帧天然落静息相位，摘插成了多余的
- *   相位抽奖（本身即是跳变源之一）；入场动画 pill-shell-in/pill-content-in
- *   的 animation:none 压制同批退役（无 DOM 摘插即无重播风险）。
- * floatScaleRef 跨次聚焦续接语义不变（zoom 值）。quick blur 分支
- * （from≈to）同笔写 zoom 保持通道一致。
+ *   ——动画必须留在布局通道（每帧真实重排+重栅格化，任何中间帧的栅格都
+ *   落在「当时布局」上，不存在合成器纹理拉伸/相位残留）。
+ *
+ * v8.7.78 观感回归（用户实测：「上浮的效果和之前表现不一样」）——v8.7.77
+ * 的 zoom 通道存在两个实测渲染缺陷（scripts/zoom-vs-scale-ab.cjs DPR1.5
+ * 最小复现实测）：
+ *   ① zoom 写在 form（absolute inset-x-0 拉伸盒）上，横向放大被
+ *      left:0/right:0 双约束完全吞掉——rect 宽度纹丝不动（580→580）；
+ *   ② zoom 的缩放原点是左上角——left/top 零位移，生长只向右下。
+ *   合成观感 = 上浮「四周均匀生长」几乎消失，只剩高度向下微长，正是
+ *   用户所见「效果不一样」。
+ * 修复 = 载体改内层 .search-float（relative 流内盒，无拉伸约束）+ 中心
+ *   对称四值插值（rAF 逐帧写，全部布局属性）：
+ *     left / top     = -(0.75×p)%
+ *     width / height = calc(100% + (1.5×p)%)
+ *   % 基准 = form 盒，四值联动恒中心对称，与 transform scale(1+0.015p)
+ *   的几何逐位等价（relative 偏移是光学位移、不扰动布局占位），观感
+ *   完整回归 v8.7.65 旧版；全程零 transform/zoom 写入，布局通道根治
+ *   机理（每帧真实重排+重栅格化、终帧物理落驻留几何）原样保留。
+ * 驻留态 = 常量 calc（纯 CSS 自适应：建议展开 framer 改 form 高时内层
+ *   height:calc(100%+1.5%) 随每次布局自动跟随，零 JS）；静息 = 移除
+ *   inline 回 Tailwind 基线（100%）。设计权衡明记：内容布局值（文字/
+ *   图标/内边距）不随容器生长缩放（与 transform 光学全缩放的差异在
+ *   0.25px 量级、肉眼不可辨），换取文字零重排与布局通道纯净。
+ * 收尾摘插（v8.7.70 玻璃摘插 / v8.7.71 整树摘插）已随 transform 通道
+ *   退役（v8.7.77 起）：布局通道每帧已是真实重栅格化，终帧天然落驻息
+ *   相位，摘插本身即是多余的相位抽奖。
+ * floatScaleRef 跨次聚焦续接语义不变（存进度 p∈[0,1]）。quick blur
+ * 分支（from≈to）同笔落终态保持通道一致。
  * ==========================================================================*/
-const FLOAT_SCALE = 1.015;
+const FLOAT_PCT = 1.5;
+const FLOAT_HALF = 0.75;
 const FLOAT_MS = 500;
 
 /** CSS cubic-bezier(x1,y1,x2,y2) 同义解算（牛顿迭代 + 二分兜底）——旧版
@@ -146,6 +164,23 @@ function cubicBezier(x1: number, y1: number, x2: number, y2: number): (x: number
   };
 }
 const floatEase = cubicBezier(0.22, 1, 0.36, 1);
+
+/** v8.7.78 上浮进度落笔：p=0 移除全部 inline（回 Tailwind 基线 100%），
+ *  p∈(0,1] 写中心对称四值（left/top 负偏移补偿 + width/height calc 生长）。
+ *  % 基准 = form 盒，四值联动恒中心对称（机制见文件头 v8.7.78 注释块）。 */
+function applyFloatProgress(el: HTMLDivElement, p: number) {
+  if (p <= 0) {
+    el.style.top = "";
+    el.style.left = "";
+    el.style.width = "";
+    el.style.height = "";
+    return;
+  }
+  el.style.top = `-${(FLOAT_HALF * p).toFixed(4)}%`;
+  el.style.left = `-${(FLOAT_HALF * p).toFixed(4)}%`;
+  el.style.width = `calc(100% + ${(FLOAT_PCT * p).toFixed(4)}%)`;
+  el.style.height = `calc(100% + ${(FLOAT_PCT * p).toFixed(4)}%)`;
+}
 
 /** 百度 sugrec 联想源（扩展环境 fetch 直取 / 网页版 JSONP） */
 function fetchSuggest(q: string, cb: (list: string[]) => void) {
@@ -290,12 +325,14 @@ function SearchBar({
   onPatchSettings: (patch: Partial<Settings>) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  /* v8.7.77 上浮动画载体：pill 驱动 zoom（布局级缩放，机制见动画 effect 头
-     注释）；floatScaleRef 跨次聚焦续接（快速切换从当前实际缩放值起步，
-     不回跳） */
-  const pillRef = useRef<HTMLFormElement>(null);
-  /* 玻璃底板 ref：v8.7.77 起 zoom 通道不再对玻璃做摘插/伴随写，ref 仅保留
-     结构位（背景层语义标记）；内容裁剪层同。 */
+  /* v8.7.78 上浮动画载体：内层 .search-float 盒驱动中心对称四值布局插值
+     （机制见文件头 v8.7.78 注释块）；floatScaleRef 跨次聚焦续接（快速
+     切换从当前生长进度起步，不回跳）。v8.7.77 的 pillRef 随 zoom 通道
+     退役（form 不再被直接驱动，缩放落在内层载体）。 */
+  /* v8.7.78 布局缩放载体层 ref（glass/clip 的父盒）。 */
+  const floatRef = useRef<HTMLDivElement>(null);
+  /* 玻璃底板 ref：v8.7.77 起不再对玻璃做摘插/伴随写，ref 仅保留结构位
+     （背景层语义标记）；内容裁剪层同。 */
   const glassRef = useRef<HTMLDivElement>(null);
   const clipRef = useRef<HTMLDivElement>(null);
   const floatScaleRef = useRef(1);
@@ -363,26 +400,25 @@ function SearchBar({
     };
   }, [query, focused, suggestOn]);
 
-  /* v8.7.77 上浮/下沉动画主通道（zoom 布局级缩放，机制详见上方 v8.7.77 注释块
-     —— transform 合成层动画 + backdrop-filter 子层在分数 DPR 下栅格相位与
-     布局几何脱节，任何后续重栅格化都相位抽奖；zoom 每帧真实重排+重栅格化，
-     终态天然落静息相位，残留位移物理性不存在。磨砂逐帧重取样由布局变化
-     承载，新律⑬照常满足）。
+  /* v8.7.78 上浮/下沉动画主通道（中心对称 calc 布局插值，机制详见文件头
+     v8.7.78 注释块——根因定案沿 v8.7.77：动画必须留在布局通道，每帧真实
+     重排+重栅格化，磨砂逐帧重取样新律⑬照常满足，终态物理落驻留几何；
+     载体与数值形态升级为内层四值 %，观感完整回归旧版中心生长）。
      聚焦期间投影/描边环淡入淡出仍走 box-shadow 纯绘制通道
      （className 切换 + CSS transition），与本动画并行互不干扰。
      v8.7.65–v8.7.76 的 transform 通道九轮修复（环同层化/栅格钉死/玻璃摘插/
-     整树摘插/双退役/描边移层/真 border/回退）全部随本通道迁移退役，
-     机制考古见 git 历史 v8.7.68–76 提交说明。 */
+     整树摘插/双退役/描边移层/真 border/回退）与 v8.7.77 的 form zoom
+     通道全部随本通道退役，机制考古见 git 历史 v8.7.68–77 提交说明。 */
   useEffect(() => {
-    const pill = pillRef.current;
-    if (!pill) return;
+    const float = floatRef.current;
+    if (!float) return;
     const from = floatScaleRef.current;
-    const to = focused ? FLOAT_SCALE : 1;
+    const to = focused ? 1 : 0;
     if (Math.abs(to - from) < 0.0005) {
       floatScaleRef.current = to;
-      /* quick 分支：终态同笔落 zoom（聚焦驻留 = 常量 zoom；静息 = 移除，
-         布局回归原始值——与动画收尾终态完全同形） */
-      pill.style.zoom = to === 1 ? "" : String(FLOAT_SCALE);
+      /* quick 分支：终态同笔落定（聚焦驻留 = 常量 calc；静息 = 移除，
+         布局回归基线——与动画收尾终态完全同形） */
+      applyFloatProgress(float, to);
       return;
     }
     let raf = 0;
@@ -393,11 +429,12 @@ function SearchBar({
       settled = true;
       cancelAnimationFrame(raf);
       window.clearTimeout(bail);
-      /* 终态落定：静息移除 zoom（布局归原始），聚焦驻留常量 zoom。
-         移除属性与 zoom:1 等价但保证样式失效→最终一帧重排，
-         栅格必然落在原始布局几何。无摘插/无脉冲/无 outline 写。 */
+      /* 终态落定：静息移除全部 inline（布局归 Tailwind 基线 100%），
+         聚焦驻留常量 calc（% 值随 form 高度变化纯 CSS 自适应）。
+         移除属性保证样式失效→最终一帧重排，栅格必然落在原始布局几何。
+         无摘插/无脉冲/无 outline 写。 */
       floatScaleRef.current = to;
-      pill.style.zoom = to === 1 ? "" : String(FLOAT_SCALE);
+      applyFloatProgress(float, to);
     };
     /* 双保险收尾：①p≥0.999 早收（ease 尾段剩余几何差 <0.01px，视觉零差，
        不为最后 0.1% 等一帧）；②超时兜底（掉帧/帧调度停滞下收尾不悬挂，
@@ -409,11 +446,11 @@ function SearchBar({
         settle();
         return;
       }
-      const s = from + (to - from) * floatEase(p);
-      floatScaleRef.current = s;
-      /* zoom 每帧 = 每帧一次真实布局+重栅格化（含 glass 磨砂重取样），
+      const cur = from + (to - from) * floatEase(p);
+      floatScaleRef.current = cur;
+      /* 四值每帧 = 每帧一次真实布局+重栅格化（含 glass 磨砂重取样），
          无合成器纹理复用——中间帧相位只取决于当时布局，残留态不存在 */
-      pill.style.zoom = s.toFixed(5);
+      applyFloatProgress(float, cur);
       raf = requestAnimationFrame(step);
     };
     raf = requestAnimationFrame(step);
@@ -503,9 +540,11 @@ function SearchBar({
               setActive(-1);
             }
           }}
-          /* v8.7.77：上浮动画改 rAF 逐帧驱动 zoom（布局级缩放；effect 见上），
-             聚焦态几何变更只有磨砂重取样安全的布局缩放（每帧主帧）；top 位移
-             通道退役（v8.7.64 方案观感不符旧版，用户裁定）。
+          /* v8.7.78：上浮动画改 rAF 逐帧驱动内层 .search-float 的中心对称
+             四值 calc 布局插值（机制见文件头 v8.7.78 注释块；effect 见上），
+             聚焦态几何变更只有磨砂重取样安全的布局生长（每帧主帧）；top
+             位移通道退役（v8.7.64 方案观感不符旧版，用户裁定）；
+             v8.7.77 的 form zoom 通道随观感缺陷实测退役。
              v8.7.63：聚焦/取消选中的投影 + 框外描边环走 box-shadow 纯
              绘制通道（大模糊投影 + ring 同拍淡入淡出），描边形态与
              v8.7.54 完全一致不动。
@@ -515,13 +554,23 @@ function SearchBar({
              v8.7.61：底板跟随根修——backdrop-filter 不再与变换同元素
              （Chrome 对同元素磨砂取样区不随缩放重算 → 上浮后底板脱框、
              描边读感位移的根因），玻璃底板拆独立子层（本结构至今沿用）。 */
-          ref={pillRef}
           className={`search-pill group absolute inset-x-0 top-0 z-30 flex flex-col rounded-[28px] ${
             focused
               ? "shadow-[0_10px_50px_-8px_rgba(0,0,0,0.25)]"
               : ""
           }`}
         >
+          {/* v8.7.78 布局缩放载体层：glass/clip 的父盒，聚焦上浮的中心对称
+              四值插值打在本层（机制见文件头 v8.7.78 注释块）。relative 流内
+              盒（无 absolute 拉伸约束——v8.7.77 zoom 写在拉伸盒上横向被
+              吞、原点左上角的观感教训），h-full/w-full 为静息基线，动画期
+              /驻留期 inline 覆盖；shrink-0 必须——flex-col 主轴上生长后的
+              高（form 高×1.015）会被默认 flex-shrink:1 压回容器高，纵向
+              生长静默失效（e2e G2 hR=1.0 实锤）。刻意不命中 .search-pill > * 通道
+              （入场动画/禅雾化照旧只打 glass/clip，本层零动画零过渡纯
+              布局载体）。relative 偏移是光学位移：负 left/top 补偿生长
+              的一半量即恒中心对称，且不扰动 form 内布局占位。 */}
+          <div ref={floatRef} className="search-float relative flex h-full w-full shrink-0 flex-col">
           {/* 玻璃底板：磨砂/底色/描边全在这层（.glass-pill 变体规则全部
               命中子层），pointer-events 穿透、随表单整体移动（高度动画跟随）。
               v8.7.68 描边环下沉到本层（用户：「取消选中下沉动画后左圆角+
@@ -725,6 +774,8 @@ function SearchBar({
           </div>
           </div>
           {/* /v8.7.62 内容裁剪层 */}
+          </div>
+          {/* /v8.7.78 布局缩放载体层 */}
         </motion.form>
       </div>
 
