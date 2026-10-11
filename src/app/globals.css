@@ -1570,18 +1570,12 @@ html.cs-drawer-closing .cl-fade-leaf {
    不随 1.5% 放大（≈0.4px / 0.6px，不可辨）。
    上场动画与禅雾化两条通道保持不变（后者由 html.zen .search-pill .glass-pill
    后代选择器命中）。 ---------- */
-/* ---------- v8.7.88 磨砂生长改走自身 transform（收尾残留根修） ----------
-   用户实测 v8.7.81：位移已修好，但上浮播完后（仍处选中态）左右两头会再变长一点。
-   诊断包实测（800 帧，几何逐帧精确无回退）指向绘制阶段：clip-path 改变磨砂元素
-   【自身】的绘制范围，backdrop 重绘被推迟，动画停下后补上那一笔。祖先裁剪也不行
-   （祖先 clip-path 构成 backdrop root，直接杀死磨砂——v8.7.86 实测）。
-   本版：磨砂元素回归静息尺寸（absolute inset-0，不写 layout、不写 clip），生长由
-   rAF 逐帧写它【自身】的 transform: scale(1+0.015p) 承载——合成器操作，不改布局、
-   不改绘制范围，无推迟无补笔；磨砂元素在内容 transform 树之外，自变换不构成
-   backdrop root。几何/曲线/中心对称与内容层逐位一致（v8.7.81 clip 通道等价）。
-   入场动画与禅雾化通道不变。 ---------- */
 .search-pill > .glass-pill {
-  transform-origin: center;
+  left: -0.75%;
+  top: -0.75%;
+  width: calc(100% + 1.5%);
+  height: calc(100% + 1.5%);
+  clip-path: inset(0.7389% round 28px);
   animation: pill-content-in 0.95s cubic-bezier(0.22, 1, 0.36, 1) 0.24s backwards;
 }
 

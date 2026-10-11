@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.89",
+    date: "2026-10-11",
+    title: "恢复 v8.7.87 健康态",
+    channel: "page",
+    highlights: [
+      "v8.7.88 写入的转义反斜杠属非法语法、构建失败（线上仍为 v8.7.87，用户未受影响）；本版恢复 v8.7.87 原文件内容",
+      "搜索框回到 v8.7.81 行为：磨砂玻璃在、描边位移已修"
+    ],
+  },
+  {
     version: "8.7.88",
     date: "2026-10-11",
     title: "磨砂生长改走自身变换（收尾变长根修）",
