@@ -1498,13 +1498,17 @@ html.cs-drawer-closing .cl-fade-leaf {
         在入场动画后复位、位移」的根因 = 层撤销重栅格化）；
      ② 显式 transition 列表（unlayered 胜 Tailwind utilities）：box-shadow
         承载聚焦投影与描边环的淡入淡出（组件类里 transition 已退役）；
-        v8.7.65 起聚焦上浮/下沉的 scale 由组件内 rAF 逐帧写 transform 承载
-        （不走 transition），height 是 framer 内联动画，均刻意不在表内。 */
+        v8.7.77 起聚焦上浮/下沉的缩放由组件内 rAF 逐帧写 zoom 承载（布局
+        通道，不走 transform），height 是 framer 内联动画，均刻意不在表内。 */
   transform: translateY(0) scale(1);
-  /* v8.7.65：top 位移通道退役（v8.7.64 方案观感不符旧版，用户裁定）——
-     聚焦上浮/下沉改由组件内 rAF 逐帧写 transform 承载（旧版 scale(1.015)
-     同参回归，每帧主帧 → 磨砂逐帧重取样，见 SearchBar.tsx v8.7.65 注释块），
-     本表只剩 box-shadow（聚焦投影+描边环淡入淡出）。
+  /* v8.7.77：上浮/下沉缩放通道迁移 transform → zoom（组件内 rAF 逐帧写）。
+     根因定案（用户实测「流畅模式后位移消失」+ v8.7.76 视频逐帧取证）：
+     transform 合成层动画使 backdrop-filter 玻璃子层在分数 DPR 下栅格相位
+     与布局几何脱节，每次后续重栅格化（收尾摘插/ring 过渡结束帧/时钟
+     damage）都相位抽奖——9 轮事后纠正补丁（v8.7.68–76）全部失效的共性。
+     zoom 是布局属性：每帧真实重排+重栅格化，磨砂逐帧重取样（新律⑬），
+     终帧栅格物理上落在静息几何，残留相位不存在。本基态 transform 仅服务
+     入场动画的层稳定（①③），不再参与聚焦循环。
         v8.7.63：scale 过渡通道退役——compositor-only scale 过渡不触发
      主帧，Chrome 对底板磨砂取样在过渡期全程冻结（磨砂内容滞后于收缩中的
      边框 → 上下描边读感错位，收尾补采样瞬间归位 = 复位期「错位复位」

@@ -78,17 +78,36 @@ const SUG_DEBOUNCE_MS = 180;
 const SUG_TIMEOUT_MS = 3000;
 
 /* ============================================================================
- * v8.7.65 上浮/下沉动画（v8.7.54 旧版观感回归，主线程 rAF 驱动）
- * 聚焦 scale 1→1.015、取消选中回落 1——曲线/时长与旧版 CSS transition 完全
- * 同参（0.5s cubic-bezier(0.22,1,0.36,1)，套用旧效果）。
- * 为什么不走 CSS 过渡（字面上的「套用旧代码」）：transform 过渡在 Chrome
- * 是 compositor-only 动画，过渡期不产生主帧，底板磨砂（glass-pill 子层的
- * backdrop-filter）取样全程冻结在起始帧、收尾补采样瞬间归位——v8.7.63
- * 「错位复位」根因（新律⑬：磨砂子树上方禁布 compositor 几何动画）。
- * rAF 每帧写一次 transform = 每帧一次样式提交 → 每帧一次主帧，与建议列表
- * framer 高度动画同机制，磨砂逐帧重取样：旧观感与新律两全。
- * v8.7.64 的 top 位移方案退役：布局位移读感是「平移」不是「生长」，与旧版
- * 观感无关（用户裁定「现在的效果和之前一点关系没有」）。
+ * v8.7.77 上浮/下沉动画（v8.7.54 旧版观感回归，主线程 rAF 驱动——通道升级 zoom）
+ * 聚焦 scale 1→1.015、取消选中回落 1，曲线/时长与旧版 CSS transition 完全
+ * 同参（0.5s cubic-bezier(0.22,1,0.36,1)）。
+ *
+ * v8.7.77 通道迁移 transform → zoom（用户决定性实测：「开启流畅模式后所谓
+ * 描边位移反而消失了」+ v8.7.76 用户视频逐帧取证）：
+ *   流畅模式与磨砂模式的渲染差异只有三项（backdrop-filter 关停 /
+ *   will-change 清零 / 实底），其中真正承载「描边位移」的是第一项的孪生
+ *   机制——磨砂模式下 glass（backdrop-filter 子层）必须独占合成层，而祖先
+ *   form 跑 rAF transform 动画时，Chrome 在分数 DPR 下对该层的栅格相位与
+ *   真实布局几何脱节：每次重栅格化（动画收尾摘插 / ring box-shadow 过渡
+ *   结束帧 / 时钟走字等任何后续 damage）都可能把层落在不同相位——用户
+ *   视频实测：下沉收尾单帧跳变 +0.54px，跳变后仍偏离前静息 1.05px 停留
+ *   约 1s，再经 ~1.4s 渐进漂移才复位。9 轮「事后纠正」补丁（环同层化/
+ *   栅格钉死/玻璃摘插/整树摘插/双退役/描边移层/真 border）全部失效的
+ *   根因：它们都在赌「下一次重栅格化落对相位」，而相位选择本身不受控。
+ *   流畅模式无位移的本质 = 没有 transform 合成层动画，glass 的栅格相位
+ *   从头到尾只有布局几何这一个决定因素。
+ * 根治 = 让动画退出 transform 通道：zoom 是布局属性，每帧写入都触发真实
+ *   重排+重栅格化（磨砂逐帧重取样照常满足新律⑬），任何中间帧的栅格都
+ *   落在「当时布局」上，不存在合成器纹理拉伸/相位残留；收尾 zoom 归 1
+ *   时布局与静息完全一致，最后一帧栅格物理上就是静息相位。观感仍为
+ *   「真缩放生长」（布局级缩放，与 transform scale 肉眼无差），v8.7.64
+ *   被否的 top 平移方案（平移≠生长）不适用本通道。
+ * 收尾摘插（v8.7.70 玻璃摘插 / v8.7.71 整树摘插）随 transform 通道退役：
+ *   zoom 下每帧已是真实重栅格化，终帧天然落静息相位，摘插成了多余的
+ *   相位抽奖（本身即是跳变源之一）；入场动画 pill-shell-in/pill-content-in
+ *   的 animation:none 压制同批退役（无 DOM 摘插即无重播风险）。
+ * floatScaleRef 跨次聚焦续接语义不变（zoom 值）。quick blur 分支
+ * （from≈to）同笔写 zoom 保持通道一致。
  * ==========================================================================*/
 const FLOAT_SCALE = 1.015;
 const FLOAT_MS = 500;
@@ -271,13 +290,13 @@ function SearchBar({
   onPatchSettings: (patch: Partial<Settings>) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  /* v8.7.65 上浮动画载体：pill 驱动 scale（v8.7.72 起 glass 侧零伴随写——
-     outline 微抖已实测退役，见动画 effect 头注释）；floatScaleRef 跨次聚焦续接
-     （快速切换从当前实际缩放值起步，不回跳） */
+  /* v8.7.77 上浮动画载体：pill 驱动 zoom（布局级缩放，机制见动画 effect 头
+     注释）；floatScaleRef 跨次聚焦续接（快速切换从当前实际缩放值起步，
+     不回跳） */
   const pillRef = useRef<HTMLFormElement>(null);
+  /* 玻璃底板 ref：v8.7.77 起 zoom 通道不再对玻璃做摘插/伴随写，ref 仅保留
+     结构位（背景层语义标记）；内容裁剪层同。 */
   const glassRef = useRef<HTMLDivElement>(null);
-  /* v8.7.71 整树随动复位：内容裁剪层 ref（pill-content-in 载体之二，
-     下沉收尾同笔压制其入场动画重播） */
   const clipRef = useRef<HTMLDivElement>(null);
   const floatScaleRef = useRef(1);
   const [query, setQuery] = useState("");
@@ -344,46 +363,16 @@ function SearchBar({
     };
   }, [query, focused, suggestOn]);
 
-  /* v8.7.65 上浮/下沉动画主通道（旧版 scale 观感回归）：聚焦 1→1.015、
-     取消选中回落 1，rAF 逐帧写 transform（机制详见文件头 v8.7.65 注释块
-     —— CSS transform 过渡 = compositor-only 不产生主帧，磨砂取样冻结，
-     新律⑬；rAF 每帧主帧与 framer 高度动画同机制，磨砂逐帧重取样）。
+  /* v8.7.77 上浮/下沉动画主通道（zoom 布局级缩放，机制详见上方 v8.7.77 注释块
+     —— transform 合成层动画 + backdrop-filter 子层在分数 DPR 下栅格相位与
+     布局几何脱节，任何后续重栅格化都相位抽奖；zoom 每帧真实重排+重栅格化，
+     终态天然落静息相位，残留位移物理性不存在。磨砂逐帧重取样由布局变化
+     承载，新律⑬照常满足）。
      聚焦期间投影/描边环淡入淡出仍走 box-shadow 纯绘制通道
      （className 切换 + CSS transition），与本动画并行互不干扰。
-     v8.7.69：收尾加重栅格脉冲 + 玻璃层 will-change 栅格钉死
-     （globals.css）——真机分数 DPR 下沉收尾后圆角弧线描边位移
-     （残留中间比例栅格的吸附相位差）双保险根修。
-     v8.7.70：下沉收尾升级为底板随动复位——DOM 摘插强制玻璃合成层
-     重建，新层首栅格确定性落在静息相位。
-     v8.7.71 整树随动复位：v8.7.70 真机仍有复现（用户实测视频
-     l2wfvu0080j），用户诊断指向的「底板」不只玻璃一层——form（缩放
-     载体，will-change 常驻合成层，涂大模糊投影）与内容裁剪层（
-     will-change 常驻层，圆角裁剪掩码）同样在动画期栅格化、同样可能
-     烙进中间相位，而 v8.7.70 只重建了玻璃。收尾改为【form 整树摘插】
-     ：form 自 DOM 摘下原位插回，全子树 LayoutObject/PaintLayer/cc
-     合成层全链销毁重建，玻璃/裁剪层/form 自身新层首栅格只能落在终
-     态几何——任何一层的残留相位物理性不存在。摘与插同一同步块，渲
-     染帧之间整树零缺席。三处前置同笔压制（CSS 动画在摘下时取消、
-     插回时重播——pill-shell-in 0.95s/0.24s 延迟 backwards 填充是
-     灾难级闪烁）：form(pill-shell-in) + 玻璃(pill-content-in) +
-     裁剪层(pill-content-in) 全部 inline animation=none（入场动画
-     mount 已播完，永久压制零视觉影响）。上浮收尾改玻璃层随动复位
-     （焦点在输入框上，form/裁剪层摘插会闪断焦点；玻璃是 pointer-
-     events-none 兄弟层，摘插零焦点语义），脉冲退役——层重建即最
-     强重栅格。
-     v8.7.72 描边冻结根修（用户第六轮反馈，双视频+本地复现定案）：
-     v8.7.65 起动画期逐帧透明 outline 0.02↔0.04px 微抖（「磨砂重取
-     样保险」）实测为描边冻结元凶——逐帧 paint damage 把玻璃层钉在
-     动画早期的栅格相位反复重绘，描边（border+环，烙在同一栅格里）
-     与持续变化的 transform 脱钩：真机（分数 DPR+GPU）整个下沉期描
-     边冻结在聚焦相位（双视频实测：顶边 −0.2px 恒定不动，磨砂内容
-     同期平滑跟踪=主帧一直在产生），动画终态的整树重建一次性纠正
-     =用户所见「下沉完后描边位移+事后突兀复位」。rAF 主帧本身就逐
-     帧驱动磨砂重取样（本复现实测：去微抖后磨砂 dx 曲线平滑归零
-     resp≈1.0），微抖是 CSS transition 时代的化石保险，退役。同轮
-     globals.css 玻璃层 will-change 钉死一并退役（钉死=栅格比例不
-     追随缩放=描边永久相位错；去钉后最坏情况=纹理被拉伸=几何恒
-     正确仅动画期亚像素软化）。终态整树摘插保留作确定性兑底。 */
+     v8.7.65–v8.7.76 的 transform 通道九轮修复（环同层化/栅格钉死/玻璃摘插/
+     整树摘插/双退役/描边移层/真 border/回退）全部随本通道迁移退役，
+     机制考古见 git 历史 v8.7.68–76 提交说明。 */
   useEffect(() => {
     const pill = pillRef.current;
     if (!pill) return;
@@ -391,69 +380,46 @@ function SearchBar({
     const to = focused ? FLOAT_SCALE : 1;
     if (Math.abs(to - from) < 0.0005) {
       floatScaleRef.current = to;
-      pill.style.transform = focused ? `scale(${FLOAT_SCALE})` : "";
+      /* quick 分支：终态同笔落 zoom（聚焦驻留 = 常量 zoom；静息 = 移除，
+         布局回归原始值——与动画收尾终态完全同形） */
+      pill.style.zoom = to === 1 ? "" : String(FLOAT_SCALE);
       return;
     }
     let raf = 0;
+    let settled = false;
     const t0 = performance.now();
-    const glass = glassRef.current;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      cancelAnimationFrame(raf);
+      window.clearTimeout(bail);
+      /* 终态落定：静息移除 zoom（布局归原始），聚焦驻留常量 zoom。
+         移除属性与 zoom:1 等价但保证样式失效→最终一帧重排，
+         栅格必然落在原始布局几何。无摘插/无脉冲/无 outline 写。 */
+      floatScaleRef.current = to;
+      pill.style.zoom = to === 1 ? "" : String(FLOAT_SCALE);
+    };
+    /* 双保险收尾：①p≥0.999 早收（ease 尾段剩余几何差 <0.01px，视觉零差，
+       不为最后 0.1% 等一帧）；②超时兜底（掉帧/帧调度停滞下收尾不悬挂，
+       兜底写终值与逐帧路径同形，中途静止无视觉差） */
+    const bail = window.setTimeout(settle, FLOAT_MS + 100);
     const step = (now: number) => {
       const p = Math.min(1, (now - t0) / FLOAT_MS);
+      if (p >= 0.999) {
+        settle();
+        return;
+      }
       const s = from + (to - from) * floatEase(p);
       floatScaleRef.current = s;
-      pill.style.transform = `scale(${s.toFixed(5)})`;
-      /* v8.7.72：动画期不再对玻璃写任何样式（旧版逐帧 outline 微抖
-         已退役，见 effect 头注释——paint damage 冻结描边栅格实测
-         实锤）。描边/磨砂的逐帧更新完全由本 rAF 的 transform 主帧
-         驱动，玻璃层零额外失效源。 */
-      if (p < 1) {
-        raf = requestAnimationFrame(step);
-      } else {
-        floatScaleRef.current = to;
-        pill.style.transform = to === 1 ? "" : `scale(${FLOAT_SCALE})`;
-        if (glass) {
-          if (to === 1) {
-            /* v8.7.71 整树随动复位（终局根修，机制详见 effect 头注释）：
-               下沉终态样式落定的同一笔 JS 同步块内——①三处 CSS 动画同笔
-               压制（form/glass/clip，摘下会取消、插回会重播，必须先压）；
-               ②玻璃 outline 回 0.02 常驻基线（v8.7.68 基线律）；③form
-               整树摘插。新层首栅格确定性落在静息几何，用户诊断的「底板
-               没有跟随整体正确复位」在玻璃/裁剪/form 三层上同时不可能
-               发生；摘与插同一同步块，渲染帧之间整树零缺席零闪烁。 */
-            pill.style.animation = "none";
-            glass.style.animation = "none";
-            if (clipRef.current) clipRef.current.style.animation = "none";
-            glass.style.outline = "0.02px solid transparent";
-            const parent = pill.parentNode;
-            const next = pill.nextSibling;
-            if (parent) {
-              parent.removeChild(pill);
-              if (next) parent.insertBefore(pill, next);
-              else parent.appendChild(pill);
-            }
-          } else {
-            /* v8.7.71 上浮收尾：玻璃层随动复位（脉冲退役）。焦点在输入框
-               上，form/裁剪层摘插会闪断焦点触发循环 blur；玻璃是
-               pointer-events-none 兄弟层，摘插零焦点语义，层重建即最强
-               重栅格——新层首栅格落在 scale(1.015) 驻留几何。同笔压制
-               pill-content-in 重播 + outline 回基线。 */
-            glass.style.animation = "none";
-            glass.style.outline = "0.02px solid transparent";
-            const gparent = glass.parentNode;
-            const gnext = glass.nextSibling;
-            if (gparent) {
-              gparent.removeChild(glass);
-              if (gnext) gparent.insertBefore(glass, gnext);
-              else gparent.appendChild(glass);
-            }
-          }
-        }
-      }
+      /* zoom 每帧 = 每帧一次真实布局+重栅格化（含 glass 磨砂重取样），
+         无合成器纹理复用——中间帧相位只取决于当时布局，残留态不存在 */
+      pill.style.zoom = s.toFixed(5);
+      raf = requestAnimationFrame(step);
     };
     raf = requestAnimationFrame(step);
     return () => {
       cancelAnimationFrame(raf);
-      if (glassRef.current) glassRef.current.style.outline = "0.02px solid transparent";
+      window.clearTimeout(bail);
     };
   }, [focused]);
 
@@ -537,8 +503,8 @@ function SearchBar({
               setActive(-1);
             }
           }}
-          /* v8.7.65：上浮动画改 rAF 逐帧驱动 scale（effect 见上），聚焦态
-             几何变更只有磨砂重取样安全的 transform（每帧主帧）；top 位移
+          /* v8.7.77：上浮动画改 rAF 逐帧驱动 zoom（布局级缩放；effect 见上），
+             聚焦态几何变更只有磨砂重取样安全的布局缩放（每帧主帧）；top 位移
              通道退役（v8.7.64 方案观感不符旧版，用户裁定）。
              v8.7.63：聚焦/取消选中的投影 + 框外描边环走 box-shadow 纯
              绘制通道（大模糊投影 + ring 同拍淡入淡出），描边形态与
