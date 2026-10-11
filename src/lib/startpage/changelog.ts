@@ -22,6 +22,15 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.75",
+    date: "2026-10-10",
+    title: "描边像素吸附对齐（真 border 承载）",
+    channel: "page",
+    highlights: [
+      "常驻描边改用真 border 承载（带浏览器像素吸附），与改动前逐设备像素一致；此前用内阴影会多出约 1/3px 抗锯齿软化",
+    ],
+  },
+  {
     version: "8.7.74",
     date: "2026-10-10",
     title: "v8.7.73 描边层 CSS 落位修正",

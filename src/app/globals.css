@@ -1561,7 +1561,11 @@ html.cs-drawer-closing .cl-fade-leaf {
 .search-pill-stroke {
   --cs-stroke: rgba(24, 22, 36, 0.1);
   --cs-stroke-ring: rgb(24 24 27 / 0.15);
-  box-shadow: inset 0 0 0 1px var(--cs-stroke);
+  /* 常驻描边用【真 border】而非 inset 阴影承载：border 走浏览器像素吸附，
+     与旧 .glass-pill 的 border 逐设备像素一致；inset 阴影不吸附，内缘会多出
+     约 1/3px 抗锯齿软化（真机构建实测：顶带第二设备行均值 29.6 → 39.5）。
+     本层无 backdrop-filter，border 的栅格随 transform 逐帧同步（正是本修复要点）。 */
+  border: 1px solid var(--cs-stroke);
   transition: box-shadow 0.5s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .dark .search-pill-stroke {
@@ -1574,10 +1578,9 @@ html.photo-mode:not(.dark) .search-pill-stroke {
 html.photo-mode.dark .search-pill-stroke {
   --cs-stroke: rgb(255 255 255 / 0.14);
 }
+/* 聚焦描边：外沿 1px（原 .glass-pill ring-1 同位置同色，同为 box-shadow 通道） */
 .search-pill-stroke-on {
-  box-shadow:
-    inset 0 0 0 1px var(--cs-stroke),
-    0 0 0 1px var(--cs-stroke-ring);
+  box-shadow: 0 0 0 1px var(--cs-stroke-ring);
 }
 
 @keyframes pill-shell-in {
