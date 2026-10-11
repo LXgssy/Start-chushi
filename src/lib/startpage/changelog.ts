@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.85",
+    date: "2026-10-11",
+    title: "磨砂面边界藏进描边（绘制滞后根治）",
+    channel: "page",
+    highlights: [
+      "修复聚焦上浮收尾的描边复位：诊断包实测确认几何逐帧精确（两通道偏差 0.013px、无回退），滞后发生在绘制层",
+      "磨砂底板四边内缩 1px、圆角同心减 1px，使其边界整条落在描边笔画之下；可见轮廓改由描边这一纯绘制层承担，观感与原先一致",
+    ],
+  },
+  {
     version: "8.7.84",
     date: "2026-10-11",
     title: "诊断包：日志落 localStorage（跨框架可取）",
