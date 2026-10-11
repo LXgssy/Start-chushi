@@ -635,20 +635,12 @@ function SearchBar({
               的重栅格化里 ring 与 glass border 各自 snap 导致跳变，当时以
               「同层同次栅格化」对冲——实测未能根治（环与 border 仍在相位
               抽奖载体上，历轮取证描边依旧位移）。 */}
-          {/* v8.7.86 纯包壳：承载会动的 clip-path（v8.7.81 的裁剪通道，位移已修好），
-              磨砂元素自身尺寸/变换/绘制范围全程恒定 → 重绘不被推迟，收尾不再补笔复位。
-              本层无磨砂、无 filter/opacity 动画（绝不构成 backdrop root）。 */}
           <div
             ref={glassRef}
             aria-hidden
-            className="search-frost-clip pointer-events-none absolute inset-0 rounded-[28px]"
-          >
-            <div
-              aria-hidden
-              className="glass-pill backdrop-blur-2xl backdrop-saturate-150 pointer-events-none absolute inset-0 rounded-[28px]"
-              style={{ outline: "0.02px solid transparent" }}
-            />
-          </div>
+            className="glass-pill backdrop-blur-2xl backdrop-saturate-150 pointer-events-none absolute inset-0 rounded-[28px]"
+            style={{ outline: "0.02px solid transparent" }}
+          />
           {/* v8.7.79 transform 载体层：glass/clip 的父盒，聚焦上浮的 scale
               插值打在本层（v8.7.65 老通道原样回归，机制见文件头 v8.7.79
               注释块——描边 ring 层是本层的兄弟，transform 写在本层才能让

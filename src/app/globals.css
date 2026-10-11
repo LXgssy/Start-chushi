@@ -1570,27 +1570,12 @@ html.cs-drawer-closing .cl-fade-leaf {
    不随 1.5% 放大（≈0.4px / 0.6px，不可辨）。
    上场动画与禅雾化两条通道保持不变（后者由 html.zen .search-pill .glass-pill
    后代选择器命中）。 ---------- */
-/* ---------- v8.7.86 磨砂收尾复位根修：clip 从磨砂元素挪到纯包壳 ----------
-   用户裁定：v8.7.81 的裁剪通道已修好描边位移，唯一残留是「上浮结束后一次复位」。
-   诊断包实测（800 帧日志）几何逐帧精确、无回退 → 复位发生在**绘制**阶段：
-   磨砂元素（backdrop-filter）自身的绘制范围每帧变化，重渲染会被推迟，
-   动画停下后又补上那一笔 = 可见的收尾复位。
-   本版把「会动的 clip-path」与「磨砂元素」拆到两层：
-   · .search-frost-clip —— 纯包壳（无磨砂、无 filter/opacity 动画，绝不构成
-     backdrop root），承载静态聚焦尺寸 + 逐帧 clip；
-   · 内含 .glass-pill —— 磨砂/底色/入场动画全在它身上（自身 filter 不构成自身
-     backdrop root，磨砂存活律无虞）。
-   于是磨砂元素的边框盒与变换矩阵全程恒定 → 没有可被推迟的重绘，也没有收尾补笔；
-   可见生长仍由 clip 承载（与 v8.7.81 几何逐位一致）。
-   入场动画（pill-content-in）留在磨砂元素自身；禅雾化由后代选择器命中，均不变。 ---------- */
-.search-pill > .search-frost-clip {
+.search-pill > .glass-pill {
   left: -0.75%;
   top: -0.75%;
   width: calc(100% + 1.5%);
   height: calc(100% + 1.5%);
   clip-path: inset(0.7389% round 28px);
-}
-.search-pill > .search-frost-clip > .glass-pill {
   animation: pill-content-in 0.95s cubic-bezier(0.22, 1, 0.36, 1) 0.24s backwards;
 }
 

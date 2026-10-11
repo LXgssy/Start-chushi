@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.87",
+    date: "2026-10-11",
+    title: "恢复 v8.7.81：磨砂玻璃回归",
+    channel: "page",
+    highlights: [
+      "修复磨砂玻璃消失：v8.7.86 把 clip 放在磨砂元素的祖先上，祖先 clip-path 会构成 backdrop root，直接杀死磨砂",
+      "搜索框恢复到 v8.7.81 原样：磨砂/底色/内容与描边通道逐位一致，位移修复保留；v8.7.86 引入的收尾卡顿与变长一并消失",
+    ],
+  },
+  {
     version: "8.7.86",
     date: "2026-10-11",
     title: "恢复 v8.7.81 裁剪通道 · 收尾复位根修",
