@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.76",
+    date: "2026-10-10",
+    title: "回退描边层改造，恢复聚焦描边加粗过渡",
+    channel: "page",
+    highlights: [
+      "回退 v8.7.73–75 的描边层改造：该改造未解决描边位移，且改变了聚焦时的描边加粗过渡观感",
+      "聚焦描边恢复玻璃层 border + ring-1 形态，与 v8.7.72 逐项一致",
+    ],
+  },
+  {
     version: "8.7.75",
     date: "2026-10-10",
     title: "描边像素吸附对齐（真 border 承载）",
