@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.91",
+    date: "2026-10-11",
+    title: "撤回自身变换通道，回到 v8.7.81",
+    channel: "page",
+    highlights: [
+      "v8.7.90 的自身变换把描边位移带了回来（Chrome 对同元素磨砂取样区不随缩放重算），本版撤回，恢复 v8.7.81 内容",
+      "搜索框回到：磨砂在、描边位移已修；残余的收尾变长将按静止磨砂层方案处理"
+    ],
+  },
+  {
     version: "8.7.90",
     date: "2026-10-11",
     title: "磨砂生长改走自身变换（收尾变长根修）",
