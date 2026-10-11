@@ -276,6 +276,8 @@ function SearchBar({
      （快速切换从当前实际缩放值起步，不回跳） */
   const pillRef = useRef<HTMLFormElement>(null);
   const glassRef = useRef<HTMLDivElement>(null);
+  /* v8.7.73 描边载体层 ref：form 整树摘插前需同笔压制其入场动画 */
+  const strokeRef = useRef<HTMLDivElement>(null);
   /* v8.7.71 整树随动复位：内容裁剪层 ref（pill-content-in 载体之二，
      下沉收尾同笔压制其入场动画重播） */
   const clipRef = useRef<HTMLDivElement>(null);
@@ -423,6 +425,7 @@ function SearchBar({
             pill.style.animation = "none";
             glass.style.animation = "none";
             if (clipRef.current) clipRef.current.style.animation = "none";
+            if (strokeRef.current) strokeRef.current.style.animation = "none";
             glass.style.outline = "0.02px solid transparent";
             const parent = pill.parentNode;
             const next = pill.nextSibling;
@@ -572,11 +575,28 @@ function SearchBar({
           <div
             ref={glassRef}
             aria-hidden
-            className={`glass-pill backdrop-blur-2xl backdrop-saturate-150 pointer-events-none absolute inset-0 rounded-[28px] ${
-              focused
-                ? "ring-1 ring-zinc-900/15 dark:ring-white/25"
-                : ""
-            }`}
+            className="glass-pill backdrop-blur-2xl backdrop-saturate-150 pointer-events-none absolute inset-0 rounded-[28px]"
+            /* v8.7.73：border 内联透明——可见描边改由下方纯绘制层承载（等价像素带，
+               见 globals.css「描边载体层去磨砂化」注释块）；width/style 不动，布局盒不变 */
+            style={{ outline: "0.02px solid transparent", borderColor: "transparent" }}
+          />
+          {/* v8.7.73 描边载体层（描边位移真根因根修）：原描边（.glass-pill 的 1px
+              border + 聚焦 ring-1）画在磨砂层上——带 backdrop-filter 的层在祖先
+              transform 连续缩放期间栅格不追随缩放（项目 v8.7.61 注释已实锤
+              「Chrome 对磨砂取样区不随缩放重算」），该层绘制内容整体滞后约 0.2px。
+              磨砂底色是大面半透明填充看不出滞后，1px 发丝线却把它暴露成
+              「描边位移」。本层无 backdrop-filter、无 overflow，与内容裁剪层同为
+              普通绘制层，逐帧栅格与 transform 严格同步。
+              几何/配色逐一对应旧实现：常驻 = inset 1px（原 border 像素带）、
+              聚焦 = 外侧 1px（原 ring-1 位置）；过渡同为 box-shadow 0.5s 同曲线；
+              outline 基线与玻璃层同（paint bounds 全生命周期不变）。
+              ⚠ 本层是 .search-pill > *，会被 pill-content-in 命中（与旧 border 在
+              玻璃层上的入场表现一致）；form 整树摘插前必须同笔压制其 animation，
+              否则插回会重播入场（见下方收尾代码）。 */}
+          <div
+            ref={strokeRef}
+            aria-hidden
+            className={`search-pill-stroke pointer-events-none absolute inset-0 rounded-[28px] ${focused ? "search-pill-stroke-on" : ""}`}
             style={{ outline: "0.02px solid transparent" }}
           />
           {/* v8.7.62 内容裁剪层：裁剪职责自 form 下放（form 撤 overflow-hidden

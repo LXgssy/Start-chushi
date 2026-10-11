@@ -1522,6 +1522,47 @@ html.cs-drawer-closing .cl-fade-leaf {
    只限定搜索框内 glass-pill 实例，全 app .glass-pill 基线不受影响。 */
 .search-pill .glass-pill {
   transition: box-shadow 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+/* ---------- v8.7.73 描边载体层去磨砂化（描边位移真正根因） ----------
+   v8.7.60→v8.7.72 六轮都在这条线的「何时/如何让磨砂层重栅格化」上打转：
+   will-change 栅格钉死、rAF 逐帧主帧、outline 微抖保险、收尾整树摘插……
+   根因其实是【描边画在了磨砂层上】：
+   · 带 backdrop-filter 的层，在祖先 transform 连续缩放期间栅格不追随缩放
+     ——项目自己的 v8.7.61 注释已实锤「Chrome 对磨砂取样区不随缩放重算」。
+     该层绘制内容因此整体滞后于 transform（真机分数 DPR 实测 ≈0.2px 恒定）。
+   · 磨砂底色/大模糊投影是大面半透明填充，0.2px 滞后肉眼不可见；而 1px 发丝
+     线的抗锯齿权重分布对它极其敏感——「描边位移」是这份滞后唯一的可见面。
+   修复：描边搬到不含 backdrop-filter、不含 overflow 的【纯绘制兄弟层】，
+   与内容裁剪层同为普通层，逐帧栅格与 transform 严格同步。几何零变化：
+   · 常驻描边：原 .glass-pill 的 1px border（[0,1]px 像素带）→ 本层 inset 1px
+     （同一像素带，同一组浅色/深色/掠影配色）；
+   · 聚焦描边：原 .glass-pill 的 ring-1（外沿，[-1,0]px）→ 本层外侧 1px
+     box-shadow（同位置同色）；两条线同层同属性，不再各自 snap。
+   过渡仍走 box-shadow 0.5s 同曲线（与 form 聚焦投影同拍）。
+   新律升级（描边载体层禁钉死律·强化版）：任何会被祖先 transform 连续缩放的
+   描边/边框载体层，既禁 will-change 栅格钉死，也【禁寄生在 backdrop-filter
+   层上】——描边必须有自己的纯绘制层。 */
+.search-pill-stroke {
+  --cs-stroke: rgba(24, 22, 36, 0.1);
+  --cs-stroke-ring: rgb(24 24 27 / 0.15);
+  box-shadow: inset 0 0 0 1px var(--cs-stroke);
+  transition: box-shadow 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.dark .search-pill-stroke {
+  --cs-stroke: rgba(255, 255, 255, 0.09);
+  --cs-stroke-ring: rgb(255 255 255 / 0.25);
+}
+html.photo-mode:not(.dark) .search-pill-stroke {
+  --cs-stroke: rgba(20, 20, 25, 0.1);
+}
+html.photo-mode.dark .search-pill-stroke {
+  --cs-stroke: rgb(255 255 255 / 0.14);
+}
+.search-pill-stroke-on {
+  box-shadow:
+    inset 0 0 0 1px var(--cs-stroke),
+    0 0 0 1px var(--cs-stroke-ring);
+}
+
   /* v8.7.69 栅格尺度钉死（will-change:transform）已于 v8.7.72 实测退役。
      双用户视频（v8.7.68/70 真机逐帧配准）+ 本地复现 A/B 定案：钉死让
      玻璃层栅格比例不追随祖先缩放，叠加动画期逐帧 outline 微抖的逐帧
@@ -1799,10 +1840,13 @@ html.zen .search-pill {
     visibility 0s 0.5s,
     box-shadow 0.5s cubic-bezier(0.22, 1, 0.36, 1);
 }
-html.zen .search-pill .glass-pill {
+html.zen .search-pill .glass-pill,
+html.zen .search-pill .search-pill-stroke {
   opacity: 0;
 }
-html.zen .search-pill > :not(.glass-pill) {
+/* v8.7.73：描边层单独列名排除——它和玻璃一样只走 opacity（不带 blur），
+   与 v8.7.72 之前 ring 挂在玻璃层上的禅退场表现逐帧一致 */
+html.zen .search-pill > :not(.glass-pill):not(.search-pill-stroke) {
   opacity: 0;
   filter: blur(12px);
 }
