@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.101",
+    date: "2026-10-12",
+    title: "禅模式时钟补模糊过渡",
+    channel: "page",
+    highlights: [
+      "进禅时时钟从雾中显影、退禅时雾化散场：禅模式覆盖层此前只有透明度淡入淡出，与首页内容雾化散场/聚拢的模糊语言缺一通道",
+      "模糊与透明度同曲线同拍（0.7s），进禅稳态完全锐利、退禅末帧雾满收场",
+    ],
+  },
+  {
     version: "8.7.100",
     date: "2026-10-12",
     title: "同步菜单材质对齐站内磨砂玻璃",

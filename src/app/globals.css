@@ -1880,20 +1880,35 @@ html.zen .search-pill > .search-ring {
 
 /* ---------- 禅模式覆盖层（迷你时钟/迷你番茄钟/提示词宿主）：常驻 DOM +
    visibility 离散插值。visibility 离散插值：进禅即时可见、退禅末帧隐没
-   （淡出完成后才 hidden），opacity 0.7s。覆盖层内无玻璃子树（迷你时钟/
-   提示词/番茄钟均非磨砂载体），opacity/visibility 零毒。 ---------- */
+   （淡出完成后才 hidden），opacity 0.7s。
+   v8.7.101 补模糊过渡（用户裁定）：此前只有 opacity 淡入淡出，进禅时钟是
+   「浮现」而非「显影」、退禅是「淡出」而非「雾化」，与雾化散场/聚拢的
+   雾化语言（.zen-fade/.zen-gone/.zen-dock 的 opacity+blur(12px)）缺一
+   通道。本版基态挂 filter: blur(12px)、禅态显式 filter: none（未声明≠none
+   ——级联仍取基态 blur(12px)，必须显式声明锐端；blur(12px)↔none 的插值
+   是规范定义行为，与 .zen-fade 的 none↔blur(12px) 完全同构），0.7s 同曲线
+   同拍。压缩器陷阱提示：锐端不可写 blur(0px)（会被压成非法 blur()），
+   filter: none 关键字安全。
+   零毒前提实测：覆盖层子树（迷你时钟/提示词/番茄钟）无任何磨砂载体、
+   无 fixed 子盒——filter 只毒自身子树的磨砂取样，对散场中的三玻璃载体
+   （zen-gone/zen-dock/search-pill，皆在覆盖层之外）无染；inset-0 满屏
+   即便有 fixed 后代坐标也同 viewport，无包含块陷阱。 ---------- */
 .zen-overlay {
   opacity: 0;
+  filter: blur(12px);
   visibility: hidden;
   transition:
     opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.7s cubic-bezier(0.22, 1, 0.36, 1),
     visibility 0s 0.7s;
 }
 html.zen .zen-overlay {
   opacity: 1;
+  filter: none;
   visibility: visible;
   transition:
     opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.7s cubic-bezier(0.22, 1, 0.36, 1),
     visibility 0s;
 }
 
