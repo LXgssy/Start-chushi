@@ -1,6 +1,6 @@
 # 初始 · ChuShi 起始页
 
-![Next.js](https://img.shields.io/badge/Next.js-15-black) ![React](https://img.shields.io/badge/React-19-61dafb) ![Tailwind](https://img.shields.io/badge/Tailwind_CSS-4-38bdf8) ![Motion](https://img.shields.io/badge/framer--motion-12-e74c8b) ![License](https://img.shields.io/badge/Code_License-MIT-green) ![Images](https://img.shields.io/badge/Images-Unsplash_License-lightgrey)
+![Next.js](https://img.shields.io/badge/Next.js-16-black) ![React](https://img.shields.io/badge/React-19-61dafb) ![Tailwind](https://img.shields.io/badge/Tailwind_CSS-4-38bdf8) ![Motion](https://img.shields.io/badge/framer--motion-12-e74c8b) ![License](https://img.shields.io/badge/Code_License-MIT-green) ![Images](https://img.shields.io/badge/Images-Unsplash_License-lightgrey)
 
 > 一个把「开始新标签页」变成仪式感的浏览器起始页：时钟、搜索、快捷服务、天气、待办、笔记、番茄钟与壁纸图库，全部装进一方极简而克制的画布。
 
@@ -425,7 +425,7 @@ bun run start
 
 | 层 | 选型 |
 |---|---|
-| 框架 | Next.js 15（App Router）+ React 19 |
+| 框架 | Next.js 16（App Router）+ React 19 |
 | 样式 | Tailwind CSS 4 |
 | 动效 | framer-motion + 原生 CSS 动画（磨砂玻璃存活原则） |
 | 组件 | shadcn/ui（Radix 系列） |
@@ -433,13 +433,43 @@ bun run start
 | 字体 | Geist（经 next/font 自托管，SIL OFL） |
 | 图标 | lucide-react（ISC） |
 
+### 开源项目一览
+
+「初始」站在这些开源项目的肩膀上。下表列出源码中实际使用的项目及其许可证（版本以 `package.json` 为准）：
+
+| 项目 | 许可证 | 用途 |
+|---|---|---|
+| [Next.js](https://github.com/vercel/next.js) | MIT | 页面框架与构建链 |
+| [React](https://github.com/facebook/react) | MIT | UI 运行时 |
+| [Tailwind CSS](https://github.com/tailwindlabs/tailwindcss) | MIT | 原子化样式 |
+| [framer-motion（Motion）](https://github.com/motiondivision/motion) | MIT | 面板动效与手势 |
+| [shadcn/ui](https://github.com/shadcn-ui/ui) | MIT | 组件风格基座 |
+| [Radix UI Primitives](https://github.com/radix-ui/primitives) | MIT | 无障碍组件原语（对话框/下拉/弹出层等） |
+| [cmdk](https://github.com/pacocoursey/cmdk) | MIT | 指令面板（⌘K） |
+| [vaul](https://github.com/emilkowalski/vaul) | MIT | 抽屉交互 |
+| [sonner](https://github.com/emilkowalski/sonner) | MIT | Toast 通知 |
+| [dnd-kit](https://github.com/clauderic/dnd-kit) | MIT | 磁贴与 Dock 图标拖拽排序 |
+| [embla-carousel](https://github.com/davidjerleke/embla-carousel) | MIT | 轮播 |
+| [recharts](https://github.com/recharts/recharts) | MIT | 图表 |
+| [react-day-picker](https://github.com/gpbl/react-day-picker) | MIT | 日期选择 |
+| [react-hook-form](https://github.com/react-hook-form/react-hook-form) | MIT | 表单 |
+| [next-themes](https://github.com/pacocoursey/next-themes) | MIT | 明暗主题切换 |
+| [fflate](https://github.com/101arrowz/fflate) | MIT | ZIP 压缩与解压（预设包等） |
+| [clsx](https://github.com/lukeed/clsx) / [tailwind-merge](https://github.com/dcastil/tailwind-merge) | MIT | 样式工具链 |
+| [class-variance-authority](https://github.com/joe-bell/cva) | Apache-2.0 | 组件变体样式 |
+| [lucide](https://github.com/lucide-icons/lucide) | ISC | 图标 |
+| [Geist 字体](https://github.com/vercel/geist-font) | SIL OFL | 界面字体（经 next/font 自托管） |
+| [Prisma](https://github.com/prisma/prisma) | Apache-2.0 | 数据库 ORM（平台脚手架，起始页功能不依赖） |
+
 ## 图片来源与致谢
 
 本项目的美，一半来自这些摄影师。**代码以 MIT 许可开源，图片不在此列**——所有摄影作品均来自 [Unsplash](https://unsplash.com)，适用 [Unsplash License](https://unsplash.com/license)（免费用于商业与非商业用途，无需逐案授权；唯不可将其汇编为竞争性图库服务或未经修改单独售卖）。
 
-### 开源代码致谢
+### 方案与代码致谢
 
-「初始 · 网易云播放器」官方预设的网易云数据接口实现使用了 [fpsmaster](https://github.com/FPSMasterTeam/Cadence)（FPSMasterTeam / Cadence）的代码——该项目以 MIT License 开源，特此声明与致谢。
+- **「初始 · 网易云播放器」官方预设**的网易云数据接口实现使用了 [fpsmaster](https://github.com/FPSMasterTeam/Cadence)（FPSMasterTeam / Cadence）的代码——该项目以 MIT License 开源，特此声明与致谢。
+- **资源嗅探**（v8.7.66 起）的 MSE 探针方案、归因引擎信号消费思路、DOM 侧资源发现路径与 `cat-catch` 分类规则表参考/移植自 [Ghost-Downloader-3](https://github.com/XiaoYouChR/Ghost-Downloader-3)（XiaoYouChR，GPL-3.0 License）；其中分类规则表的原始出处为 [cat-catch](https://github.com/xifangczy/cat-catch)（GPL-3.0 License），一并致谢。
+- **B 站完整视频下载**的 WBI 签名等接口算法依据 [bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect) 社区共识文档自行实现；fMP4 合并器（BiliRemux）为独立编写，产物形态对齐 Ghost-Downloader-3 的 bili_pack。
 
 ### 随仓库分发的本地壁纸（`public/gallery/`，国风十帧）
 
@@ -511,7 +541,7 @@ docs/                       # README 预览图
 ## 许可证
 
 - **源代码**：[MIT License](./LICENSE)
-- **第三方代码**：「初始 · 网易云播放器」使用了 [fpsmaster（FPSMasterTeam/Cadence）](https://github.com/FPSMasterTeam/Cadence) 的代码，遵循其 MIT License
+- **第三方代码与方案**：「初始 · 网易云播放器」使用了 [fpsmaster（FPSMasterTeam/Cadence）](https://github.com/FPSMasterTeam/Cadence) 的代码（MIT License）；资源嗅探的探针方案与 cat-catch 分类规则表参考/移植自 [Ghost-Downloader-3](https://github.com/XiaoYouChR/Ghost-Downloader-3) 与 [cat-catch](https://github.com/xifangczy/cat-catch)（GPL-3.0 License）；B 站接口算法依据 [bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect) 社区共识文档
 - **摄影图片**：各自适用 [Unsplash License](https://unsplash.com/license)，与代码许可相互独立
 - **字体与图标**：SIL OFL / ISC（详见上文）
 

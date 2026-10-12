@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.97",
+    date: "2026-10-12",
+    title: "登录面板跟随头像移至左侧 + README 开源项目致谢",
+    channel: "page",
+    highlights: [
+      "点击左上角头像弹出的登录面板不再停在屏幕正中：遮罩主轴改自左侧展开，面板左缘与头像对齐（16px），竖直居中与入场动画不变",
+      "README 新增「开源项目一览」（实际使用的开源项目与许可证）与「方案与代码致谢」（Ghost-Downloader-3 / cat-catch / bilibili-API-collect 归属写实）",
+    ],
+  },
+  {
     version: "8.7.96",
     date: "2026-10-11",
     title: "描边环生长改走 transform（收尾外扩根修）",
