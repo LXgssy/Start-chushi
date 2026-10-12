@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.95",
+    date: "2026-10-11",
+    title: "撤回内描边改动，恢复原观感",
+    channel: "page",
+    highlights: [
+      "撤回 v8.7.94 的 ring-inset（观感不如原版且未修复问题），SearchBar.tsx 恢复 v8.7.93 原文件",
+      "搜索结果框回到：磨砂平滑、聚焦描边朝外加粗的原观感"
+    ],
+  },
+  {
     version: "8.7.94",
     date: "2026-10-11",
     title: "聚焦描边改内描边（上浮后整圈外扩根修）",
