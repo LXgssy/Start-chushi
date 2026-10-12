@@ -2406,3 +2406,22 @@ html .csa-menu {
   left: 16px !important;
   right: auto !important;
 }
+
+/* ---------- v8.7.99 同步菜单材质对齐站内磨砂玻璃（用户裁定）：
+   模块给 .csa-menu 自带 blur(28px) saturate(1.5)，但底色 alpha 高达
+   0.92（深）/ 0.9（浅）——近实底卡片，磨砂几乎不可见。此处按站内
+   .glass-card 的材质语言接管：浅 0.62 白玻璃 / 深 0.6 暗玻璃，blur
+   对齐站内 20px saturate(1.5)，描边取 .glass-card 同款双色；圆角
+   18px、投影与 zinc 系文字色由模块自管（两态文字色本就随站点 .dark
+   切换，玻璃底上对比度与站内玻璃卡同构）。作用域 :not(.cs-lite)：
+   流畅系统契约 = 零 backdrop-filter，其下完全不动——模块实底 +
+   html.cs-lite * 通配关停其自带模糊，即流畅态既有观感，零新增成本。 */
+html:not(.cs-lite) .csa-menu {
+  background: rgba(255, 255, 255, 0.62) !important;
+  border-color: rgba(24, 22, 36, 0.09) !important;
+  backdrop-filter: blur(20px) saturate(1.5) !important;
+}
+html:not(.cs-lite).dark .csa-menu {
+  background: rgba(22, 22, 27, 0.6) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}

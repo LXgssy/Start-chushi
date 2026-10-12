@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.100",
+    date: "2026-10-12",
+    title: "同步菜单材质对齐站内磨砂玻璃",
+    channel: "page",
+    highlights: [
+      "同步菜单底色从近实底（不透明度约 92%）改为与站内玻璃卡同款的磨砂玻璃：浅色 62% 白玻璃、深色 60% 暗玻璃，透出壁纸的模糊光影",
+      "模糊与描边对齐站内玻璃语言（blur 20px + 饱和度 1.5、玻璃卡同款描边双色）；圆角、投影与文字观感不变",
+    ],
+  },
+  {
     version: "8.7.99",
     date: "2026-10-11",
     title: "更新日志开关动画（补退场 + 弹性入场）",
