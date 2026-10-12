@@ -91,8 +91,14 @@ function ChangelogDialog({ open, onClose }: { open: boolean; onClose: () => void
           aria-label="更新日志"
         >
           <motion.div
-            initial={{ scale: 0.96, y: 8 }}
+            /* v8.7.97 开关动画（PDF 工具箱式）：入场弹性放大（0.94 → 1，
+               同一条 SPRING），退场补齐 exit——此前只有 initial/animate、
+               没有 exit，关闭时面板瞬间消失（只剩遮罩 0.30s 淡出）。
+               退场用 0.16s 无弹性的快速收回，短于遮罩时长，
+               与 veil-out 同步收干净、不拖尾。 */
+            initial={{ scale: 0.94, y: 10 }}
             animate={{ scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: 6, transition: { duration: 0.16, ease: "easeOut" } }}
             transition={SPRING}
             className="glass-card panel-rise w-full max-w-[500px] rounded-2xl p-6 shadow-2xl"
           >

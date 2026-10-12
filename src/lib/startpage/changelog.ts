@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.99",
+    date: "2026-10-11",
+    title: "更新日志开关动画（补退场 + 弹性入场）",
+    channel: "page",
+    highlights: [
+      "修复更新日志关闭时面板瞬间消失：此前 motion.div 只有 initial/animate 没有 exit，与遮罩 0.30s 淡出不匹配",
+      "退场改为 0.16s 无弹性快速收回（同步淡出），入场起点加强为 0.94/上浮 10px 的弹性放大，开关节奏对齐工具箱式弹层"
+    ],
+  },
+  {
     version: "8.7.98",
     date: "2026-10-12",
     title: "登录态同步菜单跟随头像移至左侧（撤回 8.7.97 误移）",
