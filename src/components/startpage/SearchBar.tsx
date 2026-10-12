@@ -852,7 +852,7 @@ function SearchBar({
             aria-hidden
             className={`search-ring pointer-events-none absolute inset-0 rounded-[28px] ${
               focused
-                ? "ring-1 ring-zinc-900/15 dark:ring-white/25"
+                ? "ring-1 ring-inset ring-zinc-900/15 dark:ring-white/25"
                 : ""
             }`}
           />

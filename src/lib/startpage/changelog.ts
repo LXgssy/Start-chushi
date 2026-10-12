@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.94",
+    date: "2026-10-11",
+    title: "聚焦描边改内描边（上浮后整圈外扩根修）",
+    channel: "page",
+    highlights: [
+      "修复上浮动画播完后描边整圈往外扩一点：聚焦态的 ring-1 是画在盒子外的 box-shadow，其上还挂了 0.5s 过渡，而所在层每帧都在改几何，导致这圈外阴影的绘制被拖到动画之后才落定",
+      "改为 ring-inset（向内加粗）：加粗方向改往里，颜色/过渡/加粗观感不变，药丸外轮廓永不外扩；与磨砂无关，因此流畅模式下同样生效"
+    ],
+  },
+  {
     version: "8.7.93",
     date: "2026-10-11",
     title: "撤回离散跳变，恢复平滑磨砂",
