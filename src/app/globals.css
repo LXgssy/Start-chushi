@@ -2394,18 +2394,15 @@ html .csa-avatar {
   right: auto !important;
 }
 
-/* ---------- v8.7.97 登录面板跟随头像移至左侧（用户裁定）：
-   点击 .csa-avatar 弹出的登录面板，由模块自带的 .csa-veil（全屏遮罩，
-   display:flex; align-items:center; justify-content:center）把 .csa-card
-   水平居中在屏幕正中——头像既已钉在左上角，面板却仍居中，用户不可接受。
-   同 v8.7.71 手法：更高优先级把遮罩主轴改 flex-start、卡片左缘 16px
-   与头像对齐；竖直居中（align-items:center）与入场动画（csa-pop 为
-   卡片自身 transform，与所在位置无关）均不受影响。窄窗下卡片宽
-   min(340px, 100vw-40px) + 左 16px 边距仍有 24px 右余量，不溢出。
-   模块后续升级改类名时自然失效回居中，不破。 */
-html .csa-veil {
-  justify-content: flex-start !important;
-}
-html .csa-card {
-  margin-left: 16px !important;
+/* ---------- v8.7.98 登录态同步菜单跟随头像移至左侧（用户裁定）：
+   v8.7.97 曾误把登录表单窗（.csa-veil/.csa-card）移左——用户澄清：登录
+   窗口就该在正中心，要跟到左上角头像下的是登录态点击头像弹出的同步
+   菜单 .csa-menu（立即上传/从云端恢复/自动同步/退出登录）。该菜单由
+   模块样式表钉 position:fixed; top:62px; right:16px（锚定头像旧位置），
+   头像 v8.7.71 已移左，菜单却留在右上。同款手法钉到左上角头像正下方
+   （left:16px 对齐头像左缘，top 62px 模块自管）；csa-pop 动画原点为
+   元素中心，移位后观感不变。登录表单窗的居中覆盖同版撤回。 */
+html .csa-menu {
+  left: 16px !important;
+  right: auto !important;
 }

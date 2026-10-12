@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.98",
+    date: "2026-10-12",
+    title: "登录态同步菜单跟随头像移至左侧（撤回 8.7.97 误移）",
+    channel: "page",
+    highlights: [
+      "撤回 8.7.97 的误移：登录/注册窗口恢复屏幕正中心（本就该居中）",
+      "登录后点击左上角头像弹出的同步菜单（立即上传 / 从云端恢复 / 自动同步 / 退出登录）改为头像正下方展开，与头像左缘对齐，不再留在右上角",
+    ],
+  },
+  {
     version: "8.7.97",
     date: "2026-10-12",
     title: "登录面板跟随头像移至左侧 + README 开源项目致谢",
