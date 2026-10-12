@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.96",
+    date: "2026-10-11",
+    title: "描边环生长改走 transform（收尾外扩根修）",
+    channel: "page",
+    highlights: [
+      "对照无此问题的 ChuShi-NewTab v1.7.4 定型：那里磨砂/描边/内容同在一个元素、聚焦生长就是一条 CSS 过渡的 scale(1.015)，没有任何 rAF 逐帧改布局",
+      "描边环的生长由逐帧 left/top/width/height（触发布局，令 ring-1 那圈描边的绘制被拖到动画之后）改为逐帧 transform: scale，合成器操作、不改布局，几何与内容层逐位一致"
+    ],
+  },
+  {
     version: "8.7.95",
     date: "2026-10-11",
     title: "撤回内描边改动，恢复原观感",

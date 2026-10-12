@@ -171,23 +171,22 @@ function cubicBezier(x1: number, y1: number, x2: number, y2: number): (x: number
 }
 const floatEase = cubicBezier(0.22, 1, 0.36, 1);
 
-/** v8.7.79 描边环布局通道落笔：p=0 移除全部 inline（回 inset-0 基线），
- *  p∈(0,1] 写中心对称四值（left/top 负偏移补偿 + width/height calc 生长）。
- *  % 基准 = form 盒（ring 为 form 直子层拉伸盒），四值联动恒中心对称
- *  （机制见文件头 v8.7.79 注释块）。 */
+/** v8.7.96 描边环生长改走 transform（对齐 ChuShi-NewTab v1.7.4 的成熟做法）：
+ *  v1.7.4 里磨砂/描边/内容同在一个元素上，聚焦生长 = 一条 CSS 过渡的
+ *  scale(1.015)，没有任何 rAF 逐帧改布局，故不存在「描边收尾外扩」。
+ *  本函数此前逐帧写 left/top/width/height（触发布局），而 ring 上还挂着
+ *  box-shadow 0.5s 过渡——每帧布局失效使那圈描边的绘制被拖到动画之后才落定，
+ *  即用户所见的「上浮播完后描边整圈往外扩」。
+ *  改为写 transform: scale(1 + 0.015p)：合成器操作，不改布局、无逐帧重绘；
+ *  几何与 float 通道（同为以 form 盒中心对称的 scale）逐位一致；p=0 清 inline
+ *  回 inset-0 基线。 */
 function applyFloatProgress(el: HTMLDivElement | null, p: number) {
   if (!el) return;
   if (p <= 0) {
-    el.style.top = "";
-    el.style.left = "";
-    el.style.width = "";
-    el.style.height = "";
+    el.style.transform = "";
     return;
   }
-  el.style.top = `-${(FLOAT_HALF * p).toFixed(4)}%`;
-  el.style.left = `-${(FLOAT_HALF * p).toFixed(4)}%`;
-  el.style.width = `calc(100% + ${(FLOAT_PCT * p).toFixed(4)}%)`;
-  el.style.height = `calc(100% + ${(FLOAT_PCT * p).toFixed(4)}%)`;
+  el.style.transform = "scale(" + (1 + (FLOAT_PCT / 100) * p).toFixed(5) + ")";
 }
 
 /** v8.7.79 上浮 transform 通道落笔（v8.7.65 老代码通道原样回归）：p=0 移除
