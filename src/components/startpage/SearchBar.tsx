@@ -378,7 +378,10 @@ function SearchBar({
   const [sugs, setSugs] = useState<string[]>([]);
   const [active, setActive] = useState(-1);
   const engine = getEngine(settings.engineId);
-  const suggestOn = settings.searchSuggest;
+  /* v8.7.103 无痕模式：联想词表会把键入内容外发 sugrec 源（百度）——无痕
+     语义下停用（开关设置值不动，运行时叠加抑制）；下拉若开着随 suggestOn
+     翻转自然收起。 */
+  const suggestOn = settings.searchSuggest && !settings.incognito;
 
   /* 页面级快捷键通过事件请求聚焦搜索框；可携带欲直输的首字符
      （v8.7.55→v8.7.60 曾有的聚焦壁纸联动已整体退役：v8.7.61 用户裁定

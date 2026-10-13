@@ -26,8 +26,10 @@ export const viewport: Viewport = {
   ],
 };
 
-/* 在首帧绘制前恢复用户主题，避免明暗闪烁 */
-const themeInit = `(()=>{try{var s=JSON.parse(localStorage.getItem("start:settings")||"{}");var m=s.themeMode||"dark";var d=m==="dark"||(m==="system"&&matchMedia("(prefers-color-scheme: dark)").matches);var r=document.documentElement;r.classList.toggle("dark",d);r.style.colorScheme=d?"dark":"light";}catch(e){}})();`;
+/* 在首帧绘制前恢复用户主题，避免明暗闪烁；v8.7.103 同脚本预置无痕态
+   （settings.incognito → html.incog）：新标签页继承无痕，首帧即遮蔽形态，
+   零闪烁零散场重播（React 侧挂载 effect 同值幂等对齐） */
+const themeInit = `(()=>{try{var s=JSON.parse(localStorage.getItem("start:settings")||"{}");var m=s.themeMode||"dark";var d=m==="dark"||(m==="system"&&matchMedia("(prefers-color-scheme: dark)").matches);var r=document.documentElement;r.classList.toggle("dark",d);r.style.colorScheme=d?"dark":"light";if(s.incognito)r.classList.add("incog");}catch(e){}})();`;
 
 export default function RootLayout({
   children,

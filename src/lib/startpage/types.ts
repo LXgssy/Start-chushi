@@ -88,6 +88,12 @@ export interface Settings {
   /** v8.7.36 Dock 栏显隐（v8.5.0 起常驻底部）：false = 整条 Dock 不渲染。
    *  入口：扩展弹窗快捷面板开关；跨文档热跟随走 settings storage 事件 */
   showDock: boolean;
+  /** 无痕模式（v8.7.103）：开启后页面进入隐私遮蔽形态——磁贴墙/角落小部件/
+   *  Dock 雾化散场、问候语（含用户名）隐没、抽屉磁贴墙禁唤出、搜索联想停用
+   *  （键入不外发 sugrec）。视觉雾化语言与禅模式同源（opacity+blur）。
+   *  持久化字段：新标签页继承无痕态（head 预置脚本同步挂 html.incog 防首帧
+   *  闪烁）；入口：右键菜单开关。 */
+  incognito: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -112,6 +118,7 @@ export const DEFAULT_SETTINGS: Settings = {
   noOmniboxFocus: false,
   linksForm: "drawer",
   showDock: true,
+  incognito: false,
 };
 
 export interface WeatherHour {

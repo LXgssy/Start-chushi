@@ -117,6 +117,7 @@ export function useStartSettings(mounted: boolean) {
           perfLite?: boolean;
           photoDim?: number;
           showDock?: boolean;
+          incognito?: boolean;
         };
         root.classList.toggle("cs-lite", !!next.perfLite);
         /* v8.7.36 弹窗快捷面板改的 photoDim/showDock 热跟随（popup 直写
@@ -137,6 +138,11 @@ export function useStartSettings(mounted: boolean) {
           if (typeof next.showDock === "boolean" && next.showDock !== prev.showDock) {
             p.showDock = next.showDock;
           }
+          /* v8.7.103 无痕模式并入：双开页热跟随同律（popup/另一页改写后
+             本页 state 同步，html.incog 挂载 effect 自动跟随） */
+          if (typeof next.incognito === "boolean" && next.incognito !== prev.incognito) {
+            p.incognito = next.incognito;
+          }
           return Object.keys(p).length ? { ...prev, ...p } : prev;
         });
       } catch {
@@ -146,6 +152,15 @@ export function useStartSettings(mounted: boolean) {
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, [mounted, settings.perfLite, setSettings]);
+
+  /* ---------- 无痕模式（v8.7.103）：html.incog 全局落地类 ----------
+     雾化散场/显影全部由 globals.css 据此类驱动（选择器与禅雾化同源）；
+     QuickLinks 中键/快捷键豁免同款读类判定。settings.incognito 持久化，
+     新标签页由 head 预置脚本同步挂类（无闪烁），此处 effect 是水合后的
+     幂等对齐与运行时切换的落地通道。 */
+  useEffect(() => {
+    document.documentElement.classList.toggle("incog", !!settings.incognito);
+  }, [settings.incognito]);
 
   /* ---------- 流畅模式 × 辉光互斥（v8.7.37） ----------
      cs-lite 下光斑层整体隐藏（globals.css .aurora-blob display:none），

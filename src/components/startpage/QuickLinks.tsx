@@ -607,7 +607,12 @@ function QuickLinks({
     const onKey = (e: KeyboardEvent) => {
       if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
       if (e.code !== "KeyV") return;
-      if (document.documentElement.classList.contains("zen")) return;
+      /* v8.7.103 无痕豁免同禅：无痕态下磁贴墙属个人信息面，快捷键不可唤出 */
+      if (
+        document.documentElement.classList.contains("zen") ||
+        document.documentElement.classList.contains("incog")
+      )
+        return;
       const ae = document.activeElement as Element | null;
       if (
         ae &&
@@ -639,6 +644,15 @@ function QuickLinks({
   const shadowO = useSpring(0, { stiffness: 260, damping: 30 });
   const dragSample = useRef<{ x: number; t: number } | null>(null);
 
+  /* v8.7.103 无痕模式：外部请求关墙（page 开无痕时广播 start:links-close），
+     让开着抽屉走自身纱罩退场链路同步收起，无痕态下不残留个人信息面。 */
+  useEffect(() => {
+    if (disabled || ghost) return;
+    const onClose = () => setOpen(false);
+    window.addEventListener("start:links-close", onClose);
+    return () => window.removeEventListener("start:links-close", onClose);
+  }, [disabled, ghost]);
+
   /* 批量管理入口（右键菜单）：抽屉 = 开抽屉直进编辑；常驻 = 原地进编辑 */
   useEffect(() => {
     if (disabled) return;
@@ -666,7 +680,12 @@ function QuickLinks({
     if (disabled || !drawer) return;
     const onMiddle = (e: MouseEvent) => {
       if (e.button !== 1) return;
-      if (document.documentElement.classList.contains("zen")) return;
+      /* v8.7.103 无痕豁免同禅：中键唤出在无痕态下禁用（磁贴墙不残留） */
+      if (
+        document.documentElement.classList.contains("zen") ||
+        document.documentElement.classList.contains("incog")
+      )
+        return;
       const t = e.target as Element | null;
       if (!t || typeof t.closest !== "function") return;
       if (

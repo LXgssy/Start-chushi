@@ -18,7 +18,7 @@
  *    sync 下各槽位独立管理 exit，并发安全；digit-slot 固定 height:1em 兜底防塌）。
  */
 
-import { memo } from "react";
+import { memo, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useNow } from "@/hooks/use-start";
 import { getLunarText } from "@/lib/startpage/lunar";
@@ -135,7 +135,22 @@ function Clock({
   const lunarText = getLunarText(now);
   const dateStr = `${now.getMonth() + 1}月${now.getDate()}日 星期${WEEKDAYS[now.getDay()]}`;
   const greetWord = greetingFor(now.getHours());
-  const name = settings.userName.trim();
+  /* v8.7.103 无痕模式：问候语属个人信息面（含用户名）。换装延迟镜：
+     进无痕先让问候段雾化散场（.incog-greet 0.5s + visibility 末帧隐没），
+     散场完成后才换装去名（DOM 里无痕且无瞬跳——换字发生在不可见帧）；
+     退无痕立即换回全名（换字同样发生在显影前的隐藏帧），随后显影。
+     首挂即无痕（新标签页继承）：初始值取 settings.incognito，名字从不
+     上 DOM。520ms > 0.5s 散场窗（visibility 翻转后），余量防帧抖。 */
+  const [incogSwapped, setIncogSwapped] = useState(settings.incognito);
+  useEffect(() => {
+    if (!settings.incognito) {
+      setIncogSwapped(false);
+      return;
+    }
+    const t = window.setTimeout(() => setIncogSwapped(true), 520);
+    return () => window.clearTimeout(t);
+  }, [settings.incognito]);
+  const name = incogSwapped ? "" : settings.userName.trim();
   /* 问候语：预设模板（{greet}/{name} 占位）> 默认「问候词，用户名」；
      预设模板空串 = 显式隐藏问候 */
   const greeting =
@@ -190,7 +205,11 @@ function Clock({
             </>
           )}
           {greeting && (
-            <>
+            /* v8.7.103 无痕雾化钩子：分隔线+问候语包进同层，无痕态整段
+               雾化散场 + visibility 末帧隐没（占位保留，日期行零位移——
+               隐没的是内容不是行盒）；framer 入场动画在内层 span，包裹层
+               transition 独立不冲突。 */
+            <span className="incog-greet inline-flex items-center gap-3">
               <span aria-hidden className="h-3 w-px bg-zinc-300 dark:bg-zinc-700" />
               <motion.span
                 key={greeting}
@@ -200,7 +219,7 @@ function Clock({
               >
                 {greeting}
               </motion.span>
-            </>
+            </span>
           )}
         </div>
       )}
