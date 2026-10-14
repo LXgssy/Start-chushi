@@ -265,6 +265,13 @@ html,
 body {
   overflow: hidden;
   overscroll-behavior: none;
+  /* v8.7.104 滚动锚定禁用律：两轴封死的文档仍可被浏览器「程序化滚动」——
+     磁贴挂载 / 字体换装等布局变化触发 scroll anchoring 补偿，对 overflow:hidden
+     文档直接改写 scrollTop（探针实证：零 JS 调用、scrollTop 0→27、跨次运行
+     时有时无）。瞬跳落在入场动画中段即用户所见「常驻磁贴刷新后站点名字位移
+     复位」；抽屉形态 ghost 克隆从头占位无中途生长故不复发。禁用锚定后页面
+     恒定停在 scrollTop 0，入场只走设计内的 26px 模糊上浮。 */
+  overflow-anchor: none;
 }
 html body {
   font-family:
