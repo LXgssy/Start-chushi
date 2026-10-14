@@ -1797,8 +1797,7 @@ html.zen .zen-fade {
     filter 0.65s cubic-bezier(0.22, 1, 0.36, 1),
     visibility 0s;
 }
-html.zen .zen-gone,
-html.incog .zen-gone {
+html.zen .zen-gone {
   opacity: 0;
   filter: blur(12px);
   visibility: hidden;
@@ -1816,22 +1815,19 @@ html.incog .zen-gone {
     opacity 0.65s cubic-bezier(0.22, 1, 0.36, 1),
     filter 0.65s cubic-bezier(0.22, 1, 0.36, 1);
 }
-html.zen .cl-widgets,
-html.incog .cl-widgets {
+html.zen .cl-widgets {
   opacity: 0;
   filter: blur(12px);
   pointer-events: none;
 }
-html.zen .cl-widgets .cl-widget,
-html.incog .cl-widgets .cl-widget {
+html.zen .cl-widgets .cl-widget {
   pointer-events: none;
 }
 /* 预设 dock 弹出面板样式钩子：进退场动画由舞台弹簧 + panel-rise/panel-sink
    承载（与内建面板同语言）；禅模式随 dock 一并隐藏（状态层进禅兜底关闭）。
    ⚠ 不在此元素上加 transform/filter：它会成为 fixed 子内容（iframe）的
    包含块/裁剪上下文，雾化会令弹层跳位 —— 隐藏走 display 即可 */
-html.zen .cl-dockwidget,
-html.incog .cl-dockwidget {
+html.zen .cl-dockwidget {
   display: none;
 }
 .zen-dock {
@@ -1840,8 +1836,7 @@ html.incog .cl-dockwidget {
     filter 0.65s cubic-bezier(0.22, 1, 0.36, 1),
     visibility 0s;
 }
-html.zen .zen-dock,
-html.incog .zen-dock {
+html.zen .zen-dock {
   opacity: 0;
   filter: blur(12px);
   visibility: hidden;
@@ -1958,65 +1953,6 @@ html .zen-pomo[data-tone="on-dark"] {
 html .zen-pomo[data-tone="on-light"] {
   color: rgb(63 63 70 / 0.82);
   text-shadow: 0 0 14px rgb(255 255 255 / 0.4);
-}
-
-/* ================================================================
-   无痕模式（v8.7.103）：html.incog 驱动的隐私遮蔽形态
-   ----------------------------------------------------------------
-   动画语言与禅模式同源：雾化散场/显影（opacity+blur，减速曲线
-   cubic-bezier(0.22,1,0.36,1)）。磁贴墙/.zen-gone、Dock/.zen-dock、
-   角落小部件/.cl-widgets、dock 弹层/cl-dockwidget 的雾化通道直接
-   扩展进上方 html.zen 同款规则（并列命中，零新动画代码）。
-   本区块只承载禅没有的两件：
-   · .incog-greet  问候段（分隔线+问候语，含用户名）雾化散场——
-     visibility 末帧隐没保留行盒占位，日期行零位移（隐没的是内容
-     不是行盒）；去名换装由 Clock 内延迟镜在散场完成后的不可见帧
-     执行（见该文件 v8.7.103 注释）。0.5s 比磁贴/Dock 的 0.65s
-     略早收束——小件先定，大件后定，散场有层次。
-   · .incog-badge  底部徽标（无痕模式 / 右键菜单可退出）——常驻 DOM
-     + visibility 离散插值（zen-overlay 同构，exit 卸载链路幽灵
-     从结构上不存在）；显影延迟 0.35s 等磁贴/Dock 散场过半（「先散
-     后聚」礼让节奏），退出即拍 0.3s 散场（显影是仪式，退场是
-     干脆）；禅态退避用 :not(.zen)——禅里页面本就无个人信息，
-     两态互斥命中零冲突。锐端 filter:none 显式声明（未声明≠none，
-     v8.7.101 级联教训）；压缩器陷阱同款规避（无 blur(0px)）。
-   无痕零新增 backdrop-filter：全部走 filter/opacity，流畅系统
-   契约不涉（cs-lite 只关 backdrop-filter，filter 雾化照常——与
-   禅同律）。
-   ================================================================ */
-.incog-greet {
-  transition:
-    opacity 0.5s cubic-bezier(0.22, 1, 0.36, 1),
-    filter 0.5s cubic-bezier(0.22, 1, 0.36, 1),
-    visibility 0s;
-}
-html.incog .incog-greet {
-  opacity: 0;
-  filter: blur(8px);
-  visibility: hidden;
-  transition:
-    opacity 0.5s cubic-bezier(0.22, 1, 0.36, 1),
-    filter 0.5s cubic-bezier(0.22, 1, 0.36, 1),
-    visibility 0s 0.5s;
-}
-
-.incog-badge {
-  opacity: 0;
-  filter: blur(12px);
-  visibility: hidden;
-  transition:
-    opacity 0.3s cubic-bezier(0.22, 1, 0.36, 1),
-    filter 0.3s cubic-bezier(0.22, 1, 0.36, 1),
-    visibility 0s 0.3s;
-}
-html.incog:not(.zen) .incog-badge {
-  opacity: 1;
-  filter: none;
-  visibility: visible;
-  transition:
-    opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.35s,
-    filter 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.35s,
-    visibility 0s;
 }
 
 /* ================================================================

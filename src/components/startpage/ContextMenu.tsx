@@ -26,7 +26,6 @@ import {
   ListChecks,
   Plus,
   SunMoon,
-  VenetianMask,
 } from "lucide-react";
 import { CsCommand, CsSettings2 } from "./cs-icons";
 
@@ -176,7 +175,6 @@ export const CM_ICONS = {
   manageLinks: <ListChecks strokeWidth={1.5} />,
   theme: <SunMoon strokeWidth={1.5} />,
   zen: <Leaf strokeWidth={1.5} />,
-  incognito: <VenetianMask strokeWidth={1.5} />,
   wallpaper: <Images strokeWidth={1.5} />,
   settings: <CsSettings2 strokeWidth={1.5} />,
   export: <Download strokeWidth={1.5} />,

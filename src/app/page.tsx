@@ -257,17 +257,6 @@ function StartPageView() {
   const openSettings = useCallback(() => sp.gotoPanel("settings"), [sp.gotoPanel]);
   const openDevDocs = useCallback(() => sp.setDevDocs(true), [sp.setDevDocs]);
 
-  /* v8.7.103 无痕模式切换：settings.incognito 持久字段（新标签页继承），
-     雾化散场/显影由 html.incog 类驱动（globals.css 与禅雾化同源）。
-     开启瞬间若抽屉磁贴墙开着，广播 start:links-close 让墙走自身纱罩
-     退场链路同步收起（无痕态下墙属个人信息面，不可残留）。 */
-  const toggleIncognito = useCallback(() => {
-    if (!sp.settings.incognito) {
-      window.dispatchEvent(new CustomEvent("start:links-close"));
-    }
-    sp.patchSettings({ incognito: !sp.settings.incognito });
-  }, [sp.settings.incognito, sp.patchSettings]);
-
   /* v8.7.55 PDF 工具箱（右键菜单直达；宫格式 13 功能，全程本地） */
   const [pdfOpen, setPdfOpen] = useState(false);
   const openPdfTools = useCallback(() => setPdfOpen(true), []);
@@ -280,18 +269,12 @@ function StartPageView() {
       { id: "manage-links", label: "批量管理磁贴", icon: CM_ICONS.manageLinks, run: manageLinks },
       { id: "theme", label: "明暗切换", icon: CM_ICONS.theme, run: toggleTheme, sep: true },
       { id: "zen", label: "禅模式", icon: CM_ICONS.zen, run: openZen },
-      {
-        id: "incognito",
-        label: sp.settings.incognito ? "退出无痕模式" : "无痕模式",
-        icon: CM_ICONS.incognito,
-        run: toggleIncognito,
-      },
       { id: "settings", label: "设置", icon: CM_ICONS.settings, run: openSettings, sep: true },
       { id: "dev-docs", label: "开发者文档", icon: CM_ICONS.docs, run: openDevDocs },
       { id: "pdf-tools", label: "PDF 工具箱", icon: CM_ICONS.pdf, run: openPdfTools },
       { id: "export", label: "导出备份", icon: CM_ICONS.export, run: sp.exportData },
     ],
-    [sp.openPalette, sp.openAddLink, manageLinks, toggleTheme, openZen, toggleIncognito, openSettings, openDevDocs, openPdfTools, sp.exportData, sp.settings.incognito]
+    [sp.openPalette, sp.openAddLink, manageLinks, toggleTheme, openZen, openSettings, openDevDocs, openPdfTools, sp.exportData]
   );
 
   /* ---------- 沙箱自定义页 overlay 稳定回调 ---------- */
@@ -543,23 +526,6 @@ function StartPageView() {
 
       {/* v8.7.55 PDF 工具箱（右键菜单直达；portal 到 body） */}
       <PdfTools open={pdfOpen} onClose={() => setPdfOpen(false)} />
-
-      {/* 无痕模式徽标（v8.7.103）：常驻 DOM + visibility 离散插值（禅覆盖层
-          同构——exit 卸载链路滞留幽灵从结构上不存在）。无痕态显影（延迟
-          0.35s 等磁贴/MsgDock 雾化散场过半，「先散后聚」的礼让节奏）；
-          退出即拍散场。禅态退避：禅里页面本就无个人信息，徽标无意义。
-          pointer-events-none：纯展示不插手交互。 */}
-      <div
-        className="incog-badge pointer-events-none fixed inset-x-0 bottom-[6.25rem] z-[16] flex flex-col items-center"
-        aria-hidden={!sp.settings.incognito}
-      >
-        <p className="incog-badge-main text-xs font-extralight tracking-[0.42em] text-zinc-500 dark:text-zinc-400">
-          无痕模式
-        </p>
-        <p className="incog-badge-sub mt-2.5 text-[10px] font-extralight tracking-[0.3em] text-zinc-400/70 dark:text-zinc-500/70">
-          右键菜单可退出
-        </p>
-      </div>
 
       {/* 右下角落款 */}
       <footer
