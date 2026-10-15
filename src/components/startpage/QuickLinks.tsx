@@ -62,13 +62,17 @@ import {
 } from "@/lib/startpage/selfdraw-icons";
 import { useCustomIcons } from "@/lib/startpage/custom-icons-react";
 
-const EASE = [0.22, 1, 0.36, 1] as const;
-
 /** 磁贴 layout 动画：弹簧驱动，增删/重排/退出编辑均平滑归位（近临界阻尼，快速就位零反弹） */
 const LAYOUT_SPRING = { type: "spring" as const, stiffness: 420, damping: 41, mass: 0.9 };
 
 /** 长按位移容差（px）：真机手指静置也有 1-3px 抖动，超出容差才算滚动意图 */
 const LONG_PRESS_SLOP_PX = 10;
+
+/** v8.7.106 顶缘羽化带上探距离（px）：遮罩从磁贴第一排上方移进「搜索区→磁贴区」
+ *  空带（section mt-[clamp(2rem,8vh,4.5rem)] ≥32px），滚动磁贴在空带内渐渐
+ *  隐去，静止磁贴不再被遮罩压住顶边（用户实测「现在的位置会挡住图标一部分」）。
+ *  容器以 marginTop/paddingTop 对冲上探：静止时磁贴位置分毫不动。 */
+const VEIL_LIFT = 32;
 
 export function emitEditLink(link: StartLink | null) {
   window.dispatchEvent(new CustomEvent("start:edit-link", { detail: link }));
@@ -196,100 +200,103 @@ function TileIcon({
           "tile-frost absolute inset-0 rounded-[inherit] cl-fade-leaf " +
           (intro ? "link-intro-frost" : "")
         }
-      />
-      {/* 描边层（v8.6.9）：1px inset 环 + 顶部高光，走独立通道与内容层同拍
-          模糊聚拢（原先把环挂在 0.18s 的霜层上，环会先于磁贴面成型）。
-          它是霜层的兄弟而非祖先，自身 filter 压不到霜层的 backdrop-filter；
-          pointer-events-none 不参与拖拽命中。层级同旧版：仍在内容层之下，
-          观感不变，只是入场节奏同步了。
-          v8.6.16：环亮度/透明度/高光强度变量化（--tile-ring-l/a、--tile-hl-a）
-          ——浅色走深墨环+亮白高光（瓷面反光），深色保持亮环+轻高光。 */}
-      <span
-        aria-hidden
-        className={
-          "tile-ring pointer-events-none absolute inset-0 rounded-[inherit] cl-fade-leaf " +
-          (intro ? "link-intro-ring" : "")
-        }
-        style={{
-          boxShadow:
-            "inset 0 0 0 1px hsl(" + effHue + " 44% var(--tile-ring-l, 60%) / var(--tile-ring-a, 0.28)), inset 0 1px 0 rgba(255,255,255,var(--tile-hl-a, 0.18))",
-        }}
-      />
-      {/* 内容层：色相渐变 + 图标（overflow 裁切、模糊聚拢覆盖面）。
-          v8.6.16：渐变透明度/亮度变量化（--tile-grad-*）——浅色加深一档
-          （旧 .22/.14 在瓷白画布上几乎不可见，磁贴沦为「淡彩纸片」），
-          深色保持原宝石感。 */}
-      <span
-        className={
-          "tile-body relative flex h-full w-full items-center justify-center overflow-hidden rounded-[inherit] cl-fade-leaf " +
-          (intro ? "link-intro-body" : "")
-        }
-        style={{
-          /* v8.7.105 底色回归 8.7.44：域名色相渐变恒定（v8.7.45/67 的主色
-             实底随铺满律退役）；自绘命中条目保留条目主色实底（与画作
-             同色无缝，属自绘体系不变） */
-          background:
-            sd.state === "hit"
-              ? sd.entry.dom
-              : "linear-gradient(135deg, hsl(" +
-              effHue +
-              " 42% var(--tile-grad-l1, 62%) / var(--tile-grad-a1, 0.22)), hsl(" +
-              ((effHue + 40) % 360) +
-              " 46% var(--tile-grad-l2, 50%) / var(--tile-grad-a2, 0.14)))",
-        }}
       >
-        {customIcon ? (
-          /* v8.7.105 自定义上传图标：128px 压缩 PNG，居中 object-contain
-             （与 8.7.44 favicon 同款形态，透明底直接坐落磨砂渐变面上） */
-          <img
-            src={customIcon}
-            alt=""
-            draggable={false}
-            className={sm ? "h-7 w-7 object-contain" : "h-8 w-8 object-contain"}
-          />
-        ) : sd.state === "hit" ? (
-          /* v8.7.46 自绘磁贴面：画作 vb 已收紧至实边界，svg 铺满磁贴（absolute
-             inset-0 + slice），四角由磁贴自身 rounded-[inherit]+overflow-hidden
-             统一裁切——磁贴圆角直接裁在画作上（v8.7.45 的 dom 晕环/第二套圆角
-             退役）；底色走条目主色 dom（tile-body 处实底渲染，同色无缝） */
-          <span
-            aria-hidden
-            className="absolute inset-0 block"
-            dangerouslySetInnerHTML={{ __html: selfdrawSvg(sd.entry) }}
-          />
-        ) : showFavicon ? (
-          /* v8.7.105 回归 8.7.44 居中小图：磨砂玻璃打底 + 色相渐变 +
-             图标 28/32px（object-contain，rounded-md 微圆角）居中——
-             v8.7.67 的铺满形态退役（用户指令改回 8.7.44 样式）；
-             配合 favicon.ts 清晰源律（128px 级源优先），居中小图
-             在 2x DPR 下 1:1 或超采样，锐度不再受磁贴尺寸拖累 */
-          <img
-            key={src}
-            src={src}
-            alt=""
-            width={sm ? 28 : 32}
-            height={sm ? 28 : 32}
-            loading="lazy"
-            decoding="async"
-            draggable={false}
-            referrerPolicy="no-referrer"
-            onLoad={() => {
-              if (host) saveIconSource(host, src);
-            }}
-            onError={() => {
-              if (host) clearIconSource(host);
-              if (idx + 1 < sources.length) setIdx(idx + 1);
-              else setExhausted(true);
-            }}
-            className={
-              sm ? "h-7 w-7 rounded-md object-contain" : "h-8 w-8 rounded-md object-contain"
-            }
-          />
-        ) : (
-          <span className="tile-letter text-xl font-light tracking-wide text-zinc-100">
-            {ch}
-          </span>
-        )}
+        {/* v8.7.106 结构重组（描边位移根修）：描边环 + 内容层全部收进霜层
+            子树——backdrop-filter 元素的自 subtree 共享同一渲染表面（同一
+            栅格单元），hover 缩放的合成器动画里霜层边缘/描边/内容永远
+            原子级同步，根除「沉降段描边相对霜层边缘位移」（v8.7.105 用户
+            实测：流畅模式无磨砂即消失——分离表面重光栅时机不同步是根因）。
+            子树内 filter 不构成霜层 backdrop-filter 的 backdrop root
+            （backdrop root 只看祖先链），入场内容层模糊聚拢照常零毒。
+            v8.6.16：环亮度/透明度/高光强度变量化（--tile-ring-l/a、--tile-hl-a）
+            ——浅色走深墨环+亮白高光（瓷面反光），深色保持亮环+轻高光。 */}
+        <span
+          aria-hidden
+          className={
+            "tile-ring pointer-events-none absolute inset-0 rounded-[inherit] cl-fade-leaf " +
+            (intro ? "link-intro-ring" : "")
+          }
+          style={{
+            boxShadow:
+              "inset 0 0 0 1px hsl(" + effHue + " 44% var(--tile-ring-l, 60%) / var(--tile-ring-a, 0.28)), inset 0 1px 0 rgba(255,255,255,var(--tile-hl-a, 0.18))",
+          }}
+        />
+        {/* 内容层：色相渐变 + 图标（overflow 裁切、模糊聚拢覆盖面）。
+            v8.6.16：渐变透明度/亮度变量化（--tile-grad-*）——浅色加深一档
+            （旧 .22/.14 在瓷白画布上几乎不可见，磁贴沦为「淡彩纸片」），
+            深色保持原宝石感。 */}
+        <span
+          className={
+            "tile-body relative flex h-full w-full items-center justify-center overflow-hidden rounded-[inherit] cl-fade-leaf " +
+            (intro ? "link-intro-body" : "")
+          }
+          style={{
+            /* v8.7.105 底色回归 8.7.44：域名色相渐变恒定（v8.7.45/67 的主色
+               实底随铺满律退役）；自绘命中条目保留条目主色实底（与画作
+               同色无缝，属自绘体系不变） */
+            background:
+              sd.state === "hit"
+                ? sd.entry.dom
+                : "linear-gradient(135deg, hsl(" +
+                effHue +
+                " 42% var(--tile-grad-l1, 62%) / var(--tile-grad-a1, 0.22)), hsl(" +
+                ((effHue + 40) % 360) +
+                " 46% var(--tile-grad-l2, 50%) / var(--tile-grad-a2, 0.14)))",
+          }}
+        >
+          {customIcon ? (
+            /* v8.7.105 自定义上传图标：128px 压缩 PNG，居中 object-contain
+               （与 8.7.44 favicon 同款形态，透明底直接坐落磨砂渐变面上） */
+            <img
+              src={customIcon}
+              alt=""
+              draggable={false}
+              className={sm ? "h-7 w-7 object-contain" : "h-8 w-8 object-contain"}
+            />
+          ) : sd.state === "hit" ? (
+            /* v8.7.46 自绘磁贴面：画作 vb 已收紧至实边界，svg 铺满磁贴（absolute
+               inset-0 + slice），四角由磁贴自身 rounded-[inherit]+overflow-hidden
+               统一裁切——磁贴圆角直接裁在画作上（v8.7.45 的 dom 晕环/第二套圆角
+               退役）；底色走条目主色 dom（tile-body 处实底渲染，同色无缝） */
+            <span
+              aria-hidden
+              className="absolute inset-0 block"
+              dangerouslySetInnerHTML={{ __html: selfdrawSvg(sd.entry) }}
+            />
+          ) : showFavicon ? (
+            /* v8.7.105 回归 8.7.44 居中小图：磨砂玻璃打底 + 色相渐变 +
+               图标 28/32px（object-contain，rounded-md 微圆角）居中——
+               v8.7.67 的铺满形态退役（用户指令改回 8.7.44 样式）；
+               配合 favicon.ts 清晰源律（128px 级源优先），居中小图
+               在 2x DPR 下 1:1 或超采样，锐度不再受磁贴尺寸拖累 */
+            <img
+              key={src}
+              src={src}
+              alt=""
+              width={sm ? 28 : 32}
+              height={sm ? 28 : 32}
+              loading="lazy"
+              decoding="async"
+              draggable={false}
+              referrerPolicy="no-referrer"
+              onLoad={() => {
+                if (host) saveIconSource(host, src);
+              }}
+              onError={() => {
+                if (host) clearIconSource(host);
+                if (idx + 1 < sources.length) setIdx(idx + 1);
+                else setExhausted(true);
+              }}
+              className={
+                sm ? "h-7 w-7 rounded-md object-contain" : "h-8 w-8 rounded-md object-contain"
+              }
+            />
+          ) : (
+            <span className="tile-letter text-xl font-light tracking-wide text-zinc-100">
+              {ch}
+            </span>
+          )}
+        </span>
       </span>
     </span>
   );
@@ -323,14 +330,18 @@ function TileVisual({
     <span
       className={"flex w-full flex-col items-center gap-2.5" + (jiggle ? " jiggle" : "")}
     >
-      <motion.span
-        /* v8.7.26 hover 纯放大律：y:-4 上浮位移主导视觉（4px/56px≈7% 位移量
-           压过 scale 1.06 的中心扩展）=用户「放大动画变成了位移动画」根因；
-           改纯 scale 1.07（幅度微提补观感），位移分量退役 */
-        whileHover={jiggle ? undefined : { scale: 1.07 }}
-        transition={{ duration: 0.35, ease: EASE }}
-        className="block cursor-grab active:cursor-grabbing"
-        style={{ willChange: "transform" }}
+      {/* v8.7.26 hover 纯放大律：纯 scale 1.07（位移分量退役，历史见 git）。
+          v8.7.106 hover 通道换轨 framer→CSS transition：framer 的 JS/WAAPI
+          缩放与霜层 backdrop-filter 逐帧重采样不同帧同步，沉降段描边/磨砂
+          位移（用户实测，流畅模式无磨砂即消失）；CSS transform transition
+          全程合成器驱动，缩放与磨砂重采样同帧落笔（ChuShi-NewTab v1.7.4
+          同款方案无此问题）。Tailwind v4 hover: 变体默认 @media(hover:hover)，
+          触屏不粘滞；will-change 同步退役（transition 期间浏览器自动提升）。 */}
+      <span
+        className={
+          "block cursor-grab active:cursor-grabbing transition-transform duration-[350ms] ease-[cubic-bezier(0.22,1,0.36,1)] " +
+          (jiggle ? "" : "hover:scale-[1.07]")
+        }
       >
         <TileIcon
           link={link}
@@ -339,7 +350,7 @@ function TileVisual({
           onIntroDone={() => setIntroDone(true)}
           sm={sm}
         />
-      </motion.span>
+      </span>
       <span
         className={
           "tile-label cl-fade-leaf w-full truncate text-center text-xs font-light tracking-wide text-zinc-600 dark:text-zinc-300" +
@@ -390,7 +401,16 @@ function TilePlaceholder({ sm = false }: { sm?: boolean }) {
  *  默认 opacity 0（不可滚或已到边），show 时 0.3s 显影。
  *  cs-lite 流畅模式：backdrop-filter 被通配关停，遮罩自然退化为无操作
  *  （磁贴硬裁切）——流畅系统本来就是降级渲染，符合契约。 */
-function FadeVeil({ side, show }: { side: "top" | "bottom"; show: boolean }) {
+function FadeVeil({
+  side,
+  show,
+  lift = 0,
+}: {
+  side: "top" | "bottom";
+  show: boolean;
+  /** v8.7.106 顶缘上探（px）：遮罩上移出磁贴第一排，悬进搜索区空带 */
+  lift?: number;
+}) {
   return (
     <span
       aria-hidden
@@ -399,6 +419,7 @@ function FadeVeil({ side, show }: { side: "top" | "bottom"; show: boolean }) {
         (side === "top" ? "top-0 cl-fade-veil-top " : "bottom-0 cl-fade-veil-bottom ") +
         (show ? "cl-fade-veil-on" : "")
       }
+      style={side === "top" && lift > 0 ? { top: -lift } : undefined}
     />
   );
 }
@@ -889,10 +910,12 @@ function QuickLinks({
   );
 
   /* ---------- v8.7.105 磁贴区内部滚动（常驻/抽屉两形态）----------
-     常驻：磁贴多时区域向下生长到 Dock 上方封顶（dockMaxH = 视口高 − 区域顶 −
-     Dock 预留 100px），区域内 overflow-y 滚动，页面本身纹丝不动；顶/底
+     常驻：磁贴多时区域向下生长封顶内部滚动，页面本身纹丝不动；顶/底
      羽化遮罩（cl-fade-veil）在可滚且未到边时显影——磁贴滑近搜索框时被
      羽化模糊渐渐隐去，不会硬穿到搜索框底下（用户指令的遮罩层）。
+     v8.7.106 两调（用户指令）：① 封顶判定改「接近浏览器底部」（下探
+     预留 100→12px，Dock 预留退役）；② 顶部羽化带上探 32px 进搜索区
+     空带（VEIL_LIFT，遮罩不再压住第一排图标）。
      羽化载体是独立兄弟层（backdrop-filter + 渐变 mask）：不碰磁贴自身
      的磨砂（backdrop root 只作用遮罩层自己，磁贴不是它的后代）。
      抽屉：justify-center 改 my-auto 滚动层——内容少时垂直居中观感不变，
@@ -925,7 +948,10 @@ function QuickLinks({
     if (!el) return;
     const measure = () => {
       const rect = el.getBoundingClientRect();
-      const h = Math.round(Math.max(188, window.innerHeight - rect.top - 100));
+      /* v8.7.106 滚动判定改「接近浏览器底部」（用户指令）：下探预留给到
+         12px（原 100px Dock 预留退役）——磁贴区贴到视口近底即封顶滚动，
+         Dock 悬浮其上，磁贴从 Dock 磨砂底下穿过 */
+      const h = Math.round(Math.max(188, window.innerHeight - rect.top - 12));
       setDockMaxH((prev) => (prev === h ? prev : h));
     };
     measure();
@@ -1043,15 +1069,24 @@ function QuickLinks({
           容器高=内容高（≤188px），主列定高律不受影响 */}
       {form === "docked" && (
         <div ref={rootRef} className="cl-links cl-links-docked relative flex w-full flex-col items-center">
+          {/* v8.7.106 顶缘上探（用户指令「遮罩位置上调」）：滚动容器
+              marginTop/paddingTop 对冲上探 VEIL_LIFT——静止时磁贴位置分毫
+              不动，裁切线上移 32px 进「搜索区→磁贴区」空带，羽化遮罩随之
+              悬在空带里：滚动中的磁贴在空带内渐渐隐去，不再糊在第一排
+              图标上。maxHeight 同步 +VEIL_LIFT（底缘仍=近浏览器底部）。 */}
           <div
             ref={scrollRef}
             className="cl-links-scroll w-full overflow-y-auto overscroll-contain"
-            style={dockMaxH ? { maxHeight: dockMaxH } : undefined}
+            style={
+              dockMaxH
+                ? { maxHeight: dockMaxH + VEIL_LIFT, marginTop: -VEIL_LIFT, paddingTop: VEIL_LIFT }
+                : { marginTop: -VEIL_LIFT, paddingTop: VEIL_LIFT }
+            }
             onScroll={measureFade}
           >
             {renderGrid(true)}
           </div>
-          <FadeVeil side="top" show={fade.top} />
+          <FadeVeil side="top" show={fade.top} lift={VEIL_LIFT} />
           <FadeVeil side="bottom" show={fade.bottom} />
         </div>
       )}

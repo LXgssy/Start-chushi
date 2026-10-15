@@ -16,6 +16,7 @@ import {
   fileThumb,
   pushWallHistory,
   readWallHistory,
+  videoThumb,
   type WallHistoryItem,
 } from "@/lib/startpage/wall-history";
 import {
@@ -580,7 +581,11 @@ function SettingsPanel({
       /* 与 URL 导入互斥：本地文件生效即清 URL 源；
          wallpaperRev 自增：custom 模式下重复导入也强制渲染端重读壁纸（刷新根因修复） */
       onPatch({ photoId: "custom", photoLast: "custom", wallpaperUrl: "", wallpaperRev: (settings.wallpaperRev ?? 0) + 1 });
-      void rememberWall({ id: f.name + ":" + f.size, kind: "file", name: f.name });
+      /* v8.7.106：视频壁纸取第一帧作缩略（用户指令）——异步补写不阻塞
+         主流程（pushWallHistory 同 id 去重即元数据刷新） */
+      void videoThumb(f).then((thumb) =>
+        rememberWall({ id: f.name + ":" + f.size, kind: "file", name: f.name, thumb }),
+      );
       setUploadHint(null);
       return;
     }
@@ -624,7 +629,12 @@ function SettingsPanel({
     onPatch({ photoId: "custom", photoLast: "custom", wallpaperUrl: u, wallpaperRev: (settings.wallpaperRev ?? 0) + 1 });
     try {
       const host = new URL(u).hostname;
-      void rememberWall({ id: u, kind: "url", url: u, name: host });
+      if (wallpaperKindOf(u) === "video") {
+        /* v8.7.106：视频直链取第一帧作缩略（匿名跨域尝试，失败回落图标占位） */
+        void videoThumb(u).then((thumb) => rememberWall({ id: u, kind: "url", url: u, name: host, thumb }));
+      } else {
+        void rememberWall({ id: u, kind: "url", url: u, name: host });
+      }
     } catch {
       void rememberWall({ id: u, kind: "url", url: u, name: u.slice(0, 40) });
     }
@@ -791,7 +801,8 @@ function SettingsPanel({
                 </span>
               </div>
               <div className="slim-scroll flex gap-2.5 overflow-x-auto px-1.5 py-1.5 overscroll-x-contain">
-                {wallHistory.map((h) => (
+                {/* v8.7.106：最多显示 7 个（用户指令；存储容量同容 7 条） */}
+                {wallHistory.slice(0, 7).map((h) => (
                   <WallThumb
                     key={h.kind + ":" + h.id}
                     active={historyActive(h)}

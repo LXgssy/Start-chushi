@@ -17,14 +17,18 @@
  *       变成一行干巴巴的文字。
  *
  *   存储拓扑：每条历史一个 key（wh:<ts>）+ 索引键 whIndex。单条独立 8KB
- *   预算（64px JPEG q0.55 缩略 ≈ 1~3KB base64，余量充足），12 条滚动淘汰。
+ *   预算（64px JPEG q0.55 缩略 ≈ 1~3KB base64，余量充足）。
+ *   v8.7.106（用户指令）：容量 12 → 7 条滚动淘汰（存储与展示同容）；
+ *   视频壁纸缩略图取【第一帧】64px JPEG（<video> 试解码 + seek 首帧 →
+ *   canvas cover 裁切；远程直链 crossOrigin 匿名尝试，跨域拒画则回落
+ *   图标占位——缩略失败永不妨碍历史条目本身）。
  *   环境：扩展 iframe 内 chrome.storage.sync 可用；纯网页部署（Vercel
  *   演示）无 chrome API → 回落 localStorage（本地历史仍可用，仅不跨设备）。
  */
 
 const INDEX_KEY = "whIndex";
 const ITEM_PREFIX = "wh:";
-const MAX_ITEMS = 12;
+const MAX_ITEMS = 7;
 
 export type WallHistoryKind = "gallery" | "daily" | "url" | "file";
 
@@ -149,7 +153,7 @@ export async function readWallHistory(): Promise<WallHistoryItem[]> {
   return list;
 }
 
-/** 新增一条历史：去重（同 id 提到最前并刷新元数据）、12 条滚动淘汰 */
+/** 新增一条历史：去重（同 id 提到最前并刷新元数据）、7 条滚动淘汰（v8.7.106） */
 export async function pushWallHistory(item: Omit<WallHistoryItem, "ts">): Promise<void> {
   const store = syncStore();
   if (!store || !item.id) return;
@@ -199,4 +203,69 @@ export async function fileThumb(file: File | Blob): Promise<string | undefined> 
 function wallKindOf(name: string, type: string): "image" | "video" {
   if (type.startsWith("video/")) return "video";
   return /\.(mp4|webm|mov|m4v|ogv)(\?|$)/i.test(name) ? "video" : "image";
+}
+
+/** 视频第一帧 → 64×64 JPEG dataURL（cover 裁切，v8.7.106 用户指令）。
+ *  本地文件走 blob URL（同源必可画）；远程直链带 crossOrigin 匿名尝试——
+ *  对端无 CORS 头则视频加载失败（而非画布染脏），统一回落 undefined
+ *  （图标占位）。超时 5s 放弃，永不阻塞历史条目写入主流程。 */
+export async function videoThumb(src: Blob | string): Promise<string | undefined> {
+  const objUrl = typeof src === "string" ? null : URL.createObjectURL(src);
+  const v = document.createElement("video");
+  try {
+    v.muted = true;
+    v.preload = "auto";
+    v.playsInline = true;
+    const url = typeof src === "string" ? src : (objUrl as string);
+    if (typeof src === "string") v.crossOrigin = "anonymous";
+    await new Promise<void>((res, rej) => {
+      const t = setTimeout(() => rej(new Error("timeout")), 5000);
+      v.onloadeddata = () => {
+        clearTimeout(t);
+        res();
+      };
+      v.onerror = () => {
+        clearTimeout(t);
+        rej(new Error("media"));
+      };
+      v.src = url;
+    });
+    /* seek 到近首帧确保解码器真正出图（部分编码 loadeddata 仍是空帧） */
+    await new Promise<void>((res) => {
+      const t = setTimeout(res, 800);
+      v.onseeked = () => {
+        clearTimeout(t);
+        res();
+      };
+      try {
+        v.currentTime = Math.min(0.04, v.duration || 0.04);
+      } catch {
+        clearTimeout(t);
+        res();
+      }
+    });
+    const vw = v.videoWidth || 64;
+    const vh = v.videoHeight || 64;
+    const canvas = document.createElement("canvas");
+    canvas.width = 64;
+    canvas.height = 64;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return undefined;
+    const scale = Math.max(64 / vw, 64 / vh);
+    const w = Math.round(vw * scale);
+    const h = Math.round(vh * scale);
+    ctx.drawImage(v, (64 - w) / 2, (64 - h) / 2, w, h);
+    return canvas.toDataURL("image/jpeg", 0.55);
+  } catch {
+    return undefined;
+  } finally {
+    try {
+      v.pause();
+      v.removeAttribute("src");
+      v.load();
+    } catch {
+      /* noop */
+    }
+    if (objUrl) URL.revokeObjectURL(objUrl);
+  }
 }
