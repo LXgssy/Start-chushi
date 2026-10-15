@@ -60,6 +60,7 @@
 
 import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
+import { Pin } from "lucide-react";
 import { useMorphHeight } from "./use-morph-height";
 import WeatherPanel from "./WeatherPanel";
 import TodoPanel from "./TodoPanel";
@@ -421,7 +422,10 @@ const PanelStage = memo(function PanelStage({
                     <h2 className="text-xs font-normal tracking-[0.22em] text-zinc-500 dark:text-zinc-400">
                       {PANEL_TITLES[displayPanel]}
                     </h2>
-                    {/* v8.7.107 常驻开关移入面板：仅待办/便签显示；钉子为手画内联 SVG。
+                    {/* v8.7.107 常驻开关移入面板：仅待办/便签显示。
+                        v8.7.108 重画（用户指令「常驻按钮要一个钉子的图案，图标
+                        风格和初始一样」）：手画箭头钉退役，换 Lucide Pin 图钉
+                        （24 viewBox / stroke 2 / 圆角端点，与全站图标同一语言）。
                         状态复用 settings.todoTile / noteTile（与常驻磁贴同一标志）。 */}
                     {(displayPanel === "todo" || displayPanel === "note") && (
                       <button
@@ -443,16 +447,7 @@ const PanelStage = memo(function PanelStage({
                             : "text-zinc-400 opacity-70 hover:opacity-100 dark:text-zinc-500")
                         }
                       >
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden>
-                          <path
-                            d="M9.2 3h5.6l-1.05 6.5 3.55 3.25a1 1 0 0 1-.68 1.73H14v5.9l-2 2.3-2-2.3v-5.9H7.38a1 1 0 0 1-.68-1.73l3.55-3.25L9.2 3Z"
-                            stroke="currentColor"
-                            strokeWidth="1.6"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                          <path d="M12 3v16.6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" opacity="0.45" />
-                        </svg>
+                        <Pin size={14} strokeWidth={2} aria-hidden />
                       </button>
                     )}
                   </header>

@@ -171,8 +171,11 @@
 
   /* ---------- 添加当前网页至快捷服务（v8.7.38，标签系统退役） ----------
      当前标签页直入 start:links 磁贴（队尾追加与 LinkDialog 新增位同律、
-     URL 去重、FIFO 上限 200）；已开页面经 use-start-data storage
-     事件热跟随即时出现。 */
+     URL 去重、数量不限）；已开页面经 use-start-data storage
+     事件热跟随即时出现。
+     v8.7.108 修复（用户实测「点击弹窗添加按钮没有反应」）：v8.7.105 数量
+     不限律删上限变量声明时漏删下方 slice 引用——点击后引用未定义标识符
+     中断回调，磁贴永不写入、无任何反馈。残留引用拆除。 */
   var flashTimer = null;
   function flash(msg) {
     var el = $("#add-label");
@@ -211,7 +214,6 @@
         name: String(t.title || "").slice(0, 120) || String(t.url),
         url: String(t.url),
       });
-      if (list.length > cap) list = list.slice(list.length - cap);
       try {
         localStorage.setItem(LINKS_KEY, JSON.stringify(list));
       } catch (e2) {

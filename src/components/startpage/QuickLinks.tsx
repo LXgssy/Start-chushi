@@ -34,7 +34,7 @@
  * 自动滚动被 preventDefault 吞掉。
  */
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion, useReducedMotion, useSpring } from "framer-motion";
 import { X } from "lucide-react";
@@ -54,7 +54,12 @@ import { SortableContext, rectSortingStrategy, useSortable } from "@dnd-kit/sort
 import type { IconStyle, LinksForm, StartLink } from "@/lib/startpage/types";
 import { hostOf } from "@/lib/startpage/link-utils";
 import { inExtIframe, openExternalUrl } from "@/lib/startpage/nav";
-import { clearIconSource, orderedIconSources, saveIconSource } from "@/lib/startpage/favicon";
+import {
+  clearIconSource,
+  orderedIconSources,
+  readIconSource,
+  saveIconSource,
+} from "@/lib/startpage/favicon";
 import {
   selfdrawSvg,
   useSelfdrawIcon,
@@ -91,7 +96,10 @@ function hueOf(s: string): number {
 
 /* ---------- 站点图标（免梯子多源回退，v8.4.0；v8.7.105 清晰源 + 8.7.44 居中样式回归）----------
  * 源链与尺寸策略见 favicon.ts 头注（v8.7.105 清晰源律：favicon.im 高清
- * 优先 / zhusl 16px 糊源退役 / Google s2 128 压轴）。显示样式回归 8.7.44：
+ * 优先 / zhusl 16px 糊源退役 / Google s2 128 压轴）。
+ * v8.7.108 双路竞速（用户实测「站点图标大陆网络加载不出来」）：串行 onError
+ * 回退升级为「记忆源直达 + 源链两两并发竞速 + 4s 看门狗」——被墙源的 TCP
+ * 挂起不再阻塞整条链，详见 TileIcon 内 effect 注释。显示样式回归 8.7.44：
  * 磨砂玻璃打底 + 色相渐变 + 站点图标 28/32px 居中（object-contain）——
  * v8.7.67 的「图标铺满 + 主色实底」形态退役（用户指令：改回 8.7.44 的
  * 磨砂打底居中样式）；v8.7.67 随铺满引入的主色提取（useFaviconDom）
@@ -118,21 +126,122 @@ function TileIcon({
   sm?: boolean;
 }) {
   const host = hostOf(link.url);
-  const sources = useMemo(() => (host ? orderedIconSources(host) : []), [host]);
-  const [idx, setIdx] = useState(0);
-  const [exhausted, setExhausted] = useState(false);
+  /* v8.7.108 图标双路竞速（用户实测「站点图标大陆网络加载不出来，有没有办法
+     快一点」）：旧链逐源串行 onError 回退——某个源挂死（被墙站点直连挂起 /
+     黑洞网络）要等浏览器 TCP 超时（十几秒级）才轮到下一源，观感即「加载不出
+     来」。新策略：
+       ① 记忆源（favicon-src2:）单路直达——命中过立即显示，零竞速开销；
+       ② 未命中或失效 → 源链两两一组并发预载（Image 双路，先命中先赢并写
+          记忆），一轮顶串行两步；
+       ③ 任一轮两路都挂死（黑洞无 onerror）由 4s 看门狗强制推进下一轮——
+          最坏情形从「无限挂起」收敛到「轮数×4s」。
+     串行链的源顺序优先级、源记忆、全失败回落字母全部保留。 */
+  const [fav, setFav] = useState<{ url: string | null; dead: boolean }>({
+    url: null,
+    dead: false,
+  });
 
-  /* 链接换了（host 变）→ 回到第一个源重新试 */
   useEffect(() => {
-    setIdx(0);
-    setExhausted(false);
+    if (!host) {
+      setFav({ url: null, dead: false });
+      return;
+    }
+    let dead = false;
+    let settled = false;
+    const all = orderedIconSources(host);
+    const saved = readIconSource(host);
+    /* 记忆源走上面的单路直达，竞速列表跳过它（失效时整条链兜底） */
+    const rest = saved ? all.filter((u) => u !== saved) : all;
+    const imgs: HTMLImageElement[] = [];
+    const stop = () => {
+      for (const im of imgs) {
+        im.onload = null;
+        im.onerror = null;
+        if (im.src) im.src = "";
+      }
+    };
+    let round = 0;
+    let watchdog = 0;
+    const win = (url: string) => {
+      if (dead || settled) return;
+      settled = true;
+      window.clearTimeout(watchdog);
+      stop();
+      saveIconSource(host, url);
+      setFav({ url, dead: false });
+    };
+    const fail = () => {
+      if (dead || settled) return;
+      settled = true;
+      window.clearTimeout(watchdog);
+      stop();
+      setFav({ url: null, dead: true });
+    };
+    const start = () => {
+      window.clearTimeout(watchdog);
+      const pair = rest.slice(round, round + 2);
+      let pending = pair.length;
+      if (!pending) {
+        fail();
+        return;
+      }
+      /* 本轮看门狗：两路都挂死（黑洞超时无 onerror）4s 强制进下一轮 */
+      watchdog = window.setTimeout(advance, 4000);
+      for (const url of pair) {
+        const im = new Image();
+        imgs.push(im);
+        im.referrerPolicy = "no-referrer";
+        im.decoding = "async";
+        im.onload = () => {
+          pending -= 1;
+          win(url);
+        };
+        im.onerror = () => {
+          pending -= 1;
+          if (pending <= 0) advance();
+        };
+        im.src = url;
+      }
+    };
+    const advance = () => {
+      if (dead || settled) return;
+      window.clearTimeout(watchdog);
+      stop();
+      round += 2;
+      if (round >= rest.length) {
+        fail();
+        return;
+      }
+      start();
+    };
+    setFav({ url: null, dead: false });
+    if (saved) {
+      /* 记忆源单路直达：挂死同样 4s 看门狗，失效即从整条链竞速 */
+      const im = new Image();
+      imgs.push(im);
+      im.referrerPolicy = "no-referrer";
+      im.decoding = "async";
+      im.onload = () => win(saved);
+      im.onerror = () => start();
+      im.src = saved;
+      watchdog = window.setTimeout(() => {
+        if (!settled) start();
+      }, 4000);
+    } else {
+      start();
+    }
+    return () => {
+      dead = true;
+      settled = true;
+      window.clearTimeout(watchdog);
+      stop();
+    };
   }, [host]);
 
   const hue = hueOf(host || link.name);
   const ch =
     [...(host || link.name)].find((c) => /[a-z0-9]/i.test(c))?.toUpperCase() ??
     link.name.slice(0, 1);
-  const src = sources[idx];
   /* v8.7.44 自绘图标：仅「自绘图标」风格启用解析。命中注册表 → 内联 SVG 磁贴面
      （全自绘 path，用户逐轮审阅认可的自绘册 v9，187 站）；未收录 host 或数据块
      未达（miss）→ 回落站点图标链；loading（数据拉取中）显示字母，不闪 favicon
@@ -147,8 +256,8 @@ function TileIcon({
     (iconStyle === "favicon" || (iconStyle === "selfdraw" && sd.state === "miss")) &&
     !customIcon &&
     !!host &&
-    !exhausted &&
-    !!src;
+    !fav.dead &&
+    !!fav.url;
   /* v8.7.105 主色提取退役（随 8.7.67 铺满律一起下线）：底色恒为域名色相
      渐变（8.7.44 形态）；自绘命中条目仍用条目主色（同色无缝，自绘体系
      不受本次回归影响）。 */
@@ -270,8 +379,8 @@ function TileIcon({
                配合 favicon.ts 清晰源律（128px 级源优先），居中小图
                在 2x DPR 下 1:1 或超采样，锐度不再受磁贴尺寸拖累 */
             <img
-              key={src}
-              src={src}
+              key={fav.url ?? ""}
+              src={fav.url ?? undefined}
               alt=""
               width={sm ? 28 : 32}
               height={sm ? 28 : 32}
@@ -279,13 +388,11 @@ function TileIcon({
               decoding="async"
               draggable={false}
               referrerPolicy="no-referrer"
-              onLoad={() => {
-                if (host) saveIconSource(host, src);
-              }}
               onError={() => {
+                /* 竞速胜出源在可见 img 上二段失效（罕见：网络闪断）——记忆
+                   作废回落字母，下次挂载按整链重试 */
                 if (host) clearIconSource(host);
-                if (idx + 1 < sources.length) setIdx(idx + 1);
-                else setExhausted(true);
+                setFav((f) => ({ ...f, url: null, dead: true }));
               }}
               className={
                 sm ? "h-7 w-7 rounded-md object-contain" : "h-8 w-8 rounded-md object-contain"
@@ -600,6 +707,7 @@ function QuickLinks({
   disabled = false,
   form = "drawer",
   ghost = false,
+  dockOn = true,
 }: {
   links: StartLink[];
   setLinks: (updater: (prev: StartLink[]) => StartLink[]) => void;
@@ -615,6 +723,9 @@ function QuickLinks({
   /** v8.7.37 布局占位克隆（drawer 形态的隐形 docked 克隆）：只参与布局，
    *  交互监听（中键 / alt+v）一律不挂——否则与真身双监听 */
   ghost?: boolean;
+  /** v8.7.108 Dock 栏在位标志（settings.showDock）：翻转触发磁贴区下边界
+   *  复测——Dock 挂/卸不改变 rootRef 自身尺寸，rootRef 的 RO 感知不到 */
+  dockOn?: boolean;
 }) {
   const drawer = form === "drawer";
   /* v8.7.105 磁贴数量不限律（用户指令：不要限制磁贴的数量）：
@@ -946,23 +1057,43 @@ function QuickLinks({
     if (form !== "docked" || ghost) return;
     const el = rootRef.current;
     if (!el) return;
+    /* v8.7.108 下边界跟随 Dock 栏顶缘（用户指令「下方遮罩层放到 Dock 栏上面，
+       位置跟随 Dock 上方，不管页面怎么变化」）：磁贴区裁切线=Dock 顶缘，
+       底部羽化遮罩（bottom-0）随之恒贴 Dock 上沿并随其移动；磁贴不再滑进
+       Dock 磨砂底下（v8.7.106 的近底 12px 下探退役）。Dock 不在位
+       （showDock=false）回落视口底 12px。
+       Dock 顶缘读 offsetTop 而非 getBoundingClientRect：Dock 是 fixed 元素，
+       offsetTop 返回布局盒位置，对 dock-intro 的 translateY 入场动画
+       （transform 只动视觉盒，不进 offset*）天然免疫——首帧即终值，无需
+       「动画落位后复测」链。测量时机：rootRef RO + window resize + Dock 元素
+       自身 RO（内容增减改高度）+ dockOn 翻转 + load/字体就绪各一次（晚到
+       布局位移补偿）。 */
+    let dockRO: ResizeObserver | null = null;
     const measure = () => {
       const rect = el.getBoundingClientRect();
-      /* v8.7.106 滚动判定改「接近浏览器底部」（用户指令）：下探预留给到
-         12px（原 100px Dock 预留退役）——磁贴区贴到视口近底即封顶滚动，
-         Dock 悬浮其上，磁贴从 Dock 磨砂底下穿过 */
-      const h = Math.round(Math.max(188, window.innerHeight - rect.top - 12));
+      const dock = document.querySelector<HTMLElement>(".cl-dock");
+      const limit = dock ? dock.offsetTop : window.innerHeight - 12;
+      const h = Math.round(Math.max(188, limit - rect.top));
       setDockMaxH((prev) => (prev === h ? prev : h));
     };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     window.addEventListener("resize", measure);
+    window.addEventListener("load", measure);
+    document.fonts?.ready.then(measure).catch(() => {});
+    const dockEl = document.querySelector(".cl-dock");
+    if (dockEl) {
+      dockRO = new ResizeObserver(measure);
+      dockRO.observe(dockEl);
+    }
     return () => {
       ro.disconnect();
+      if (dockRO) dockRO.disconnect();
       window.removeEventListener("resize", measure);
+      window.removeEventListener("load", measure);
     };
-  }, [form, ghost]);
+  }, [form, ghost, dockOn]);
 
   /* portal 挂载 latch：开 → 立即挂载；关 → 留 780ms 窗口播完退场动画再卸载。
      v8.7.4 ㊻ 柔散重写后纱罩 blur 收拢拉长 + React 状态双跳渲染
@@ -1064,9 +1195,10 @@ function QuickLinks({
       onDragCancel={handleDragEnd}
     >
       {/* ---------- 形态一：常驻（v8.5.9 原样式）——内联网格，无纱罩无中键 ----------
-          v8.7.105：滚动容器化——磁贴多时区域向下生长到 Dock 上方（dockMaxH）
-          并内部滚动，顶/底羽化遮罩（FadeVeil）防磁贴滑到搜索框底下；磁贴少时
-          容器高=内容高（≤188px），主列定高律不受影响 */}
+          v8.7.105：滚动容器化——磁贴多时区域向下生长并内部滚动，顶/底羽化
+          遮罩（FadeVeil）防磁贴滑出边界；磁贴少时容器高=内容高（≤188px）。
+          v8.7.108：下边界=Dock 栏顶缘（dockMaxH 实测 .cl-dock rect.top），
+          底部羽化遮罩恒贴 Dock 上沿并随其移动；磁贴不再滑进 Dock 底下。 */}
       {form === "docked" && (
         <div ref={rootRef} className="cl-links cl-links-docked relative flex w-full flex-col items-center">
           {/* v8.7.106 顶缘上探（用户指令「遮罩位置上调」）：滚动容器
