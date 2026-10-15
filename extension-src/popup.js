@@ -9,9 +9,9 @@
  *     事件热跟随（use-start-settings 统一消费）。
  * 添加至快捷服务（v8.7.38，标签系统退役）：当前标签页直写 start:links
  *   （快捷服务磁贴数据面，与新标签页 QuickLinks 同一 JSON 契约
- *   {id,name,url}[]，队尾追加与 LinkDialog 同律；URL 去重，4 行上限 =
- *   4×磁贴列数（layout.linksColumns，未设 6），到顶提示「快捷服务已到达
- *   限制数量」）；已开页面经 use-start-data storage 事件热跟随即时出现。
+ *   {id,name,url}[]，队尾追加与 LinkDialog 同律；URL 去重；
+ *   v8.7.105 磁贴数量不限律：4 行上限判定退役，与新标签页同律）；
+ *   已开页面经 use-start-data storage 事件热跟随即时出现。
  * 主题：跟随 settings.themeMode（dark/light/system；system 回退
  * prefers-color-scheme），写入期间监听 storage 事件实时跟随。
  * 强调色（v8.7.52）：跟随 settings.accent —— 启动读 start:settings 后把
@@ -31,15 +31,8 @@
   var KEY = "start:settings";
   var INTENT_KEY = "start:ui-intent";
   var LINKS_KEY = "start:links";
-  /* v8.7.41 磁贴 4 行上限律：与新标签页 QuickLinks/saveLink 同式——
-     4 行 × 每行列数（layout.linksColumns，未设 6）。存量超限不删只拦新增。 */
-  function linksCap() {
-    var s = readSettings();
-    var cols = s.layout && typeof s.layout.linksColumns === "number"
-      ? s.layout.linksColumns
-      : 6;
-    return 4 * (cols > 0 ? Math.floor(cols) : 6);
-  }
+  /* v8.7.105 磁贴数量不限律：linksCap 判定退役（与新标签页 QuickLinks/saveLink
+     同律），添加位恒可用。 */
 
   function $(s) {
     return document.querySelector(s);
@@ -205,11 +198,6 @@
         if (!Array.isArray(list)) list = [];
       } catch (e) {
         list = [];
-      }
-      var cap = linksCap();
-      if (list.length >= cap) {
-        flash("快捷服务已到达限制数量");
-        return;
       }
       for (var i = 0; i < list.length; i++) {
         if (list[i] && list[i].url === t.url) {

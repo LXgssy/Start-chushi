@@ -13,6 +13,12 @@ import type { Settings } from "@/lib/startpage/types";
 import { GALLERY, dailyPhoto, wallpaperKindOf, type WallpaperKind } from "@/lib/startpage/gallery";
 import { idbDel, idbGet, idbSet } from "@/lib/startpage/idb";
 import {
+  fileThumb,
+  pushWallHistory,
+  readWallHistory,
+  type WallHistoryItem,
+} from "@/lib/startpage/wall-history";
+import {
   readPresetSettingValues,
   type PresetSettingControl,
   type PresetSettingValue,
@@ -437,6 +443,67 @@ function SettingsPanel({
   const [uploadHint, setUploadHint] = useState<string | null>(null);
   /* 更新日志弹窗（底部「关于」分区） */
   const [clOpen, setClOpen] = useState(false);
+  /* ---------- v8.7.105 壁纸历史（chrome.storage.sync 同步）----------
+     每次成功设置壁纸（图库/每日一图/直链/本机文件）自动记一条：元数据 +
+     64px 缩略图入 sync（单条独立 8KB item，12 条滚动淘汰）——用户误删扩展
+     重装后登录同步，历史仍在；gallery/daily/url 一键完整恢复，file 类
+     原图在 IndexedDB（重装即失）点击时检测并提示重传（缩略图仍可看）。 */
+  const [wallHistory, setWallHistory] = useState<WallHistoryItem[]>([]);
+  useEffect(() => {
+    let alive = true;
+    void readWallHistory().then((list) => {
+      if (alive) setWallHistory(list);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const rememberWall = (item: Omit<WallHistoryItem, "ts">) => {
+    void pushWallHistory(item).then(() => readWallHistory()).then((list) => setWallHistory(list));
+  };
+
+  /** 历史恢复：gallery/daily 直接 patch photoId；url 直链恢复（清本地文件，
+      与导入互斥同律）；file 先查 IndexedDB——原图在本机直接恢复，不在
+      （重装/跨设备）则提示重传。 */
+  async function restoreWall(h: WallHistoryItem) {
+    if (h.kind === "gallery" && h.photoId) {
+      onPatch({ photoId: h.photoId, photoLast: h.photoId });
+      return;
+    }
+    if (h.kind === "daily") {
+      onPatch({ photoId: "daily", photoLast: settings.photoId !== "daily" ? settings.photoId : settings.photoLast });
+      return;
+    }
+    if (h.kind === "url" && h.url) {
+      await idbDel(CUSTOM_WALLPAPER_KEY);
+      onPatch({ photoId: "custom", photoLast: "custom", wallpaperUrl: h.url, wallpaperRev: (settings.wallpaperRev ?? 0) + 1 });
+      return;
+    }
+    if (h.kind === "file") {
+      const blob = await idbGet<Blob>(CUSTOM_WALLPAPER_KEY);
+      if (!blob) {
+        setUploadHint("该壁纸的原始文件不在本机（重装/换设备后丢失），请重新上传一次");
+        return;
+      }
+      onPatch({ photoId: "custom", photoLast: "custom", wallpaperUrl: "", wallpaperRev: (settings.wallpaperRev ?? 0) + 1 });
+      setUploadHint(null);
+    }
+  }
+
+  /** 历史缩略图地址：file=同步的 dataURL 缩略；gallery/daily/url=远程直链 */
+  function wallThumbSrc(h: WallHistoryItem): string | null {
+    if (h.thumb) return h.thumb;
+    if (h.kind === "url" && h.url) return h.url;
+    return null;
+  }
+
+  function historyActive(h: WallHistoryItem): boolean {
+    if (h.kind === "gallery" && h.photoId) return settings.photoId === h.photoId;
+    if (h.kind === "daily") return settings.photoId === "daily";
+    if (h.kind === "url" && h.url) return settings.photoId === "custom" && settings.wallpaperUrl === h.url;
+    return false;
+  }
 
   useEffect(() => {
     let alive = true;
@@ -513,6 +580,7 @@ function SettingsPanel({
       /* 与 URL 导入互斥：本地文件生效即清 URL 源；
          wallpaperRev 自增：custom 模式下重复导入也强制渲染端重读壁纸（刷新根因修复） */
       onPatch({ photoId: "custom", photoLast: "custom", wallpaperUrl: "", wallpaperRev: (settings.wallpaperRev ?? 0) + 1 });
+      void rememberWall({ id: f.name + ":" + f.size, kind: "file", name: f.name });
       setUploadHint(null);
       return;
     }
@@ -524,6 +592,8 @@ function SettingsPanel({
       const blob = await fileToSizedBlob(f);
       await idbSet(CUSTOM_WALLPAPER_KEY, blob);
       onPatch({ photoId: "custom", photoLast: "custom", wallpaperUrl: "", wallpaperRev: (settings.wallpaperRev ?? 0) + 1 });
+      const thumb = await fileThumb(f);
+      void rememberWall({ id: f.name + ":" + f.size, kind: "file", name: f.name, thumb });
       setUploadHint(null);
     } catch {
       setUploadHint("图片处理失败，请换一张试试");
@@ -552,6 +622,12 @@ function SettingsPanel({
     setUrlInput("");
     void idbDel(CUSTOM_WALLPAPER_KEY);
     onPatch({ photoId: "custom", photoLast: "custom", wallpaperUrl: u, wallpaperRev: (settings.wallpaperRev ?? 0) + 1 });
+    try {
+      const host = new URL(u).hostname;
+      void rememberWall({ id: u, kind: "url", url: u, name: host });
+    } catch {
+      void rememberWall({ id: u, kind: "url", url: u, name: u.slice(0, 40) });
+    }
     setUploadHint(null);
   }
 
@@ -663,6 +739,8 @@ function SettingsPanel({
                     photoLast: settings.photoId !== "daily" ? settings.photoId : settings.photoLast,
                     photoId: "daily",
                   });
+                  const dp = dailyPhoto();
+                  void rememberWall({ id: "daily", kind: "daily", photoId: "daily", name: "每日一图 · " + dp.name, thumb: dp.thumb });
                 } else {
                   const last = settings.photoLast;
                   const valid =
@@ -683,7 +761,10 @@ function SettingsPanel({
                 }
                 label={g.name}
                 src={g.thumb}
-                onClick={() => onPatch({ photoId: g.id, photoLast: g.id })}
+                onClick={() => {
+                  onPatch({ photoId: g.id, photoLast: g.id });
+                  void rememberWall({ id: g.id, kind: "gallery", photoId: g.id, name: g.name, thumb: g.thumb });
+                }}
               />
             ))}
             <WallThumb
@@ -699,6 +780,29 @@ function SettingsPanel({
               )}
             </WallThumb>
           </div>
+          {/* v8.7.105 壁纸历史（chrome.storage.sync 同步）：最近用过的壁纸
+              一键回切；gallery/daily/url 跨设备完整恢复，file 类本机可恢复、
+              跨设备提示重传（原图二进制超 sync 8KB/item 硬配额，物理不可同步） */}
+          {wallHistory.length > 0 && (
+            <div className="mt-1.5 px-1">
+              <div className="mb-0.5 flex items-center justify-between">
+                <span className="text-[11px] font-extralight tracking-wide text-zinc-400 dark:text-zinc-500">
+                  最近使用（跨设备同步）
+                </span>
+              </div>
+              <div className="slim-scroll flex gap-2.5 overflow-x-auto px-1.5 py-1.5 overscroll-x-contain">
+                {wallHistory.map((h) => (
+                  <WallThumb
+                    key={h.kind + ":" + h.id}
+                    active={historyActive(h)}
+                    label={h.name}
+                    src={wallThumbSrc(h)}
+                    onClick={() => void restoreWall(h)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
           {/* URL 直链导入（v1.7.2）：图片 / GIF / 视频远程直链，零下载持久化 */}
           <div className="mt-2 flex items-center gap-2 px-1">
             <Link2

@@ -60,7 +60,7 @@ import {
   useSelfdrawIcon,
   hexHue,
 } from "@/lib/startpage/selfdraw-icons";
-import { useFaviconDom } from "@/lib/startpage/favicon-dom";
+import { useCustomIcons } from "@/lib/startpage/custom-icons-react";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -85,9 +85,13 @@ function hueOf(s: string): number {
   return h;
 }
 
-/* ---------- 站点图标（免梯子多源回退，v8.4.0）----------
- * 站点自身 /favicon.ico → 国内可直连 API → DuckDuckGo；任一成功即记住该
- * host 的可用源，全失败才落字母。尺寸双态：抽屉 64px / 常驻 56px（原样式）。
+/* ---------- 站点图标（免梯子多源回退，v8.4.0；v8.7.105 清晰源 + 8.7.44 居中样式回归）----------
+ * 源链与尺寸策略见 favicon.ts 头注（v8.7.105 清晰源律：favicon.im 高清
+ * 优先 / zhusl 16px 糊源退役 / Google s2 128 压轴）。显示样式回归 8.7.44：
+ * 磨砂玻璃打底 + 色相渐变 + 站点图标 28/32px 居中（object-contain）——
+ * v8.7.67 的「图标铺满 + 主色实底」形态退役（用户指令：改回 8.7.44 的
+ * 磨砂打底居中样式）；v8.7.67 随铺满引入的主色提取（useFaviconDom）
+ * 一并退役——底色恒为域名色相渐变，磁贴材质回到纯磨砂语言。
  * v8.6.1 移植：1px border 换 inset 环 + 独立合成层（translateZ）——
  * 悬浮放大时 1px 边框落在分数像素上渲染出黑边（线上 8.6.0 修复同源）。
  * v8.6.7 三层拆分：包裹层（transform）/霜层（backdrop-filter 恒定）/内容层
@@ -130,31 +134,21 @@ function TileIcon({
      未达（miss）→ 回落站点图标链；loading（数据拉取中）显示字母，不闪 favicon
      半帧。自绘册是增强而非依赖：fetch 失败永远只是降级，不阻塞磁贴。 */
   const sd = useSelfdrawIcon(host, iconStyle === "selfdraw");
-  /* v8.7.67 主色打底扩展到 favicon 路径：站点图标风格 + 自绘风格未收录站
-     （showFavicon 分支）也改为「图标铺满 + 主色打底」——主色从图标位图
-     端上提取（扩展页 host 权限免 CORS fetch → 同源 canvas），灰阶 logo /
-     取色失败回落 null，底色保持原域名色相渐变。接口与自绘 dom 同族
-     （#RRGGBB），hexHue 直接复用。 */
+  /* v8.7.105 自定义上传图标：用户在编辑弹窗为 host 显式上传的专属图标，
+     优先级高于一切自动解析（自绘册 / favicon 链 / 字母）——显式资产压过
+     自动猜测；与全局 iconStyle 无关（用户指定的就是这枚磁贴的图标）。 */
+  const customIcons = useCustomIcons();
+  const customIcon = host ? customIcons[host] : undefined;
   const showFavicon =
     (iconStyle === "favicon" || (iconStyle === "selfdraw" && sd.state === "miss")) &&
+    !customIcon &&
     !!host &&
     !exhausted &&
     !!src;
-  /* v8.7.67 主色打底扩展到 favicon 路径：站点图标风格 + 自绘风格未收录站
-     （showFavicon 分支）也改为「图标铺满 + 主色打底」——主色从图标位图
-     端上提取（扩展页 host 权限免 CORS fetch → 同源 canvas），灰阶 logo /
-     取色失败回落 null，底色保持原域名色相渐变。接口与自绘 dom 同族
-     （#RRGGBB），hexHue 直接复用。（置于 showFavicon 之后：hook 入参依赖它） */
-  const dom = useFaviconDom(showFavicon ? src : null);
-  /* v8.7.45 主色磁贴面：描边环/底色跟随主色（自绘 dom 或 favicon 提取色，
-     环与面同族）；无饱和主色（白/深灰策略底）取 null 回落 host 色相，
-     环保持原有主题行为。 */
-  const effHue =
-    sd.state === "hit"
-      ? (hexHue(sd.entry.dom) ?? hue)
-      : dom
-        ? (hexHue(dom) ?? hue)
-        : hue;
+  /* v8.7.105 主色提取退役（随 8.7.67 铺满律一起下线）：底色恒为域名色相
+     渐变（8.7.44 形态）；自绘命中条目仍用条目主色（同色无缝，自绘体系
+     不受本次回归影响）。 */
+  const effHue = sd.state === "hit" ? (hexHue(sd.entry.dom) ?? hue) : hue;
 
   /* v8.6.7 三层拆分（入场三通道，见 globals.css intro-tile-*）：
    *   包裹层（link-intro-tile）只动 transform；霜层（link-intro-frost）承载
@@ -231,23 +225,29 @@ function TileIcon({
           (intro ? "link-intro-body" : "")
         }
         style={{
-          /* v8.7.45→v8.7.67：自绘命中 → 条目主色 dom 实底；favicon 路径
-             （站点图标风格 / 自绘未收录）主色提取成功 → 提取色实底（图标
-             铺满 + 主色打底，与自绘同观感）；提取失败/字母磁贴维持原色相
-             渐变（色相亦随主色对齐） */
+          /* v8.7.105 底色回归 8.7.44：域名色相渐变恒定（v8.7.45/67 的主色
+             实底随铺满律退役）；自绘命中条目保留条目主色实底（与画作
+             同色无缝，属自绘体系不变） */
           background:
             sd.state === "hit"
               ? sd.entry.dom
-              : dom
-                ? dom
-                : "linear-gradient(135deg, hsl(" +
-                effHue +
-                " 42% var(--tile-grad-l1, 62%) / var(--tile-grad-a1, 0.22)), hsl(" +
-                ((effHue + 40) % 360) +
-                " 46% var(--tile-grad-l2, 50%) / var(--tile-grad-a2, 0.14)))",
+              : "linear-gradient(135deg, hsl(" +
+              effHue +
+              " 42% var(--tile-grad-l1, 62%) / var(--tile-grad-a1, 0.22)), hsl(" +
+              ((effHue + 40) % 360) +
+              " 46% var(--tile-grad-l2, 50%) / var(--tile-grad-a2, 0.14)))",
         }}
       >
-        {sd.state === "hit" ? (
+        {customIcon ? (
+          /* v8.7.105 自定义上传图标：128px 压缩 PNG，居中 object-contain
+             （与 8.7.44 favicon 同款形态，透明底直接坐落磨砂渐变面上） */
+          <img
+            src={customIcon}
+            alt=""
+            draggable={false}
+            className={sm ? "h-7 w-7 object-contain" : "h-8 w-8 object-contain"}
+          />
+        ) : sd.state === "hit" ? (
           /* v8.7.46 自绘磁贴面：画作 vb 已收紧至实边界，svg 铺满磁贴（absolute
              inset-0 + slice），四角由磁贴自身 rounded-[inherit]+overflow-hidden
              统一裁切——磁贴圆角直接裁在画作上（v8.7.45 的 dom 晕环/第二套圆角
@@ -258,15 +258,17 @@ function TileIcon({
             dangerouslySetInnerHTML={{ __html: selfdrawSvg(sd.entry) }}
           />
         ) : showFavicon ? (
-          /* v8.7.67 图标铺满律：favicon 与自绘画作同待遇——absolute inset-0
-             铺满磁贴面，object-cover 对齐自绘 slice（长边裁满短边不留空带），
-             四角由磁贴自身 rounded+overflow-hidden 统一裁切；小图居中+
-             rounded-md 旧形态退役。底色 = 端上提取的图标主色实底（提取中/
-             失败显示原色相渐变，见 dom 定义处注释） */
+          /* v8.7.105 回归 8.7.44 居中小图：磨砂玻璃打底 + 色相渐变 +
+             图标 28/32px（object-contain，rounded-md 微圆角）居中——
+             v8.7.67 的铺满形态退役（用户指令改回 8.7.44 样式）；
+             配合 favicon.ts 清晰源律（128px 级源优先），居中小图
+             在 2x DPR 下 1:1 或超采样，锐度不再受磁贴尺寸拖累 */
           <img
             key={src}
             src={src}
             alt=""
+            width={sm ? 28 : 32}
+            height={sm ? 28 : 32}
             loading="lazy"
             decoding="async"
             draggable={false}
@@ -279,7 +281,9 @@ function TileIcon({
               if (idx + 1 < sources.length) setIdx(idx + 1);
               else setExhausted(true);
             }}
-            className="absolute inset-0 h-full w-full object-cover"
+            className={
+              sm ? "h-7 w-7 rounded-md object-contain" : "h-8 w-8 rounded-md object-contain"
+            }
           />
         ) : (
           <span className="tile-letter text-xl font-light tracking-wide text-zinc-100">
@@ -376,6 +380,26 @@ function TilePlaceholder({ sm = false }: { sm?: boolean }) {
       </span>
       <span className="h-4 w-10 rounded-full bg-zinc-900/5 dark:bg-white/5" />
     </motion.div>
+  );
+}
+
+/** 羽化遮罩（v8.7.105）：磁贴区滚动的顶/底收边。
+ *  载体是滚动容器的独立兄弟层：backdrop-filter 负责把滚到边界的磁贴糊化，
+ *  渐变 mask 负责让糊化强度向远端衰减（羽化）——mask/backdrop root 只作用
+ *  本层自己（无后代），磁贴自身的磨砂玻璃不受牵连（磨砂存活律零毒）。
+ *  默认 opacity 0（不可滚或已到边），show 时 0.3s 显影。
+ *  cs-lite 流畅模式：backdrop-filter 被通配关停，遮罩自然退化为无操作
+ *  （磁贴硬裁切）——流畅系统本来就是降级渲染，符合契约。 */
+function FadeVeil({ side, show }: { side: "top" | "bottom"; show: boolean }) {
+  return (
+    <span
+      aria-hidden
+      className={
+        "cl-fade-veil pointer-events-none absolute inset-x-0 z-10 h-7 " +
+        (side === "top" ? "top-0 cl-fade-veil-top " : "bottom-0 cl-fade-veil-bottom ") +
+        (show ? "cl-fade-veil-on" : "")
+      }
+    />
   );
 }
 
@@ -572,12 +596,11 @@ function QuickLinks({
   ghost?: boolean;
 }) {
   const drawer = form === "drawer";
-  /* v8.7.41 磁贴 4 行上限律：磁贴墙每行 = layout.linksColumns（未设 6，
-     680px 默认宽 5rem 磁贴 + 1rem 间隙实测 6 列），总量上限 = 4 行 × 列数。
-     到顶后「添加」磁贴整体隐藏（docked/抽屉/ghost 三处共用 renderGrid 一处
-     生效）；popup 收藏同式判顶提示「快捷服务已到达限制数量」；存量超限
-     不删数据只拦新增。 */
-  const linksCap = 4 * (columns ?? 6);
+  /* v8.7.105 磁贴数量不限律（用户指令：不要限制磁贴的数量）：
+     v8.7.41 的 4 行上限（linksCap = 4×列数拦新增）退役——添加磁贴恒显示；
+     常驻形态磁贴多时区域向下生长至 Dock 上方并内部滚动（见 docked 分支
+     dockMaxH 测高），抽屉形态内部滚动（见 drawer 分支 my-auto 滚动层），
+     页面本身永远不滚（html/body overflow:hidden 双保险不变）。 */
   const rootRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -865,6 +888,56 @@ function QuickLinks({
     [setLinks],
   );
 
+  /* ---------- v8.7.105 磁贴区内部滚动（常驻/抽屉两形态）----------
+     常驻：磁贴多时区域向下生长到 Dock 上方封顶（dockMaxH = 视口高 − 区域顶 −
+     Dock 预留 100px），区域内 overflow-y 滚动，页面本身纹丝不动；顶/底
+     羽化遮罩（cl-fade-veil）在可滚且未到边时显影——磁贴滑近搜索框时被
+     羽化模糊渐渐隐去，不会硬穿到搜索框底下（用户指令的遮罩层）。
+     羽化载体是独立兄弟层（backdrop-filter + 渐变 mask）：不碰磁贴自身
+     的磨砂（backdrop root 只作用遮罩层自己，磁贴不是它的后代）。
+     抽屉：justify-center 改 my-auto 滚动层——内容少时垂直居中观感不变，
+     超过视口时区域内滚动且顶部可达（flex 溢出滚动的标准解法），同一套
+     羽化遮罩。滚动条隐藏（cl-links-scroll），滚轮/触控板直滚。 */
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [fade, setFade] = useState({ top: false, bottom: false });
+  const measureFade = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setFade({
+      top: el.scrollTop > 4,
+      bottom: el.scrollTop < el.scrollHeight - el.clientHeight - 4,
+    });
+  }, []);
+  useEffect(() => {
+    if (ghost) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    measureFade();
+    const ro = new ResizeObserver(measureFade);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ghost, measureFade, form]);
+
+  const [dockMaxH, setDockMaxH] = useState<number | null>(null);
+  useEffect(() => {
+    if (form !== "docked" || ghost) return;
+    const el = rootRef.current;
+    if (!el) return;
+    const measure = () => {
+      const rect = el.getBoundingClientRect();
+      const h = Math.round(Math.max(188, window.innerHeight - rect.top - 100));
+      setDockMaxH((prev) => (prev === h ? prev : h));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    window.addEventListener("resize", measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [form, ghost]);
+
   /* portal 挂载 latch：开 → 立即挂载；关 → 留 780ms 窗口播完退场动画再卸载。
      v8.7.4 ㊻ 柔散重写后纱罩 blur 收拢拉长 + React 状态双跳渲染
      （open=false → veilOn effect → data-veil 翻转）起步延迟 ~1-2 帧吃窗，
@@ -914,8 +987,8 @@ function QuickLinks({
             摆动，修「新建按钮没跟着图标一起动」；data-cl-tile=add 让页面右键
             菜单让位，右键自身只吞默认菜单不弹任何菜单） */}
         {/* v8.6.4：不再用无延迟的 framer 弹簧 —— 与磁贴图标同一套自承载入场
-            （.link-intro：同延迟、同缓动、同模糊），整排同拍升起 */}
-        {links.length < linksCap && (
+            （.link-intro：同延迟、同缓动、同模糊），整排同拍升起。
+            v8.7.105：数量上限删除，添加位恒显示 */}
         <motion.div layout initial={false} exit={{ opacity: 0 }} transition={LAYOUT_SPRING}>
           <button
             type="button"
@@ -950,7 +1023,6 @@ function QuickLinks({
             </span>
           </button>
         </motion.div>
-        )}
       </div>
     </div>
   );
@@ -965,10 +1037,22 @@ function QuickLinks({
       onDragEnd={handleDragEnd}
       onDragCancel={handleDragEnd}
     >
-      {/* ---------- 形态一：常驻（v8.5.9 原样式）——内联网格，无纱罩无中键 ---------- */}
+      {/* ---------- 形态一：常驻（v8.5.9 原样式）——内联网格，无纱罩无中键 ----------
+          v8.7.105：滚动容器化——磁贴多时区域向下生长到 Dock 上方（dockMaxH）
+          并内部滚动，顶/底羽化遮罩（FadeVeil）防磁贴滑到搜索框底下；磁贴少时
+          容器高=内容高（≤188px），主列定高律不受影响 */}
       {form === "docked" && (
-        <div ref={rootRef} className="cl-links cl-links-docked flex w-full flex-col items-center">
-          {renderGrid(true)}
+        <div ref={rootRef} className="cl-links cl-links-docked relative flex w-full flex-col items-center">
+          <div
+            ref={scrollRef}
+            className="cl-links-scroll w-full overflow-y-auto overscroll-contain"
+            style={dockMaxH ? { maxHeight: dockMaxH } : undefined}
+            onScroll={measureFade}
+          >
+            {renderGrid(true)}
+          </div>
+          <FadeVeil side="top" show={fade.top} />
+          <FadeVeil side="bottom" show={fade.bottom} />
         </div>
       )}
 
@@ -1006,7 +1090,7 @@ function QuickLinks({
                       动画期间整体失效（v8.6.1 用户实测）；transform 不形成
                       backdrop root，入场/退场全程磨砂在线 */}
                   <motion.div
-                    className="pointer-events-none flex h-full w-full flex-col items-center justify-center px-6 pb-24"
+                    className="pointer-events-none flex h-full w-full flex-col items-center px-6 pb-24 pt-[clamp(1rem,5vh,2.5rem)]"
                     initial={{ y: 42, scale: 0.97 }}
                     animate={open ? { y: 0, scale: 1 } : { y: 42, scale: 0.97 }}
                     /* v8.7.44 进入速度与壁纸放大严格同步（用户指令）：spring →
@@ -1016,9 +1100,20 @@ function QuickLinks({
                        回缩（open=false）与壁纸回缩/散场 0.40s 同窗同拍 */
                     transition={{ duration: 0.4, ease: [0.5, 0, 0.3, 1] }}
                   >
-                    <div ref={rootRef} className="cl-links cl-links-drawer pointer-events-auto flex flex-col items-center">
-                      {renderGrid(false)}
+                    {/* v8.7.105 抽屉滚动层：my-auto 技巧——内容少时垂直居中
+                        （等效原 justify-center），磁贴超过视口时层内滚动且
+                        顶部可达（flex 溢出滚动标准解法）；同一套羽化遮罩 */}
+                    <div
+                      ref={scrollRef}
+                      className="cl-links-scroll pointer-events-auto my-auto flex max-h-full w-full flex-col items-center overflow-y-auto overscroll-contain"
+                      onScroll={measureFade}
+                    >
+                      <div ref={rootRef} className="cl-links cl-links-drawer flex flex-col items-center">
+                        {renderGrid(false)}
+                      </div>
                     </div>
+                    <FadeVeil side="top" show={fade.top} />
+                    <FadeVeil side="bottom" show={fade.bottom} />
                   </motion.div>
             </motion.div>,
             document.body,

@@ -88,6 +88,11 @@ export interface Settings {
   /** v8.7.36 Dock 栏显隐（v8.5.0 起常驻底部）：false = 整条 Dock 不渲染。
    *  入口：扩展弹窗快捷面板开关；跨文档热跟随走 settings storage 事件 */
   showDock: boolean;
+  /** v8.7.105 待办常驻磁贴：开启后待办内容以磨砂磁贴常驻主页面
+   *  （开关 = 待办面板右上角的全局浮窗胶囊，可拖拽钉位） */
+  todoTile: boolean;
+  /** v8.7.105 便签常驻磁贴：语义同 todoTile，作用于便签 */
+  noteTile: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -112,6 +117,8 @@ export const DEFAULT_SETTINGS: Settings = {
   noOmniboxFocus: false,
   linksForm: "drawer",
   showDock: true,
+  todoTile: false,
+  noteTile: false,
 };
 
 export interface WeatherHour {

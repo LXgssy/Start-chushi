@@ -20,6 +20,8 @@ import PresetDocs from "@/components/startpage/PresetDocs";
 import PdfTools from "@/components/startpage/PdfTools";
 import ZenPomodoro from "@/components/startpage/ZenPomodoro";
 import LinkDialog from "@/components/startpage/LinkDialog";
+import PinnedTiles from "@/components/startpage/PinnedTiles";
+import PinTileFab from "@/components/startpage/PinTileFab";
 import PresetWidgets from "@/components/startpage/PresetWidgets";
 import SandboxPage from "@/components/startpage/SandboxPage";
 import { inExtIframe, openExternalUrl } from "@/lib/startpage/nav";
@@ -286,17 +288,11 @@ function StartPageView() {
     openExternalUrl(url);
   }, []);
 
-  /* ---------- 链接保存 / 删除 ---------- */
+  /* ---------- 链接保存 / 删除 ----------
+     v8.7.105 磁贴数量不限律：v8.7.41 的 4 行上限拦截退役（QuickLinks/popup
+     同步删除），磁贴多时由磁贴区内部滚动承接（QuickLinks dockMaxH）。 */
   const saveLink = useCallback(
     (link: StartLink) => {
-      /* v8.7.41 磁贴 4 行上限律：每行 = layout.linksColumns（未设 6），总量
-         上限 = 4 行 × 列数。到顶后「添加」磁贴隐藏（QuickLinks）、弹窗收藏
-         提示受限（popup），此处兜底编辑弹窗新增路径（存量超限不删只拦新增）。 */
-      if (!link.id && sp.links.length >= 4 * (sp.layout.linksColumns ?? 6)) {
-        sp.setEditor({ open: false, editing: null });
-        toast({ title: "快捷服务已到达限制数量" });
-        return;
-      }
       sp.setLinks((prev) =>
         link.id
           ? prev.map((l) => (l.id === link.id ? link : l))
@@ -305,7 +301,7 @@ function StartPageView() {
       sp.setEditor({ open: false, editing: null });
       toast({ title: link.id ? "链接已更新" : "链接已添加" });
     },
-    [sp.setLinks, sp.setEditor, sp.links, sp.layout.linksColumns, toast]
+    [sp.setLinks, sp.setEditor, toast]
   );
 
   const deleteLink = useCallback(
@@ -442,6 +438,31 @@ function StartPageView() {
             v8.7.36 settings.showDock 门控（扩展弹窗开关；undefined=旧数据
             迁移 effect 未跑时按显示处理，!mounted 期同律零闪烁） */}
         {(sp.settings.showDock !== false || !mounted) && <Dock />}
+
+        {/* v8.7.105 待办/便签常驻磁贴：settings.todoTile/noteTile 门控，
+            点击磁贴开对应面板；出/入场动画与禅雾化由组件自持 */}
+        <PinnedTiles
+          todos={sp.todos}
+          note={sp.note}
+          todoTile={sp.settings.todoTile === true}
+          noteTile={sp.settings.noteTile === true}
+          onOpenPanel={sp.gotoPanel}
+        />
+
+        {/* v8.7.105 全局浮窗开关（网易云浮窗样式，可拖拽/禁区回弹/钉位持久）：
+            面板打开时随时可用；常驻开启后面板关闭仍常驻显示 */}
+        <PinTileFab
+          panel="todo"
+          active={sp.panel === "todo"}
+          enabled={sp.settings.todoTile === true}
+          onToggle={() => sp.patchSettings({ todoTile: !(sp.settings.todoTile === true) })}
+        />
+        <PinTileFab
+          panel="note"
+          active={sp.panel === "note"}
+          enabled={sp.settings.noteTile === true}
+          onToggle={() => sp.patchSettings({ noteTile: !(sp.settings.noteTile === true) })}
+        />
       </div>
 
       {/* 禅模式迷你时钟覆盖层：常驻 DOM + .zen-overlay CSS 过渡（visibility 离散

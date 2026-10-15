@@ -4,10 +4,25 @@
  * （https://icons.duckduckgo.com/ip3/<host>.ico）—— 国内直连不到，
  * 磁贴就恒落在「域名首字母」兜底上，用户观感是「图标刷不出来」。
  *
- * 策略（按序尝试，任一成功即记住这个 host 用哪个源）：
- *   1. 站点自己的 /favicon.ico —— 无第三方，国内直连最稳，也不泄露访问清单；
- *   2. 国内可直连的图标 API（zhusl / cccyun / xinac）—— 站点没放 favicon 时兜底；
- *   3. DuckDuckGo —— 保留给海外用户与历史命中。
+ * v8.7.105 清晰源律（用户实测「站点图标都太糊了」）：
+ *   旧链两处糊源根因——① favicon.zhusl.com 实测恒返回 16×16（铺满/居中显示
+ *   都必糊）；② 站点 /favicon.ico 与 cccyun/xinac/ddg 拿到的多为 32~64px。
+ *   实测五站十源（scripts/favicon-source-test.py）后重排源链：
+ *     1. favicon.im（larger=true）—— 实测 114~180px 高清，国内直连可达；
+ *        对部分站 404（github/baidu），onError 即时降级无感；
+ *     2. 站点自己的 /favicon.ico —— 无第三方，国内直连最稳，ico 内多帧
+ *        （32~64px 起步），大站普遍 64px+；
+ *     3. cccyun / xinac —— 站点没放 favicon 时兜底（内部多为抓站点图标）；
+ *     4. DuckDuckGo —— 海外用户与历史命中；
+ *     5. Google s2 sz=128 —— 压轴高清兜底（128px 恒定）：国内直连不可达
+ *        会长时间挂起，绝不能排在前位（首屏磁贴会空面等超时），排末位后
+ *        只有前面全部失败的站才轮到（国内站前面必然命中，零额外等待），
+ *        海外/梯子用户从此拿到 128px 高清。
+ *   同时源记忆键前缀升级 favicon-src2:——老用户的 favicon-src: 记忆里
+ *   存着 16px 的 zhusl 命中，直接沿用会永久锁死糊源；前缀换代让全部磁贴
+ *   按新链重试一轮（旧键一次性清理，不留孤儿）。
+ *
+ * 策略（按序尝试，任一成功即记住这个 host 用哪个源）。
  * 全失败则磁贴回落到域名首字母（原有逻辑，不动）。
  *
  * 只记住「源 URL」，不做二进制缓存：图标是跨源图片，fetch 会被 CORS 拒绝、
@@ -15,16 +30,35 @@
  * 记住源的价值是「下次不再逐个试错」，不是省掉那一次网络往返。
  */
 
-const KEY_PREFIX = "favicon-src:";
+const KEY_PREFIX = "favicon-src2:";
+/** 上一代记忆键前缀：模块首读时一次性清理（16px 糊源时代遗留） */
+const LEGACY_PREFIX = "favicon-src:";
+let legacySwept = false;
 
-/** 图标源优先级（顺序即尝试顺序） */
+function sweepLegacyKeys() {
+  if (legacySwept || typeof window === "undefined") return;
+  legacySwept = true;
+  try {
+    const dead: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const k = window.localStorage.key(i);
+      if (k && k.startsWith(LEGACY_PREFIX)) dead.push(k);
+    }
+    dead.forEach((k) => window.localStorage.removeItem(k));
+  } catch {
+    /* 隐私模式等场景：清理失败无害，legacySwept 已置位不再重试 */
+  }
+}
+
+/** 图标源优先级（顺序即尝试顺序；v8.7.105 清晰源律，见文件头） */
 export function iconSources(host: string): string[] {
   return [
+    "https://favicon.im/" + host + "?larger=true",
     "https://" + host + "/favicon.ico",
-    "https://favicon.zhusl.com/ico?url=" + host,
     "https://favicon.cccyun.cc/" + host,
     "https://api.xinac.net/icon/?url=" + host,
     "https://icons.duckduckgo.com/ip3/" + host + ".ico",
+    "https://www.google.com/s2/favicons?domain=" + host + "&sz=128",
   ];
 }
 
@@ -33,6 +67,7 @@ function key(host: string) {
 }
 
 export function readIconSource(host: string): string | null {
+  sweepLegacyKeys();
   try {
     return window.localStorage.getItem(key(host));
   } catch {

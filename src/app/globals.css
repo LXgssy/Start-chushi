@@ -2447,3 +2447,59 @@ html:not(.cs-lite).dark .csa-menu {
   background: rgba(22, 22, 27, 0.6) !important;
   border-color: rgba(255, 255, 255, 0.08) !important;
 }
+
+/* ---------- v8.7.105 磁贴区内部滚动（数量不限律的承接层）----------
+   常驻/抽屉两形态磁贴多时在各自区域内上下滚动，页面本身永不滚
+   （html/body overflow:hidden 不变）。滚动条完全隐藏（磁贴墙滚动是
+   手势/滚轮语义，不做可视滚动条——与页面级 scrollbar-width:none 同语言）；
+   overscroll-behavior: contain 阻止滚动链逃逸到文档（防橡皮筋外溢）。 */
+.cl-links-scroll {
+  scrollbar-width: none;
+  overscroll-behavior: contain;
+}
+.cl-links-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+/* 羽化遮罩（磁贴区顶/底收边）：backdrop-filter 把滚到边界的磁贴糊化，
+   渐变 mask 让糊化强度向远端衰减（羽化显影）。载体是滚动容器的独立
+   兄弟层——backdrop root 只作用于本层自己（无后代），磁贴自身的
+   backdrop-filter 磨砂不受牵连（磨砂存活律零毒）。默认 opacity 0，
+   可滚且未到边时 .cl-fade-veil-on 显影（0.3s）。cs-lite 流畅系统：
+   backdrop-filter 被通配关停，遮罩自然退化（硬裁切），契约不破。 */
+.cl-fade-veil {
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  /* 只写标准 backdrop-filter：Lightning CSS 对「标准+前缀」同值声明去重时
+     保留 -webkit- 版本，而 Chromium 的 -webkit-backdrop-filter 是独立遗留
+     属性（不反映到标准属性 computed value，实测读出 none）——单写标准值
+     由 Lightning CSS 自行决定别名输出，运行时恒有效（.tile-frost 同法）。 */
+  backdrop-filter: blur(9px);
+}
+html:not(.cs-lite) .cl-fade-veil-top {
+  mask-image: linear-gradient(to bottom, rgb(0 0 0 / 0.9), transparent);
+  -webkit-mask-image: linear-gradient(to bottom, rgb(0 0 0 / 0.9), transparent);
+}
+html:not(.cs-lite) .cl-fade-veil-bottom {
+  mask-image: linear-gradient(to top, rgb(0 0 0 / 0.85), transparent);
+  -webkit-mask-image: linear-gradient(to top, rgb(0 0 0 / 0.85), transparent);
+}
+.cl-fade-veil-on {
+  opacity: 1;
+}
+
+/* ---------- v8.7.105 待办/便签常驻磁贴 + 全局浮窗开关的补充触感 ----------
+   浮窗胶囊（.cl-fab）：拖拽把手语义——grab 光标已在组件 Tailwind；
+   此处补拖拽中的全局防选中（pointer capture 下文本误选防御）与
+   photo-mode 壁纸下的磁贴卡文字对比度（沿 .cl-links-docked .tile-label
+   的壁纸模式调整先例）。 */
+body.cl-fab-dragging,
+body.cl-fab-dragging * {
+  user-select: none !important;
+  cursor: grabbing !important;
+}
+html.photo-mode .pintile-label {
+  text-shadow: 0 1px 8px rgb(0 0 0 / 0.25);
+}

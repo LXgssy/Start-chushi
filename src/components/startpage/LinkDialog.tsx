@@ -12,7 +12,13 @@ import { memo, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Trash2 } from "lucide-react";
 import { PresenceClass } from "./PresenceClass";
-import { normalizeUrl } from "@/lib/startpage/link-utils";
+import { normalizeUrl, hostOf } from "@/lib/startpage/link-utils";
+import {
+  compressCustomIcon,
+  removeCustomIcon,
+  saveCustomIcon,
+} from "@/lib/startpage/custom-icons";
+import { CUSTOM_ICONS_EVENT, useCustomIcons } from "@/lib/startpage/custom-icons-react";
 import type { StartLink } from "@/lib/startpage/types";
 
 export interface LinkEditorState {
@@ -66,6 +72,52 @@ function DialogForm({
   const nameRef = useRef<HTMLInputElement>(null);
   const urlRef = useRef<HTMLInputElement>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
+
+  /* ---------- v8.7.105 自定义上传图标 ----------
+     目标 host 随网址输入实时推导（合法网址才有 host）；上传即压缩落盘
+     （128×128 PNG dataURL，与 host 绑定不与磁贴绑定，取消编辑也不回滚
+     ——与磁贴名称/网址的表单语义分离）；磁贴侧经 CUSTOM_ICONS_EVENT
+     同页热生效（useCustomIcons 监听）。 */
+  const customIcons = useCustomIcons();
+  const [iconHost, setIconHost] = useState<string | null>(() => {
+    try {
+      const u = editing?.url ? normalizeUrl(editing.url) : null;
+      return u ? hostOf(u) : null;
+    } catch {
+      return null;
+    }
+  });
+  const customIcon = iconHost ? customIcons[iconHost] : undefined;
+  const iconFileRef = useRef<HTMLInputElement>(null);
+  const [iconBusy, setIconBusy] = useState(false);
+
+  useEffect(() => {
+    try {
+      const u = url.trim() ? normalizeUrl(url) : null;
+      setIconHost(u ? hostOf(u) : null);
+    } catch {
+      setIconHost(null);
+    }
+  }, [url]);
+
+  async function handleIconFile(f: File) {
+    if (!iconHost) return;
+    setIconBusy(true);
+    try {
+      const dataUrl = await compressCustomIcon(f);
+      saveCustomIcon(iconHost, dataUrl);
+      window.dispatchEvent(new Event(CUSTOM_ICONS_EVENT));
+    } catch {
+      /* 图片解码失败：静默放弃（预览不变，用户可重试） */
+    }
+    setIconBusy(false);
+  }
+
+  function resetIcon() {
+    if (!iconHost) return;
+    removeCustomIcon(iconHost);
+    window.dispatchEvent(new Event(CUSTOM_ICONS_EVENT));
+  }
 
   /* 挂载时聚焦对应输入框；卸载时有条件归还焦点（同指令面板合并修复：
      焦点已被其它视图接管时不抢回；归还命中 :focus-visible 时主动 blur） */
@@ -170,6 +222,56 @@ function DialogForm({
               spellCheck={false}
               className="h-10 w-full rounded-xl border border-transparent bg-zinc-900/[0.04] px-3.5 text-sm font-light text-zinc-800 outline-none transition-all duration-300 placeholder:text-zinc-400 accent-focus focus:bg-transparent dark:bg-white/5 dark:text-zinc-100 dark:placeholder:text-zinc-500"
             />
+            {/* v8.7.105 自定义上传图标：目标站 host 预览 + 上传/恢复（与表单
+                保存解耦，上传即时生效） */}
+            <div className="flex items-center gap-3 rounded-xl bg-zinc-900/[0.03] px-3 py-2.5 dark:bg-white/[0.04]">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-[12px] border border-zinc-900/10 bg-white/50 dark:border-white/10 dark:bg-white/5">
+                {customIcon ? (
+                  <img src={customIcon} alt="" className="h-7 w-7 object-contain" />
+                ) : (
+                  <span className="text-sm font-light text-zinc-400 dark:text-zinc-500">
+                    {(iconHost ?? "?").replace(/^www\./, "").slice(0, 1).toUpperCase()}
+                  </span>
+                )}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-xs font-light text-zinc-600 dark:text-zinc-300">
+                  自定义图标
+                </div>
+                <div className="truncate text-[11px] font-extralight text-zinc-400 dark:text-zinc-500">
+                  {iconHost ?? "先填写网址，再为本站上传专属图标"}
+                </div>
+              </div>
+              {customIcon && (
+                <button
+                  type="button"
+                  onClick={resetIcon}
+                  aria-label="恢复默认图标"
+                  className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-light text-zinc-500 transition-colors duration-200 hover:bg-zinc-900/5 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-200"
+                >
+                  恢复
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={!iconHost || iconBusy}
+                onClick={() => iconFileRef.current?.click()}
+                className="shrink-0 rounded-full px-2.5 py-1 text-[11px] font-light text-zinc-500 transition-colors duration-200 hover:bg-zinc-900/5 hover:text-zinc-700 disabled:opacity-40 dark:text-zinc-400 dark:hover:bg-white/10 dark:hover:text-zinc-200"
+              >
+                {iconBusy ? "处理中…" : customIcon ? "更换" : "上传"}
+              </button>
+              <input
+                ref={iconFileRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void handleIconFile(f);
+                  e.target.value = "";
+                }}
+              />
+            </div>
             <AnimatePresence>
               {error && (
                 <motion.p
