@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.107",
+    date: "2026-10-13",
+    title: "常驻开关移入待办/便签面板标题旁",
+    channel: "page",
+    highlights: [
+      "删除首页待办/便签的两枚浮窗（常驻）开关按钮，改为在面板标题「待办」「便签」右侧渲染钉子按钮（手画内联 SVG，常驻时用强调色）",
+      "常驻状态沿用 settings.todoTile / noteTile（与常驻磁贴同一标志），功能不变、位置更贴合面板语义"
+    ],
+  },
+  {
     version: "8.7.106",
     date: "2026-10-15",
     title: "磁贴悬停描边位移修复；开关回归固定、常驻磁贴可拖拽；滚动判定贴近浏览器底部、遮罩不再压图标；壁纸历史精简到 7 条并支持视频首帧缩略",

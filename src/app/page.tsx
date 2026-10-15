@@ -21,7 +21,6 @@ import PdfTools from "@/components/startpage/PdfTools";
 import ZenPomodoro from "@/components/startpage/ZenPomodoro";
 import LinkDialog from "@/components/startpage/LinkDialog";
 import PinnedTiles from "@/components/startpage/PinnedTiles";
-import PinTileFab from "@/components/startpage/PinTileFab";
 import PresetWidgets from "@/components/startpage/PresetWidgets";
 import SandboxPage from "@/components/startpage/SandboxPage";
 import { inExtIframe, openExternalUrl } from "@/lib/startpage/nav";
@@ -449,20 +448,7 @@ function StartPageView() {
           onOpenPanel={sp.gotoPanel}
         />
 
-        {/* v8.7.105 全局浮窗开关（网易云浮窗样式，可拖拽/禁区回弹/钉位持久）：
-            面板打开时随时可用；常驻开启后面板关闭仍常驻显示 */}
-        <PinTileFab
-          panel="todo"
-          active={sp.panel === "todo"}
-          enabled={sp.settings.todoTile === true}
-          onToggle={() => sp.patchSettings({ todoTile: !(sp.settings.todoTile === true) })}
-        />
-        <PinTileFab
-          panel="note"
-          active={sp.panel === "note"}
-          enabled={sp.settings.noteTile === true}
-          onToggle={() => sp.patchSettings({ noteTile: !(sp.settings.noteTile === true) })}
-        />
+        {/* v8.7.107 待办/便签常驻开关已移入面板标题右侧（PanelStage 钉子按钮） */}
       </div>
 
       {/* 禅模式迷你时钟覆盖层：常驻 DOM + .zen-overlay CSS 过渡（visibility 离散

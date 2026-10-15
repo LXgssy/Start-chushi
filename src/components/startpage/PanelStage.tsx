@@ -417,10 +417,44 @@ const PanelStage = memo(function PanelStage({
                     </svg>
                   </button>
 
-                  <header className="mb-3 flex items-center justify-between px-1 pr-7">
+                  <header className="mb-3 flex items-center gap-2 px-1 pr-7">
                     <h2 className="text-xs font-normal tracking-[0.22em] text-zinc-500 dark:text-zinc-400">
                       {PANEL_TITLES[displayPanel]}
                     </h2>
+                    {/* v8.7.107 常驻开关移入面板：仅待办/便签显示；钉子为手画内联 SVG。
+                        状态复用 settings.todoTile / noteTile（与常驻磁贴同一标志）。 */}
+                    {(displayPanel === "todo" || displayPanel === "note") && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          patchSettings(
+                            displayPanel === "todo"
+                              ? { todoTile: !(settings.todoTile === true) }
+                              : { noteTile: !(settings.noteTile === true) }
+                          )
+                        }
+                        aria-label={(displayPanel === "todo" ? settings.todoTile : settings.noteTile) === true ? "取消常驻" : "常驻"}
+                        aria-pressed={(displayPanel === "todo" ? settings.todoTile : settings.noteTile) === true}
+                        title={(displayPanel === "todo" ? settings.todoTile : settings.noteTile) === true ? "取消常驻" : "常驻"}
+                        className={
+                          "rounded-full p-1 transition-all duration-200 hover:bg-zinc-900/5 dark:hover:bg-white/10 " +
+                          ((displayPanel === "todo" ? settings.todoTile : settings.noteTile) === true
+                            ? "text-[color:var(--ui-accent)] opacity-100"
+                            : "text-zinc-400 opacity-70 hover:opacity-100 dark:text-zinc-500")
+                        }
+                      >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" aria-hidden>
+                          <path
+                            d="M9.2 3h5.6l-1.05 6.5 3.55 3.25a1 1 0 0 1-.68 1.73H14v5.9l-2 2.3-2-2.3v-5.9H7.38a1 1 0 0 1-.68-1.73l3.55-3.25L9.2 3Z"
+                            stroke="currentColor"
+                            strokeWidth="1.6"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                          <path d="M12 3v16.6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" opacity="0.45" />
+                        </svg>
+                      </button>
+                    )}
                   </header>
 
                   {displayPanel === "weather" && (
