@@ -16,8 +16,13 @@ export function useStartSettings(mounted: boolean) {
   const [settings, setSettings] = useStored<Settings>(KEYS.settings, DEFAULT_SETTINGS);
   const [isDark, setIsDark] = useState(true);
 
+  /* v8.7.123 patch 支持函数式（基于最新 prev 计算增量）：多写者同批提交
+     （如待办/便签磁贴同次 resize 各自 clamp）时，对象形态的浅展开会以
+     渲染时捕获的旧值为基（后写者回滚先写者）；函数式保证读到的永远是
+     队列里最新的 prev。 */
   const patchSettings = useCallback(
-    (patch: Partial<Settings>) => setSettings((prev) => ({ ...prev, ...patch })),
+    (patch: Partial<Settings> | ((prev: Settings) => Partial<Settings>)) =>
+      setSettings((prev) => ({ ...prev, ...(typeof patch === "function" ? patch(prev) : patch) })),
     [setSettings]
   );
 

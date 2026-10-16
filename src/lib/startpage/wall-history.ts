@@ -1,132 +1,66 @@
 "use client";
 
-/* 「初始」— 自定义壁纸历史记录（v8.7.105，chrome.storage.sync 同步）。
+/* 「初始」— 自定义壁纸历史记录（v8.7.105 引入，v8.7.123 存储域重置）。
  *
- * 用户指令：给自定义壁纸加历史记录，方案用 chrome.storage.sync——
- * 用户误删扩展重装后，登录同一账号同步回来，不用重新找壁纸。
+ * v8.7.105~121：历史存 chrome.storage.sync（wh:/whIndex 键）——本意是
+ * 扩展重装后随 Chrome 账号同步找回。但账号云同步（v8.7.50 闭源登录模块）
+ * 只同步六键（start:settings/links/todos/note/presets/preset-settings），
+ * chrome.storage.sync 的历史从未随账号云同步走——用户实测「云端同步没有
+ * 同步历史壁纸」。
  *
- * 配额现实与通道设计：
- *   chrome.storage.sync 单 item 8KB / 总 102.4KB——壁纸原图（几百 KB 起）
- *   物理上进不了 sync。因此历史条目只存「恢复所需元数据 + 64px 缩略图」：
- *     · gallery / daily：photoId 即全部（官方图库直链随版本分发），跨设备
- *       完整可恢复；
- *     · url：壁纸直链 URL 即全部（导入时验证过可达），跨设备完整可恢复；
- *     · file：原图在 IndexedDB（重装即失）——条目仍同步（缩略图 + 名称），
- *       同设备可一键恢复原图；跨设备恢复时检测 IndexedDB 无图，点击提示
- *       重新选择。这是 sync 硬配额下能做到的极限，缩略图让历史不至于
- *       变成一行干巴巴的文字。
+ * v8.7.123（用户指令三项之二）：历史整体迁入 settings.wallHistory——
+ *   · 随六键全量上云：登录云同步 / 从云端恢复 / 备份导出导入全链随行；
+ *   · 缩略图仍只存元数据 + 64px JPEG dataURL（单条 1~3KB，7 条 ≤21KB，
+ *     settings 体量无压力；原图二进制仍然不进任何同步通道）；
+ *   · chrome.storage.sync 旧数据一次性迁移（readLegacySyncHistory →
+ *     settings → clearLegacySyncHistory），旧键清空防双源漂移。
  *
- *   存储拓扑：每条历史一个 key（wh:<ts>）+ 索引键 whIndex。单条独立 8KB
- *   预算（64px JPEG q0.55 缩略 ≈ 1~3KB base64，余量充足）。
- *   v8.7.106（用户指令）：容量 12 → 7 条滚动淘汰（存储与展示同容）；
- *   视频壁纸缩略图取【第一帧】64px JPEG（<video> 试解码 + seek 首帧 →
- *   canvas cover 裁切；远程直链 crossOrigin 匿名尝试，跨域拒画则回落
- *   图标占位——缩略失败永不妨碍历史条目本身）。
- *   环境：扩展 iframe 内 chrome.storage.sync 可用；纯网页部署（Vercel
- *   演示）无 chrome API → 回落 localStorage（本地历史仍可用，仅不跨设备）。
+ * 本地原图恢复（v8.7.123 用户指令三项之一，同版修复）：
+ *   file 类条目的原图此前只存 IndexedDB 单一槽（custom-wallpaper）——
+ *   新壁纸上传覆盖旧壁纸后，点历史里任何旧的本地图标恢复的都是最新那张
+ *   （「无法切换到之前更换过的本地壁纸」的根因）。本版起每条 file 历史
+ *   入史时把原图归档进独立槽 whfile:<id>（IndexedDB，无 sync 配额压力，
+ *   7 条滚动上限天然约束总量）；恢复走归档槽，归档不在（旧版本条目/
+ *   重装/跨设备）诚实提示重传，绝不再拿当前槽的「别人的壁纸」冒充。
+ *
+ * 缩略图：v8.7.106 视频壁纸取第一帧 64px JPEG（<video> 试解码 + seek
+ * 首帧 → canvas cover 裁切；远程直链 crossOrigin 匿名尝试，跨域拒画则
+ * 回落图标占位——缩略失败永不妨碍历史条目本身）。
  */
 
-const INDEX_KEY = "whIndex";
-const ITEM_PREFIX = "wh:";
-const MAX_ITEMS = 7;
+import { idbDel, idbGet, idbSet } from "./idb";
+import type { WallHistoryItem } from "./types";
 
-export type WallHistoryKind = "gallery" | "daily" | "url" | "file";
+export type { WallHistoryItem, WallHistoryKind } from "./types";
 
-export interface WallHistoryItem {
-  /** 稳定 id：gallery=图库 id；url/url 类=直链；file=name:size；daily="daily" */
-  id: string;
-  kind: WallHistoryKind;
-  /** 图库 id（gallery/daily） */
-  photoId?: string;
-  /** 直链（url 类） */
-  url?: string;
-  /** 展示名（文件名 / 图库名 / host） */
-  name: string;
-  /** 64px JPEG 缩略 dataURL（file 类）；gallery/url 类直接用远程缩略地址 */
-  thumb?: string;
-  ts: number;
+/** 历史容量（v8.7.106 用户指令 12→7，存储与展示同容） */
+export const MAX_WALL_HISTORY = 7;
+
+/** file 类原图归档槽前缀（IndexedDB 键 = 前缀 + 历史条目 id） */
+export const WALL_FILE_PREFIX = "whfile:";
+
+/* ---------- 历史列表纯运算 ---------- */
+
+/** 入史：同 id 去重（提到最前并刷新元数据）+ 7 条滚动淘汰。
+ *  纯函数——列表随 settings.wallHistory 走 React 域（useStored 整对象
+ *  写回，任何绕过 React 的直写都会被下一次 patch 覆盖），淘汰条目的
+ *  归档槽清理由调用方（SettingsPanel）按 evicted 执行。 */
+export function applyWallHistoryPush(
+  prev: WallHistoryItem[],
+  item: Omit<WallHistoryItem, "ts">,
+): { list: WallHistoryItem[]; evicted: WallHistoryItem[] } {
+  if (!item.id) return { list: prev, evicted: [] };
+  const entry: WallHistoryItem = { ...item, ts: Date.now() };
+  const next = [entry, ...prev.filter((x) => x.id !== item.id)];
+  const list = next.slice(0, MAX_WALL_HISTORY);
+  const evicted = next.slice(MAX_WALL_HISTORY);
+  return { list, evicted };
 }
 
-/* ---------- 通道抽象：chrome.storage.sync 优先，localStorage 兜底 ---------- */
+/* ---------- chrome.storage.sync 旧数据一次性迁移 ---------- */
 
-type SyncStore = {
-  get: (keys: string[] | null) => Promise<Record<string, unknown>>;
-  set: (items: Record<string, unknown>) => Promise<void>;
-  remove: (keys: string[]) => Promise<void>;
-};
-
-function syncStore(): SyncStore | null {
-  const c = typeof chrome !== "undefined" ? (chrome as unknown as { storage?: { sync?: SyncLike } }) : undefined;
-  const s = c?.storage?.sync;
-  if (s) {
-    return {
-      get: (keys) =>
-        new Promise((res) => {
-          try {
-            s.get(keys ?? null, (out) => {
-              void chrome.runtime.lastError;
-              res((out ?? {}) as Record<string, unknown>);
-            });
-          } catch {
-            res({});
-          }
-        }),
-      set: (items) =>
-        new Promise((res) => {
-          try {
-            s.set(items, () => {
-              void chrome.runtime.lastError;
-              res();
-            });
-          } catch {
-            res();
-          }
-        }),
-      remove: (keys) =>
-        new Promise((res) => {
-          try {
-            s.remove(keys, () => {
-              void chrome.runtime.lastError;
-              res();
-            });
-          } catch {
-            res();
-          }
-        }),
-    };
-  }
-  /* 纯网页兜底：localStorage 同构通道（key 空间同前缀，结构一致） */
-  return {
-    get: async (keys) => {
-      const out: Record<string, unknown> = {};
-      try {
-        const list = keys ?? Object.keys(window.localStorage);
-        for (const k of list) {
-          const raw = window.localStorage.getItem("start:wh:" + k);
-          if (raw != null) out[k] = JSON.parse(raw);
-        }
-      } catch {
-        /* noop */
-      }
-      return out;
-    },
-    set: async (items) => {
-      try {
-        for (const [k, v] of Object.entries(items))
-          window.localStorage.setItem("start:wh:" + k, JSON.stringify(v));
-      } catch {
-        /* noop */
-      }
-    },
-    remove: async (keys) => {
-      try {
-        for (const k of keys) window.localStorage.removeItem("start:wh:" + k);
-      } catch {
-        /* noop */
-      }
-    },
-  };
-}
+const LEGACY_INDEX_KEY = "whIndex";
+const LEGACY_ITEM_PREFIX = "wh:";
 
 type SyncLike = {
   get: (keys: string[] | null, cb: (items: Record<string, unknown>) => void) => void;
@@ -134,46 +68,136 @@ type SyncLike = {
   remove: (keys: string[], cb?: () => void) => void;
 };
 
-/* ---------- 读写 ---------- */
-
-export async function readWallHistory(): Promise<WallHistoryItem[]> {
-  const store = syncStore();
-  if (!store) return [];
-  const out = await store.get([INDEX_KEY]);
-  const ids = Array.isArray(out[INDEX_KEY]) ? (out[INDEX_KEY] as string[]) : [];
-  if (!ids.length) return [];
-  /* 读取键必须与写入键同构：条目键 = ITEM_PREFIX + id（读写错位则历史恒空，
-     v8.7.105 运行时实测抓到——sync 数据在位而 UI 恒不渲染即此因） */
-  const items = await store.get(ids.map((x) => ITEM_PREFIX + x));
-  const list: WallHistoryItem[] = [];
-  for (const id of ids) {
-    const it = items[ITEM_PREFIX + id] as WallHistoryItem | undefined;
-    if (it && typeof it.id === "string") list.push(it);
+/** MV3 回调无错时必须读一次 lastError 否则控制台告警；经 globalThis 取，
+ *  不引入裸 chrome 标识符（纯网页构建无 chrome 全局类型） */
+function swallowLastErr() {
+  try {
+    void (globalThis as unknown as { chrome?: { runtime?: { lastError?: unknown } } }).chrome?.runtime?.lastError;
+  } catch {
+    /* noop */
   }
-  return list;
 }
 
-/** 新增一条历史：去重（同 id 提到最前并刷新元数据）、7 条滚动淘汰（v8.7.106） */
-export async function pushWallHistory(item: Omit<WallHistoryItem, "ts">): Promise<void> {
-  const store = syncStore();
-  if (!store || !item.id) return;
-  const out = await store.get([INDEX_KEY]);
-  const ids = Array.isArray(out[INDEX_KEY]) ? (out[INDEX_KEY] as string[]) : [];
-  const entry: WallHistoryItem = { ...item, ts: Date.now() };
-  const nextIds = [item.id, ...ids.filter((x) => x !== item.id)].slice(0, MAX_ITEMS);
-  const evict = ids.filter((x) => x !== item.id).slice(MAX_ITEMS - 1);
-  const patch: Record<string, unknown> = { [ITEM_PREFIX + item.id]: entry, [INDEX_KEY]: nextIds };
-  await store.set(patch);
-  if (evict.length) void store.remove(evict.map((x) => ITEM_PREFIX + x));
+function legacySync(): SyncLike | null {
+  const g = globalThis as unknown as { chrome?: { storage?: { sync?: SyncLike } } };
+  return g.chrome?.storage?.sync ?? null;
 }
 
-export async function clearWallHistoryItem(id: string): Promise<void> {
-  const store = syncStore();
-  if (!store) return;
-  const out = await store.get([INDEX_KEY]);
-  const ids = Array.isArray(out[INDEX_KEY]) ? (out[INDEX_KEY] as string[]) : [];
-  await store.set({ [INDEX_KEY]: ids.filter((x) => x !== id) });
-  await store.remove([ITEM_PREFIX + id]);
+/** 读取 chrome.storage.sync 时代的旧历史（不清理）；纯网页部署旧数据在
+ *  localStorage start:wh:*（同构键位），同法读取。 */
+export async function readLegacySyncHistory(): Promise<WallHistoryItem[]> {
+  const out: WallHistoryItem[] = [];
+  const s = legacySync();
+  if (s) {
+    const idx = await new Promise<Record<string, unknown>>((res) => {
+      try {
+        s.get([LEGACY_INDEX_KEY], (o) => {
+          swallowLastErr();
+          res((o ?? {}) as Record<string, unknown>);
+        });
+      } catch {
+        res({});
+      }
+    });
+    const ids = Array.isArray(idx[LEGACY_INDEX_KEY]) ? (idx[LEGACY_INDEX_KEY] as string[]) : [];
+    if (ids.length) {
+      const items = await new Promise<Record<string, unknown>>((res) => {
+        try {
+          s.get(ids.map((x) => LEGACY_ITEM_PREFIX + x), (o) => {
+            swallowLastErr();
+            res((o ?? {}) as Record<string, unknown>);
+          });
+        } catch {
+          res({});
+        }
+      });
+      for (const id of ids) {
+        const it = items[LEGACY_ITEM_PREFIX + id] as WallHistoryItem | undefined;
+        if (it && typeof it.id === "string") out.push(it);
+      }
+    }
+    return out;
+  }
+  /* 纯网页兜底：localStorage start:wh:* 旧键 */
+  try {
+    const raw = window.localStorage.getItem("start:wh:" + LEGACY_INDEX_KEY);
+    if (!raw) return [];
+    const ids = JSON.parse(raw) as string[];
+    if (!Array.isArray(ids)) return [];
+    for (const id of ids) {
+      try {
+        const it = JSON.parse(window.localStorage.getItem("start:wh:" + LEGACY_ITEM_PREFIX + id) ?? "null") as
+          | WallHistoryItem
+          | null;
+        if (it && typeof it.id === "string") out.push(it);
+      } catch {
+        /* 单条残缺跳过 */
+      }
+    }
+  } catch {
+    /* noop */
+  }
+  return out;
+}
+
+/** 清掉 chrome.storage.sync / localStorage 里的旧历史键（迁移完成后调用，
+ *  防双源漂移：旧键永远不再被读，留着只会占 sync 配额） */
+export async function clearLegacySyncHistory(): Promise<void> {
+  const s = legacySync();
+  if (s) {
+    const idx = await new Promise<Record<string, unknown>>((res) => {
+      try {
+        s.get([LEGACY_INDEX_KEY], (o) => {
+          swallowLastErr();
+          res((o ?? {}) as Record<string, unknown>);
+        });
+      } catch {
+        res({});
+      }
+    });
+    const ids = Array.isArray(idx[LEGACY_INDEX_KEY]) ? (idx[LEGACY_INDEX_KEY] as string[]) : [];
+    await new Promise<void>((res) => {
+      try {
+        s.remove([LEGACY_INDEX_KEY, ...ids.map((x) => LEGACY_ITEM_PREFIX + x)], () => {
+          swallowLastErr();
+          res();
+        });
+      } catch {
+        res();
+      }
+    });
+  }
+  try {
+    window.localStorage.removeItem("start:wh:" + LEGACY_INDEX_KEY);
+  } catch {
+    /* noop */
+  }
+}
+
+/* ---------- file 类原图归档（IndexedDB，无配额压力） ---------- */
+
+/** 入史归档：把 file 类壁纸原图存进独立槽（恢复时按条目 id 取）。
+ *  非文件类（gallery/daily/url）零归档——photoId/直链即全部。 */
+export async function archiveWallFile(id: string, blob: Blob): Promise<void> {
+  try {
+    await idbSet(WALL_FILE_PREFIX + id, blob);
+  } catch {
+    /* 归档失败不阻塞入史：恢复侧回落「不在本机」诚实提示 */
+  }
+}
+
+/** 取归档原图；不存在（旧版本条目/重装/跨设备）返回 undefined */
+export function readWallFileArchive(id: string): Promise<Blob | undefined> {
+  return idbGet<Blob>(WALL_FILE_PREFIX + id);
+}
+
+/** 淘汰清理：条目滚出历史时删除其归档槽 */
+export async function dropWallFileArchive(id: string): Promise<void> {
+  try {
+    await idbDel(WALL_FILE_PREFIX + id);
+  } catch {
+    /* noop */
+  }
 }
 
 /* ---------- 缩略图 ---------- */

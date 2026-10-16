@@ -22,6 +22,36 @@ export type LinksForm = "docked" | "drawer";
 
 export type PanelId = "weather" | "todo" | "note" | "pomodoro" | "settings" | null;
 
+/* ---------- 壁纸历史条目（v8.7.105 引入，v8.7.123 收纳入 Settings 云同步随行） ----------
+ * v8.7.105~121 存 chrome.storage.sync（wh:/whIndex 键）——但账号云同步
+ * （闭源模块）只同步六键（settings/links/todos/note/presets/preset-settings），
+ * 历史从未上云。v8.7.123 起历史作为 settings.wallHistory 随六键全量云同步，
+ * chrome.storage.sync 旧数据一次性迁移（readLegacySyncHistory）。
+ * 类型定义收纳于此（Settings 同域），wall-history.ts 转发导出保持旧引用不破。 */
+export type WallHistoryKind = "gallery" | "daily" | "url" | "file";
+
+export interface WallHistoryItem {
+  /** 稳定 id：gallery=图库 id；url/url 类=直链；file=name:size；daily="daily" */
+  id: string;
+  kind: WallHistoryKind;
+  /** 图库 id（gallery/daily） */
+  photoId?: string;
+  /** 直链（url 类） */
+  url?: string;
+  /** 展示名（文件名 / 图库名 / host） */
+  name: string;
+  /** 64px JPEG 缩略 dataURL（file 类）；gallery/url 类直接用远程缩略地址 */
+  thumb?: string;
+  ts: number;
+}
+
+/** v8.7.123 待办/便签常驻磁贴钉位（云同步随行）：拖拽合法落点，
+ *  跨设备恢复时按目标视口 clamp（PinnedTiles 应用侧） */
+export interface PinTilePos {
+  todo?: { x: number; y: number } | null;
+  note?: { x: number; y: number } | null;
+}
+
 /** 番茄钟时长设置（分钟） */
 export interface PomodoroDurations {
   focusMin: number;
@@ -93,6 +123,11 @@ export interface Settings {
   todoTile: boolean;
   /** v8.7.105 便签常驻磁贴：语义同 todoTile，作用于便签 */
   noteTile: boolean;
+  /** v8.7.123 壁纸历史（云同步随行）：随 settings 六键上云，跨设备/重装
+   *  经「从云端恢复」整包回来；7 条滚动淘汰（applyWallHistoryPush） */
+  wallHistory?: WallHistoryItem[];
+  /** v8.7.123 待办/便签常驻磁贴钉位（云同步随行）：键缺失/null = 默认锚位 */
+  pinTile?: PinTilePos;
 }
 
 export const DEFAULT_SETTINGS: Settings = {

@@ -13,9 +13,13 @@ import type { Settings } from "@/lib/startpage/types";
 import { GALLERY, dailyPhoto, wallpaperKindOf, type WallpaperKind } from "@/lib/startpage/gallery";
 import { idbDel, idbGet, idbSet } from "@/lib/startpage/idb";
 import {
+  applyWallHistoryPush,
+  archiveWallFile,
+  clearLegacySyncHistory,
+  dropWallFileArchive,
   fileThumb,
-  pushWallHistory,
-  readWallHistory,
+  readLegacySyncHistory,
+  readWallFileArchive,
   videoThumb,
   type WallHistoryItem,
 } from "@/lib/startpage/wall-history";
@@ -444,29 +448,54 @@ function SettingsPanel({
   const [uploadHint, setUploadHint] = useState<string | null>(null);
   /* 更新日志弹窗（底部「关于」分区） */
   const [clOpen, setClOpen] = useState(false);
-  /* ---------- v8.7.105 壁纸历史（chrome.storage.sync 同步）----------
+  /* ---------- v8.7.105 壁纸历史，v8.7.123 存储域重置（settings.wallHistory）----------
      每次成功设置壁纸（图库/每日一图/直链/本机文件）自动记一条：元数据 +
-     64px 缩略图入 sync（单条独立 8KB item，12 条滚动淘汰）——用户误删扩展
-     重装后登录同步，历史仍在；gallery/daily/url 一键完整恢复，file 类
-     原图在 IndexedDB（重装即失）点击时检测并提示重传（缩略图仍可看）。 */
-  const [wallHistory, setWallHistory] = useState<WallHistoryItem[]>([]);
+     64px 缩略图随 settings 六键全量上云（登录云同步/从云端恢复/备份导出
+     导入全链随行）——旧 chrome.storage.sync 通道退役（挂载期一次性迁移）。
+     file 类原图另存 IndexedDB 归档槽 whfile:<id>（入史时写入，恢复时按
+     条目取），本机历史一键精确回切；跨设备/重装无归档诚实提示重传。 */
+  const wallHistory = settings.wallHistory ?? [];
+  /* 推送镜像：React 状态两次渲染间的最新历史视图（推送/淘汰清理按它算，
+     防连续推送在重渲染前互相覆盖——ref 即时跟进，渲染同步兜底） */
+  const wallHistRef = useRef<WallHistoryItem[]>(wallHistory);
+  useEffect(() => {
+    wallHistRef.current = wallHistory;
+  }, [wallHistory]);
+
+  /* 旧通道一次性迁移：chrome.storage.sync（wh:/whIndex）→ settings → 清旧键。
+     恒合并语义：旧条目与本机现有 wallHistory 按 id 去重 union 后按 ts 新→旧
+     排序、cap 7（与存储同容），溢出条目的归档槽一并清理——「先传新壁纸再开
+     设置面板」的用户旧历史不再被静默丢弃（非空只清不并的数据丢失洞）。 */
   useEffect(() => {
     let alive = true;
-    void readWallHistory().then((list) => {
-      if (alive) setWallHistory(list);
+    void readLegacySyncHistory().then((legacy) => {
+      if (!alive || !legacy.length) return;
+      const merged = [...wallHistRef.current];
+      for (const l of legacy) if (!merged.some((x) => x.id === l.id)) merged.push(l);
+      merged.sort((a, b) => (b.ts ?? 0) - (a.ts ?? 0));
+      wallHistRef.current = merged.slice(0, 7);
+      onPatch({ wallHistory: wallHistRef.current });
+      for (const e of merged.slice(7)) void dropWallFileArchive(e.id);
+      void clearLegacySyncHistory();
     });
     return () => {
       alive = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const rememberWall = (item: Omit<WallHistoryItem, "ts">) => {
-    void pushWallHistory(item).then(() => readWallHistory()).then((list) => setWallHistory(list));
+    const { list, evicted } = applyWallHistoryPush(wallHistRef.current, item);
+    wallHistRef.current = list;
+    onPatch({ wallHistory: list });
+    for (const e of evicted) void dropWallFileArchive(e.id);
   };
 
   /** 历史恢复：gallery/daily 直接 patch photoId；url 直链恢复（清本地文件，
-      与导入互斥同律）；file 先查 IndexedDB——原图在本机直接恢复，不在
-      （重装/跨设备）则提示重传。 */
+      与导入互斥同律）；file 查 IndexedDB 归档槽 whfile:<id>——v8.7.123
+      起每条 file 历史入史时归档原图（此前单一槽被新壁纸覆盖，「切回之前的
+      本地壁纸」恢复的是最新那张的根因）；归档不在（旧版本条目/重装/跨
+      设备）诚实提示重传，绝不拿当前槽的壁纸冒充。 */
   async function restoreWall(h: WallHistoryItem) {
     if (h.kind === "gallery" && h.photoId) {
       onPatch({ photoId: h.photoId, photoLast: h.photoId });
@@ -482,11 +511,12 @@ function SettingsPanel({
       return;
     }
     if (h.kind === "file") {
-      const blob = await idbGet<Blob>(CUSTOM_WALLPAPER_KEY);
+      const blob = await readWallFileArchive(h.id);
       if (!blob) {
-        setUploadHint("该壁纸的原始文件不在本机（重装/换设备后丢失），请重新上传一次");
+        setUploadHint("该壁纸的原始文件不在本机（旧版本上传/重装/换设备后丢失），请重新上传一次");
         return;
       }
+      await idbSet(CUSTOM_WALLPAPER_KEY, blob);
       onPatch({ photoId: "custom", photoLast: "custom", wallpaperUrl: "", wallpaperRev: (settings.wallpaperRev ?? 0) + 1 });
       setUploadHint(null);
     }
@@ -578,11 +608,14 @@ function SettingsPanel({
         }
       }
       await idbSet(CUSTOM_WALLPAPER_KEY, f);
+      /* v8.7.123 file 类原图归档槽：恢复按条目 id 精确取（单一槽被覆盖
+         「切不回旧壁纸」的根修）；同 id 重复入史归档覆盖，幂等 */
+      void archiveWallFile(f.name + ":" + f.size, f);
       /* 与 URL 导入互斥：本地文件生效即清 URL 源；
          wallpaperRev 自增：custom 模式下重复导入也强制渲染端重读壁纸（刷新根因修复） */
       onPatch({ photoId: "custom", photoLast: "custom", wallpaperUrl: "", wallpaperRev: (settings.wallpaperRev ?? 0) + 1 });
       /* v8.7.106：视频壁纸取第一帧作缩略（用户指令）——异步补写不阻塞
-         主流程（pushWallHistory 同 id 去重即元数据刷新） */
+         主流程（rememberWall 同 id 去重即元数据刷新） */
       void videoThumb(f).then((thumb) =>
         rememberWall({ id: f.name + ":" + f.size, kind: "file", name: f.name, thumb }),
       );
@@ -596,6 +629,8 @@ function SettingsPanel({
     try {
       const blob = await fileToSizedBlob(f);
       await idbSet(CUSTOM_WALLPAPER_KEY, blob);
+      /* v8.7.123 归档存处理后的 blob（与渲染同源）：恢复即所见 */
+      void archiveWallFile(f.name + ":" + f.size, blob);
       onPatch({ photoId: "custom", photoLast: "custom", wallpaperUrl: "", wallpaperRev: (settings.wallpaperRev ?? 0) + 1 });
       const thumb = await fileThumb(f);
       void rememberWall({ id: f.name + ":" + f.size, kind: "file", name: f.name, thumb });
@@ -790,9 +825,10 @@ function SettingsPanel({
               )}
             </WallThumb>
           </div>
-          {/* v8.7.105 壁纸历史（chrome.storage.sync 同步）：最近用过的壁纸
-              一键回切；gallery/daily/url 跨设备完整恢复，file 类本机可恢复、
-              跨设备提示重传（原图二进制超 sync 8KB/item 硬配额，物理不可同步） */}
+          {/* v8.7.105 壁纸历史，v8.7.123 起 settings.wallHistory 随账号云同步：
+              最近用过的壁纸一键回切；gallery/daily/url 跨设备完整恢复，
+              file 类本机归档槽可精确回切、跨设备/旧条目提示重传
+              （原图二进制不进任何同步通道，缩略图随 settings 上云） */}
           {wallHistory.length > 0 && (
             <div className="mt-1.5 px-1">
               <div className="mb-0.5 flex items-center justify-between">

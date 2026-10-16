@@ -20,7 +20,10 @@ import PresetDocs from "@/components/startpage/PresetDocs";
 import PdfTools from "@/components/startpage/PdfTools";
 import ZenPomodoro from "@/components/startpage/ZenPomodoro";
 import LinkDialog from "@/components/startpage/LinkDialog";
-import PinnedTiles from "@/components/startpage/PinnedTiles";
+import PinnedTiles, {
+  dropLegacyPinPos,
+  readLegacyPinPos,
+} from "@/components/startpage/PinnedTiles";
 import PresetWidgets from "@/components/startpage/PresetWidgets";
 import SandboxPage from "@/components/startpage/SandboxPage";
 import { inExtIframe, openExternalUrl } from "@/lib/startpage/nav";
@@ -72,6 +75,33 @@ function StartPageView() {
       }
     } catch {
       /* 残缺标志静默清理失败也无害 */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted]);
+
+  /* ---------- v8.7.123 待办/便签磁贴钉位一次性迁移 ----------
+     v8.7.105~121 钉位存 localStorage start:pintile-todo/note（不随云
+     同步）；本版迁入 settings.pinTile（随账号云同步跨设备跟随）。旧键
+     有值且 settings 空位时接管，旧键随即清掉防双源漂移。 */
+  useEffect(() => {
+    if (!mounted) return;
+    try {
+      const cur = sp.settings.pinTile;
+      const todo = !cur?.todo ? readLegacyPinPos("todo") : null;
+      const note = !cur?.note ? readLegacyPinPos("note") : null;
+      if (todo || note) {
+        sp.patchSettings({
+          pinTile: {
+            ...cur,
+            ...(todo ? { todo } : {}),
+            ...(note ? { note } : {}),
+          },
+        });
+      }
+      if (todo) dropLegacyPinPos("todo");
+      if (note) dropLegacyPinPos("note");
+    } catch {
+      /* 迁移失败不阻塞主流程（旧键留在原地，下次挂载再试） */
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounted]);
@@ -447,6 +477,10 @@ function StartPageView() {
           note={sp.note}
           todoTile={sp.settings.todoTile === true}
           noteTile={sp.settings.noteTile === true}
+          pinTilePos={sp.settings.pinTile}
+          onPinPos={(k, p) =>
+            sp.patchSettings((prev) => ({ pinTile: { ...prev.pinTile, [k]: p } }))
+          }
           onOpenPanel={sp.gotoPanel}
         />
 

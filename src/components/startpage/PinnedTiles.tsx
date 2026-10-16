@@ -11,7 +11,9 @@
  *
  * 默认位置：视口左下（待办）/ 右下（便签），Dock 上方两侧的空白带——
  * 不占快捷服务磁贴墙、不碰搜索框/时钟；合法拖拽落点钉位持久化
- * （localStorage start:pintile-todo / start:pintile-note），刷新后仍在。
+ * （v8.7.123 起 settings.pinTile，随账号云同步跨设备跟随；
+ *   v8.7.105~121 存 localStorage start:pintile-todo/note，本版随存储域
+ *   重置退役——旧键孤儿由一次性迁移接管），刷新后仍在。
  *
  * 动画（磨砂存活律三层拆分，与磁贴墙 intro 同语言）：
  *   · 外层 motion.div 只动 transform（y/scale）——升起/落座，绝不携带
@@ -30,7 +32,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, animate, motion, useMotionValue } from "framer-motion";
 import { CheckSquare, StickyNote } from "lucide-react";
-import type { PanelId, TodoItem } from "@/lib/startpage/types";
+import type { PanelId, PinTilePos, TodoItem } from "@/lib/startpage/types";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -48,7 +50,9 @@ const DRAG_SLOP = 4;
 const POS_KEY = { todo: "start:pintile-todo", note: "start:pintile-note" } as const;
 type PinKey = keyof typeof POS_KEY;
 
-function readSavedPos(k: PinKey): { x: number; y: number } | null {
+/** 旧 localStorage 钉位一次性迁移（v8.7.123）：settings.pinTile 空位且
+ *  旧键有值时接管，旧键随即清掉防双源漂移 */
+export function readLegacyPinPos(k: PinKey): { x: number; y: number } | null {
   try {
     const raw = window.localStorage.getItem(POS_KEY[k]);
     if (!raw) return null;
@@ -60,11 +64,11 @@ function readSavedPos(k: PinKey): { x: number; y: number } | null {
   return null;
 }
 
-function savePos(k: PinKey, p: { x: number; y: number }) {
+export function dropLegacyPinPos(k: PinKey) {
   try {
-    window.localStorage.setItem(POS_KEY[k], JSON.stringify(p));
+    window.localStorage.removeItem(POS_KEY[k]);
   } catch {
-    /* 隐私模式：钉位不持久，会话内仍有效 */
+    /* noop */
   }
 }
 
@@ -101,19 +105,50 @@ function forbiddenRects(): DOMRect[] {
  *     （类名沿用浮窗时代的全局防选中通道，globals.css 同一条规则）。
  * 返回：x/y 位移、钉位（null=默认锚位）、宿主 ref、pointer 处理器。
  */
-function usePinDrag(key: PinKey) {
+function usePinDrag(
+  key: PinKey,
+  /** 钉位权威值（settings.pinTile?.[key]）：云同步/跨文档 storage 事件到达后自然跟进 */
+  savedProp: { x: number; y: number } | null,
+  /** 钉位提交（合法落点/resize clamp）：写回 settings 域 */
+  commit: (p: { x: number; y: number } | null) => void,
+) {
   const x = useMotionValue(0);
   const y = useMotionValue(0);
-  const [saved, setSaved] = useState<{ x: number; y: number } | null>(null);
+  const [saved, setSaved] = useState<{ x: number; y: number } | null>(savedProp);
   const hostRef = useRef<HTMLDivElement | null>(null);
   /* 拖拽前视觉左上角（基准位）：回弹目标 = 基准位 = 位移 (0,0) */
   const base = useRef<{ x: number; y: number } | null>(null);
   const drag = useRef({ on: false, moved: false, px: 0, py: 0, upAt: 0 });
 
+  /* 钉位权威值跟随：云同步恢复/换设备/跨文档变更 → 本地状态跟进 */
   useEffect(() => {
-    const p = readSavedPos(key);
-    if (p) setSaved(p);
-  }, [key]);
+    setSaved((cur) => {
+      if (savedProp === cur) return cur;
+      if (
+        savedProp &&
+        cur &&
+        savedProp.x === cur.x &&
+        savedProp.y === cur.y
+      )
+        return cur;
+      return savedProp;
+    });
+  }, [savedProp]);
+
+  /* 跨设备钉位 clamp（display-only）：云同步来的坐标可能超出本视口
+     （别的设备分辨率/窗口更大），hostRef 就绪后把越界坐标收回视口——
+     不回写（防多设备互相打点），下次拖拽/resize 落点自然持久化 */
+  useEffect(() => {
+    if (!saved) return;
+    const el = hostRef.current;
+    const w = el?.offsetWidth ?? 224;
+    const h = el?.offsetHeight ?? 120;
+    const np = {
+      x: Math.min(Math.max(8, saved.x), Math.max(8, window.innerWidth - w - 8)),
+      y: Math.min(Math.max(8, saved.y), Math.max(8, window.innerHeight - h - 8)),
+    };
+    if (np.x !== saved.x || np.y !== saved.y) setSaved(np);
+  }, [saved]);
 
   const setBodyDragging = (on: boolean) => {
     try {
@@ -179,37 +214,42 @@ function usePinDrag(key: PinKey) {
       animate(y, 0, LAYOUT_SPRING);
     } else {
       /* 合法落点：以当前视觉位重钉（left/top 改写 + 位移归零，同帧无缝），
-         持久化 start:pintile-todo/note */
+         持久化 settings.pinTile（v8.7.123 云同步随行） */
       const p = { x: Math.round(fr.left), y: Math.round(fr.top) };
       x.set(0);
       y.set(0);
       setSaved(p);
-      savePos(key, p);
+      commit(p);
     }
   };
 
-  /* 窗口缩放：钉位 clamp 回视口（拖拽中不干预） */
+  /* 窗口缩放：钉位 clamp 回视口（拖拽中不干预）。
+     commit 在 updater 外提交（updater 必须纯——副作用入 updater 在 React
+     18 下会被丢弃/双跑，钉位丢失的根因）；savedRef 供事件回调读最新值 */
+  const savedRef = useRef(saved);
+  savedRef.current = saved;
   useEffect(() => {
     const onResize = () => {
       if (drag.current.on) return;
       x.set(0);
       y.set(0);
-      setSaved((p) => {
-        if (!p) return p;
-        const el = hostRef.current;
-        const w = el?.offsetWidth ?? 224;
-        const h = el?.offsetHeight ?? 120;
-        const np = {
-          x: Math.min(Math.max(8, p.x), Math.max(8, window.innerWidth - w - 8)),
-          y: Math.min(Math.max(8, p.y), Math.max(8, window.innerHeight - h - 8)),
-        };
-        if (np.x !== p.x || np.y !== p.y) savePos(key, np);
-        return np;
-      });
+      const p = savedRef.current;
+      if (!p) return;
+      const el = hostRef.current;
+      const w = el?.offsetWidth ?? 224;
+      const h = el?.offsetHeight ?? 120;
+      const np = {
+        x: Math.min(Math.max(8, p.x), Math.max(8, window.innerWidth - w - 8)),
+        y: Math.min(Math.max(8, p.y), Math.max(8, window.innerHeight - h - 8)),
+      };
+      if (np.x !== p.x || np.y !== p.y) {
+        setSaved(np);
+        commit(np);
+      }
     };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
-  }, [key, x, y]);
+  }, [key, x, y, commit]);
 
   const afterDragClick = useCallback(() => Date.now() - drag.current.upAt < 300, []);
 
@@ -221,12 +261,18 @@ function PinnedTiles({
   note,
   todoTile,
   noteTile,
+  pinTilePos,
+  onPinPos,
   onOpenPanel,
 }: {
   todos: TodoItem[];
   note: string;
   todoTile: boolean;
   noteTile: boolean;
+  /** settings.pinTile：待办/便签磁贴钉位（云同步随行，v8.7.123） */
+  pinTilePos?: PinTilePos;
+  /** 钉位提交：写回 settings.pinTile（随 settings 持久化+云同步） */
+  onPinPos: (k: "todo" | "note", p: { x: number; y: number } | null) => void;
   onOpenPanel: (p: PanelId) => void;
 }) {
   const pending = todos.filter((t) => !t.done);
@@ -234,8 +280,26 @@ function PinnedTiles({
 
   return (
     <AnimatePresence>
-      {todoTile && <TodoTile key="pintile-todo" todos={todos} pending={pending} preview={preview} onOpenPanel={onOpenPanel} />}
-      {noteTile && <NoteTile key="pintile-note" note={note} onOpenPanel={onOpenPanel} />}
+      {todoTile && (
+        <TodoTile
+          key="pintile-todo"
+          todos={todos}
+          pending={pending}
+          preview={preview}
+          saved={pinTilePos?.todo ?? null}
+          commit={(p) => onPinPos("todo", p)}
+          onOpenPanel={onOpenPanel}
+        />
+      )}
+      {noteTile && (
+        <NoteTile
+          key="pintile-note"
+          note={note}
+          saved={pinTilePos?.note ?? null}
+          commit={(p) => onPinPos("note", p)}
+          onOpenPanel={onOpenPanel}
+        />
+      )}
     </AnimatePresence>
   );
 }
@@ -244,14 +308,18 @@ function PinnedTiles({
 function TodoTile({
   pending,
   preview,
+  saved,
+  commit,
   onOpenPanel,
 }: {
   todos: TodoItem[];
   pending: TodoItem[];
   preview: TodoItem[];
+  saved: { x: number; y: number } | null;
+  commit: (p: { x: number; y: number } | null) => void;
   onOpenPanel: (p: PanelId) => void;
 }) {
-  const pin = usePinDrag("todo");
+  const pin = usePinDrag("todo", saved, commit);
   return (
     <motion.div
       className={
@@ -329,8 +397,18 @@ function TodoTile({
 }
 
 /** 便签常驻磁贴（右下默认锚位；v8.7.106 自由拖拽+禁区回弹+钉位持久化） */
-function NoteTile({ note, onOpenPanel }: { note: string; onOpenPanel: (p: PanelId) => void }) {
-  const pin = usePinDrag("note");
+function NoteTile({
+  note,
+  saved,
+  commit,
+  onOpenPanel,
+}: {
+  note: string;
+  saved: { x: number; y: number } | null;
+  commit: (p: { x: number; y: number } | null) => void;
+  onOpenPanel: (p: PanelId) => void;
+}) {
+  const pin = usePinDrag("note", saved, commit);
   return (
     <motion.div
       className={
