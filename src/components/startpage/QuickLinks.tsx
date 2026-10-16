@@ -453,7 +453,7 @@ function TileVisual({
       <span
         className={
           "block cursor-grab active:cursor-grabbing transition-transform duration-[350ms] ease-[cubic-bezier(0.22,1,0.36,1)] " +
-          (jiggle || sm ? "" : "hover:scale-[1.07]")
+          (jiggle ? "" : "hover:scale-[1.07]")
         }
       >
         <TileIcon

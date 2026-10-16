@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.119",
+    date: "2026-10-13",
+    title: "常驻磁贴回退：描边/磨砂/图标恢复整块一体",
+    channel: "page",
+    highlights: [
+      "回退 v8.7.118 常驻分支：内容层几何写错导致图标整体右移、描边环被钉死不再随上浮；现恢复整块缩放，常驻与抽屉的磁贴行为一致（描边/磨砂/图标同起同落）",
+      "常驻底部类描边位移留待后续以正确几何重做，不在本版处理"
+    ],
+  },
+  {
     version: "8.7.118",
     date: "2026-10-13",
     title: "常驻磁贴 hover 单独收口：底板走 clip 通道，抽屉不动",
