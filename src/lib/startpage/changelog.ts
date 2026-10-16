@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.117",
+    date: "2026-10-13",
+    title: "快捷服务图标效果整体回退（常驻 + 抽屉两级一并恢复）",
+    channel: "page",
+    highlights: [
+      "回退 v8.7.112–116 对快捷服务磁贴的全部 hover 改动：包裹层 hover:scale-[1.07] 原位恢复；globals.css 内我方新增的磁贴 hover 规则整段删除",
+      "该套 CSS 打在 .tile-shell / .tile-frost 上，两种形态共用，因此常驻与抽屉的图标效果一并恢复；抽屉模式其余逻辑未动"
+    ],
+  },
+  {
     version: "8.7.116",
     date: "2026-10-13",
     title: "磁贴 hover 完整版：底板放大走 clip 通道，描边不放大",

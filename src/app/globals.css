@@ -2504,44 +2504,4 @@ html.photo-mode .pintile-label {
   text-shadow: 0 1px 8px rgb(0 0 0 / 0.25);
 }
 
-/* ---------- v8.7.112 磁贴 hover 通道小步验证（照搜索框 v8.7.81 思路） ----------
-   hover 缩放原先打在磨砂层的祖先上 → 磨砂元素几何逐帧变化 → 其重绘被推迟，
-   用户所见「移开鼠标、下沉播完后底层霜面错位一下再复位」（流畅模式无
-   backdrop-filter 即消失）。本步把缩放改打「磨砂层内部子层」（描边环 + 内容层），
-   磨砂层自身盒子/变换全程恒定，验证因果；代价：悬停时磨砂底板不再跟着放大。
-   验证通过后按完整方案（磨砂层静态 + clip 通道 + 内容层 transform）收口。 */
-/* ---------- v8.7.115 磁贴 hover 完整版（照搜索框 v8.7.81 通道） ----------
-   三诉求同时满足：① 磨砂底板跟着放大；② 描边环不放大；③ 磨砂层几何不变
-   （否则悬停收尾底层霜面错位一下再复位，流畅模式无磨砂即消失）。
-   底板盒子【永久】铺成悬停尺寸（inset:-3.5% 两侧合计 +7%，静态值永不动画）；
-   可见放大交给 clip-path：静息 inset(3.271%)（= 3.5/107，与搜索框
-   inset(0.7389%) 同一算式）→ hover inset(0)，350ms 同曲线。
-   描边环与内容层钉在静息盒（inset:3.271%），内容层再 scale(1.07)；
-   描边环不带任何 transform/transition —— 描边永不放大。 ---------- */
-.tile-frost {
-  inset: -3.5%;
-  transition: clip-path 350ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-.tile-shell.h-14 .tile-frost {
-  clip-path: inset(3.271% round 18px);
-}
-.tile-shell.h-16 .tile-frost {
-  clip-path: inset(3.271% round 20px);
-}
-.tile-shell.h-14:hover .tile-frost {
-  clip-path: inset(0% round 18px);
-}
-.tile-shell.h-16:hover .tile-frost {
-  clip-path: inset(0% round 20px);
-}
-.tile-frost .tile-ring,
-.tile-frost > *:not(.tile-ring) {
-  inset: 3.271%;
-}
-.tile-frost > *:not(.tile-ring) {
-  transform-origin: center;
-  transition: transform 350ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-.tile-shell:hover .tile-frost > *:not(.tile-ring) {
-  transform: scale(1.07);
-}
+
