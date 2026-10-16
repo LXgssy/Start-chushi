@@ -89,6 +89,28 @@ const VEIL_LIFT = 32;
  *  maxHeight 封顶公式不变，裁切线仍=Dock 顶缘；预留只是滚动末端的余量。 */
 const BOTTOM_RESERVE = 40;
 
+/* ---------- v8.7.116 抽屉羽化遮罩锚层根修 + 上下缘外扩（用户指令「把抽屉
+   页面快捷服务上方的遮罩再往上移一点，现在的挡住了一部分图标，下方的遮罩
+   也下移一点」）----------
+   根因（运行时实测 1280×720 / 40 磁贴）：抽屉两枚 FadeVeil 锚在视口尺寸的
+   motion.div（fixed inset-0 链）而非滚动层——顶遮罩 top:-VEIL_LIFT(32) 探出
+   视口（rect -32~-4），底遮罩 bottom:0 悬在 pb-24 空带（rect 692~720，滚动层
+   底 624 之下 68px）——两枚遮罩自 v8.7.105 引入起从未糊到过磁贴（羽化恒失
+   效），磁贴滑到滚动层边缘（36/624）即硬裁切，用户所见「遮罩挡住一部分图
+   标」即此硬裁线。
+   修法（仿常驻形态 v8.7.106/109 成熟对冲律）：滚动层外套 relative 锚定层
+   （my-auto/max-h-full 语义随迁），滚动层以负 margin + 等值 padding 上下
+   对冲外扩——静止磁贴位置分毫不动，裁切线顶上移/底下移，FadeVeil 改锚
+   锚定层贴真实滚动边缘，羽化首次真正生效（磁贴滑到边缘渐隐而非硬切）。 */
+/** 抽屉顶缘上探（px）：滚动层顶缘上移进搜索区空带（与常驻 VEIL_LIFT 同值
+ *  同义；40 磁贴满滚时顶缘 36-32=4px，磁贴几乎贴视口顶才渐隐，「挡图标」
+ *  解除）。 */
+const DRAWER_VEIL_LIFT = 32;
+/** 抽屉底缘下探（px）：滚动层底缘下移。滚动层底与 Dock 顶间隙恒 26px
+ *  （滚动层底=vh-96，Dock 顶=vh-70），24 留 2px 余量——磁贴滑到 Dock 上沿
+ *  才渐隐，不压 Dock。 */
+const DRAWER_VEIL_DROP = 24;
+
 export function emitEditLink(link: StartLink | null) {
   window.dispatchEvent(new CustomEvent("start:edit-link", { detail: link }));
 }
@@ -516,16 +538,21 @@ function TilePlaceholder({ sm = false }: { sm?: boolean }) {
  *  （磁贴硬裁切）——流畅系统本来就是降级渲染，符合契约。
  *  v8.7.109：常驻形态的 bottom 实例退役（用户指令「不要底部羽化遮罩，删掉
  *  这个」——磁贴少时容器贴内容高，遮罩正压最后一行）——仅抽屉形态继续
- *  使用（抽屉两枚遮罩锚在视口尺寸的 motion.div 上，与内容高度无关）。 */
+ *  使用（抽屉两枚遮罩 v8.7.116 起锚在滚动层外圈的 relative 锚定层上）。
+ *  v8.7.116 drop（抽屉 bottom 专用）：遮罩随滚动层底缘对冲下探（bottom:
+ *  -drop），贴真实裁切线——负值伸出锚定层底，糊下探带内的磁贴。 */
 function FadeVeil({
   side,
   show,
   lift = 0,
+  drop = 0,
 }: {
   side: "top" | "bottom";
   show: boolean;
   /** v8.7.106 顶缘上探（px）：遮罩上移出磁贴第一排，悬进搜索区空带 */
   lift?: number;
+  /** v8.7.116 底缘下探（px）：遮罩随滚动层底缘下移，贴真实裁切线 */
+  drop?: number;
 }) {
   return (
     <span
@@ -535,7 +562,13 @@ function FadeVeil({
         (side === "top" ? "top-0 cl-fade-veil-top " : "bottom-0 cl-fade-veil-bottom ") +
         (show ? "cl-fade-veil-on" : "")
       }
-      style={side === "top" && lift > 0 ? { top: -lift } : undefined}
+      style={
+        side === "top" && lift > 0
+          ? { top: -lift }
+          : side === "bottom" && drop > 0
+            ? { bottom: -drop }
+            : undefined
+      }
     />
   );
 }
@@ -1047,7 +1080,15 @@ function QuickLinks({
      上浮，旧裁切线正落在最后一行上（起步位越界被裁 + 入场变换瞬时撑大
      scrollHeight 令 fade.bottom 误显影且无事件复测驻留不退=用户所见「入场
      动画时遮罩挡住一部分图标」）；预留 40px>26px 后上浮全程在容器内，
-     下缘边界整体下移不再遮图标。抽屉形态遮罩与测量逻辑原样保留。 */
+     下缘边界整体下移不再遮图标。
+     v8.7.116 抽屉羽化锚层根修 + 上下缘外扩（用户指令「抽屉页面上方遮罩
+     再往上移一点，现在的挡住了一部分图标，下方遮罩也下移一点」）：抽屉
+     两枚 FadeVeil 原锚视口尺寸 motion.div——顶遮罩被 lift 探出视口、底遮罩
+     悬在 pb 空带，运行时实测两枚 rect 均与滚动层零交集，羽化自 v8.7.105
+     起恒失效（磁贴滑到边缘硬裁=「遮罩挡住图标」所见）。根修=滚动层外套
+     relative 锚定层，滚动层负 margin+等值 padding 对冲外扩（顶 32/底 24，
+     静止磁贴位置分毫不动），遮罩改锚锚定层贴真实边缘。详见
+     DRAWER_VEIL_LIFT/DROP 注释。 */
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [fade, setFade] = useState({ top: false, bottom: false });
   const measureFade = useCallback(() => {
@@ -1295,18 +1336,36 @@ function QuickLinks({
                   >
                     {/* v8.7.105 抽屉滚动层：my-auto 技巧——内容少时垂直居中
                         （等效原 justify-center），磁贴超过视口时层内滚动且
-                        顶部可达（flex 溢出滚动标准解法）；同一套羽化遮罩 */}
+                        顶部可达（flex 溢出滚动标准解法）；同一套羽化遮罩。
+                        v8.7.116 锚层根修：my-auto/max-h-full 上移至外圈
+                        relative 锚定层，滚动层以「负 margin + 等值 padding」
+                        上下对冲外扩（DRAWER_VEIL_LIFT/DROP）——静止磁贴位置
+                        分毫不动（居中按 margin box 计，负 margin 恰被等值
+                        padding 抵消），裁切线顶上移 32px/底下移 24px，两枚
+                        FadeVeil 改锚锚定层（top:-LIFT / bottom:-DROP）贴真实
+                        滚动边缘——旧实现锚视口尺寸层，顶遮罩探出视口、底遮罩
+                        悬在 pb 空带，羽化恒失效（磁贴边缘硬裁=用户所见
+                        「遮罩挡住一部分图标」）。min-h-0 + flex-1：内容多时
+                        滚动层吃满锚定层 margin box（flex 溢出滚动标准律）。 */}
+                  <div className="relative my-auto flex max-h-full w-full flex-col">
                     <div
                       ref={scrollRef}
-                      className="cl-links-scroll pointer-events-auto my-auto flex max-h-full w-full flex-col items-center overflow-y-auto overscroll-contain"
+                      className="cl-links-scroll pointer-events-auto flex min-h-0 w-full flex-1 flex-col items-center overflow-y-auto overscroll-contain"
+                      style={{
+                        marginTop: -DRAWER_VEIL_LIFT,
+                        paddingTop: DRAWER_VEIL_LIFT,
+                        marginBottom: -DRAWER_VEIL_DROP,
+                        paddingBottom: DRAWER_VEIL_DROP,
+                      }}
                       onScroll={measureFade}
                     >
                       <div ref={rootRef} className="cl-links cl-links-drawer flex flex-col items-center">
                         {renderGrid(false)}
                       </div>
                     </div>
-                    <FadeVeil side="top" show={fade.top} lift={VEIL_LIFT} />
-                    <FadeVeil side="bottom" show={fade.bottom} />
+                    <FadeVeil side="top" show={fade.top} lift={DRAWER_VEIL_LIFT} />
+                    <FadeVeil side="bottom" show={fade.bottom} drop={DRAWER_VEIL_DROP} />
+                  </div>
                   </motion.div>
             </motion.div>,
             document.body,
