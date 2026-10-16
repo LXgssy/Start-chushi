@@ -1,5 +1,20 @@
 /* ============================================================================
- * 「初始」资源嗅探页面桥 sniffer-bridge v3（v8.7.112，+缓存抓取数据面）
+ * 「初始」资源嗅探页面桥 sniffer-bridge v4（v8.7.115，+初始化段备胎+自动下载）
+ * ----------------------------------------------------------------------------
+ * v8.7.115 缓存抓取可播性根修（用户：「缓存抓取下载的文件没有 mp4 无法正常
+ *   播放」）——两处断链：
+ *   ①捕获中途开启：捕到的分段缺初始化段（fMP4 ftyp+moov / WebM EBML 头），
+ *     合成文件无初始化段播放器不认。根修＝初始化段备胎库：探针在捕获未开
+ *     期间也截每轨道头部追加（v4 探针），桥按轨道攒初始化段，box-walk 判
+ *     攒齐（见 moof/styp/Cluster 边界即截断，或 1MB 顶）后回 __chushiSniff
+ *     Ctrl/catch-init-done 让探针停；下载合成时 chunks[0] 非容器头即前缀
+ *     补齐。缺备胎时诚实提示「缺初始化段，建议从头捕获」。
+ *   ②嗅探晚开（页面播到一半才开开关）：catch-track 登记永远错过 → mime
+ *     空 → 扩展名 bin。根修＝探针 catch-chunk 随行 mime（v4），桥侧兜底
+ *     回填；仍无 mime 时从首块字节识别容器（ftyp/EBML/TS）定扩展名。
+ * v8.7.115 缓存完成自动下载开关（用户指令）：chrome.storage.local
+ *   snifferCatchAutoDl（全局偏好），完成点（endOfStream/手动停止且已有
+ *   数据/1GB 顶）读开关命中即自动合成下载，备注经状态事件推浮窗 toast。
  * ----------------------------------------------------------------------------
  * v8.7.112 缓存抓取（能力对齐猫抓 cat-catch 的 catch-script/catch.js，
  *   实现为本仓自有代码）：探针在捕获态（data-chushi-catch 属性）下把
@@ -148,6 +163,109 @@
   var catchTotal = 0;
   var CATCH_MAX_BYTES = 1073741824;    /* 1GB 硬顶：到顶自动停捕获防 OOM */
   var catchNotifyTimer = 0;
+  /* v8.7.115 初始化段备胎库：轨道号 → {parts:[], size, complete, initBytes}
+     探针在捕获未开期间转交的头部追加在这里攒；box-walk 判齐（见 moof/styp
+     /Cluster 边界即截断）后回 __chushiSniffCtrl/catch-init-done 让探针停；
+     下载合成时 chunks[0] 非容器头即取 initBytes 前缀补齐。 */
+  var catchInit = {};
+  var CATCH_INIT_MAX = 1048576;
+
+  function initJoin(st) {
+    var buf = new Uint8Array(st.size);
+    var o = 0;
+    for (var i = 0; i < st.parts.length; i++) {
+      buf.set(new Uint8Array(st.parts[i]), o);
+      o += st.parts[i].byteLength;
+    }
+    return buf;
+  }
+
+  function initMarkDone(st, idx, endBytes) {
+    st.complete = true;
+    st.initBytes = endBytes;
+    try {
+      window.postMessage({ __chushiSniffCtrl: true, kind: "catch-init-done", idx: idx }, "*");
+    } catch (e) { /* noop */ }
+  }
+
+  /* 初始化段攒齐判定：fMP4 顶层 box-walk（遇 moof/styp 即初始化段终点）；
+     WebM 找首个 Cluster 元素 ID（1F 43 B6 75）；TS 自包含直接判齐。
+     未判齐返回 false（探针继续转交，1MB 顶后强停）。 */
+  function initScan(st, idx) {
+    try {
+      var buf = initJoin(st);
+      var total = buf.length;
+      if (total >= 8) {
+        var tag4 = String.fromCharCode(buf[4], buf[5], buf[6], buf[7]);
+        if (buf[0] === 0x47) { initMarkDone(st, idx, total); return true; }
+        if (buf[0] === 0x1A && buf[1] === 0x45 && buf[2] === 0xDF && buf[3] === 0xA3) {
+          for (var p = 0; p <= total - 4; p++) {
+            if (buf[p] === 0x1F && buf[p + 1] === 0x43 && buf[p + 2] === 0xB6 && buf[p + 3] === 0x75) {
+              initMarkDone(st, idx, p); return true;
+            }
+          }
+          return false;
+        }
+        if (tag4 === "ftyp") {
+          var off = 0;
+          while (off + 8 <= total) {
+            var size = ((buf[off] << 24) | (buf[off + 1] << 16) | (buf[off + 2] << 8) | buf[off + 3]) >>> 0;
+            var type = String.fromCharCode(buf[off + 4], buf[off + 5], buf[off + 6], buf[off + 7]);
+            if (type === "moof" || type === "styp") { initMarkDone(st, idx, off); return true; }
+            if (size < 8) return false;
+            off += size;
+          }
+          return false;
+        }
+      }
+    } catch (e) { /* noop */ }
+    return false;
+  }
+
+  /* 下载合成用：首块缺初始化段时取备胎前缀（initBytes 截断防备胎尾混入
+     媒体分段）；返回 null=无需补，数组=前缀块，"missing"=缺备胎诚实提示 */
+  function initPrefixFor(ti, firstChunk) {
+    try {
+      var u8 = firstChunk instanceof ArrayBuffer
+        ? new Uint8Array(firstChunk)
+        : new Uint8Array(firstChunk.buffer, firstChunk.byteOffset, firstChunk.byteLength);
+      if (u8.length < 8) return null;
+      var tag4 = String.fromCharCode(u8[4], u8[5], u8[6], u8[7]);
+      if (tag4 === "ftyp") return null;
+      if (u8[0] === 0x1A && u8[1] === 0x45 && u8[2] === 0xDF && u8[3] === 0xA3) return null;
+      if (u8[0] === 0x47) return null;
+      if (tag4 === "moof" || tag4 === "styp") {
+        var st = catchInit[ti];
+        if (st && st.complete && st.initBytes > 0) {
+          var parts = [];
+          var left = st.initBytes;
+          for (var i = 0; i < st.parts.length && left > 0; i++) {
+            var b = st.parts[i];
+            if (left >= b.byteLength) { parts.push(b); left -= b.byteLength; }
+            else { parts.push(b.slice(0, left)); left = 0; }
+          }
+          return parts.length ? parts : "missing";
+        }
+        return "missing";
+      }
+    } catch (e) { /* noop */ }
+    return null;
+  }
+
+  /* 容器识别（mime 缺席时的扩展名兑底）：ftyp→mp4 / EBML→webm / 0x47→ts */
+  function catchContainerOf(firstChunk) {
+    try {
+      var u8 = firstChunk instanceof ArrayBuffer
+        ? new Uint8Array(firstChunk)
+        : new Uint8Array(firstChunk.buffer, firstChunk.byteOffset, firstChunk.byteLength);
+      if (u8.length < 12) return "";
+      var tag4 = String.fromCharCode(u8[4], u8[5], u8[6], u8[7]);
+      if (tag4 === "ftyp") return "mp4";
+      if (u8[0] === 0x1A && u8[1] === 0x45 && u8[2] === 0xDF && u8[3] === 0xA3) return "webm";
+      if (u8[0] === 0x47) return "ts";
+    } catch (e) { /* noop */ }
+    return "";
+  }
 
   function catchInfo() {
     var filled = 0;
@@ -186,8 +304,10 @@
   }
 
   function catchTearDown() {
-    /* 嗅探总关：捕获态与已攒数据一并拆（浮窗面板重开时 info() 为空态） */
+    /* 嗅探总关：捕获态、已攒数据与初始化段备胎一并拆（浮窗面板重开时
+       info() 为空态） */
     catchClear();
+    catchInit = {};
     catchSetArm(false);
   }
 
@@ -231,18 +351,30 @@
 
   function catchDownload() {
     var saved = 0;
+    var warn = "";
     try {
       var base = catchSanitize(document.title);
-      var multi = catchTracks.filter(function (t) { return t && t.chunks.length; }).length > 1;
+      var filled = catchTracks.filter(function (t) { return t && t.chunks.length; });
+      var multi = filled.length > 1;
       for (var i = 0; i < catchTracks.length; i++) {
         var t = catchTracks[i];
         if (!t || !t.chunks.length) continue;
         var mime = (t.mime || "").split(";")[0].trim().toLowerCase();
-        var blob = new Blob(t.chunks, { type: mime || "application/octet-stream" });
+        /* v8.7.115 初始化段补齐：首块非容器头（moof/styp 开头）即前缀备胎 */
+        var prefix = initPrefixFor(i, t.chunks[0]);
+        if (prefix === "missing" && !warn) {
+          warn = "部分文件缺初始化段（可能无法播放），建议「从头捕获」后重播视频再下载";
+        }
+        var parts = Array.isArray(prefix) ? prefix.concat(t.chunks) : t.chunks;
+        var blob = new Blob(parts, { type: mime || "application/octet-stream" });
         var url = URL.createObjectURL(blob);
+        var ext = catchExtOf(t.mime);
+        if (!t.mime || ext === "bin") {
+          ext = catchContainerOf(t.chunks[0]) || "bin";   /* mime 缺席：字节识别容器 */
+        }
         var a = document.createElement("a");
         a.href = url;
-        a.download = base + (multi ? "-" + catchTrackLabel(t.mime) : "") + "." + catchExtOf(t.mime);
+        a.download = base + (multi ? "-" + catchTrackLabel(t.mime) : "") + "." + ext;
         document.documentElement.appendChild(a);
         a.click();
         a.remove();
@@ -250,7 +382,28 @@
         saved++;
       }
     } catch (e) { /* noop */ }
-    return saved;
+    return { saved: saved, warn: warn };
+  }
+
+  /* v8.7.115 缓存完成自动下载：读全局偏好（chrome.storage.local
+     snifferCatchAutoDl），命中且有数据即自动合成下载；结果经备注
+     通道（chushi-catch-state → 浮窗 toast 去重）告知用户。 */
+  function catchMaybeAutoDownload() {
+    try {
+      chrome.storage.local.get("snifferCatchAutoDl", function (o) {
+        if (!o || !o.snifferCatchAutoDl) return;
+        if (catchTotal <= 0) return;
+        var r = catchDownload();
+        if (r.saved > 0) {
+          catchNote = "捕获完成，已自动下载（" + r.saved + " 个文件）";
+        } else if (r.warn) {
+          catchNote = r.warn;
+        }
+        try {
+          window.dispatchEvent(new CustomEvent("chushi-catch-state", { detail: catchInfo() }));
+        } catch (e) { /* noop */ }
+      });
+    } catch (e) { /* noop */ }
   }
 
   /* 同世界直达 API（sniffer-float.js 与本桥同 ISOLATED world，点击时直调；
@@ -258,7 +411,12 @@
   if (!optOut()) {
     window.__chushiCatchApi = {
       info: catchInfo,
-      toggle: function () { catchSetArm(!catchOn); return catchOn; },
+      /* v8.7.115 手动停止也算「捕获完成」：有数据且开了自动下载即下 */
+      toggle: function () {
+        catchSetArm(!catchOn);
+        if (!catchOn && catchTotal > 0) catchMaybeAutoDownload();
+        return catchOn;
+      },
       restart: function () { catchClear(); catchSetArm(true); catchSeekToStart(); return true; },
       download: catchDownload,
     };
@@ -295,12 +453,34 @@
         return;
       }
       if (d.kind === "catch-chunk") {
-        if (!catchOn) return;                    /* 未开捕获：分段零驻留 */
         var ci = Number(d.idx) || 0;
+        var cm = String(d.mime || "");
         var tr = catchTracks[ci];
-        if (!tr) { tr = { mime: "", chunks: [], size: 0 }; catchTracks[ci] = tr; }
+        if (!tr) { tr = { mime: cm, chunks: [], size: 0 }; catchTracks[ci] = tr; }
+        else if (cm && !tr.mime) tr.mime = cm;    /* v8.7.115 嗅探晚开：mime 随行回填 */
         var n = d.data && d.data.byteLength ? d.data.byteLength : 0;
         if (!n) return;
+        if (!catchOn) {
+          /* v8.7.115 初始化段备胎：捕获未开也攒头部追加（box-walk 判齐即
+             回流 catch-init-done 让探针停）；1MB 顶强停。此处零媒体分段
+             驻留——判齐后的迟到块直接丢弃。 */
+          var st = catchInit[ci];
+          if (!st) { st = { parts: [], size: 0, complete: false, initBytes: 0 }; catchInit[ci] = st; }
+          if (!st.complete) {
+            st.parts.push(d.data);
+            st.size += n;
+            initScan(st, ci);                        /* 攒齐即内部回流 catch-init-done */
+            if (!st.complete && st.size >= CATCH_INIT_MAX) {
+              /* 超顶放弃：内容不可判齐时前缀不可信，置空并同样回流让探针停 */
+              st.complete = true;
+              st.initBytes = 0;
+              try {
+                window.postMessage({ __chushiSniffCtrl: true, kind: "catch-init-done", idx: ci }, "*");
+              } catch (e) { /* noop */ }
+            }
+          }
+          return;
+        }
         if (catchTotal + n > CATCH_MAX_BYTES) {
           catchSetArm(false);
           catchDone = true;
@@ -308,6 +488,7 @@
           try {
             window.dispatchEvent(new CustomEvent("chushi-catch-state", { detail: catchInfo() }));
           } catch (e) { /* noop */ }
+          catchMaybeAutoDownload();
           return;
         }
         tr.chunks.push(d.data);
@@ -320,6 +501,7 @@
         if (!catchOn) return;
         catchDone = true;
         catchNotify();
+        catchMaybeAutoDownload();   /* v8.7.115 播放器宣告到尾＝捕获完成 */
         return;
       }
       if (d.kind === "req") {
