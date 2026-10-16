@@ -264,6 +264,93 @@
         color: var(--fg3);
         opacity: 0.75;
       }
+      /* v8.7.112 资源嗅探免责声明门（声明文本引自猫抓 cat-catch 项目） */
+      .dmask {
+        position: fixed;
+        inset: 0;
+        z-index: 60;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+        background: rgba(24, 22, 36, 0.5);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+      }
+      .dmask[hidden] {
+        display: none;
+      }
+      .dcard {
+        width: 100%;
+        max-width: 420px;
+        max-height: 100%;
+        overflow: auto;
+        background: var(--bg);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 18px 18px 16px;
+        box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
+      }
+      .dcard .dt {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--fg);
+        letter-spacing: 0.02em;
+      }
+      .dcard .ds {
+        margin-top: 3px;
+        font-size: 11px;
+        font-weight: 400;
+        color: var(--fg3);
+      }
+      .dcard .db {
+        margin-top: 10px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        background: var(--track);
+        border: 1px solid var(--line);
+        font-size: 11.5px;
+        line-height: 1.8;
+        color: var(--fg2);
+        font-weight: 300;
+      }
+      .dcard .dtip {
+        margin-top: 8px;
+        font-size: 10.5px;
+        line-height: 1.7;
+        color: var(--fg3);
+        font-weight: 300;
+      }
+      .dcard .dbtns {
+        display: flex;
+        gap: 8px;
+        margin-top: 14px;
+      }
+      .dcard .dbtns button {
+        flex: 1;
+        padding: 8px 0;
+        border-radius: 10px;
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: background 0.15s ease, filter 0.15s ease;
+      }
+      .dcard .dbtns .no {
+        border: 1px solid var(--line);
+        background: transparent;
+        color: var(--fg2);
+      }
+      .dcard .dbtns .no:hover {
+        background: color-mix(in srgb, var(--fg) 6%, transparent);
+      }
+      .dcard .dbtns .yes {
+        border: 0;
+        background: var(--acc);
+        color: #fff;
+      }
+      .dcard .dbtns .yes:hover {
+        filter: brightness(1.08);
+      }
     </style>
   </head>
   <body>
@@ -353,6 +440,26 @@
     </div>
 
     <footer>初始 · 新标签页</footer>
+
+    <!-- v8.7.112 资源嗅探免责声明门：开启前必须同意（声明文本引自猫抓
+         cat-catch 项目 README，GPL-3.0 开源项目）；同意态存
+         chrome.storage.local.snifferDisclaimerAgreed，同意一次不再询问 -->
+    <div class="dmask" id="sniff-gate" hidden>
+      <div class="dcard" role="dialog" aria-modal="true" aria-labelledby="sniff-gate-title">
+        <div class="dt" id="sniff-gate-title">开启资源嗅探前，请先阅读并同意</div>
+        <div class="ds">免责声明 · 引自开源项目「猫抓 cat-catch」</div>
+        <div class="db">
+          本扩展仅供下载用户拥有版权或已获授权的视频，禁止用于下载受版权保护且未经授权的内容。用户需自行承担使用本工具的全部法律责任，开发者不对用户的任何行为负责。本工具按“原样”提供，开发者不承担任何直接或间接责任。
+        </div>
+        <div class="dtip">
+          只有同意本声明才能开启资源嗅探；同意一次后不再重复询问。资源嗅探与缓存抓取仅供个人学习、研究使用，请尊重各网站的内容版权与运营方权益。
+        </div>
+        <div class="dbtns">
+          <button class="no" id="sniff-gate-no" type="button">不同意</button>
+          <button class="yes" id="sniff-gate-yes" type="button">同意并开启</button>
+        </div>
+      </div>
+    </div>
 
     <script src="popup.js"></script>
   </body>

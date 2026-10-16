@@ -1,15 +1,26 @@
 /* ============================================================================
- * 「初始」资源嗅探主世界探针 sniffer-probe v2（v8.7.66，嗅探机制整体重写）
+ * 「初始」资源嗅探主世界探针 sniffer-probe v3（v8.7.112，+缓存抓取）
+ * ----------------------------------------------------------------------------
+ * v8.7.112 缓存抓取（能力对齐猫抓 cat-catch 的 catch-script/catch.js，
+ *   实现为本仓自有代码）：页面开启捕获态（桥设 data-chushi-catch 属性）
+ *   期间，addSourceBuffer 登记【轨道号+mimeType】，appendBuffer 把分段
+ *   【拷贝一份】postMessage 给桥（ISOLATED world）攒块——抓的是「播放器
+ *   已缓冲的真实媒体数据」，各视频站 MSE 分段流的通用兑底下载方案。
+ *   拷贝即转交（postMessage transfer 零二次拷贝），探针侧不驻留数据；
+ *   未开捕获态零拷贝零转发，普通嗅探零增量。endOfStream 挂钩在捕获中
+ *   报「捕获完成」信号。
  * ----------------------------------------------------------------------------
  * 方案来源：Ghost-Downloader-3 browser_extension 的 MSE Probe（page-media/
  * attribution/mse-probe.ts，参照 cat-catch 拦截布局）——在页面主世界挂钩
- * 媒体数据流的四个必经入口，把「哪个 URL 在喂播放器」以轻量信号形式上报，
- * 只发信号不缓存数据：
+ * 媒体数据流的必经入口，把「哪个 URL 在喂播放器」以轻量信号形式上报，
+ * 普通嗅探只发信号不缓存数据（v8.7.112 缓存抓取是唯一例外，见下）：
  *   1. URL.createObjectURL  —— MediaSource 实例建 blob URL 即报（MSE 播放器
  *      造册；blob 本身不可下载，价值在标记「本页有 MSE 会话」）；
  *   2. MediaSource.addSourceBuffer —— 记 mimeType（video/mp4;codecs=...
  *      是 DASH 音视频轨道的唯一判据，B 站 da3 格式音视频同 trackId 段，
  *      只有 MSE 侧 mime 能分）+ 包一层 appendBuffer 报缓冲追加；
+ *      v8.7.112 缓存抓取态下另发轨道号登记与分段拷贝（catch-track /
+ *      catch-chunk / catch-eos 三信号）；
  *   3. fetch —— 每个完成的响应报 {url, mime}；小响应（≤2MB）窥首块，
  *      0x23 '#'+#EXTM3U 即 HLS 播放列表（服务器常给泛型 MIME，
  *      只有内容能实锤）；
@@ -17,8 +28,9 @@
  *      {url, mime}；文本响应直接查 #EXTM3U。
  *
  * 跨世界通道：window.postMessage({__chushiSniffSignal:true,...}) →
- *   ISOLATED world 的 sniffer-bridge.js（分类/去重/转发 SW）。与 GD3 的
- *   attribution-signal 同构：两端各持同名字符串约定，不共享运行时对象。
+ *   ISOLATED world 的 sniffer-bridge.js（分类/去重/转发 SW + 缓存抓取
+ *   攒块）。与 GD3 的 attribution-signal 同构：两端各持同名字符串约定，
+ *   不共享运行时对象。
  *
  * 门控律（成本零余量）：探针在 document_start 无条件注入（GD3 同款），
  *   但钩子内每次上报前查 documentElement 的 data-chushi-sniff 属性——
@@ -42,18 +54,40 @@
     catch (e) { return false; }
   }
 
-  /* MAIN world → ISOLATED world（分离 frame 的 postMessage 抛错吞掉） */
-  function post(signal) {
+  function catchArmed() {
+    try { return document.documentElement.hasAttribute("data-chushi-catch"); }
+    catch (e) { return false; }
+  }
+
+  /* MAIN world → ISOLATED world（分离 frame 的 postMessage 抛错吞掉；
+     transfer：ArrayBuffer 走转移零二次拷贝，分段的唯一大件通道） */
+  function post(signal, transfer) {
     if (!armed()) return;
     try {
       var msg = { __chushiSniffSignal: true };
       for (var k in signal) msg[k] = signal[k];
-      window.postMessage(msg, "*");
+      window.postMessage(msg, "*", transfer || undefined);
+    } catch (e) { /* noop */ }
+  }
+
+  /* 缓存抓取分段截留：拷贝一份转交桥（原始 buffer 仍归播放器，页面行为
+     零改变）。ArrayBuffer / TypedArray 双形态都接（播放器两种都传）。 */
+  function catchChunk(idx, data) {
+    if (!data) return;
+    try {
+      var copy = null;
+      if (data instanceof ArrayBuffer) copy = data.slice(0);
+      else if (ArrayBuffer.isView(data)) {
+        copy = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
+      }
+      if (!copy || !copy.byteLength) return;
+      post({ kind: "catch-chunk", idx: idx, data: copy }, [copy]);
     } catch (e) { /* noop */ }
   }
 
   /* ---------------------------------------------------------------- 1/2 MSE */
   var msIdSeq = 0;
+  var sbSeq = 0;               /* 缓存抓取轨道号：addSourceBuffer 顺序自增 */
   try {
     if (typeof window.URL === "function" && typeof window.URL.createObjectURL === "function" &&
         typeof window.MediaSource !== "undefined") {
@@ -79,19 +113,38 @@
         try {
           var mime = String(mimeType || "");
           post({ kind: "mse", mime: mime });
+          /* 缓存抓取轨道登记：每次 addSourceBuffer 都报（嗅探开着就报，
+             桥侧常备轨道表——捕获中途开启也能接上后续分段） */
+          var trackIdx = sbSeq++;
+          if (armed()) post({ kind: "catch-track", idx: trackIdx, mime: mime });
           try {
             /* appendBuffer 包装是 GD3 的缓冲追加确认信号；个别播放器把
-               SourceBuffer 实例冻结，包装失败只降级为 addSourceBuffer 信号 */
+               SourceBuffer 实例冻结，包装失败只降级为 addSourceBuffer 信号。
+               v8.7.112：捕获态下同时截留分段（拷贝转交，原始照传页面） */
             var origAppend = sb.appendBuffer;
             if (typeof origAppend === "function") {
               sb.appendBuffer = function (data) {
                 post({ kind: "mse", mime: mime });
+                if (catchArmed()) catchChunk(trackIdx, data);
                 return origAppend.apply(this, arguments);
               };
             }
           } catch (e) { /* frozen instance */ }
         } catch (e) { /* noop */ }
         return sb;
+      };
+    }
+  } catch (e) { /* frozen prototype */ }
+
+  /* endOfStream：播放器宣告所有轨道到尾——捕获中报「捕获完成」（猫抓
+     catch.js 同款信号；个别播放器冻结原型时安装失败不影响其余钩子） */
+  try {
+    if (typeof window.MediaSource !== "undefined" &&
+        MediaSource.prototype && typeof MediaSource.prototype.endOfStream === "function") {
+      var origEOS = MediaSource.prototype.endOfStream;
+      MediaSource.prototype.endOfStream = function () {
+        try { if (catchArmed()) post({ kind: "catch-eos" }); } catch (e) { /* noop */ }
+        return origEOS.apply(this, arguments);
       };
     }
   } catch (e) { /* frozen prototype */ }

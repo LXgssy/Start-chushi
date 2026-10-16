@@ -1,5 +1,19 @@
 /* ============================================================================
- * 「初始」资源嗅探页面桥 sniffer-bridge v2（v8.7.66，嗅探机制整体重写）
+ * 「初始」资源嗅探页面桥 sniffer-bridge v3（v8.7.112，+缓存抓取数据面）
+ * ----------------------------------------------------------------------------
+ * v8.7.112 缓存抓取（能力对齐猫抓 cat-catch 的 catch-script/catch.js，
+ *   实现为本仓自有代码）：探针在捕获态（data-chushi-catch 属性）下把
+ *   appendBuffer 分段拷贝经 postMessage 送来，这里按轨道攒块；下载在
+ *   本世界合成 Blob 直下（点击手势在本世界，a[download] 无激活丢失）。
+ *   同世界 API：sniffer-float.js 与本桥同 ISOLATED world，直接调
+ *   window.__chushiCatchApi（info/toggle/restart/download）；状态变更
+ *   另发 CustomEvent chushi-catch-state（500ms 节流）给浮窗刷尺寸。
+ *   容量律：整页 1GB 硬顶（猫抓同量级），到顶自动停捕获防 OOM。
+ *   威胁模型：页面 postMessage 可伪造同形消息（与嗅探信号同一暴露面，
+ *   猫抓同款）——伪造至多污染用户主动在该页发起的捕获，可接受。
+ * v8.7.112 避免抓取名单（README《版权保护与拒绝抓取声明》代码侧落点）：
+ *   命中站点整帧不武装——探针信号收不到、DOM 扫描不跑、缓存抓取不可用；
+ *   SW 侧 ext-bg.js 另有同源名单拦 webRequest 通道。
  * ----------------------------------------------------------------------------
  * 定位：探针（sniffer-probe.js，MAIN world）与 SW 数据面（ext-bg.js）之间的
  * ISOLATED world 桥——Ghost-Downloader-3 的 Attribution Engine 信号消费端
@@ -41,16 +55,29 @@
   var mseMimes = new Map();             /* mimeType -> 衰减时刻（ms） */
   var MSE_TTL_MS = 60000;
 
+  /* ------------------------------------------- 避免抓取名单（v8.7.112）---- */
+  /* README《版权保护与拒绝抓取声明》的代码侧落点：站点按声明流程提 Issue
+     后把主机名（不带 www.）加入本表，命中即整帧不武装（探针信号收不到、
+     DOM 扫描不跑、缓存抓取不可用）；webRequest 通道由 ext-bg.js 同源名单拦。 */
+  var OPT_OUT_HOSTS = [];
+  function optOut() {
+    try {
+      return OPT_OUT_HOSTS.indexOf(location.hostname.replace(/^www\./, "")) >= 0 ||
+        OPT_OUT_HOSTS.indexOf(location.hostname) >= 0;
+    } catch (e) { return false; }
+  }
+
   /* ------------------------------------------------ 门控（属性即开关） */
   function arm(on) {
     sniffOn = !!on;
     try {
-      if (sniffOn) document.documentElement.setAttribute("data-chushi-sniff", "1");
+      if (sniffOn && !optOut()) document.documentElement.setAttribute("data-chushi-sniff", "1");
       else document.documentElement.removeAttribute("data-chushi-sniff");
     } catch (e) { /* noop */ }
-    if (sniffOn) { scanSoon(); sweep(); }
+    if (sniffOn && !optOut()) { scanSoon(); sweep(); }
     else {
       seen = []; seenSet.clear(); pending = []; mseMimes.clear();
+      if (!sniffOn) catchTearDown();   /* 嗅探总关：缓存抓取一并拆 */
     }
   }
   try {
@@ -113,6 +140,130 @@
     return null;
   }
 
+  /* ------------------------------------- 缓存抓取数据面（v8.7.112）------- */
+  var catchOn = false;
+  var catchDone = false;
+  var catchNote = "";
+  var catchTracks = [];                /* 轨道号 → {mime, chunks:[], size} */
+  var catchTotal = 0;
+  var CATCH_MAX_BYTES = 1073741824;    /* 1GB 硬顶：到顶自动停捕获防 OOM */
+  var catchNotifyTimer = 0;
+
+  function catchInfo() {
+    var filled = 0;
+    for (var i = 0; i < catchTracks.length; i++) {
+      if (catchTracks[i] && catchTracks[i].size > 0) filled++;
+    }
+    return { on: catchOn, done: catchDone, total: catchTotal, tracks: filled, note: catchNote };
+  }
+
+  function catchNotify() {
+    if (catchNotifyTimer) return;
+    catchNotifyTimer = setTimeout(function () {
+      catchNotifyTimer = 0;
+      try {
+        window.dispatchEvent(new CustomEvent("chushi-catch-state", { detail: catchInfo() }));
+      } catch (e) { /* noop */ }
+    }, 500);
+  }
+
+  function catchSetArm(on) {
+    catchOn = !!on;
+    catchNote = "";
+    if (catchOn) catchDone = false;
+    try {
+      if (catchOn) document.documentElement.setAttribute("data-chushi-catch", "1");
+      else document.documentElement.removeAttribute("data-chushi-catch");
+    } catch (e) { /* noop */ }
+    catchNotify();
+  }
+
+  function catchClear() {
+    catchTracks = [];
+    catchTotal = 0;
+    catchDone = false;
+    catchNotify();
+  }
+
+  function catchTearDown() {
+    /* 嗅探总关：捕获态与已攒数据一并拆（浮窗面板重开时 info() 为空态） */
+    catchClear();
+    catchSetArm(false);
+  }
+
+  function catchSeekToStart() {
+    /* 「从头捕获」：清块 + 回跳视频到 0 重播（ISOLATED world 共享 DOM 直调） */
+    try {
+      var vids = document.querySelectorAll("video");
+      for (var i = 0; i < vids.length; i++) {
+        try { vids[i].currentTime = 0; } catch (e) { /* noop */ }
+      }
+    } catch (e) { /* noop */ }
+  }
+
+  var CATCH_EXT = {
+    "video/mp4": "mp4", "video/webm": "webm", "video/mp2t": "ts",
+    "video/ogg": "ogv", "video/quicktime": "mov", "video/x-matroska": "mkv",
+    "audio/mp4": "m4a", "audio/mp4a-latm": "m4a", "audio/mpeg": "mp3",
+    "audio/aac": "aac", "audio/ogg": "ogg", "audio/flac": "flac",
+    "audio/x-flac": "flac", "audio/wav": "wav", "audio/x-wav": "wav",
+    "audio/webm": "webm", "audio/opus": "opus"
+  };
+
+  function catchExtOf(mime) {
+    var base = (mime || "").split(";")[0].trim().toLowerCase();
+    if (CATCH_EXT[base]) return CATCH_EXT[base];
+    var sub = (base.split("/")[1] || "").replace(/[^a-z0-9]/g, "");
+    return sub || "bin";
+  }
+
+  function catchTrackLabel(mime) {
+    var base = (mime || "").split(";")[0].trim().toLowerCase();
+    if (base.indexOf("video/") === 0) return "视频";
+    if (base.indexOf("audio/") === 0) return "音频";
+    return "轨道";
+  }
+
+  function catchSanitize(s) {
+    var name = String(s || "").replace(/[\\/:*?"<>|\u0000-\u001f]/g, " ").replace(/\s+/g, " ").trim();
+    return (name || "捕获数据").slice(0, 80);
+  }
+
+  function catchDownload() {
+    var saved = 0;
+    try {
+      var base = catchSanitize(document.title);
+      var multi = catchTracks.filter(function (t) { return t && t.chunks.length; }).length > 1;
+      for (var i = 0; i < catchTracks.length; i++) {
+        var t = catchTracks[i];
+        if (!t || !t.chunks.length) continue;
+        var mime = (t.mime || "").split(";")[0].trim().toLowerCase();
+        var blob = new Blob(t.chunks, { type: mime || "application/octet-stream" });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url;
+        a.download = base + (multi ? "-" + catchTrackLabel(t.mime) : "") + "." + catchExtOf(t.mime);
+        document.documentElement.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(function (u) { try { URL.revokeObjectURL(u); } catch (e2) { /* noop */ } }, 30000, url);
+        saved++;
+      }
+    } catch (e) { /* noop */ }
+    return saved;
+  }
+
+  /* 同世界直达 API（sniffer-float.js 与本桥同 ISOLATED world，点击时直调；
+     桥后于浮窗装载也不碍事——浮窗只在事件里取） */
+  if (!optOut()) {
+    window.__chushiCatchApi = {
+      info: catchInfo,
+      toggle: function () { catchSetArm(!catchOn); return catchOn; },
+      restart: function () { catchClear(); catchSetArm(true); catchSeekToStart(); return true; },
+      download: catchDownload,
+    };
+  }
+
   function mseActive() {
     var now = Date.now();
     var live = false;
@@ -136,6 +287,41 @@
         return;
       }
       if (d.kind === "hls") { offer(String(d.url || ""), "", "stream"); return; }
+      if (d.kind === "catch-track") {
+        /* 轨道登记常备（不问捕获开关）：捕获中途开启也能接上后续分段 */
+        var ti = Number(d.idx) || 0;
+        if (!catchTracks[ti]) catchTracks[ti] = { mime: String(d.mime || ""), chunks: [], size: 0 };
+        else if (d.mime && !catchTracks[ti].mime) catchTracks[ti].mime = String(d.mime);
+        return;
+      }
+      if (d.kind === "catch-chunk") {
+        if (!catchOn) return;                    /* 未开捕获：分段零驻留 */
+        var ci = Number(d.idx) || 0;
+        var tr = catchTracks[ci];
+        if (!tr) { tr = { mime: "", chunks: [], size: 0 }; catchTracks[ci] = tr; }
+        var n = d.data && d.data.byteLength ? d.data.byteLength : 0;
+        if (!n) return;
+        if (catchTotal + n > CATCH_MAX_BYTES) {
+          catchSetArm(false);
+          catchDone = true;
+          catchNote = "已达 1GB 容量上限，捕获自动停止";
+          try {
+            window.dispatchEvent(new CustomEvent("chushi-catch-state", { detail: catchInfo() }));
+          } catch (e) { /* noop */ }
+          return;
+        }
+        tr.chunks.push(d.data);
+        tr.size += n;
+        catchTotal += n;
+        catchNotify();
+        return;
+      }
+      if (d.kind === "catch-eos") {
+        if (!catchOn) return;
+        catchDone = true;
+        catchNotify();
+        return;
+      }
       if (d.kind === "req") {
         var url = String(d.url || "");
         if (!/^https?:/i.test(url)) return;            /* blob:/data: SW 无法下载 */
