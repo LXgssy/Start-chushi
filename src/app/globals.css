@@ -2504,4 +2504,30 @@ html.photo-mode .pintile-label {
   text-shadow: 0 1px 8px rgb(0 0 0 / 0.25);
 }
 
-
+/* ---------- v8.7.118 常驻（56px / .h-14）分支单独修 ----------
+   仅常驻形态：hover 放大改走搜索框 v8.7.81 的 clip 通道——磨砂底板盒子永久铺成
+   悬停尺寸（inset:-3.5% 两侧合计 +7%，静态、永不动画），可见放大由 clip-path 承载
+   （静息 3.271% = 3.5/107，与搜索框 inset(0.7389%) 同一算式）→ hover inset(0)。
+   描边环与内容层钉在静息盒（inset:3.271%），其中内容层再 scale(1.07)；描边环不带
+   transform，永不放大。磨砂层自身几何全程不变 → 常驻 hover 收尾的「类描边位移」
+   不回来。抽屉（64px / .h-16）不在此列：它仍有自己的 transform 放大，且其磨砂本
+   被抽屉纱罩（backdrop root）压死，无活磨砂可滞后。 ---------- */
+.tile-shell.h-14 > .tile-frost {
+  inset: -3.5%;
+  clip-path: inset(3.271% round 18px);
+  transition: clip-path 350ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.tile-shell.h-14:hover > .tile-frost {
+  clip-path: inset(0% round 18px);
+}
+.tile-shell.h-14 .tile-ring,
+.tile-shell.h-14 .tile-frost > *:not(.tile-ring) {
+  inset: 3.271%;
+}
+.tile-shell.h-14 .tile-frost > *:not(.tile-ring) {
+  transform-origin: center;
+  transition: transform 350ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.tile-shell.h-14:hover .tile-frost > *:not(.tile-ring) {
+  transform: scale(1.07);
+}

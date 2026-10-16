@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.118",
+    date: "2026-10-13",
+    title: "常驻磁贴 hover 单独收口：底板走 clip 通道，抽屉不动",
+    channel: "page",
+    highlights: [
+      "仅常驻形态（56px）改动：hover 放大由整体 transform 改为「底板静态铺成悬停尺寸 + clip-path 过渡」，磨砂层几何全程不变，修掉底部「类描边位移」；描边环不放大，内容层仍放大 1.07",
+      "抽屉形态（64px）完全未改：TSX 与 CSS 均按 sm/.h-14 分支隔离，抽屉仍是原 transform 放大——它本来就没有活磨砂（被抽屉纱罩压死），无需也不受影响"
+    ],
+  },
+  {
     version: "8.7.117",
     date: "2026-10-13",
     title: "快捷服务图标效果整体回退（常驻 + 抽屉两级一并恢复）",
