@@ -21,6 +21,8 @@
  * Service Worker 读不到 localStorage（扩展 origin 的 localStorage 只在
  * 页面进程），嗅探的监听器在 SW 里，故走 chrome.storage；本面板只负责
  * 写入，嗅探开关的状态渲染也以 chrome.storage.local 为准（非 start:settings）。
+ * 免责声明门（v8.7.112）：首次开启前强制阅读并同意免责声明（引自猫抓
+ * cat-catch 项目），同意态存 chrome.storage.local 的 snifferDisclaimerAgreed。
  * 完整设置直达：写一次性意图标志 start:ui-intent 后新开 shell.html，
  * 新标签页挂载时消费（读后即焚，30s 时效）打开设置面板。
  * 一切 chrome.* 访问 try/catch（未来若网页版复用此页不崩）。 */
@@ -145,12 +147,18 @@
     writeSettings({ photoDim: v });
   });
 
-  /* ---------- 资源嗅探（v8.7.52）----------
+  /* ---------- 资源嗅探（v8.7.52；v8.7.112 免责声明门）----------
      状态源 = chrome.storage.local.snifferOn（SW 消费）；popup 初渲染与
-     storage 变更都从 chrome.storage 读（不与 start:settings 混存）。 */
+     storage 变更都从 chrome.storage 读（不与 start:settings 混存）。
+     v8.7.112 开启门：首次开启必须同意免责声明（文本引自猫抓 cat-catch
+     项目）——同意态存 chrome.storage.local.snifferDisclaimerAgreed，
+     同意一次后后续开启不再询问；不同意则开关回弹、嗅探保持关闭。
+     仅拦「写入 true」的路径：关闭无门。 */
   function renderSniffer(on) {
     setSw($("#sw-sniffer"), !!on);
   }
+  function sniffGateShow() { var g = $("#sniff-gate"); if (g) g.hidden = false; }
+  function sniffGateHide() { var g = $("#sniff-gate"); if (g) g.hidden = true; }
   try {
     chrome.storage.local.get("snifferOn", function (o) {
       renderSniffer(o && o.snifferOn);
@@ -159,14 +167,43 @@
     /* 无 chrome.storage 宿主：保持缺省关 */
   }
   $("#sw-sniffer").addEventListener("click", function () {
-    var on = $("#sw-sniffer").getAttribute("aria-checked") !== "true";
-    setSw($("#sw-sniffer"), on);
+    var cur = $("#sw-sniffer").getAttribute("aria-checked") === "true";
+    if (cur) {
+      /* 关闭：无门，直接落 */
+      setSw($("#sw-sniffer"), false);
+      try { chrome.storage.local.set({ snifferOn: false }); } catch (e) { /* noop */ }
+      return;
+    }
+    /* 开启：先查同意态——已同意直开；未同意先弹声明（开关回弹，同意才落） */
     try {
-      chrome.storage.local.set({ snifferOn: on });
+      chrome.storage.local.get("snifferDisclaimerAgreed", function (o) {
+        if (o && o.snifferDisclaimerAgreed) {
+          setSw($("#sw-sniffer"), true);
+          try { chrome.storage.local.set({ snifferOn: true }); } catch (e) { /* noop */ }
+        } else {
+          setSw($("#sw-sniffer"), false);
+          sniffGateShow();
+        }
+      });
     } catch (e) {
-      /* 无宿主：UI 已翻，状态下次打开以真实值为准 */
+      /* 无宿主（理论不可达）：维持旧行为直接开 */
+      setSw($("#sw-sniffer"), true);
+      try { chrome.storage.local.set({ snifferOn: true }); } catch (e2) { /* noop */ }
     }
   });
+  try {
+    $("#sniff-gate-yes").addEventListener("click", function () {
+      try { chrome.storage.local.set({ snifferDisclaimerAgreed: true, snifferOn: true }); } catch (e) { /* noop */ }
+      setSw($("#sw-sniffer"), true);
+      sniffGateHide();
+    });
+    $("#sniff-gate-no").addEventListener("click", function () {
+      /* 不同意：保持关闭（显式落 false，防存储里残留开态） */
+      try { chrome.storage.local.set({ snifferOn: false }); } catch (e) { /* noop */ }
+      setSw($("#sw-sniffer"), false);
+      sniffGateHide();
+    });
+  } catch (e) { /* 门元素缺失：静默 */ }
 
 
   /* ---------- 添加当前网页至快捷服务（v8.7.38，标签系统退役） ----------

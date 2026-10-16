@@ -892,6 +892,18 @@ var sniffTabs = new Map();            /* tabId -> { order:[url], byUrl:Map } */
 var SNIFF_MAX = 50;
 var SNIFF_KEY_PREFIX = "sniffer:tab:";
 
+/* v8.7.112 避免抓取名单（README《版权保护与拒绝抓取声明》代码侧落点）：
+   站点按声明流程提 Issue 后把主机名（不带 www.）加入本表，命中即该域
+   请求不入库；内容脚本侧 sniffer-bridge.js 另有同源名单——页面内信号、
+   DOM 扫描与缓存抓取一并停（名单两侧同步维护）。 */
+var SNIFF_OPT_OUT_HOSTS = [];
+function sniffOptOut(url) {
+  try {
+    var h = (new URL(url).hostname || "").replace(/^www\./, "");
+    return SNIFF_OPT_OUT_HOSTS.indexOf(h) >= 0;
+  } catch (e) { return false; }
+}
+
 /* v8.7.55 徽章配色跟随强调色：cardAcc（页面镜像）为底，YIQ 亮度自适应
    文字对比色（浅强调色配墨字、深强调色配白字）；onChanged 热跟随。 */
 var BADGE_ACC = "#8b5cf6";
@@ -1127,6 +1139,7 @@ try {
    *   已定然、206 可见），大流不必等传完；onCompleted 旧通道退役 */
   chrome.webRequest.onResponseStarted.addListener(function (details) {
     if (!sniffOn) return;                                  /* 开关门 */
+    if (sniffOptOut(details.url)) return;                  /* 避免抓取名单门（v8.7.112） */
     if (!/^https?:/i.test(details.url || "")) return;      /* 特权页/本地 */
     var headers = details.responseHeaders || [];
     var mime = "", size = -1;

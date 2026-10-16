@@ -17,6 +17,10 @@
  *     （按 origin 天然分域）；点击展开面板；
  *   · 计数徽标 + 首次发现 toast（3.5s 自散）；
  *   · z-index 恒顶（2147483647），不注册任何全局点击拦截，页面零打扰。
+ * v8.7.112 缓存抓取区（面板内第三区块）：数据面在 sniffer-bridge.js
+ *   （同 ISOLATED world，window.__chushiCatchApi 直调）——本脚本只做
+ *   「开始/停止 / 从头捕获 / 下载数据」三钮与状态行；捕获中的实时尺寸
+ *   靠桥发的 CustomEvent chushi-catch-state（500ms 节流）回刷面板。
  * v8.7.53 面板布局重排（用户：「各种信息堆在一起太乱了」）：头部 = 图标+
  *   标题+计数徽章+图标动作钮（清空/收起）；列表项 = 类型色块（title 全称）+
  *   文件名/「大小 · 来源域名」两行分层；空态图标+双行文案。
@@ -50,6 +54,8 @@
     bili: { bvid: "", page: 1, pages: 0, resolving: false, resolved: null, error: "", downloading: 0 },
     /* v8.7.71 YouTube 完整视频下载（仅 watch 页出现；SPA 导航换视频重置） */
     yt: { vid: "", resolving: false, resolved: null, error: "", downloading: 0, progress: null },
+    /* v8.7.112 缓存抓取：状态由桥的 info()/CustomEvent 推送，这里只存 toast 去重用备注 */
+    catchNote: "",
   };
 
   /* ---------- Shadow DOM 舞台 ---------- */
@@ -148,6 +154,23 @@
     ":host(.framedark) .bq:hover{background:rgba(255,255,255,.06);}",
     ":host(.framedark) .bili-tip{color:#71717a;}",
     ":host(.framedark) .bili-p{color:#71717a;}",
+    /* v8.7.112 缓存抓取区（面板内第三区块，样式语言同 bili 区） */
+    ".catch{padding:9px 10px 8px;border-bottom:1px solid rgba(24,22,36,.07);}",
+    ".catch-h{display:flex;align-items:center;gap:6px;margin-bottom:6px;}",
+    ".catch-ic{flex-shrink:0;width:18px;height:18px;border-radius:5px;background:#0ea5e9;color:#fff;font-size:10px;font-weight:700;line-height:18px;text-align:center;}",
+    ".catch-t{font-size:11.5px;font-weight:450;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
+    ".catch-s{flex-shrink:0;font-size:9.5px;color:#a1a1aa;font-variant-numeric:tabular-nums;}",
+    ".catch-s.live{color:#0ea5e9;font-weight:500;}",
+    ".catch-btns{display:flex;gap:6px;}",
+    ".catch-btns button{flex:1;border:0;background:color-mix(in srgb,var(--acc,#8b5cf6) 12%,transparent);color:var(--acc,#8b5cf6);font-size:10px;font-weight:500;padding:4px 0;border-radius:8px;cursor:pointer;transition:background .15s ease;white-space:nowrap;}",
+    ".catch-btns button:hover{background:color-mix(in srgb,var(--acc,#8b5cf6) 22%,transparent);}",
+    ".catch-btns button.stop{background:#0ea5e9;color:#fff;}",
+    ".catch-btns button.stop:hover{background:#0284c7;}",
+    ".catch-btns button:disabled{opacity:.5;cursor:default;background:rgba(24,22,36,.06);color:#a1a1aa;}",
+    ".catch-tip{margin-top:5px;font-size:9px;font-weight:300;color:#a1a1aa;line-height:1.5;}",
+    ":host(.framedark) .catch-s{color:#71717a;}",
+    ":host(.framedark) .catch-btns button:disabled{background:rgba(255,255,255,.08);color:#71717a;}",
+    ":host(.framedark) .catch-tip{color:#71717a;}",
   ].join("");
 
   var style = document.createElement("style");
@@ -586,6 +609,36 @@
     return '<div class="bili">' + head + body + "</div>";
   }
 
+  /* v8.7.112 缓存抓取区块：数据面在 sniffer-bridge.js（同 ISOLATED world），
+     info() 拉当前态、按钮直调 toggle/restart/download；桥未就绪或站点
+     在避免抓取名单（API 未暴露）时整块不渲染。 */
+  function catchBlockHtml() {
+    var api = window.__chushiCatchApi;
+    if (!api || typeof api.info !== "function") return "";
+    var inf = api.info();
+    if (!inf) return "";
+    var size = inf.total > 0 ? fmtSize(inf.total) : "";
+    var stateHtml;
+    if (inf.on) {
+      stateHtml = '<span class="catch-s live">捕获中' + (size ? " · " + size : "") + (inf.done ? " · 已到尾" : "") + "</span>";
+    } else if (inf.total > 0) {
+      stateHtml = '<span class="catch-s">已捕获 ' + size + (inf.done ? " · 已到尾" : "") + "</span>";
+    } else {
+      stateHtml = '<span class="catch-s">待开始</span>';
+    }
+    return (
+      '<div class="catch">' +
+      '<div class="catch-h"><span class="catch-ic">抓</span><span class="catch-t">缓存抓取</span>' + stateHtml + "</div>" +
+      '<div class="catch-btns">' +
+      '<button data-act="catch-toggle"' + (inf.on ? ' class="stop"' : "") + ">" + (inf.on ? "停止捕获" : "开始捕获") + "</button>" +
+      '<button data-act="catch-restart">从头捕获</button>' +
+      '<button data-act="catch-dl"' + (inf.total > 0 ? "" : " disabled") + ">下载数据</button>" +
+      "</div>" +
+      '<div class="catch-tip">把页面播放器已缓存的分段数据（MSE 流）截留合并成文件，各视频站通用；建议「从头捕获」后重播视频，播完点「下载数据」。仅主框架播放器，多音轨会分文件保存。</div>' +
+      "</div>"
+    );
+  }
+
   function renderPanel() {
     detectBili();
     if (state.bili.bvid) biliResolve();
@@ -624,6 +677,7 @@
       "</div>" +
       biliBlockHtml() +
       ytBlockHtml() +
+      catchBlockHtml() +
       '<div class="list">' +
       (rows ||
         '<div class="empty">' + ICON_DOWN_DOC +
@@ -660,6 +714,22 @@
     if (act === "yt-dl") {
       var yitag = parseInt(btn.getAttribute("data-q"), 10);
       if (yitag) ytStart(yitag, btn.getAttribute("data-l") || "");
+      return;
+    }
+    if (act === "catch-toggle" || act === "catch-restart" || act === "catch-dl") {
+      var capi = window.__chushiCatchApi;
+      if (!capi) return;
+      if (act === "catch-toggle") {
+        var nowOn = capi.toggle();
+        showToast(nowOn ? "缓存抓取已开始，播放视频即可截留" : "缓存抓取已停止");
+      } else if (act === "catch-restart") {
+        capi.restart();
+        showToast("已从头捕获：视频回到开头重新缓冲");
+      } else {
+        var saved = capi.download();
+        showToast(saved > 0 ? "已发起下载（" + saved + " 个文件）" : "没抓到有效数据");
+      }
+      renderPanel();
       return;
     }
     if (act === "hide") return togglePanel(false);
@@ -773,6 +843,19 @@
       else chrome.runtime.sendMessage(msg, function () { void chrome.runtime.lastError; });
     } catch (e) { /* 扩展上下文失效（更新中）：静默 */ }
   }
+
+  /* v8.7.112 缓存抓取状态跟随：桥 500ms 节流广播（捕获中刷尺寸；备注
+     变化时 toast——到顶自动停等）；面板开着则同步重渲染。 */
+  try {
+    window.addEventListener("chushi-catch-state", function (ev) {
+      var d = ev && ev.detail;
+      if (d && d.note && d.note !== state.catchNote) {
+        state.catchNote = d.note;
+        showToast(d.note);
+      }
+      if (state.panelOpen) renderPanel();
+    });
+  } catch (e) { /* noop */ }
 
   function applyItems(items, opts) {
     var prev = state.items.length;
