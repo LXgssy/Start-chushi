@@ -1305,7 +1305,7 @@ function QuickLinks({
                         {renderGrid(false)}
                       </div>
                     </div>
-                    <FadeVeil side="top" show={fade.top} />
+                    <FadeVeil side="top" show={fade.top} lift={VEIL_LIFT} />
                     <FadeVeil side="bottom" show={fade.bottom} />
                   </motion.div>
             </motion.div>,

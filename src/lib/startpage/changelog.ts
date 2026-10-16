@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.111",
+    date: "2026-10-13",
+    title: "抽屉顶部羽化遮罩上移（不再压住图标）",
+    channel: "page",
+    highlights: [
+      "抽屉形态的顶部羽化遮罩此前未带 lift，位置偏低会压住第一行快捷服务图标；本版对齐常驻形态，传入同一 VEIL_LIFT，遮罩整体上移让出图标",
+      "仅动抽屉顶部一枚；底部一枚与常驻形态（已退役底部遮罩）均不变"
+    ],
+  },
+  {
     version: "8.7.110",
     date: "2026-10-13",
     title: "常驻磁贴撤除合成层提示（悬停收尾错位根修）",
