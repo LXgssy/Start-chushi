@@ -293,10 +293,6 @@ function TileIcon({
         (sm ? "h-14 w-14 rounded-[18px] " : "h-16 w-16 rounded-[20px] ") +
         (intro ? "link-intro-tile" : "")
       }
-      style={{
-        transform: "translateZ(0)",
-        backfaceVisibility: "hidden",
-      }}
       onAnimationEnd={(e) => {
         /* v8.6.21：入场播完（最晚结束的 body/ring 通道）即摘 intro 类。
            React 重排数组时会移动让位磁贴的 DOM 节点（insertBefore），CSS

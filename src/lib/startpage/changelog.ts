@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.110",
+    date: "2026-10-13",
+    title: "常驻磁贴撤除合成层提示（悬停收尾错位根修）",
+    channel: "page",
+    highlights: [
+      "撤掉磁贴包裹层常驻的 transform: translateZ(0) + backfaceVisibility 合成层提示：它让霜层成为独立渲染表面，hover 缩放的合成器过渡与磨砂重采样不在同一帧落笔，表现为移开鼠标后底层霜面错位一下再复位（流畅模式无磨砂即消失）",
+      "该提示原为 1px border 分数像素黑边所加；v8.6.9 已改 inset 环 + 独立描边通道，黑边成因不在，撤除无观感影响"
+    ],
+  },
+  {
     version: "8.7.109",
     date: "2026-10-16",
     title: "常驻模式底部羽化遮罩移除；磁贴区下缘整体下移，入场动画不再遮挡图标",
