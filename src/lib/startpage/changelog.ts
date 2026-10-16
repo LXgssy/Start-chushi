@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.116",
+    date: "2026-10-13",
+    title: "磁贴 hover 完整版：底板放大走 clip 通道，描边不放大",
+    channel: "page",
+    highlights: [
+      "磨砂底板恢复放大：底板盒子永久铺成悬停尺寸（inset:-3.5% 静态），可见放大交给 clip-path 的 350ms 过渡（搜索框 v8.7.81 同一算式 3.271%）——磨砂层自身几何全程不变，悬停收尾底层霜面错位不会回来",
+      "描边环钉在静息盒上、不带任何 transform/过渡：描边永不放大；内容层（色相渐变 + 图标）仍在静息盒上放大 1.07，三层与底板共用同一渲染表面",
+      "静息态观感与改动前一致：底板被裁回原盒，描边与内容都落在原盒边缘"
+    ],
+  },
+  {
     version: "8.7.115",
     date: "2026-10-16",
     title: "资源嗅探新增抖音完整视频下载；缓存抓取文件可播性根修",
