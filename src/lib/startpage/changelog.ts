@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.113",
+    date: "2026-10-13",
+    title: "磁贴 hover 通道小步验证（磨砂层几何不再参与动画）",
+    channel: "page",
+    highlights: [
+      "hover 缩放从磨砂层的祖先挪到磨砂层内部子层（描边环 + 内容层）：磨砂层自身几何全程不变，用于验证「移开鼠标后底层霜面错位一下再复位」是否由此产生",
+      "小步验证的代价：悬停时磨砂底板不再跟着放大（描边环与内容层仍放大 7%）；确认因果后再按完整方案（磨砂层静态几何 + clip 通道）收口"
+    ],
+  },
+  {
     version: "8.7.112",
     date: "2026-10-16",
     title: "资源嗅探新增「缓存抓取」；开启前需同意免责声明",
