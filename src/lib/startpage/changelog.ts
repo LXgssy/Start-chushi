@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.122",
+    date: "2026-10-13",
+    title: "常驻磁贴描边缺边修复：静息裁边让出半个像素",
+    channel: "page",
+    highlights: [
+      "修正常驻磁贴右侧描边缺失：配方里静息 clip 的 3.271% 恰好等于描边环盒边，1px 描边正压在裁剪边界上被裁掉一半（亚像素舍入偏右）；静息裁边放宽到 3%，描边完全落在裁剪内部，悬停时裁剪开到 0% 与原先一致",
+      "仅常驻分支（.h-14）改动一个数值；抽屉（.h-16）与其余逻辑未动"
+    ],
+  },
+  {
     version: "8.7.121",
     date: "2026-10-16",
     title: "抽屉羽化遮罩锚层根修：上缘上移下缘下移，图标不再被挡",
