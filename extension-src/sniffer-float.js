@@ -1,5 +1,5 @@
 /* ============================================================================
- * 「初始」资源嗅探全局浮窗 sniffer-float v1（v8.7.52）
+ * 「初始」资源嗅探全局浮窗 sniffer-float v2（v8.7.115）
  * ----------------------------------------------------------------------------
  * 数据面：ext-bg.js（SW）注册 webRequest 监听 → 按标签页归集可下载资源
  *   （chrome.storage.session 持久，SW 复活后重建）→ tabs.sendMessage 推送
@@ -15,12 +15,21 @@
  *   · 全部进 closed ShadowRoot——页面 CSS/主题永远摸不到浮窗；
  *   · 浮球可拖拽（pointer 事件，>4px 算拖），落点持久化 localStorage
  *     （按 origin 天然分域）；点击展开面板；
- *   · 计数徽标 + 首次发现 toast（3.5s 自散）；
+ *   · 计数徽标（发现提示 toast 已在 v8.7.115 退役，toast 仅服务下载/捕获反馈）；
  *   · z-index 恒顶（2147483647），不注册任何全局点击拦截，页面零打扰。
  * v8.7.112 缓存抓取区（面板内第三区块）：数据面在 sniffer-bridge.js
  *   （同 ISOLATED world，window.__chushiCatchApi 直调）——本脚本只做
  *   「开始/停止 / 从头捕获 / 下载数据」三钮与状态行；捕获中的实时尺寸
  *   靠桥发的 CustomEvent chushi-catch-state（500ms 节流）回刷面板。
+ * v8.7.115 三改（用户指令）：
+ *   ①抖音完整视频下载区（对齐 B 站/YouTube 区形态）：抖音播放器是渐进式
+ *     MP4 单直链（XHR 拉 /aweme/v1/play/ → douyinvod 等 CDN，无 MSE 分档），
+ *     直链由嗅探管线自动入库——本区从资源列表里取最新的抖音域族视频直链
+ *     一键下（文件名用页面标题＝视频描述）；Referer 由 SW 侧 DNR 会话
+ *     规则（ext-bg ensureDnrDouyin）补齐，CDN 鉴权不再拒。
+ *   ②缓存抓取「完成后自动下载」开关（chrome.storage.local
+ *     snifferCatchAutoDl 全局偏好，桥在完成点读取执行）。
+ *   ③删除「嗅探到 N 个可下载资源」发现提示 toast（徽标与面板计数保留）。
  * v8.7.53 面板布局重排（用户：「各种信息堆在一起太乱了」）：头部 = 图标+
  *   标题+计数徽章+图标动作钮（清空/收起）；列表项 = 类型色块（title 全称）+
  *   文件名/「大小 · 来源域名」两行分层；空态图标+双行文案。
@@ -171,6 +180,15 @@
     ":host(.framedark) .catch-s{color:#71717a;}",
     ":host(.framedark) .catch-btns button:disabled{background:rgba(255,255,255,.08);color:#71717a;}",
     ":host(.framedark) .catch-tip{color:#71717a;}",
+    /* v8.7.115 缓存完成自动下载开关（行内胶囊开关，样式同族） */
+    ".catch-auto{display:flex;align-items:center;justify-content:space-between;margin-top:7px;}",
+    ".catch-auto .ca-t{font-size:10px;font-weight:300;color:#71717a;}",
+    ".catch-auto .sw{position:relative;width:30px;height:17px;border-radius:999px;border:0;padding:0;cursor:pointer;background:rgba(24,22,36,.18);transition:background .18s ease;}",
+    ".catch-auto .sw .knob{position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:999px;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:transform .18s cubic-bezier(.22,1,.36,1);}",
+    ".catch-auto .sw.on{background:var(--acc,#8b5cf6);}",
+    ".catch-auto .sw.on .knob{transform:translateX(13px);}",
+    ":host(.framedark) .catch-auto .sw{background:rgba(255,255,255,.22);}",
+    ":host(.framedark) .catch-auto .sw.on{background:var(--acc,#8b5cf6);}",
   ].join("");
 
   var style = document.createElement("style");
@@ -560,6 +578,69 @@
     return '<div class="bili">' + head + body + "</div>";
   }
 
+  /* v8.7.115 抖音完整视频下载区（对齐 B 站/YouTube 区形态）。
+     抖音网页播放器是渐进式 MP4 单直链：XHR 拉 /aweme/v1/play/（302 跳
+     douyinvod/zjcdn CDN），直链已被嗅探管线自动入库——本区从资源列表里
+     倒序找最新一条抖音域族视频直链；SPA 换视频后新直链自然顶掉旧条目。
+     Referer 由 SW 侧 DNR 会话规则补齐（ext-bg ensureDnrDouyin）。 */
+  var DOUYIN_FAM = ["douyin.com", "douyinvod.com", "zjcdn.com", "amemv.com",
+    "douyinpic.com", "bytecdn.cn", "snssdk.com", "iesdouyin.com", "douyinstatic.com"];
+  function onDouyinPage() {
+    try {
+      var h = String(location.hostname || "").toLowerCase();
+      if (h !== "douyin.com" && !/\.douyin\.com$/.test(h)) return false;
+      var href = String(location.href);
+      return /douyin\.com\/(?:video|note)\/\d+/.test(href) || /[?&]modal_id=\d+/.test(href);
+    } catch (e) { return false; }
+  }
+  function hostInFam(h) {
+    h = String(h || "").toLowerCase();
+    for (var i = 0; i < DOUYIN_FAM.length; i++) {
+      var d = DOUYIN_FAM[i];
+      if (h === d || (h.length > d.length && h.slice(-(d.length + 1)) === "." + d)) return true;
+    }
+    return false;
+  }
+  function douyinPlayItem() {
+    for (var i = state.items.length - 1; i >= 0; i--) {
+      var it = state.items[i];
+      if (!it || it.type !== "video") continue;
+      var u = String(it.url || "");
+      if (u.indexOf("/aweme/v1/play/") >= 0) return it;
+      if (hostInFam(hostOf(u))) return it;
+    }
+    return null;
+  }
+  function douyinTitle() {
+    /* document.title 即视频描述（尾缀「-抖音」系站点附加，洗掉） */
+    var t = String(document.title || "").replace(/[-–—~|\s]*抖音.*$/, "").trim();
+    return t || "抖音视频";
+  }
+  function douyinBlockHtml() {
+    if (!onDouyinPage()) return "";
+    var it = douyinPlayItem();
+    var title = douyinTitle();
+    var head =
+      '<div class="bili-h">' +
+      '<span class="bili-ic" style="background:#161823">抖</span>' +
+      '<span class="bili-t" title="' + esc(title) + '">' + esc(title) + "</span>" +
+      "</div>";
+    var body;
+    if (it) {
+      var idx = state.items.indexOf(it);
+      body =
+        '<div class="bq">' +
+        '<span class="l">完整视频</span>' +
+        '<span class="s">' + (it.size > 0 ? fmtSize(it.size) + " · " : "") + "网页播放档 · 含音轨</span>" +
+        '<button data-act="douyin-dl" data-i="' + idx + '">下载</button>' +
+        "</div>" +
+        '<div class="bili-tip">直链来自网页播放器当前档位（含音轨）；若下载失败多为直链过期——重播视频刷新直链后再试</div>';
+    } else {
+      body = '<div class="bili-load">播放视频后自动捕获直链…（MSE 分段流形态请用下方「缓存抓取」）</div>';
+    }
+    return '<div class="bili">' + head + body + "</div>";
+  }
+
   /* v8.7.69 B 站完整视频下载区（仅 B 站视频页渲染；首开面板时惰性解析） */
   function biliBlockHtml() {
     detectBili();
@@ -611,7 +692,21 @@
 
   /* v8.7.112 缓存抓取区块：数据面在 sniffer-bridge.js（同 ISOLATED world），
      info() 拉当前态、按钮直调 toggle/restart/download；桥未就绪或站点
-     在避免抓取名单（API 未暴露）时整块不渲染。 */
+     在避免抓取名单（API 未暴露）时整块不渲染。
+     v8.7.115：+「完成后自动下载」开关行（snifferCatchAutoDl 全局偏好）。 */
+  var catchAutoDl = false;
+  try {
+    chrome.storage.local.get("snifferCatchAutoDl", function (o) {
+      catchAutoDl = !!(o && o.snifferCatchAutoDl);
+      if (state.panelOpen) renderPanel();
+    });
+    chrome.storage.onChanged.addListener(function (ch, area) {
+      if (area === "local" && ch.snifferCatchAutoDl) {
+        catchAutoDl = !!ch.snifferCatchAutoDl.newValue;
+        if (state.panelOpen) renderPanel();
+      }
+    });
+  } catch (e) { /* noop */ }
   function catchBlockHtml() {
     var api = window.__chushiCatchApi;
     if (!api || typeof api.info !== "function") return "";
@@ -634,6 +729,8 @@
       '<button data-act="catch-restart">从头捕获</button>' +
       '<button data-act="catch-dl"' + (inf.total > 0 ? "" : " disabled") + ">下载数据</button>" +
       "</div>" +
+      '<div class="catch-auto"><span class="ca-t">捕获完成后自动下载</span>' +
+      '<button class="sw' + (catchAutoDl ? " on" : "") + '" data-act="catch-auto" role="switch" aria-checked="' + (catchAutoDl ? "true" : "false") + '" aria-label="捕获完成后自动下载"><span class="knob"></span></button></div>' +
       '<div class="catch-tip">把页面播放器已缓存的分段数据（MSE 流）截留合并成文件，各视频站通用；建议「从头捕获」后重播视频，播完点「下载数据」。仅主框架播放器，多音轨会分文件保存。</div>' +
       "</div>"
     );
@@ -677,6 +774,7 @@
       "</div>" +
       biliBlockHtml() +
       ytBlockHtml() +
+      douyinBlockHtml() +
       catchBlockHtml() +
       '<div class="list">' +
       (rows ||
@@ -716,20 +814,37 @@
       if (yitag) ytStart(yitag, btn.getAttribute("data-l") || "");
       return;
     }
-    if (act === "catch-toggle" || act === "catch-restart" || act === "catch-dl") {
+    if (act === "catch-toggle" || act === "catch-restart" || act === "catch-dl" || act === "catch-auto") {
       var capi = window.__chushiCatchApi;
+      if (act === "catch-auto") {
+        try { chrome.storage.local.set({ snifferCatchAutoDl: !catchAutoDl }); } catch (e) { /* noop */ }
+        return;
+      }
       if (!capi) return;
       if (act === "catch-toggle") {
         var nowOn = capi.toggle();
-        showToast(nowOn ? "缓存抓取已开始，播放视频即可截留" : "缓存抓取已停止");
+        if (!nowOn) {
+          var infNow = capi.info ? capi.info() : null;
+          showToast(infNow && infNow.total > 0 && catchAutoDl ? "已停止，自动下载已发起" : "缓存抓取已停止");
+        } else {
+          showToast("缓存抓取已开始，播放视频即可截留");
+        }
       } else if (act === "catch-restart") {
         capi.restart();
         showToast("已从头捕获：视频回到开头重新缓冲");
       } else {
-        var saved = capi.download();
-        showToast(saved > 0 ? "已发起下载（" + saved + " 个文件）" : "没抓到有效数据");
+        var r = capi.download();
+        showToast(r && r.warn ? r.warn : (r && r.saved > 0 ? "已发起下载（" + r.saved + " 个文件）" : "没抓到有效数据"));
       }
       renderPanel();
+      return;
+    }
+    if (act === "douyin-dl") {
+      var dItem = state.items[Number(btn.getAttribute("data-i"))];
+      if (!dItem) return;
+      send({ type: "sniffer-download", url: dItem.url, filename: douyinTitle() + ".mp4" });
+      btn.classList.add("ok");
+      showToast("抖音视频已发起下载（Referer 已由扩展补齐）");
       return;
     }
     if (act === "hide") return togglePanel(false);
@@ -857,13 +972,11 @@
     });
   } catch (e) { /* noop */ }
 
-  function applyItems(items, opts) {
-    var prev = state.items.length;
+  function applyItems(items) {
     state.items = Array.isArray(items) ? items.slice(0, 50) : [];
     renderBadge();
-    if (opts && opts.notify && state.items.length > prev) {
-      showToast("嗅探到 " + state.items.length + " 个可下载资源");
-    }
+    /* v8.7.115：「嗅探到 N 个可下载资源」发现提示 toast 按用户指令退役
+       （徽标与面板计数保留，下载/捕获反馈 toast 不受影响） */
     if (state.panelOpen) renderPanel();
   }
 
@@ -876,12 +989,9 @@
       state.on = true;
       ball.style.display = "flex";
       applyBallPos();
-      /* v8.7.52 补拉也提示：SW 推送可能早于本脚本注入（资源在
-         document_idle 前已完成），首次拉到存量资源同样弹 toast，
-         避免「页面一开就有资源却零提示」的感知断链 */
-      applyItems(resp.items || [], {
-        notify: !!(resp.items && resp.items.length > 0),
-      });
+      /* v8.7.115：存量资源静默入列（发现提示 toast 已退役，徽标计数
+         照常亮起，面板打开可见全量） */
+      applyItems(resp.items || []);
     });
   }
 
@@ -901,7 +1011,7 @@
         if (!state.on) return;
         ball.style.display = "flex";
         applyBallPos();
-        applyItems(msg.items || [], { notify: true });
+        applyItems(msg.items || []);
       } else if (msg.type === "bili-progress") {
         biliProgress(msg);
       } else if (msg.type === "bili-done") {
@@ -914,9 +1024,7 @@
           state.on = true;
           ball.style.display = "flex";
           applyBallPos();
-          applyItems(msg.items || [], {
-            notify: !!(msg.items && msg.items.length > 0),
-          });
+          applyItems(msg.items || []);
         } else {
           destroy();
         }

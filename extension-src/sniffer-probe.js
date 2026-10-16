@@ -1,5 +1,16 @@
 /* ============================================================================
- * 「初始」资源嗅探主世界探针 sniffer-probe v3（v8.7.112，+缓存抓取）
+ * 「初始」资源嗅探主世界探针 sniffer-probe v4（v8.7.115，+初始化段备胎）
+ * ----------------------------------------------------------------------------
+ * v8.7.115 缓存抓取可播性根修：捕获中途开启时，捕获到的分段缺 fMP4/WebM
+ *   初始化段（ftyp+moov / EBML 头）→ 合成文件无法播放。本版探针在「嗅探
+ *   开启、捕获未开」时也把每轨道【首个 appendBuffer】拷贝转交（通常是
+ *   初始化段，KB 量级，一次性成本）；桥在初始化段攒齐（box-walk 见
+ *   moof/styp/Cluster 边界或 1MB 顶）后经 __chushiSniffCtrl 回流通道回
+ *   catch-init-done，探针即停截留。打破 v8.7.112「未开捕获零拷贝」律的
+ *   例外仅此一处，换来合成文件可播。
+ *   同时 catch-chunk 信号随行 mime（闭包变量现成）：修「嗅探晚开→轨道
+ *   登记缺席→mime 空→扩展名 bin」的断链（catch-track 只在 addSourceBuffer
+ *   时发，错过即无 mime）。
  * ----------------------------------------------------------------------------
  * v8.7.112 缓存抓取（能力对齐猫抓 cat-catch 的 catch-script/catch.js，
  *   实现为本仓自有代码）：页面开启捕获态（桥设 data-chushi-catch 属性）
@@ -71,8 +82,9 @@
   }
 
   /* 缓存抓取分段截留：拷贝一份转交桥（原始 buffer 仍归播放器，页面行为
-     零改变）。ArrayBuffer / TypedArray 双形态都接（播放器两种都传）。 */
-  function catchChunk(idx, data) {
+     零改变）。ArrayBuffer / TypedArray 双形态都接（播放器两种都传）。
+     v8.7.115：mime 随行（轨道登记缺席时桥侧兜底）。 */
+  function catchChunk(idx, data, mime) {
     if (!data) return;
     try {
       var copy = null;
@@ -81,9 +93,16 @@
         copy = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
       }
       if (!copy || !copy.byteLength) return;
-      post({ kind: "catch-chunk", idx: idx, data: copy }, [copy]);
+      post({ kind: "catch-chunk", idx: idx, mime: mime || "", data: copy }, [copy]);
     } catch (e) { /* noop */ }
   }
+
+  /* v8.7.115 初始化段备胎状态：每轨道只截「捕获未开期间」的头部追加，
+     桥回 catch-init-done 即停（ISOLATED 桥 box-walk 判定攒齐）；
+     桥缺席/未回流的兑底：单轨道 4MB 硬顶。 */
+  var initDone = {};
+  var INIT_HARD_CAP = 4194304;
+  var initSentBytes = {};
 
   /* ---------------------------------------------------------------- 1/2 MSE */
   var msIdSeq = 0;
@@ -125,7 +144,15 @@
             if (typeof origAppend === "function") {
               sb.appendBuffer = function (data) {
                 post({ kind: "mse", mime: mime });
-                if (catchArmed()) catchChunk(trackIdx, data);
+                if (catchArmed()) catchChunk(trackIdx, data, mime);
+                else if (!initDone[trackIdx]) {
+                  /* v8.7.115 初始化段备胎：捕获未开也截前几段（桥判齐即停） */
+                  var n = data instanceof ArrayBuffer ? data.byteLength
+                    : ArrayBuffer.isView(data) ? data.byteLength : 0;
+                  initSentBytes[trackIdx] = (initSentBytes[trackIdx] || 0) + n;
+                  if (initSentBytes[trackIdx] <= INIT_HARD_CAP) catchChunk(trackIdx, data, mime);
+                  else initDone[trackIdx] = true;
+                }
                 return origAppend.apply(this, arguments);
               };
             }
@@ -148,6 +175,19 @@
       };
     }
   } catch (e) { /* frozen prototype */ }
+
+  /* v8.7.115 桥回流通道：初始化段攒齐通知（ISOLATED → MAIN，同 window
+     postMessage；独立标记 __chushiSniffCtrl 与嗅探信号互不混淆） */
+  try {
+    window.addEventListener("message", function (ev) {
+      if (ev.source !== window) return;
+      var d = ev.data;
+      if (!d || d.__chushiSniffCtrl !== true) return;
+      try {
+        if (d.kind === "catch-init-done") initDone[Number(d.idx) || 0] = true;
+      } catch (e) { /* noop */ }
+    });
+  } catch (e) { /* noop */ }
 
   /* ------------------------------------------------------------- 3 fetch */
   /* 小响应窥首块实锤 HLS：content-length ≤2MB 才窥（列表都是小文件，

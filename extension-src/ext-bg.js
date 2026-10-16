@@ -904,6 +904,47 @@ function sniffOptOut(url) {
   } catch (e) { return false; }
 }
 
+/* v8.7.115 抖音平台视频下载：DNR 会话规则给抖音域族补 Referer。
+ *   抖音播放器经 XHR 拉 /aweme/v1/play/（302 跳 douyinvod/zjcdn 等 CDN），
+ *   CDN 对无 Referer 的请求拒之门外（chrome.downloads 发起的请求天然
+ *   不带 Referer → 直链下载 0 字节/失败）——fetch 规范禁设 Referer，
+ *   DNR modifyHeaders 是唯一合法改写通道（与 B 站/YouTube 律同源）。
+ *   资源嗅探列表里的抖音直链与浮窗「抖音完整视频」区都经此通道。 */
+var DOUYIN_DNR_RULE_ID = 9003;
+var DOUYIN_URL_FAM = ["douyin.com", "douyinvod.com", "zjcdn.com", "amemv.com",
+  "douyinpic.com", "bytecdn.cn", "snssdk.com", "iesdouyin.com", "douyinstatic.com"];
+function isDouyinUrl(u) {
+  try {
+    var h = (new URL(u).hostname || "").toLowerCase();
+    for (var i = 0; i < DOUYIN_URL_FAM.length; i++) {
+      var d = DOUYIN_URL_FAM[i];
+      if (h === d || (h.length > d.length && h.slice(-(d.length + 1)) === "." + d)) return true;
+    }
+  } catch (e) { /* noop */ }
+  return false;
+}
+function ensureDnrDouyin() {
+  try {
+    return chrome.declarativeNetRequest.updateSessionRules({
+      removeRuleIds: [DOUYIN_DNR_RULE_ID],
+      addRules: [{
+        id: DOUYIN_DNR_RULE_ID,
+        priority: 1,
+        action: {
+          type: "modifyHeaders",
+          requestHeaders: [
+            { header: "Referer", operation: "set", value: "https://www.douyin.com/" },
+          ],
+        },
+        condition: {
+          requestDomains: DOUYIN_URL_FAM,
+          resourceTypes: ["xmlhttprequest", "media", "other"],
+        },
+      }],
+    });
+  } catch (e) { return Promise.resolve(); }
+}
+
 /* v8.7.55 徽章配色跟随强调色：cardAcc（页面镜像）为底，YIQ 亮度自适应
    文字对比色（浅强调色配墨字、深强调色配白字）；onChanged 热跟随。 */
 var BADGE_ACC = "#8b5cf6";
@@ -1306,13 +1347,23 @@ try {
         .replace(/[\\/:*?"<>|]/g, "_")     /* Windows 非法字符清洗 */
         .replace(/^\.+/, "")               /* 防隐藏/路径穿越 */
         .slice(0, 120) || "资源文件";
-      try {
-        chrome.downloads.download(
-          { url: url, filename: name, saveAs: false },
-          function (id) { void chrome.runtime.lastError; sendResponse({ ok: typeof id === "number" }); }
-        );
-      } catch (e) {
-        sendResponse({ ok: false });
+      /* v8.7.115 抖音直链：先挂 DNR Referer 会话规则再下发（CDN 鉴权需要） */
+      var startSniffDl = function () {
+        try {
+          chrome.downloads.download(
+            { url: url, filename: name, saveAs: false },
+            function (id) { void chrome.runtime.lastError; sendResponse({ ok: typeof id === "number" }); }
+          );
+        } catch (e) {
+          sendResponse({ ok: false });
+        }
+      };
+      if (isDouyinUrl(url)) {
+        try {
+          Promise.resolve(ensureDnrDouyin()).then(startSniffDl, startSniffDl);
+        } catch (e) { startSniffDl(); }
+      } else {
+        startSniffDl();
       }
       return true; /* 异步应答 */
     }
