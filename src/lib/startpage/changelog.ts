@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.120",
+    date: "2026-10-13",
+    title: "常驻磁贴 hover 配方版：磨砂静态、描边与图标同单元放大",
+    channel: "page",
+    highlights: [
+      "磨砂底板盒子永久铺成悬停尺寸（静态）由 clip-path 承载可见放大：磨砂层几何全程不变，常驻底部类描边位移根除",
+      "描边环与内容层作为同一缩放单元、只走纯 transform（静息 0.93458 → 悬停 1）：描边随之上浮下沉，与磨砂图标像一体，与抽屉观感一致；不再使用 inset 缩放，避免图标偏移",
+      "抽屉形态（.h-16）与其余逻辑未做任何改动"
+    ],
+  },
+  {
     version: "8.7.119",
     date: "2026-10-13",
     title: "常驻磁贴回退：描边/磨砂/图标恢复整块一体",

@@ -2504,4 +2504,32 @@ html.photo-mode .pintile-label {
   text-shadow: 0 1px 8px rgb(0 0 0 / 0.25);
 }
 
-
+/* ---------- v8.7.120 常驻（56px / .h-14）hover 配方版 ----------
+   观感目标 = 抽屉那种「描边 + 磨砂 + 图标像一体」的整体上浮，同时不给磨砂层任何
+   几何变化（否则常驻底部出现类描边位移；抽屉因纱罩 backdrop root 压死自身磨砂，
+   故从不出现）。
+   ① 磨砂底板：盒子永久铺成悬停尺寸（inset:-3.5% 两侧合计 +7%，静态、永不动画），
+      可见放大由 clip-path 承载——静息 inset(3.271% round 18px)（3.5/107，与搜索框
+      inset(0.7389%) 同一算式，可见面恰为静息盒）→ hover inset(0%），350ms 同曲线。
+   ② 描边环 + 内容层：同一缩放单元，只走纯 transform（绝不碰 inset/宽高——上一版
+      图标右移就是用了 inset 缩放）：静息 scale(0.93458)（1/1.07，落在静息盒）
+      → hover scale(1)（落在放大底板上）。两者同起同落，描边随之上浮/下沉。
+   抽屉（.h-16）不在此列，行为与改动前完全一致。 ---------- */
+.tile-shell.h-14 > .tile-frost {
+  inset: -3.5%;
+  clip-path: inset(3.271% round 18px);
+  transition: clip-path 350ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.tile-shell.h-14:hover > .tile-frost {
+  clip-path: inset(0% round 18px);
+}
+.tile-shell.h-14 .tile-ring,
+.tile-shell.h-14 .tile-frost > *:not(.tile-ring) {
+  transform-origin: center;
+  transform: scale(0.93458);
+  transition: transform 350ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.tile-shell.h-14:hover .tile-ring,
+.tile-shell.h-14:hover .tile-frost > *:not(.tile-ring) {
+  transform: scale(1);
+}
