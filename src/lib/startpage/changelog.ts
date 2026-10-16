@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.114",
+    date: "2026-10-13",
+    title: "磁贴 hover 收口：只放大图标内容层，描边不放大",
+    channel: "page",
+    highlights: [
+      "hover 放大收窄到「图标内容层」一层（.tile-frost > *:not(.tile-ring)）：描边环不再跟着放大——快捷服务图标的描边本就不该放大；同时消除上一版把描边环与内容层各自缩放导致的左右挤压与右缘回伸",
+      "磨砂底板与描边环全程静止：磨砂层几何不再参与任何动画，悬停收尾底层霜面错位不会回来（与搜索框描边位移同源的修复保留）"
+    ],
+  },
+  {
     version: "8.7.113",
     date: "2026-10-13",
     title: "磁贴 hover 通道小步验证（磨砂层几何不再参与动画）",
