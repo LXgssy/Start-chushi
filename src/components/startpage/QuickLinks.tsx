@@ -79,6 +79,16 @@ const LONG_PRESS_SLOP_PX = 10;
  *  容器以 marginTop/paddingTop 对冲上探：静止时磁贴位置分毫不动。 */
 const VEIL_LIFT = 32;
 
+/** v8.7.109 下缘预留（px）：常驻滚动容器在内容底边之下多留的呼吸带（用户指令
+ *  「下方遮罩层再下移一点，入场动画时图标只有一两行会被遮罩挡住一部分」）。
+ *  磁贴只有一两行时容器高=内容高（贴死内容），入场 intro-tile-rise 从
+ *  translateY(26px) 上浮——旧裁切线正落在最后一行底部，起步 26px 越界被裁；
+ *  且入场变换瞬时把 scrollHeight 撑大 26px，令 fade.bottom 误判显影（无事件
+ *  复测，入场结束后仍驻留）——两层观感合成「遮罩挡住图标」。预留 40px>26px
+ *  后上浮全程落在容器内：不裁切、不误显影，下缘边界整体下移。多行滚动时
+ *  maxHeight 封顶公式不变，裁切线仍=Dock 顶缘；预留只是滚动末端的余量。 */
+const BOTTOM_RESERVE = 40;
+
 export function emitEditLink(link: StartLink | null) {
   window.dispatchEvent(new CustomEvent("start:edit-link", { detail: link }));
 }
@@ -507,7 +517,10 @@ function TilePlaceholder({ sm = false }: { sm?: boolean }) {
  *  本层自己（无后代），磁贴自身的磨砂玻璃不受牵连（磨砂存活律零毒）。
  *  默认 opacity 0（不可滚或已到边），show 时 0.3s 显影。
  *  cs-lite 流畅模式：backdrop-filter 被通配关停，遮罩自然退化为无操作
- *  （磁贴硬裁切）——流畅系统本来就是降级渲染，符合契约。 */
+ *  （磁贴硬裁切）——流畅系统本来就是降级渲染，符合契约。
+ *  v8.7.109：常驻形态的 bottom 实例退役（用户指令「不要底部羽化遮罩，删掉
+ *  这个」——磁贴少时容器贴内容高，遮罩正压最后一行）——仅抽屉形态继续
+ *  使用（抽屉两枚遮罩锚在视口尺寸的 motion.div 上，与内容高度无关）。 */
 function FadeVeil({
   side,
   show,
@@ -1031,7 +1044,14 @@ function QuickLinks({
      的磨砂（backdrop root 只作用遮罩层自己，磁贴不是它的后代）。
      抽屉：justify-center 改 my-auto 滚动层——内容少时垂直居中观感不变，
      超过视口时区域内滚动且顶部可达（flex 溢出滚动的标准解法），同一套
-     羽化遮罩。滚动条隐藏（cl-links-scroll），滚轮/触控板直滚。 */
+     羽化遮罩。滚动条隐藏（cl-links-scroll），滚轮/触控板直滚。
+     v8.7.109 两调（用户指令）：③ 常驻底部羽化遮罩退役（「不要底部羽化
+     遮罩，删掉这个」）——底缘只剩硬裁切线；④ 滚动容器加 BOTTOM_RESERVE
+     底部预留——磁贴一两行时容器贴内容高，入场 intro-tile-rise 从 +26px
+     上浮，旧裁切线正落在最后一行上（起步位越界被裁 + 入场变换瞬时撑大
+     scrollHeight 令 fade.bottom 误显影且无事件复测驻留不退=用户所见「入场
+     动画时遮罩挡住一部分图标」）；预留 40px>26px 后上浮全程在容器内，
+     下缘边界整体下移不再遮图标。抽屉形态遮罩与测量逻辑原样保留。 */
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [fade, setFade] = useState({ top: false, bottom: false });
   const measureFade = useCallback(() => {
@@ -1062,6 +1082,9 @@ function QuickLinks({
        底部羽化遮罩（bottom-0）随之恒贴 Dock 上沿并随其移动；磁贴不再滑进
        Dock 磨砂底下（v8.7.106 的近底 12px 下探退役）。Dock 不在位
        （showDock=false）回落视口底 12px。
+       v8.7.109：滚动容器内加 BOTTOM_RESERVE 底部预留——maxHeight 封顶公式
+       不变（裁切线仍=Dock 顶缘），预留只作用于容器内容高一侧（磁贴少时
+       容器不再贴死内容底边）与滚动末端余量。
        Dock 顶缘读 offsetTop 而非 getBoundingClientRect：Dock 是 fixed 元素，
        offsetTop 返回布局盒位置，对 dock-intro 的 translateY 入场动画
        （transform 只动视觉盒，不进 offset*）天然免疫——首帧即终值，无需
@@ -1198,7 +1221,11 @@ function QuickLinks({
           v8.7.105：滚动容器化——磁贴多时区域向下生长并内部滚动，顶/底羽化
           遮罩（FadeVeil）防磁贴滑出边界；磁贴少时容器高=内容高（≤188px）。
           v8.7.108：下边界=Dock 栏顶缘（dockMaxH 实测 .cl-dock rect.top），
-          底部羽化遮罩恒贴 Dock 上沿并随其移动；磁贴不再滑进 Dock 底下。 */}
+          磁贴不再滑进 Dock 底下。
+          v8.7.109：底部羽化遮罩退役+容器下缘 BOTTOM_RESERVE 预留（用户指令
+          「不要底部羽化遮罩删掉；下方遮罩层再下移一点」）——封顶裁切线仍在
+          Dock 顶缘，预留带让入场 26px 上浮全程可见（磁贴一两行时底缘不再
+          遮/裁图标）。 */}
       {form === "docked" && (
         <div ref={rootRef} className="cl-links cl-links-docked relative flex w-full flex-col items-center">
           {/* v8.7.106 顶缘上探（用户指令「遮罩位置上调」）：滚动容器
@@ -1211,15 +1238,18 @@ function QuickLinks({
             className="cl-links-scroll w-full overflow-y-auto overscroll-contain"
             style={
               dockMaxH
-                ? { maxHeight: dockMaxH + VEIL_LIFT, marginTop: -VEIL_LIFT, paddingTop: VEIL_LIFT }
-                : { marginTop: -VEIL_LIFT, paddingTop: VEIL_LIFT }
+                ? { maxHeight: dockMaxH + VEIL_LIFT, marginTop: -VEIL_LIFT, paddingTop: VEIL_LIFT, paddingBottom: BOTTOM_RESERVE }
+                : { marginTop: -VEIL_LIFT, paddingTop: VEIL_LIFT, paddingBottom: BOTTOM_RESERVE }
             }
             onScroll={measureFade}
           >
             {renderGrid(true)}
           </div>
           <FadeVeil side="top" show={fade.top} lift={VEIL_LIFT} />
-          <FadeVeil side="bottom" show={fade.bottom} />
+          {/* v8.7.109 底部羽化遮罩退役（用户指令「不要底部羽化遮罩，删掉这个」）：
+              磁贴一两行时容器贴内容高，bottom-0 遮罩正压最后一行底边；底缘改
+              硬裁切，裁切线经 BOTTOM_RESERVE 下移给入场动画让位。抽屉形态
+              两枚遮罩保留（锚在视口尺寸层上，无此问题）。 */}
         </div>
       )}
 
