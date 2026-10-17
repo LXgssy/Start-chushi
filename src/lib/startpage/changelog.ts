@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.126",
+    date: "2026-10-13",
+    title: "常驻磁贴悬停描边变细修复：改整体缩放承载",
+    channel: "page",
+    highlights: [
+      "上浮后描边变细：上一版悬停用 inset 把环盒改成 60px 但描边仍 1px，相对变细；改为静息保持 56px 原生盒（1px 描边清晰）、悬停整体 scale(1.0714) 到 60px，描边随之微增粗，恢复原观感",
+      "磨砂底板与内容层规则不变：磨砂几何仍全程静态、可见放大仍走 clip；抽屉未动"
+    ],
+  },
+  {
     version: "8.7.125",
     date: "2026-10-17",
     title: "缓存抓取三连根修：只抓当前播放视频、乱码与音画不同步",
