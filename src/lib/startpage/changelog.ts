@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.133",
+    date: "2026-10-14",
+    title: "HLS Stage 2：offscreen 下载任务（mux 合并 + AES-128）",
+    channel: "page",
+    highlights: [
+      "新增 extension-src/offscreen-hls.js：在唯一 offscreen 文档里跑 HLS——解析播放列表（master 取最高码率）→ 并发 6 下片 → EXT-X-KEY 用 WebCrypto AES-CBC 解密（无 IV 时按媒体序号构造）→ mux.js 7.1.0 逐片 push/flush → Blob，并以 hls-progress 回推进度",
+      "offscreen-bili.html 载入 mux.min.js、m3u8-parse.js、offscreen-hls.js 三脚本；本版仅具备能力、尚未接线（后台与浮窗下一版接通）",
+      "offscreen-hls.js 通过 node --check，并纳入打包清单、必存在门与语法门"
+    ],
+  },
+  {
     version: "8.7.132",
     date: "2026-10-14",
     title: "HLS Stage 2 前置：两库随包进 lib 并接入门禁",
