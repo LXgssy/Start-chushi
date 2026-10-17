@@ -2516,20 +2516,25 @@ html.photo-mode .pintile-label {
       → hover scale(1)（落在放大底板上）。两者同起同落，描边随之上浮/下沉。
    抽屉（.h-16）不在此列，行为与改动前完全一致。 ---------- */
 .tile-shell.h-14 > .tile-frost {
-  inset: -3.5%;
-  clip-path: inset(3% round 18px);
+  inset: -2px;
+  clip-path: inset(1.8px round 18px);
   transition: clip-path 350ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 .tile-shell.h-14:hover > .tile-frost {
-  clip-path: inset(0% round 18px);
+  clip-path: inset(0px round 18px);
 }
-.tile-shell.h-14 .tile-ring,
+.tile-shell.h-14 .tile-ring {
+  inset: 2px;
+  transition: inset 350ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.tile-shell.h-14:hover .tile-ring {
+  inset: 0;
+}
 .tile-shell.h-14 .tile-frost > *:not(.tile-ring) {
   transform-origin: center;
-  transform: scale(0.93458);
+  transform: scale(0.93333);
   transition: transform 350ms cubic-bezier(0.22, 1, 0.36, 1);
 }
-.tile-shell.h-14:hover .tile-ring,
 .tile-shell.h-14:hover .tile-frost > *:not(.tile-ring) {
   transform: scale(1);
 }

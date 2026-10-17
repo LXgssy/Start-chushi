@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.124",
+    date: "2026-10-13",
+    title: "常驻磁贴描边缺边根修：环改整像素 inset，不再缩放",
+    channel: "page",
+    highlights: [
+      "描边环原用 transform 非整数缩放，1px inset 描边落分数像素被吸附掉右内边（静息缺边、悬停才补全）；改为整像素 inset 变化（静息 2px 即 56px，悬停 0 即 60px），两侧描边都完整清晰",
+      "底板盒改整像素 inset:-2px（60px），可见放大仍由 clip-path 承载（静息 1.8px，比环多让 0.2px 余量），磨砂层几何全程不变；内容层继续纯 transform，三者悬停同为 +4px 一体上浮；抽屉未动"
+    ],
+  },
+  {
     version: "8.7.123",
     date: "2026-10-16",
     title: "历史壁纸修复×3：本地精确回切、随账号云同步、磁贴钉位上云",
