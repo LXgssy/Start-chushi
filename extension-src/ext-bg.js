@@ -1349,6 +1349,21 @@ try {
        取该 tab 的候选里最像"当前播放"的一条——分类优先级 video > stream > audio，
        直链(mp4/webm)再优先于清单(m3u8/mpd)，同级比体积，再同级取最新入库。
        命中后走与 sniffer-download 完全相同的下发路径（含抖音 DNR Referer）。 */
+    /* v8.7.134 HLS 结果落盘：offscreen 无可见 DOM、也不能自己 downloads，
+       Blob URL 由它创建，交给 SW 调 chrome.downloads。 */
+    if (msg.type === "hls-done") {
+      if (msg.ok && typeof msg.url === "string" && /^blob:/.test(msg.url)) {
+        try {
+          chrome.downloads.download(
+            { url: msg.url, filename: String(msg.filename || "视频.mp4"), saveAs: false },
+            function (id) { void chrome.runtime.lastError; sendResponse({ ok: typeof id === "number" }); }
+          );
+        } catch (e) { sendResponse({ ok: false }); }
+      } else {
+        sendResponse({ ok: false, error: msg.error || "hls-failed" });
+      }
+      return true;
+    }
     if (msg.type === "sniffer-download-current") {
       var curTab = Number.isInteger(msg.tabId) ? msg.tabId
         : (sender && sender.tab && Number.isInteger(sender.tab.id) ? sender.tab.id : -1);
@@ -1363,7 +1378,7 @@ try {
           if (bit.ext === "m3u8" || bit.ext === "mpd") brank -= 1;   /* 直链优先于清单 */
           var bsize = Number(bit.size) || 0;
           if (!best || brank > best.rank || (brank === best.rank && bsize > best.size)) {
-            best = { rank: brank, size: bsize, url: bit.url, name: bit.name || "" };
+            best = { rank: brank, size: bsize, url: bit.url, name: bit.name || "", ext: bit.ext || "" };
           }
         }
       }
@@ -1372,6 +1387,27 @@ try {
         .replace(/[\/:*?"<>|]/g, "_")
         .replace(/^\.+/, "")
         .slice(0, 120) || "当前视频";
+      /* v8.7.134 清单流走 HLS 合并（offscreen）：m3u8 交给 offscreen-hls.js，
+         解析→并发下片→解密→mux 合并→Blob，再由 SW 落盘。 */
+      if (best.ext === "m3u8") {
+        var ensureHls = (chrome.offscreen && chrome.offscreen.hasDocument)
+          ? chrome.offscreen.hasDocument().then(function (has) {
+              if (has) return true;
+              return chrome.offscreen.createDocument({
+                url: "offscreen-bili.html",
+                reasons: ["DOM_PARSER"],
+                justification: "HLS 下载合并（mux.js）",
+              }).then(function () { return true; });
+            })
+          : Promise.resolve(true);
+        ensureHls.then(function () {
+          chrome.runtime.sendMessage({ type: "hls-start", url: best.url, filename: cname }, function (resp) {
+            void chrome.runtime.lastError;
+            sendResponse(resp || { ok: false });
+          });
+        }, function () { sendResponse({ ok: false, error: "offscreen" }); });
+        return true;
+      }
       var startCurDl = function () {
         try {
           chrome.downloads.download(

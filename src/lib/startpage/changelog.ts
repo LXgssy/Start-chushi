@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.134",
+    date: "2026-10-14",
+    title: "HLS Stage 2 接线：清单流走 offscreen 合并并落盘",
+    channel: "page",
+    highlights: [
+      "「下载当前」命中 m3u8 时改走 HLS：确保（或复用）唯一 offscreen 文档 → 发 hls-start，由 offscreen-hls.js 解析/并发下片/AES 解密/mux 合并",
+      "新增 hls-done 处理：offscreen 不能自己落盘，由 SW 收 Blob URL 后调 chrome.downloads.download（saveAs:false）；直链（mp4 等）路径完全不变",
+      "best 候选补上 ext 字段以区分清单/直链；ext-bg 通过 node --check"
+    ],
+  },
+  {
     version: "8.7.133",
     date: "2026-10-14",
     title: "HLS Stage 2：offscreen 下载任务（mux 合并 + AES-128）",
