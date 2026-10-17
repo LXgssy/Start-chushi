@@ -290,10 +290,18 @@ function TileIcon({
     !!host &&
     !fav.dead &&
     !!fav.url;
+  /* v8.7.127 自绘整体让位律：显式上传图标在场时，磁贴面整体退出自绘体系——
+     不止内容层互斥（v8.7.105 起已保证），底色与描边环也同步让位。旧实现
+     tile-body 底色与 effHue 在 sd.state==="hit" 时取自绘条目主色 dom，
+     customIcon 只压住内容层——上传图标坐在自绘主色实底与自绘色相描边环上
+     （用户实测「自绘图标和上传的自定义图标重叠」的可感知形态即此，与
+     v8.7.105 注释「透明底直接坐落磨砂渐变面上」的设计意图相悖）。
+     sd 仍保持解析（删除上传图标后零闪烁回自绘），仅在使用点让位。 */
+  const sdActive = sd.state === "hit" && !customIcon;
   /* v8.7.105 主色提取退役（随 8.7.67 铺满律一起下线）：底色恒为域名色相
      渐变（8.7.44 形态）；自绘命中条目仍用条目主色（同色无缝，自绘体系
-     不受本次回归影响）。 */
-  const effHue = sd.state === "hit" ? (hexHue(sd.entry.dom) ?? hue) : hue;
+     不受本次回归影响；v8.7.127 起上传图标在场时整体让位，见 sdActive）。 */
+  const effHue = sdActive ? (hexHue(sd.entry.dom) ?? hue) : hue;
 
   /* v8.6.7 三层拆分（入场三通道，见 globals.css intro-tile-*）：
    *   包裹层（link-intro-tile）只动 transform；霜层（link-intro-frost）承载
@@ -370,9 +378,10 @@ function TileIcon({
           style={{
             /* v8.7.105 底色回归 8.7.44：域名色相渐变恒定（v8.7.45/67 的主色
                实底随铺满律退役）；自绘命中条目保留条目主色实底（与画作
-               同色无缝，属自绘体系不变） */
+               同色无缝，属自绘体系不变）；v8.7.127 上传图标在场时整体让位
+               回渐变（磨砂渐变面承载上传图标，sdActive 律） */
             background:
-              sd.state === "hit"
+              sdActive
                 ? sd.entry.dom
                 : "linear-gradient(135deg, hsl(" +
                 effHue +
@@ -390,11 +399,12 @@ function TileIcon({
               draggable={false}
               className={sm ? "h-7 w-7 object-contain" : "h-8 w-8 object-contain"}
             />
-          ) : sd.state === "hit" ? (
+          ) : sdActive ? (
             /* v8.7.46 自绘磁贴面：画作 vb 已收紧至实边界，svg 铺满磁贴（absolute
                inset-0 + slice），四角由磁贴自身 rounded-[inherit]+overflow-hidden
                统一裁切——磁贴圆角直接裁在画作上（v8.7.45 的 dom 晕环/第二套圆角
-               退役）；底色走条目主色 dom（tile-body 处实底渲染，同色无缝） */
+               退役）；底色走条目主色 dom（tile-body 处实底渲染，同色无缝）；
+               v8.7.127 起上传图标在场时本分支让位（sdActive 律） */
             <span
               aria-hidden
               className="absolute inset-0 block"
