@@ -980,7 +980,12 @@ try {
   try {
     chrome.storage.local.get("snifferOn", function (o) {
       sniffOn = !!(o && o.snifferOn);
-      if (sniffOn) sniffWarmTabs();
+      /* v8.7.128 冷启动补播：SW 每次冷启动且嗅探开启时向全部 http/https
+         标签页补针+推送开启态——唤醒/更新竞态期 boot 死亡的浮窗与扩展
+         更新前已开的旧标签页（新包内容脚本未注入）在此一次性全部自愈。
+         补针幂等（sniffer-float.js 顶层 __chushiSnifferMounted 守卫），
+         广播对存活实例仅刷新状态，零副作用。 */
+      if (sniffOn) { sniffWarmTabs(); sniffAnnounceOn(); }
     });
   } catch (e) { sniffOn = false; }
   try {

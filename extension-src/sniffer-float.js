@@ -1,6 +1,15 @@
 /* ============================================================================
- * 「初始」资源嗅探全局浮窗 sniffer-float v2（v8.7.115）
+ * 「初始」资源嗅探全局浮窗 sniffer-float v2（v8.7.115 / v8.7.128 自愈）
  * ----------------------------------------------------------------------------
+ * v8.7.128 浮窗出现链自愈（用户实测「浮窗在 B 站页面不出现、平台专下载
+ *   全没了」）：出现链原有多处单点静默死亡——①boot 的 ask 无应答（SW 唤醒
+ *   /休眠竞态丢包）即永久放弃且后续 sniffer-new 全被丢弃；②开启亮窗完全
+ *   依赖 SW 广播，丢失则已开页面永不亮窗。自愈五律：ask 退避重试 3 轮 /
+ *   sniffer-new 到达即重问（SW 只在开启时推送，收到即证 on=true）/
+ *   storage snifferOn=true 本地兜底 boot / visibilitychange 切页重问
+ *   （30s 节流）/ bili+yt 解析 sw-offline 粘滞错误改可重试（2s 后开面板
+ *   自动重试，真失败仍终态防抖）。SW 侧配合：冷启动 sniffOn=true 时
+ *   sniffAnnounceOn 补播（ext-bg.js）。
  * 数据面：ext-bg.js（SW）注册 webRequest 监听 → 按标签页归集可下载资源
  *   （chrome.storage.session 持久，SW 复活后重建）→ tabs.sendMessage 推送
  *   到本内容脚本。本脚本只做三件事：圆形浮球、资源面板、发现提示（toast）。
@@ -34,12 +43,28 @@
  *   标题+计数徽章+图标动作钮（清空/收起）；列表项 = 类型色块（title 全称）+
  *   文件名/「大小 · 来源域名」两行分层；空态图标+双行文案。
  * 幂等律：isolated world 顶层守卫 __chushiSnifferMounted 防重复注入
- *   （manifest 注入 + SW 补针双路径同世界共存）。
+ *   （manifest 注入 + SW 补针双路径同世界共存）。v8.7.128 升级为版本戳：
+ *   同版本重复注入幂等早退；**异版本（扩展更新）落进的注入先拆旧宿主再
+ *   挂新浮窗**——旧律裸真值守卫会把更新后的旧标签页钉死在孤儿旧浮窗上
+ *   （旧脚本 chrome.runtime 已失效：不亮/点击无响应/平台专区全失联，
+ *   用户感知即「更新后浮窗没了」，须逐页手动刷新才恢复）。
  * ==========================================================================*/
 (function () {
   "use strict";
-  if (window.__chushiSnifferMounted) return;
-  window.__chushiSnifferMounted = true;
+  var MOUNT_VER = "v8.7.128";
+  if (window.__chushiSnifferMounted === MOUNT_VER) return;
+  /* 旧挂载残迹判定：v8.7.127 及更早是布尔 true，128 起是版本串——
+     两者皆视作「页面上可能留有旧宿主」，更新换代时整体拆除 */
+  var hadStale = !!window.__chushiSnifferMounted;
+  window.__chushiSnifferMounted = MOUNT_VER;
+  /* 更新换代：旧版本（任意旧版）宿主整体拆除——旧脚本残余监听器持有
+     的引用全部落空即自然退场，新浮窗干净接管 */
+  if (hadStale) {
+    try {
+      var stale = document.querySelectorAll("#chushi-sniffer-host");
+      for (var si = 0; si < stale.length; si++) stale[si].parentNode && stale[si].parentNode.removeChild(stale[si]);
+    } catch (e) { /* noop */ }
+  }
 
   var POS_KEY = "chushi-sniffer-pos";
   var TYPE_META = {
@@ -418,7 +443,14 @@
     }
   }
   function biliResolve() {
-    if (!state.bili.bvid || state.bili.resolving || state.bili.resolved || state.bili.error) return;
+    if (!state.bili.bvid || state.bili.resolving || state.bili.resolved) return;
+    /* v8.7.128 sw-offline 可重试：旧逻辑 error 粘滞（一次 SW 打嗝 → 专区
+       永久「解析失败」直到刷新页面，用户感知即「下载没了」）——sw-offline
+       且 2s 后的下次开面板自动重试；真解析失败仍保持终态防抖 */
+    if (state.bili.error) {
+      if (!(state.bili.error === "sw-offline" && Date.now() - (state.bili.errorTs || 0) > 2000)) return;
+      state.bili.error = "";
+    }
     state.bili.resolving = true;
     if (state.panelOpen) renderPanel();
     send({ type: "bili-resolve", bvid: state.bili.bvid, page: state.bili.page }, function (resp) {
@@ -432,6 +464,7 @@
         }
       } else {
         state.bili.error = "sw-offline";
+        state.bili.errorTs = Date.now();
       }
       if (state.panelOpen) renderPanel();
     });
@@ -474,7 +507,12 @@
     }
   }
   function ytResolve() {
-    if (!state.yt.vid || state.yt.resolving || state.yt.resolved || state.yt.error) return;
+    if (!state.yt.vid || state.yt.resolving || state.yt.resolved) return;
+    /* v8.7.128 sw-offline 可重试（同 B 站区律） */
+    if (state.yt.error) {
+      if (!(state.yt.error === "sw-offline" && Date.now() - (state.yt.errorTs || 0) > 2000)) return;
+      state.yt.error = "";
+    }
     state.yt.resolving = true;
     if (state.panelOpen) renderPanel();
     send({ type: "yt-resolve", videoId: state.yt.vid }, function (resp) {
@@ -484,6 +522,7 @@
         else state.yt.error = String(resp.error || "resolve-fail");
       } else {
         state.yt.error = "sw-offline";
+        state.yt.errorTs = Date.now();
       }
       if (state.panelOpen) renderPanel();
     });
@@ -982,11 +1021,23 @@
     if (state.panelOpen) renderPanel();
   }
 
-  function boot() {
-    if (state.booted) return;
+  /* v8.7.128 自愈 boot：ask 无应答（SW 唤醒/体眠竞态丢包，MV3 已知行为）
+     不再静默死刑——退避重试 3 轮（600ms/1.2s/2.4s）。旧逻辑无应答即永久
+     返囬（state.booted 已置真、state.on 恒假），后续 sniffer-new 推送也被
+     丢弃，浮窗对本标签页永不同亮（用户实测「浮窗在 B 站页面不出现」）。 */
+  var bootRetries = 0;
+  function boot(force) {
+    if (state.booted && !force) return;
     state.booted = true;
     send({ type: "sniffer-ask" }, function (resp) {
-      if (!resp || resp.type !== "sniffer-state") return;
+      if (!resp || resp.type !== "sniffer-state") {
+        bootRetries++;
+        if (bootRetries <= 3) {
+          setTimeout(function () { boot(true); }, 600 * bootRetries);
+        }
+        return;
+      }
+      bootRetries = 0;
       if (!resp.on) { destroy(); return; }
       state.on = true;
       ball.style.display = "flex";
@@ -1009,8 +1060,10 @@
     chrome.runtime.onMessage.addListener(function (msg) {
       if (!msg || typeof msg.type !== "string") return;
       if (msg.type === "sniffer-new") {
-        if (!state.booted) boot();
-        if (!state.on) return;
+        /* v8.7.128 自愈律：SW 只在嗅探开启时才推送 sniffer-new，收到即证
+           SW 侧 on=true——此前未亮（boot 死亡/广播丢失）时重问 SW 而非
+           丢消息，ask 应答自带全量 items，亮窗与入列一步完成 */
+        if (!state.on) { boot(true); return; }
         ball.style.display = "flex";
         applyBallPos();
         applyItems(msg.items || []);
@@ -1034,12 +1087,28 @@
     });
   } catch (e) { /* 无 runtime 宿主 */ }
 
-  /* storage 兜底：SW 离线期被关闭也能及时自毁 */
+  /* storage 兜底双向化（v8.7.128）：关 → 自毁；开 → 本地兜底重问（旧逻辑
+     只处理关，开启亮窗完全依赖 SW 广播 sniffAnnounceOn，广播在 SW 竞态下
+     丢失则已开页面永不亮窗——v8.7.58 用户实测缺陷同根） */
   try {
     chrome.storage.onChanged.addListener(function (changes, area) {
-      if (area === "local" && changes && "snifferOn" in changes && changes.snifferOn.newValue !== true) {
-        destroy();
+      if (area === "local" && changes && "snifferOn" in changes) {
+        if (changes.snifferOn.newValue === true) boot(true);
+        else destroy();
       }
+    });
+  } catch (e) { /* noop */ }
+
+  /* v8.7.128 可见性重问律：后台标签页 boot 死亡（SW 休眠期丢包）后，
+     用户切回标签页时重问一次（30s 节流）——切页即自愈，无需刷新 */
+  var lastVisRecheck = 0;
+  try {
+    document.addEventListener("visibilitychange", function () {
+      if (document.visibilityState !== "visible" || state.on) return;
+      var now = Date.now();
+      if (now - lastVisRecheck < 30000) return;
+      lastVisRecheck = now;
+      boot(true);
     });
   } catch (e) { /* noop */ }
 
