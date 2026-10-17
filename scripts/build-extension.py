@@ -62,7 +62,7 @@ OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
 EXT_SRC = ROOT / "extension-src"    # v8.2.0 SW/内容脚本源
-VERSION = "8.7.131"
+VERSION = "8.7.132"
 DEST = ROOT / f"download/v{VERSION}/ChuShi-NewTab-v{VERSION}.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():
@@ -418,8 +418,14 @@ shutil.copy2(EXT_SRC / "ext-bg.js", STAGE / "ext-bg.js")
 # v8.7.58：+sniffer-float.js（v8.7.55 误删恢复——浮窗脚本必须随包进扩展根）
 # v8.7.66：+嗅探探针/桥（GD3 方案重写——主世界探针 + ISOLATED 桥随包进扩展根）
 # v8.7.69：+B 站完整下载三件（核心库 + offscreen 文档/控制器，SW importScripts bili-core）
-for _shell in ("shell.html", "shell-bridge.js", "shim-page.js", "cs-bridge.js", "popup.html", "popup.js", "sniffer-float.js", "sniffer-probe.js", "sniffer-bridge.js", "bili-core.js", "offscreen-bili.html", "offscreen-bili.js"):
+for _shell in ("shell.html", "shell-bridge.js", "shim-page.js", "cs-bridge.js", "popup.html", "popup.js", "sniffer-float.js", "sniffer-probe.js", "sniffer-bridge.js", "bili-core.js", "offscreen-bili.html", "offscreen-bili.js",
+             "lib/mux.min.js", "lib/m3u8-parse.js"):
     shutil.copy2(EXT_SRC / _shell, STAGE / _shell)
+# v8.7.132：HLS 管线两个库（mux.js 7.1.0 / m3u8 解析器）必须随包进 lib/，
+# 否则 offscreen 运行时 404（Stage 1 只入库未入包，本版补上）。
+(STAGE / "lib").mkdir(parents=True, exist_ok=True)
+for _lib in ("mux.min.js", "m3u8-parse.js"):
+    shutil.copy2(EXT_SRC / "lib" / _lib, STAGE / "lib" / _lib)
 if (STAGE / "cs-snap").exists():
     shutil.rmtree(STAGE / "cs-snap")
 shutil.copytree(EXT_SRC / "cs-snap", STAGE / "cs-snap")
@@ -450,7 +456,8 @@ for must in ("manifest.json", "_locales/zh_CN/messages.json", "icons/icon128.png
              # v8.7.66 嗅探重写：探针+桥（缺任一 = 新机制静默断供）
              "sniffer-float.js", "sniffer-probe.js", "sniffer-bridge.js",
              # v8.7.69 B 站完整下载：核心库 + offscreen 文档/控制器
-             "bili-core.js", "offscreen-bili.html", "offscreen-bili.js"):
+             "bili-core.js", "offscreen-bili.html", "offscreen-bili.js",
+             "lib/mux.min.js", "lib/m3u8-parse.js"):
     if not (STAGE / must).exists():
         sys.exit(f"缺 {must}——产物不完整")
 # v8.2.1 门：SW/内容脚本语法自检（node --check；拼接后的 ext-card.js 才是真产物）
@@ -460,6 +467,11 @@ for ext_file in ("ext-bg.js", "ext-card.js", "shell-bridge.js", "shim-page.js", 
     r = subprocess.run(["node", "--check", str(STAGE / ext_file)], capture_output=True, text=True)
     if r.returncode != 0:
         sys.exit(f"{ext_file} 语法门 FAIL: {r.stderr[:300]}")
+# v8.7.132：两个 HLS 库同门（纯 JS，node --check 可验）
+for _lib in ("lib/mux.min.js", "lib/m3u8-parse.js"):
+    _r = subprocess.run(["node", "--check", str(STAGE / _lib)], capture_output=True, text=True)
+    if _r.returncode != 0:
+        sys.exit(f"{_lib} 语法门 FAIL: {_r.stderr[:300]}")
 _card_js = (STAGE / "ext-card.js").read_text(encoding="utf-8")
 for feat in ("ChuShiLyric", "parseWordText", "unitizeLine",  # 歌词引擎特征
              "fcard", "flyr-in", "setMode", "cover",         # 三态/歌词 DOM 特征

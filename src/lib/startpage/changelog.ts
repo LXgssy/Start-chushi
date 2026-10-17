@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.132",
+    date: "2026-10-14",
+    title: "HLS Stage 2 前置：两库随包进 lib 并接入门禁",
+    channel: "page",
+    highlights: [
+      "修掉 Stage 1 的漏包：build-extension 的拷贝清单只有扩展根文件，lib/ 不在其中（offscreen 会 404）；本版把 lib/mux.min.js 与 lib/m3u8-parse.js 纳入全部打包路径",
+      "两库同时接入产物必存在门与 node --check 语法门（两条打包路径各一份），构建期即可发现缺失或语法错"
+    ],
+  },
+  {
     version: "8.7.131",
     date: "2026-10-14",
     title: "HLS 管线 Stage 1：引入 mux.js 与 m3u8 解析器",
