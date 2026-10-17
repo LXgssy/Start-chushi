@@ -1350,7 +1350,8 @@ try {
        直链(mp4/webm)再优先于清单(m3u8/mpd)，同级比体积，再同级取最新入库。
        命中后走与 sniffer-download 完全相同的下发路径（含抖音 DNR Referer）。 */
     if (msg.type === "sniffer-download-current") {
-      var curTab = Number.isInteger(msg.tabId) ? msg.tabId : -1;
+      var curTab = Number.isInteger(msg.tabId) ? msg.tabId
+        : (sender && sender.tab && Number.isInteger(sender.tab.id) ? sender.tab.id : -1);
       var curEntry = sniffTabs.get(curTab);
       var best = null;
       if (curEntry && curEntry.order && curEntry.byUrl) {

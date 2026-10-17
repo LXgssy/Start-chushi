@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.130",
+    date: "2026-10-14",
+    title: "嗅探浮窗接入「下载当前」按钮",
+    channel: "page",
+    highlights: [
+      "嗅探面板头部新增「下载当前」按钮：一键下载当前标签页正在播放的那一条（后台按 video>stream>audio、直链优先、体积优先挑最佳），结果以 toast 反馈",
+      "后台 tabId 增加 sender.tab.id 兜底（内容脚本拿不到自身 tabId），无需内容脚本额外查询；仍复用抖音 DNR Referer 通道，权限无新增"
+    ],
+  },
+  {
     version: "8.7.129",
     date: "2026-10-14",
     title: "嗅探新增「下载当前视频」后台通道",
