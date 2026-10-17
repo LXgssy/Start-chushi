@@ -713,11 +713,13 @@
     var inf = api.info();
     if (!inf) return "";
     var size = inf.total > 0 ? fmtSize(inf.total) : "";
+    /* v8.7.125 媒体源分组过滤：忽略组计数随状态行提示 */
+    var extra = inf.extra > 0 ? " · 其他源" + inf.extra : "";
     var stateHtml;
     if (inf.on) {
-      stateHtml = '<span class="catch-s live">捕获中' + (size ? " · " + size : "") + (inf.done ? " · 已到尾" : "") + "</span>";
+      stateHtml = '<span class="catch-s live">捕获中' + (size ? " · " + size : "") + (inf.done ? " · 已到尾" : "") + extra + "</span>";
     } else if (inf.total > 0) {
-      stateHtml = '<span class="catch-s">已捕获 ' + size + (inf.done ? " · 已到尾" : "") + "</span>";
+      stateHtml = '<span class="catch-s">已捕获 ' + size + (inf.done ? " · 已到尾" : "") + extra + "</span>";
     } else {
       stateHtml = '<span class="catch-s">待开始</span>';
     }
@@ -731,7 +733,7 @@
       "</div>" +
       '<div class="catch-auto"><span class="ca-t">捕获完成后自动下载</span>' +
       '<button class="sw' + (catchAutoDl ? " on" : "") + '" data-act="catch-auto" role="switch" aria-checked="' + (catchAutoDl ? "true" : "false") + '" aria-label="捕获完成后自动下载"><span class="knob"></span></button></div>' +
-      '<div class="catch-tip">把页面播放器已缓存的分段数据（MSE 流）截留合并成文件，各视频站通用；建议「从头捕获」后重播视频，播完点「下载数据」。仅主框架播放器，多音轨会分文件保存。</div>' +
+      '<div class="catch-tip">把页面播放器已缓存的分段数据（MSE 流）截留合并成文件，各视频站通用；建议「从头捕获」后重播视频，播完点「下载数据」。只保存当前播放的媒体源，广告/预加载自动忽略；播放中切换清晰度会按切换点拆成多段；多音轨分文件保存。</div>' +
       "</div>"
     );
   }
