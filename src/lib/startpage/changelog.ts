@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.129",
+    date: "2026-10-14",
+    title: "嗅探新增「下载当前视频」后台通道",
+    channel: "page",
+    highlights: [
+      "ext-bg 新增 sniffer-download-current 消息：对指定 tab 的候选按 video > stream > audio 分类、直链优先于 m3u8/mpd、同级比体积、再取最新，挑出「正在播放的那一个」后走与 sniffer-download 相同的下发路径",
+      "复用既有抖音 DNR Referer 会话规则（ensureDnrDouyin），抖音 CDN 直链不再 403；权限无新增，无安装授权变化"
+    ],
+  },
+  {
     version: "8.7.128",
     date: "2026-10-17",
     title: "资源嗅探浮窗出现链自愈：唤醒竞态不再永久失明",

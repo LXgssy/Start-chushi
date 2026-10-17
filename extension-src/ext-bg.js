@@ -1345,6 +1345,45 @@ try {
       }
       return;
     }
+    /* v8.7.127 下载当前视频（抖音推荐页等「正在播放的那一个」）：
+       取该 tab 的候选里最像"当前播放"的一条——分类优先级 video > stream > audio，
+       直链(mp4/webm)再优先于清单(m3u8/mpd)，同级比体积，再同级取最新入库。
+       命中后走与 sniffer-download 完全相同的下发路径（含抖音 DNR Referer）。 */
+    if (msg.type === "sniffer-download-current") {
+      var curTab = Number.isInteger(msg.tabId) ? msg.tabId : -1;
+      var curEntry = sniffTabs.get(curTab);
+      var best = null;
+      if (curEntry && curEntry.order && curEntry.byUrl) {
+        for (var bi = curEntry.order.length - 1; bi >= 0; bi--) {
+          var bit = curEntry.byUrl.get(curEntry.order[bi]);
+          if (!bit || typeof bit.url !== "string" || !/^https?:/i.test(bit.url)) continue;
+          var brank = bit.type === "video" ? 3 : bit.type === "stream" ? 2 : bit.type === "audio" ? 1 : 0;
+          if (!brank) continue;
+          if (bit.ext === "m3u8" || bit.ext === "mpd") brank -= 1;   /* 直链优先于清单 */
+          var bsize = Number(bit.size) || 0;
+          if (!best || brank > best.rank || (brank === best.rank && bsize > best.size)) {
+            best = { rank: brank, size: bsize, url: bit.url, name: bit.name || "" };
+          }
+        }
+      }
+      if (!best) { sendResponse({ ok: false, reason: "no-media" }); return; }
+      var cname = String(best.name || "当前视频")
+        .replace(/[\/:*?"<>|]/g, "_")
+        .replace(/^\.+/, "")
+        .slice(0, 120) || "当前视频";
+      var startCurDl = function () {
+        try {
+          chrome.downloads.download(
+            { url: best.url, filename: cname, saveAs: false },
+            function (id) { void chrome.runtime.lastError; sendResponse({ ok: typeof id === "number", url: best.url }); }
+          );
+        } catch (e) { sendResponse({ ok: false }); }
+      };
+      if (isDouyinUrl(best.url)) {
+        try { Promise.resolve(ensureDnrDouyin()).then(startCurDl, startCurDl); } catch (e) { startCurDl(); }
+      } else { startCurDl(); }
+      return true;
+    }
     if (msg.type === "sniffer-download") {
       var url = typeof msg.url === "string" && /^https?:/i.test(msg.url) ? msg.url : "";
       if (!url) { sendResponse({ ok: false }); return; }
