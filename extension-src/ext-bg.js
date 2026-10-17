@@ -1351,6 +1351,13 @@ try {
        命中后走与 sniffer-download 完全相同的下发路径（含抖音 DNR Referer）。 */
     /* v8.7.134 HLS 结果落盘：offscreen 无可见 DOM、也不能自己 downloads，
        Blob URL 由它创建，交给 SW 调 chrome.downloads。 */
+    /* v8.7.135 把进度/结果转给浮窗所在 tab：offscreen 的消息 sender 无 tab，
+       故在发起时把 tabId 记在 self 上（不新增模块级变量）。 */
+    if ((msg.type === "hls-progress" || msg.type === "hls-done") && Number.isInteger(self.__chushiHlsTab)) {
+      try {
+        chrome.tabs.sendMessage(self.__chushiHlsTab, msg, function () { void chrome.runtime.lastError; });
+      } catch (e) { /* noop */ }
+    }
     if (msg.type === "hls-done") {
       if (msg.ok && typeof msg.url === "string" && /^blob:/.test(msg.url)) {
         try {
@@ -1390,6 +1397,7 @@ try {
       /* v8.7.134 清单流走 HLS 合并（offscreen）：m3u8 交给 offscreen-hls.js，
          解析→并发下片→解密→mux 合并→Blob，再由 SW 落盘。 */
       if (best.ext === "m3u8") {
+        try { self.__chushiHlsTab = curTab; } catch (e) { /* noop */ }
         var ensureHls = (chrome.offscreen && chrome.offscreen.hasDocument)
           ? chrome.offscreen.hasDocument().then(function (has) {
               if (has) return true;

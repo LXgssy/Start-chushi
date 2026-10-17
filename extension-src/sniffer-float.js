@@ -1000,6 +1000,20 @@
   }
 
   /* ---------- 消息面 ---------- */
+  /* v8.7.135 HLS 合并进度：SW 转发的 hls-progress / hls-done 进 toast
+     （解析阶段「解析播放列表…」，下载阶段「合并中 n%（done/total）」）。 */
+  try {
+    chrome.runtime.onMessage.addListener(function (msg) {
+      if (!msg) return;
+      if (msg.type === "hls-progress") {
+        var pct = msg.total ? Math.floor((msg.done / msg.total) * 100) : 0;
+        showToast(msg.phase === "parse" ? "解析播放列表…" : "合并中 " + pct + "%（" + msg.done + "/" + msg.total + "）");
+      } else if (msg.type === "hls-done") {
+        showToast(msg.ok ? "合并完成，已发起下载" : "合并失败：" + (msg.error || "未知错误"));
+      }
+    });
+  } catch (e) { /* noop */ }
+
   function send(msg, cb) {
     try {
       if (cb) chrome.runtime.sendMessage(msg, function (resp) { void chrome.runtime.lastError; cb(resp); });

@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.135",
+    date: "2026-10-14",
+    title: "HLS 合并进度接入浮窗",
+    channel: "page",
+    highlights: [
+      "浮窗新增 hls-progress / hls-done 监听：解析阶段提示「解析播放列表…」，下载阶段提示「合并中 n%（分片 done/total）」，完成后提示已发起下载或失败原因",
+      "SW 发起 HLS 时把 tabId 记在 self 上，随后把 offscreen 的进度/结果转发到该 tab；两份 JS 均通过 node --check"
+    ],
+  },
+  {
     version: "8.7.134",
     date: "2026-10-14",
     title: "HLS Stage 2 接线：清单流走 offscreen 合并并落盘",
