@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.131",
+    date: "2026-10-14",
+    title: "HLS 管线 Stage 1：引入 mux.js 与 m3u8 解析器",
+    channel: "page",
+    highlights: [
+      "引入 extension-src/lib/mux.min.js（mux.js 7.1.0，Apache-2.0，来源 cat-catch，许可头原样保留）",
+      "新增 extension-src/lib/m3u8-parse.js：master 变体按带宽降序、分片带 EXT-X-KEY/EXT-X-MAP、相对 URI 解析、ENDLIST 判定；node --check 与本地自测均通过",
+      "Stage 2 将在现有唯一 offscreen 文档接入下载任务，Stage 3 上 StreamSaver 流式落盘"
+    ],
+  },
+  {
     version: "8.7.130",
     date: "2026-10-14",
     title: "嗅探浮窗接入「下载当前」按钮",
