@@ -1,5 +1,26 @@
 /* ============================================================================
- * 「初始」资源嗅探页面桥 sniffer-bridge v4（v8.7.115，+初始化段备胎+自动下载）
+ * 「初始」资源嗅探页面桥 sniffer-bridge v5（v8.7.125，+媒体源分组过滤）
+ * ----------------------------------------------------------------------------
+ * v8.7.125 缓存抓取三连根修（用户：「没有正确抓取当前播放视频的缓存，
+ *   文件一堆乱码且音画不同步」）：
+ *   ①抓错目标：v4 把页面【所有】MediaSource 的 SourceBuffer 平铺为轨道
+ *     下载（现代视频页普遍有广告/正片/预加载多个 MS 实例，文件名还重复
+ *     被浏览器改名 (1)(2)，无法分辨）。根修＝媒体源实例分组：探针 v5 三
+ *     信号随行 ms（MS 实例懒编号），轨道记录 ms+lastTs；下载只合成
+ *     「最近活跃组」（有数据轨道中 lastTs 最大的 ms——正在喂当前播放器
+ *     的那一路），其余组忽略并按组计数提示。
+ *   ②乱码：fMP4 媒体分段首顶层 box 不一定是 moof/styp——hls.js/dash.js
+ *     常见 emsg/prft/sidx 前置，v4 initPrefixFor 只认 moof/styp 开头 →
+ *     init 漏补 → 文件缺 ftyp+moov 播放器解析崩。根修＝needsInit
+ *     box-walk：从首块头部走顶层 box 序列，见 ftyp 即已有 init；见任意
+ *     媒体类 box（moof/styp/emsg/prft/sidx/…）而未见 ftyp 即需补。
+ *     备胎攒齐判定 initScan 同步增强：moov 之后【任意】box 即媒体段
+ *     开始（精确截断，emsg 前置分段不再被多包进 init 前缀）。
+ *   ③乱码+音画不同步：捕获中 ABR 切换/换源使同一轨道流中再次出现
+ *     init（ftyp/EBML 头）→ 文件中间嵌第二个 init，解析崩溃且时间轴
+ *     重置。根修＝多 init 拆分：合成时按 chunk 首 box 扫描，非首 chunk
+ *     以 ftyp/EBML 开头即从该处拆成第二段文件（各自 init 完整可播），
+ *     文件名 -2/-3；TS 流（0x47）自包含不拆。
  * ----------------------------------------------------------------------------
  * v8.7.115 缓存抓取可播性根修（用户：「缓存抓取下载的文件没有 mp4 无法正常
  *   播放」）——两处断链：
@@ -159,7 +180,7 @@
   var catchOn = false;
   var catchDone = false;
   var catchNote = "";
-  var catchTracks = [];                /* 轨道号 → {mime, chunks:[], size} */
+  var catchTracks = [];                /* 轨道号 → {mime, ms, chunks:[], size, lastTs} */
   var catchTotal = 0;
   var CATCH_MAX_BYTES = 1073741824;    /* 1GB 硬顶：到顶自动停捕获防 OOM */
   var catchNotifyTimer = 0;
@@ -188,9 +209,11 @@
     } catch (e) { /* noop */ }
   }
 
-  /* 初始化段攒齐判定：fMP4 顶层 box-walk（遇 moof/styp 即初始化段终点）；
-     WebM 找首个 Cluster 元素 ID（1F 43 B6 75）；TS 自包含直接判齐。
-     未判齐返回 false（探针继续转交，1MB 顶后强停）。 */
+  /* 初始化段攒齐判定：fMP4 顶层 box-walk（v8.7.125：见 ftyp/moov 走过，
+     moov 之后的【任意】box 即媒体段开始——moof/styp/emsg/prft/sidx 前置
+     形态都精确截断，不再只认 moof/styp）；WebM 找首个 Cluster 元素 ID
+     （1F 43 B6 75）；TS 自包含直接判齐。未判齐返回 false（探针继续转交，
+     1MB 顶后强停）。 */
   function initScan(st, idx) {
     try {
       var buf = initJoin(st);
@@ -208,10 +231,17 @@
         }
         if (tag4 === "ftyp") {
           var off = 0;
+          var sawMoov = false;
           while (off + 8 <= total) {
             var size = ((buf[off] << 24) | (buf[off + 1] << 16) | (buf[off + 2] << 8) | buf[off + 3]) >>> 0;
             var type = String.fromCharCode(buf[off + 4], buf[off + 5], buf[off + 6], buf[off + 7]);
-            if (type === "moof" || type === "styp") { initMarkDone(st, idx, off); return true; }
+            if (type === "ftyp" || type === "moov") {
+              if (type === "moov") sawMoov = true;
+              if (size < 8) return false;
+              off += size;
+              continue;
+            }
+            if (sawMoov) { initMarkDone(st, idx, off); return true; }
             if (size < 8) return false;
             off += size;
           }
@@ -222,57 +252,123 @@
     return false;
   }
 
-  /* 下载合成用：首块缺初始化段时取备胎前缀（initBytes 截断防备胎尾混入
+  /* 下载合成用：首块缺初始化段时取备胎前缀（needsInit box-walk 判定，
+     v8.7.125 起覆盖 emsg/prft/sidx 前置分段；initBytes 截断防备胎尾混入
      媒体分段）；返回 null=无需补，数组=前缀块，"missing"=缺备胎诚实提示 */
   function initPrefixFor(ti, firstChunk) {
     try {
-      var u8 = firstChunk instanceof ArrayBuffer
-        ? new Uint8Array(firstChunk)
-        : new Uint8Array(firstChunk.buffer, firstChunk.byteOffset, firstChunk.byteLength);
-      if (u8.length < 8) return null;
-      var tag4 = String.fromCharCode(u8[4], u8[5], u8[6], u8[7]);
-      if (tag4 === "ftyp") return null;
-      if (u8[0] === 0x1A && u8[1] === 0x45 && u8[2] === 0xDF && u8[3] === 0xA3) return null;
-      if (u8[0] === 0x47) return null;
-      if (tag4 === "moof" || tag4 === "styp") {
-        var st = catchInit[ti];
-        if (st && st.complete && st.initBytes > 0) {
-          var parts = [];
-          var left = st.initBytes;
-          for (var i = 0; i < st.parts.length && left > 0; i++) {
-            var b = st.parts[i];
-            if (left >= b.byteLength) { parts.push(b); left -= b.byteLength; }
-            else { parts.push(b.slice(0, left)); left = 0; }
-          }
-          return parts.length ? parts : "missing";
+      if (!needsInit(firstChunk)) return null;
+      var st = catchInit[ti];
+      if (st && st.complete && st.initBytes > 0) {
+        var parts = [];
+        var left = st.initBytes;
+        for (var i = 0; i < st.parts.length && left > 0; i++) {
+          var b = st.parts[i];
+          if (left >= b.byteLength) { parts.push(b); left -= b.byteLength; }
+          else { parts.push(b.slice(0, left)); left = 0; }
         }
-        return "missing";
+        return parts.length ? parts : "missing";
       }
+      return "missing";
     } catch (e) { /* noop */ }
     return null;
   }
 
-  /* 容器识别（mime 缺席时的扩展名兑底）：ftyp→mp4 / EBML→webm / 0x47→ts */
+  /* 容器识别（mime 缺席时的扩展名兑底）：box-walk 深度≤4 找 ftyp
+     （v8.7.125：emsg/prft/sidx 前置的分段也能认出 MP4 家族）；
+     EBML→webm / 0x47→ts */
   function catchContainerOf(firstChunk) {
     try {
       var u8 = firstChunk instanceof ArrayBuffer
         ? new Uint8Array(firstChunk)
         : new Uint8Array(firstChunk.buffer, firstChunk.byteOffset, firstChunk.byteLength);
       if (u8.length < 12) return "";
-      var tag4 = String.fromCharCode(u8[4], u8[5], u8[6], u8[7]);
-      if (tag4 === "ftyp") return "mp4";
       if (u8[0] === 0x1A && u8[1] === 0x45 && u8[2] === 0xDF && u8[3] === 0xA3) return "webm";
       if (u8[0] === 0x47) return "ts";
+      var off = 0, guard = 0;
+      while (off + 8 <= u8.length && guard++ < 4) {
+        var size = ((u8[off] << 24) | (u8[off + 1] << 16) | (u8[off + 2] << 8) | u8[off + 3]) >>> 0;
+        var type = String.fromCharCode(u8[off + 4], u8[off + 5], u8[off + 6], u8[off + 7]);
+        if (type === "ftyp") return "mp4";
+        if (size < 8) break;
+        off += size;
+      }
+      var tag4 = String.fromCharCode(u8[4], u8[5], u8[6], u8[7]);
+      if (tag4 === "ftyp") return "mp4";
     } catch (e) { /* noop */ }
     return "";
   }
 
+  /* v8.7.125 首块是否缺初始化段（box-walk 版，替代 v4「只认 moof/styp
+     开头」）：走顶层 box 序列，见 ftyp/EBML/TS 头＝已有 init 或自包含；
+     见任意媒体类 box（moof/styp/emsg/prft/sidx/…）而未见 ftyp＝需补。
+     走不出结论时保守返回 false（不补，维持旧行为）。 */
+  function needsInit(firstChunk) {
+    try {
+      var u8 = firstChunk instanceof ArrayBuffer
+        ? new Uint8Array(firstChunk)
+        : new Uint8Array(firstChunk.buffer, firstChunk.byteOffset, firstChunk.byteLength);
+      if (u8.length < 8) return false;
+      if (u8[0] === 0x1A && u8[1] === 0x45 && u8[2] === 0xDF && u8[3] === 0xA3) return false;
+      if (u8[0] === 0x47) return false;
+      var off = 0, guard = 0;
+      while (off + 8 <= u8.length && guard++ < 16) {
+        var size = ((u8[off] << 24) | (u8[off + 1] << 16) | (u8[off + 2] << 8) | u8[off + 3]) >>> 0;
+        var type = String.fromCharCode(u8[off + 4], u8[off + 5], u8[off + 6], u8[off + 7]);
+        if (type === "ftyp") return false;
+        if (type === "moof" || type === "styp") return true;
+        if (size < 8) return false;
+        off += size;
+      }
+    } catch (e) { /* noop */ }
+    return false;
+  }
+
+  /* v8.7.125 多 init 拆分：捕获中 ABR/换源会使同一轨道流中再次出现
+     init（chunk 首 box 为 ftyp 或 EBML 头），直接拼接则文件中间嵌第二
+     个 init——解析崩溃（乱码）且时间轴重置（音画不同步）。按 chunk 首
+     box 扫描，从每个「非首 init 头」处拆段，返回段数组（每段 chunk
+     数组；TS 流自包含不拆）。 */
+  function splitByInit(chunks, mime) {
+    try {
+      var isTs = (mime || "").split(";")[0].trim().toLowerCase() === "video/mp2t";
+      var segs = [], cur = [];
+      for (var i = 0; i < chunks.length; i++) {
+        var head = false;
+        if (!isTs) {
+          var u8 = chunks[i] instanceof ArrayBuffer
+            ? new Uint8Array(chunks[i])
+            : new Uint8Array(chunks[i].buffer, chunks[i].byteOffset, chunks[i].byteLength);
+          if (u8.length >= 12) {
+            if (u8[0] === 0x1A && u8[1] === 0x45 && u8[2] === 0xDF && u8[3] === 0xA3) head = true;
+            else {
+              var t = String.fromCharCode(u8[4], u8[5], u8[6], u8[7]);
+              if (t === "ftyp") head = true;
+            }
+          }
+        }
+        if (head && cur.length) { segs.push(cur); cur = []; }
+        cur.push(chunks[i]);
+      }
+      if (cur.length) segs.push(cur);
+      return segs.length ? segs : [chunks];
+    } catch (e) { return [chunks]; }
+  }
+
   function catchInfo() {
     var filled = 0;
+    var groups = {};
     for (var i = 0; i < catchTracks.length; i++) {
-      if (catchTracks[i] && catchTracks[i].size > 0) filled++;
+      var t = catchTracks[i];
+      if (t && t.size > 0) {
+        filled++;
+        groups[t.ms || 0] = 1;
+      }
     }
-    return { on: catchOn, done: catchDone, total: catchTotal, tracks: filled, note: catchNote };
+    var g = 0;
+    for (var k in groups) g++;
+    return { on: catchOn, done: catchDone, total: catchTotal, tracks: filled,
+      extra: g > 1 ? g - 1 : 0, note: catchNote };
   }
 
   function catchNotify() {
@@ -349,37 +445,85 @@
     return (name || "捕获数据").slice(0, 80);
   }
 
+  /* v8.7.125 活跃媒体源组：有数据轨道中 lastTs 最大的 ms——正在喂当前
+     播放器的那一路（广告/预加载等其它 MS 实例的轨道组被过滤）。无数据
+     返回 -1（退化为全下）。 */
+  function activeMs() {
+    var best = -1, bestTs = -1;
+    for (var i = 0; i < catchTracks.length; i++) {
+      var t = catchTracks[i];
+      if (t && t.size > 0 && t.lastTs > bestTs) { bestTs = t.lastTs; best = t.ms || 0; }
+    }
+    return best;
+  }
+
   function catchDownload() {
     var saved = 0;
     var warn = "";
     try {
       var base = catchSanitize(document.title);
-      var filled = catchTracks.filter(function (t) { return t && t.chunks.length; });
-      var multi = filled.length > 1;
-      for (var i = 0; i < catchTracks.length; i++) {
-        var t = catchTracks[i];
-        if (!t || !t.chunks.length) continue;
+      var act = activeMs();
+      /* v8.7.125 只下活跃媒体源组；无活跃判据（理论上不可达，lastTs 收
+         chunk 必设）时退化为全下。忽略组按组计数进备注。
+         pool 元素 {t: 轨道, ti: catchTracks 原索引}——备胎库 catchInit
+         按原索引存，过滤后仍须对原索引取备胎。 */
+      var pool = [], groupsAll = {}, groupsKept = {};
+      for (var pi = 0; pi < catchTracks.length; pi++) {
+        var tt = catchTracks[pi];
+        if (tt && tt.chunks.length) {
+          groupsAll[tt.ms || 0] = 1;
+          if (act < 0 || (tt.ms || 0) === act) { pool.push({ t: tt, ti: pi }); groupsKept[tt.ms || 0] = 1; }
+        }
+      }
+      if (!pool.length) return { saved: 0, warn: "" };
+      var ga = 0, gk = 0, k;
+      for (k in groupsAll) ga++;
+      for (k in groupsKept) gk++;
+      var skipped = ga - gk;
+      var multi = pool.length > 1;
+      for (var i = 0; i < pool.length; i++) {
+        var t = pool[i].t;
         var mime = (t.mime || "").split(";")[0].trim().toLowerCase();
-        /* v8.7.115 初始化段补齐：首块非容器头（moof/styp 开头）即前缀备胎 */
-        var prefix = initPrefixFor(i, t.chunks[0]);
-        if (prefix === "missing" && !warn) {
-          warn = "部分文件缺初始化段（可能无法播放），建议「从头捕获」后重播视频再下载";
+        /* v8.7.125 多 init 拆分：ABR/换源使流中间再次出现 init → 拆段，
+           各段独立补 init/定扩展名，不再把第二个 init 嵌进文件中间 */
+        var segs = splitByInit(t.chunks, t.mime);
+        for (var s = 0; s < segs.length; s++) {
+          var chunks = segs[s];
+          if (!chunks.length) continue;
+          var head = chunks[0];
+          /* v8.7.125 初始化段补齐：首块 box-walk 判缺 init（moof/styp/
+             emsg/prft/sidx 等媒体 box 开头）即前缀备胎 */
+          var prefix = initPrefixFor(pool[i].ti, head);
+          if (prefix === "missing" && !warn) {
+            warn = "部分文件缺初始化段（可能无法播放），建议「从头捕获」后重播视频再下载";
+          }
+          var parts = Array.isArray(prefix) ? prefix.concat(chunks) : chunks;
+          var blob = new Blob(parts, { type: mime || "application/octet-stream" });
+          var url = URL.createObjectURL(blob);
+          var ext = catchExtOf(t.mime);
+          if (!t.mime || ext === "bin") {
+            ext = catchContainerOf(head) || "bin";   /* mime 缺席：字节识别容器 */
+          }
+          var label = "";
+          if (multi) label = "-" + catchTrackLabel(t.mime);
+          if (segs.length > 1) label += "-" + (s + 1);
+          var a = document.createElement("a");
+          a.href = url;
+          a.download = base + label + "." + ext;
+          document.documentElement.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(function (u) { try { URL.revokeObjectURL(u); } catch (e2) { /* noop */ } }, 30000, url);
+          saved++;
         }
-        var parts = Array.isArray(prefix) ? prefix.concat(t.chunks) : t.chunks;
-        var blob = new Blob(parts, { type: mime || "application/octet-stream" });
-        var url = URL.createObjectURL(blob);
-        var ext = catchExtOf(t.mime);
-        if (!t.mime || ext === "bin") {
-          ext = catchContainerOf(t.chunks[0]) || "bin";   /* mime 缺席：字节识别容器 */
+        if (segs.length > 1) {
+          var msg = "检测到清晰度/流切换，已按切换点拆成 " + segs.length + " 段分别保存";
+          if (warn.indexOf(msg) < 0) warn = warn ? warn + "；" + msg : msg;
         }
-        var a = document.createElement("a");
-        a.href = url;
-        a.download = base + (multi ? "-" + catchTrackLabel(t.mime) : "") + "." + ext;
-        document.documentElement.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(function (u) { try { URL.revokeObjectURL(u); } catch (e2) { /* noop */ } }, 30000, url);
-        saved++;
+      }
+      if (skipped > 0) {
+        var skipMsg = "已忽略 " + skipped + " 个其他媒体源（广告/预加载等，非当前播放）";
+        warn = warn ? warn + "；" + skipMsg : skipMsg;
       }
     } catch (e) { /* noop */ }
     return { saved: saved, warn: warn };
@@ -448,16 +592,22 @@
       if (d.kind === "catch-track") {
         /* 轨道登记常备（不问捕获开关）：捕获中途开启也能接上后续分段 */
         var ti = Number(d.idx) || 0;
-        if (!catchTracks[ti]) catchTracks[ti] = { mime: String(d.mime || ""), chunks: [], size: 0 };
-        else if (d.mime && !catchTracks[ti].mime) catchTracks[ti].mime = String(d.mime);
+        if (!catchTracks[ti]) catchTracks[ti] = { mime: String(d.mime || ""), ms: Number(d.ms) || 0, chunks: [], size: 0, lastTs: 0 };
+        else {
+          if (d.mime && !catchTracks[ti].mime) catchTracks[ti].mime = String(d.mime);
+          if (d.ms && !catchTracks[ti].ms) catchTracks[ti].ms = Number(d.ms);
+        }
         return;
       }
       if (d.kind === "catch-chunk") {
         var ci = Number(d.idx) || 0;
         var cm = String(d.mime || "");
         var tr = catchTracks[ci];
-        if (!tr) { tr = { mime: cm, chunks: [], size: 0 }; catchTracks[ci] = tr; }
-        else if (cm && !tr.mime) tr.mime = cm;    /* v8.7.115 嗅探晚开：mime 随行回填 */
+        if (!tr) { tr = { mime: cm, ms: Number(d.ms) || 0, chunks: [], size: 0, lastTs: 0 }; catchTracks[ci] = tr; }
+        else {
+          if (cm && !tr.mime) tr.mime = cm;    /* v8.7.115 嗅探晚开：mime 随行回填 */
+          if (d.ms && !tr.ms) tr.ms = Number(d.ms);   /* v8.7.125 媒体源随行回填 */
+        }
         var n = d.data && d.data.byteLength ? d.data.byteLength : 0;
         if (!n) return;
         if (!catchOn) {
@@ -493,6 +643,7 @@
         }
         tr.chunks.push(d.data);
         tr.size += n;
+        tr.lastTs = Date.now();                     /* v8.7.125 活跃度：媒体源分组过滤判据 */
         catchTotal += n;
         catchNotify();
         return;

@@ -1,16 +1,15 @@
 /* ============================================================================
- * 「初始」资源嗅探主世界探针 sniffer-probe v4（v8.7.115，+初始化段备胎）
+ * 「初始」资源嗅探主世界探针 sniffer-probe v5（v8.7.125，+媒体源实例分组）
  * ----------------------------------------------------------------------------
- * v8.7.115 缓存抓取可播性根修：捕获中途开启时，捕获到的分段缺 fMP4/WebM
- *   初始化段（ftyp+moov / EBML 头）→ 合成文件无法播放。本版探针在「嗅探
- *   开启、捕获未开」时也把每轨道【首个 appendBuffer】拷贝转交（通常是
- *   初始化段，KB 量级，一次性成本）；桥在初始化段攒齐（box-walk 见
- *   moof/styp/Cluster 边界或 1MB 顶）后经 __chushiSniffCtrl 回流通道回
- *   catch-init-done，探针即停截留。打破 v8.7.112「未开捕获零拷贝」律的
- *   例外仅此一处，换来合成文件可播。
- *   同时 catch-chunk 信号随行 mime（闭包变量现成）：修「嗅探晚开→轨道
- *   登记缺席→mime 空→扩展名 bin」的断链（catch-track 只在 addSourceBuffer
- *   时发，错过即无 mime）。
+ * v8.7.125 缓存抓取抓错目标根修（用户：「没有正确抓取当前播放视频的缓存，
+ *   文件一堆乱码且音画不同步」）：v4 探针把页面【所有】MediaSource 的
+ *   SourceBuffer 平铺登记为轨道（idx 全局自增），现代视频页普遍存在多个
+ *   MS 实例（片头广告、正片、预加载下一集/推荐流、ABR 换源重建），桥
+ *   下载时全量无差别出文件，用户拿到的是广告/预加载的分段。本版给 MS
+ *   实例懒分配 msId（WeakMap，首个 addSourceBuffer 时编号），catch-track
+ *   /catch-chunk/catch-eos 三信号全部随行 ms 字段——桥按媒体源实例分组
+ *   攒块，下载只合成「最近活跃组」（正在喂当前播放器的 MS），其余组
+ *   忽略并计数提示。旧字段 idx 语义不变（兼容按轨道存备胎）。
  * ----------------------------------------------------------------------------
  * v8.7.112 缓存抓取（能力对齐猫抓 cat-catch 的 catch-script/catch.js，
  *   实现为本仓自有代码）：页面开启捕获态（桥设 data-chushi-catch 属性）
@@ -83,8 +82,9 @@
 
   /* 缓存抓取分段截留：拷贝一份转交桥（原始 buffer 仍归播放器，页面行为
      零改变）。ArrayBuffer / TypedArray 双形态都接（播放器两种都传）。
-     v8.7.115：mime 随行（轨道登记缺席时桥侧兜底）。 */
-  function catchChunk(idx, data, mime) {
+     v8.7.115：mime 随行（轨道登记缺席时桥侧兜底）。
+     v8.7.125：ms 随行（媒体源实例分组，桥按组过滤下载目标）。 */
+  function catchChunk(idx, data, mime, ms) {
     if (!data) return;
     try {
       var copy = null;
@@ -93,8 +93,21 @@
         copy = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);
       }
       if (!copy || !copy.byteLength) return;
-      post({ kind: "catch-chunk", idx: idx, mime: mime || "", data: copy }, [copy]);
+      post({ kind: "catch-chunk", idx: idx, mime: mime || "", ms: ms || 0, data: copy }, [copy]);
     } catch (e) { /* noop */ }
+  }
+
+  /* v8.7.125 媒体源实例身份：WeakMap 懒分配（首个 addSourceBuffer 时
+     编号，实例回收后编号不重发——同号只归同一实例）。 */
+  var msSeq = 0;
+  var msIds = typeof WeakMap === "function" ? new WeakMap() : null;
+  function msIdOf(msObj) {
+    try {
+      if (!msIds) return 0;
+      var id = msIds.get(msObj);
+      if (id === undefined) { id = ++msSeq; msIds.set(msObj, id); }
+      return id;
+    } catch (e) { return 0; }
   }
 
   /* v8.7.115 初始化段备胎状态：每轨道只截「捕获未开期间」的头部追加，
@@ -132,10 +145,12 @@
         try {
           var mime = String(mimeType || "");
           post({ kind: "mse", mime: mime });
+          /* v8.7.125 媒体源实例分组：this 即 MS 实例，懒分配 msId 随行 */
+          var msId = msIdOf(this);
           /* 缓存抓取轨道登记：每次 addSourceBuffer 都报（嗅探开着就报，
              桥侧常备轨道表——捕获中途开启也能接上后续分段） */
           var trackIdx = sbSeq++;
-          if (armed()) post({ kind: "catch-track", idx: trackIdx, mime: mime });
+          if (armed()) post({ kind: "catch-track", idx: trackIdx, mime: mime, ms: msId });
           try {
             /* appendBuffer 包装是 GD3 的缓冲追加确认信号；个别播放器把
                SourceBuffer 实例冻结，包装失败只降级为 addSourceBuffer 信号。
@@ -144,13 +159,13 @@
             if (typeof origAppend === "function") {
               sb.appendBuffer = function (data) {
                 post({ kind: "mse", mime: mime });
-                if (catchArmed()) catchChunk(trackIdx, data, mime);
+                if (catchArmed()) catchChunk(trackIdx, data, mime, msId);
                 else if (!initDone[trackIdx]) {
                   /* v8.7.115 初始化段备胎：捕获未开也截前几段（桥判齐即停） */
                   var n = data instanceof ArrayBuffer ? data.byteLength
                     : ArrayBuffer.isView(data) ? data.byteLength : 0;
                   initSentBytes[trackIdx] = (initSentBytes[trackIdx] || 0) + n;
-                  if (initSentBytes[trackIdx] <= INIT_HARD_CAP) catchChunk(trackIdx, data, mime);
+                  if (initSentBytes[trackIdx] <= INIT_HARD_CAP) catchChunk(trackIdx, data, mime, msId);
                   else initDone[trackIdx] = true;
                 }
                 return origAppend.apply(this, arguments);
@@ -170,7 +185,9 @@
         MediaSource.prototype && typeof MediaSource.prototype.endOfStream === "function") {
       var origEOS = MediaSource.prototype.endOfStream;
       MediaSource.prototype.endOfStream = function () {
-        try { if (catchArmed()) post({ kind: "catch-eos" }); } catch (e) { /* noop */ }
+        try {
+          if (catchArmed()) post({ kind: "catch-eos", ms: msIdOf(this) });   /* v8.7.125 随行媒体源 */
+        } catch (e) { /* noop */ }
         return origEOS.apply(this, arguments);
       };
     }
