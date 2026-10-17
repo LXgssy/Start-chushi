@@ -810,7 +810,7 @@
       '<span class="t">资源嗅探</span>' +
       (state.items.length > 0 ? '<span class="cnt">' + state.items.length + "</span>" : "") +
       '<span class="sp"></span>' +
-      '<button class="ib" data-act="clear" title="清空列表" aria-label="清空列表">' + ICON_TRASH + "</button>" +
+      '<button type="button" class="ib" data-act="dl-current" title="下载当前正在播放的视频">下载当前</button><button class="ib" data-act="clear" title="清空列表" aria-label="清空列表">' + ICON_TRASH + "</button>" +
       '<button class="ib" data-act="hide" title="收起" aria-label="收起面板">' + ICON_X + "</button>" +
       "</div>" +
       biliBlockHtml() +
@@ -886,6 +886,13 @@
       send({ type: "sniffer-download", url: dItem.url, filename: douyinTitle() + ".mp4" });
       btn.classList.add("ok");
       showToast("抖音视频已发起下载（Referer 已由扩展补齐）");
+      return;
+    }
+    if (act === "dl-current") {
+      send({ type: "sniffer-download-current" }, function (resp) {
+        if (resp && resp.ok) showToast("已发起下载：当前正在播放的那一条");
+        else showToast(resp && resp.reason === "no-media" ? "本页没有可下载的媒体" : "下载失败");
+      });
       return;
     }
     if (act === "hide") return togglePanel(false);
