@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.138",
+    date: "2026-10-18",
+    title: "GitHub 自绘图标修容：删掉猫腿下的黑线",
+    channel: "page",
+    highlights: [
+      "GitHub 磁贴的白色猫腿下方会透出两条细黑弧线：描摹路径在腿部下缘有细缝，深色圆从缝里露了出来",
+      "整只猫换成 GitHub 官方标志的标准矢量路径（深圆与猫一体成型，从数学上杜绝细缝），圆形位置与大小分毫未动",
+    ],
+  },
+  {
     version: "8.7.137",
     date: "2026-10-14",
     title: "修构建：库门禁改宽松（Release 恢复出包）",
