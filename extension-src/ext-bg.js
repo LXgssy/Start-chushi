@@ -1437,6 +1437,28 @@ try {
         .replace(/^\.+/, "")               /* 防隐藏/路径穿越 */
         .slice(0, 120) || "资源文件";
       /* v8.7.115 抖音直链：先挂 DNR Referer 会话规则再下发（CDN 鉴权需要） */
+      /* v8.7.136 m3u8 清单：并进既有下发通道（面板原有下载按钮/抖音区都走这里），
+         直链仍原样交给 chrome.downloads；清单交给 offscreen 合并后再落盘。 */
+      if (url.toLowerCase().indexOf(".m3u8") >= 0) {
+        try { self.__chushiHlsTab = (sender && sender.tab && Number.isInteger(sender.tab.id)) ? sender.tab.id : -1; } catch (e) { /* noop */ }
+        var ensureHlsDl = (chrome.offscreen && chrome.offscreen.hasDocument)
+          ? chrome.offscreen.hasDocument().then(function (has) {
+              if (has) return true;
+              return chrome.offscreen.createDocument({
+                url: "offscreen-bili.html",
+                reasons: ["DOM_PARSER"],
+                justification: "HLS 下载合并（mux.js）",
+              }).then(function () { return true; });
+            })
+          : Promise.resolve(true);
+        ensureHlsDl.then(function () {
+          chrome.runtime.sendMessage({ type: "hls-start", url: url, filename: name }, function (resp) {
+            void chrome.runtime.lastError;
+            sendResponse(resp || { ok: false });
+          });
+        }, function () { sendResponse({ ok: false, error: "offscreen" }); });
+        return true;
+      }
       var startSniffDl = function () {
         try {
           chrome.downloads.download(

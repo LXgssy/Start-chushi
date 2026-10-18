@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.136",
+    date: "2026-10-14",
+    title: "撤掉重复入口：m3u8 合并并入既有下载通道",
+    channel: "page",
+    highlights: [
+      "撤掉 v8.7.130 新增的「下载当前」按钮与其分支——面板里早就有抖音完整视频下载（douyin-dl → sniffer-download），重复造入口没有必要",
+      "m3u8 合并改接在既有 sniffer-download 通道内：任何下载点（逐条列表 / 抖音区）遇到清单都会自动走 offscreen 合并，直链仍原样交给 chrome.downloads",
+      "浮窗只保留 v8.7.135 的进度 toast；两份 JS 均过 node --check"
+    ],
+  },
+  {
     version: "8.7.135",
     date: "2026-10-14",
     title: "HLS 合并进度接入浮窗",
