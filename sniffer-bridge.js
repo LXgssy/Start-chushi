@@ -755,3 +755,37 @@
   }
   window.addEventListener("load", function () { if (sniffOn) scanNow(); });
 })();
+
+/*! 第二步：录制桥（ISOLATED world）。探针在主世界，二者 window 不相通，
+ *  这里用 postMessage 中转；浮窗与桥同属扩展 ISOLATED world，可直接调用。
+ *  window.__chushiRecBridge.list() / .pickMime() / .start(i) / .stop() → Promise */
+(function () {
+  "use strict";
+  var seq = 0, pending = {};
+  window.addEventListener("message", function (ev) {
+    if (ev.source !== window) return;
+    var d = ev.data;
+    if (!d || d.__chushiRecRes === undefined) return;
+    var fn = pending[d.__chushiRecRes];
+    if (!fn) return;
+    delete pending[d.__chushiRecRes];
+    fn(d);
+  });
+  function call(op, i, timeout) {
+    return new Promise(function (resolve) {
+      var id = "r" + (++seq);
+      pending[id] = resolve;
+      setTimeout(function () {
+        if (pending[id]) { delete pending[id]; resolve({ ok: false, error: "timeout" }); }
+      }, timeout || 8000);
+      try { window.postMessage({ __chushiRecReq: id, op: op, i: i }, "*"); }
+      catch (e) { delete pending[id]; resolve({ ok: false, error: "post-failed" }); }
+    });
+  }
+  window.__chushiRecBridge = {
+    list: function () { return call("list"); },
+    pickMime: function () { return call("pickMime"); },
+    start: function (i) { return call("start", i, 8000); },
+    stop: function () { return call("stop", 0, 60000); }
+  };
+})();
