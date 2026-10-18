@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.139",
+    date: "2026-10-14",
+    title: "嗅探：默认精选去重，可切显示全部",
+    channel: "page",
+    highlights: [
+      "抖音推荐页预加载导致面板被同一视频的多域名/多签名 URL 塞满：面板默认按 URL 指纹（路径末段+类型）去重，只留一条",
+      "同时把每标签页上限从 50 提到 200，并支持一键切换「显示全部 / 只看精选」；列表索引仍指回原始数据，逐条下载语义不变"
+    ],
+  },
+  {
     version: "8.7.138",
     date: "2026-10-18",
     title: "GitHub 自绘图标修容：删掉猫腿下的黑线",

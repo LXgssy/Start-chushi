@@ -889,7 +889,7 @@ async function snapCheck(manual) {
 
 var sniffOn = undefined;              /* undefined = 尚未初始化（SW 刚醒） */
 var sniffTabs = new Map();            /* tabId -> { order:[url], byUrl:Map } */
-var SNIFF_MAX = 50;
+var SNIFF_MAX = 200;
 var SNIFF_KEY_PREFIX = "sniffer:tab:";
 
 /* v8.7.112 避免抓取名单（README《版权保护与拒绝抓取声明》代码侧落点）：
