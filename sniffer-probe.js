@@ -290,3 +290,64 @@
     }
   } catch (e) { /* frozen prototype */ }
 })();
+
+/*! 初始 · 视频录制探针（录制第一步，2026-10）
+ *  MSE/blob 站点（抖音推荐页等）没有可下载的媒体 URL，唯一可行路径是
+ *  对正在播放的 <video> 做 captureStream + MediaRecorder 录制。
+ *  本段只暴露主世界 API，供页面控制台手动验证；不接 UI、不改既有逻辑。
+ *  用法（页面控制台，主世界）：
+ *    __chushiRec.list()            → 可录视频候选 [{i,w,h,t,paused,muted}]
+ *    __chushiRec.pickMime()        → 实际可用格式（优先 mp4，回退 webm）
+ *    __chushiRec.start(i)          → 开始录制（i 来自 list()）
+ *    __chushiRec.stop()            → 停止并返回 {url,size,mime,seconds}
+ *  注意：录制是实时的（录多久要播多久），且 mp4 录制仅部分 Chrome 支持。 */
+(function () {
+  "use strict";
+  function videos() {
+    return Array.prototype.slice.call(document.querySelectorAll("video")).filter(function (v) {
+      return v && v.videoWidth > 0 && (v.currentTime > 0 || !v.paused);
+    });
+  }
+  function list() {
+    return videos().map(function (v, i) {
+      return { i: i, w: v.videoWidth, h: v.videoHeight, t: Math.floor(v.currentTime || 0), paused: !!v.paused, muted: !!v.muted };
+    });
+  }
+  function pickMime() {
+    var c = ["video/mp4;codecs=avc1", "video/webm;codecs=vp9", "video/webm"], i;
+    for (i = 0; i < c.length; i++) {
+      try { if (window.MediaRecorder && MediaRecorder.isTypeSupported(c[i])) return c[i]; } catch (e) { /* noop */ }
+    }
+    return "";
+  }
+  var rec = null, chunks = [], startedAt = 0;
+  function start(i) {
+    if (rec) return { ok: false, error: "busy" };
+    var v = videos()[i];
+    if (!v) return { ok: false, error: "no-video" };
+    var mime = pickMime();
+    if (!mime) return { ok: false, error: "unsupported" };
+    var stream = null;
+    try { stream = v.captureStream ? v.captureStream() : (v.mozCaptureStream ? v.mozCaptureStream() : null); } catch (e) { stream = null; }
+    if (!stream) return { ok: false, error: "no-captureStream" };
+    chunks = []; startedAt = Date.now();
+    try { rec = new MediaRecorder(stream, { mimeType: mime }); } catch (e) { rec = null; return { ok: false, error: "recorder-failed" }; }
+    rec.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.start(1000);
+    return { ok: true, mime: mime };
+  }
+  function stop() {
+    if (!rec) return Promise.reject(new Error("not-recording"));
+    return new Promise(function (resolve) {
+      var r = rec;
+      r.onstop = function () {
+        var b = new Blob(chunks, { type: (r && r.mimeType) || "video/webm" });
+        var secs = Math.round((Date.now() - startedAt) / 1000);
+        rec = null; chunks = [];
+        resolve({ ok: true, url: URL.createObjectURL(b), size: b.size, mime: b.type, seconds: secs });
+      };
+      try { r.stop(); } catch (e) { rec = null; resolve({ ok: false, error: "stop-failed" }); }
+    });
+  }
+  window.__chushiRec = { list: list, start: start, stop: stop, pickMime: pickMime };
+})();
