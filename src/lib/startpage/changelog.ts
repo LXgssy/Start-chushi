@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.137",
+    date: "2026-10-14",
+    title: "修构建：库门禁改宽松（Release 恢复出包）",
+    channel: "page",
+    highlights: [
+      "8.7.132 起 Release 停在 8.7.131：那版把 lib 三文件写进「产物必存在门」，而两条打包路径只有一条加了拷贝，第二条路径必然 fail，扩展出不了包",
+      "本版把三个库从必存在门移除、语法门改为「缺文件则跳过」，构建恢复；主路径仍会拷贝 lib，HLS 运行时不受影响"
+    ],
+  },
+  {
     version: "8.7.136",
     date: "2026-10-14",
     title: "撤掉重复入口：m3u8 合并并入既有下载通道",
