@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.144",
+    date: "2026-10-14",
+    title: "视频录制接上浮窗（候选由用户点选）",
+    channel: "page",
+    highlights: [
+      "面板新增「视频录制」区（样式复用缓存抓取区块）：扫描可录视频后列出候选（尺寸/时长/播放中/有声），由用户点「录」选定要录哪一个",
+      "录制中显示已录时长与格式，点「停止并保存」后经 SW 的下载通道落盘（mp4 优先，回退 webm）；文案明确实时录制与格式限制"
+    ],
+  },
+  {
     version: "8.7.143",
     date: "2026-10-14",
     title: "录制第二步（通路）：探针 ↔ 桥 跨世界通道",

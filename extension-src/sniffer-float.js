@@ -746,7 +746,34 @@
       }
     });
   } catch (e) { /* noop */ }
-  function catchBlockHtml() {
+  /* v8.7.144 录制区（第三步）：候选由用户点选，格式实际探测后标注。
+   数据面走 __chushiRecBridge（与桥同属 ISOLATED world，可直接调用）；
+   保存复用 SW 的 hls-done 落盘分支（Blob URL → chrome.downloads）。 */
+function recBlockHtml() {
+  if (!state.recList) state.recList = null;
+  var body, i;
+  if (state.rec && state.rec.startedAt) {
+    var sec = Math.max(0, Math.floor((Date.now() - state.rec.startedAt) / 1000));
+    body = '<div class="catch-tip">录制中 ' + Math.floor(sec / 60) + ":" + ("0" + (sec % 60)).slice(-2) +
+      "（格式 " + (state.rec.mime || "?") + "）——实时录制，录多久要播多久。</div>" +
+      '<button class="ib" data-act="rec-stop" title="停止并保存">停止并保存</button>';
+  } else if (state.recList && state.recList.length) {
+    body = state.recList.map(function (v) {
+      return '<div class="item"><span class="tag">视频</span><span class="meta">' +
+        '<span class="nm">' + v.w + "×" + v.h + " · " + v.t + "s" + (v.paused ? "（暂停）" : "（播放中）") + "</span>" +
+        '<span class="sub">' + (v.muted ? "静音" : "有声") + "</span></span>" +
+        '<button class="ib" data-act="rec-start" data-i="' + v.i + '" title="录制这一个">录</button></div>';
+    }).join("");
+  } else {
+    body = '<div class="catch-tip">MSE/流媒体站点没有可下载的视频地址，只能对正在播放的画面做实时录制（录多久要播多久；mp4 仅部分 Chrome 支持，否则回退 webm）。</div>' +
+      '<button class="ib" data-act="rec-list" title="扫描可录视频">扫描可录视频</button>';
+  }
+  return '<div class="catch-sec">' +
+    '<div class="catch-h"><span class="catch-ic">录</span><span class="catch-t">视频录制</span></div>' +
+    body + "</div>";
+}
+
+function catchBlockHtml() {
     var api = window.__chushiCatchApi;
     if (!api || typeof api.info !== "function") return "";
     var inf = api.info();
@@ -825,6 +852,7 @@
       biliBlockHtml() +
       ytBlockHtml() +
       douyinBlockHtml() +
+      recBlockHtml() +
       catchBlockHtml() +
       '<div class="list">' +
       (rows ||
@@ -899,6 +927,41 @@
     }
     if (act === "show-all") { state.showAll = !state.showAll; renderPanel(); return; }
     if (act === "show-uniq") { state.showAll = false; renderPanel(); return; }
+    if (act === "rec-list") {
+      (window.__chushiRecBridge ? window.__chushiRecBridge.list() : Promise.resolve({ ok: false })).then(function (r) {
+        state.recList = (r && r.ok && r.list) ? r.list : [];
+        if (!state.recList.length) showToast("没有可录的视频（先让视频播放起来）");
+        renderPanel();
+      });
+      return;
+    }
+    if (act === "rec-start") {
+      var ri = Number(btn.getAttribute("data-i"));
+      var br = window.__chushiRecBridge;
+      if (!br) { showToast("录制桥未就绪"); return; }
+      br.pickMime().then(function (m) {
+        br.start(ri).then(function (r) {
+          if (!r || !r.ok) { showToast("录制失败：" + ((r && r.error) || "unknown")); return; }
+          state.rec = { startedAt: Date.now(), mime: r.mime || (m && m.mime) || "" };
+          showToast("开始录制（" + (state.rec.mime || "默认格式") + "）");
+          renderPanel();
+        });
+      });
+      return;
+    }
+    if (act === "rec-stop") {
+      var br2 = window.__chushiRecBridge;
+      if (!br2 || !state.rec) return;
+      br2.stop().then(function (r) {
+        state.rec = null;
+        renderPanel();
+        if (!r || !r.ok) { showToast("停止失败：" + ((r && r.error) || "unknown")); return; }
+        var ext = (r.mime || "").indexOf("mp4") >= 0 ? ".mp4" : ".webm";
+        send({ type: "hls-done", ok: true, url: r.url, filename: "录制视频" + ext });
+        showToast("已保存：" + Math.round((r.size || 0) / 1048576) + " MB / " + (r.seconds || 0) + " 秒");
+      });
+      return;
+    }
     if (act === "hide") return togglePanel(false);
     if (act === "clear") {
       send({ type: "sniffer-clear" });
