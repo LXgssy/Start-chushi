@@ -1,6 +1,21 @@
 /* ============================================================================
  * 「初始」资源嗅探全局浮窗 sniffer-float v2（v8.7.115 / v8.7.128 自愈）
  * ----------------------------------------------------------------------------
+ * v8.7.145 两区美化 + 抖音推荐页放开（用户指令，基于远端 v8.7.144 录制版合流）：
+ *   ①缓存抓取区布局重排：状态胶囊（捕获中红点脉冲/已到尾/已停止/待开始，
+ *     尺寸轨数挪进统计行）+ 主次两级按钮（开始捕获 accent 满底主钮，
+ *     从头捕获/下载数据 ghost 次钮，全部带线稿图标）+ 捕获中 indeterminate
+ *     流光条（分段截留无总量预告，不做假百分比）+ 统计行 + 超长提示收进
+ *     「使用提示」折叠 details；data-act 语义零变化。
+ *   ②视频录制区（v8.7.144 引入）样式正规化：catch-sec 容器分区线/裸 ib
+ *     钮并入面板同族（accent ghost + stop 天蓝满底 + 录制停止钮带图标）/
+ *     候选行色块补底色（原白字透明底隐形）；扫描/选录/停止动作语义零变化。
+ *   ③抖音推荐页视频下载放开（猫抓 2.6.1 同款覆盖面）：onDouyinPage 从
+ *     video/note/modal_id 三形态门放开为 douyin.com 全域——推荐流/发现/
+ *     关注/搜索页与视频页同用播放器 XHR 渐进式直链；区块主行跟随最新
+ *     直链，相邻预加载的其余直链按指纹去重后报条数；fpOf 对
+ *     /aweme/v1/play/ 补 video_id 分辨（路径末段恒为 play，旧指纹会把
+ *     推荐流不同视频误聚成一条，精选去重恢复按视频粒度）。
  * v8.7.128 浮窗出现链自愈（用户实测「浮窗在 B 站页面不出现、平台专下载
  *   全没了」）：出现链原有多处单点静默死亡——①boot 的 ask 无应答（SW 唤醒
  *   /休眠竞态丢包）即永久放弃且后续 sniffer-new 全被丢弃；②开启亮窗完全
@@ -51,7 +66,7 @@
  * ==========================================================================*/
 (function () {
   "use strict";
-  var MOUNT_VER = "v8.7.128";
+  var MOUNT_VER = "v8.7.145";
   if (window.__chushiSnifferMounted === MOUNT_VER) return;
   /* 旧挂载残迹判定：v8.7.127 及更早是布尔 true，128 起是版本串——
      两者皆视作「页面上可能留有旧宿主」，更新换代时整体拆除 */
@@ -188,23 +203,69 @@
     ":host(.framedark) .bq:hover{background:rgba(255,255,255,.06);}",
     ":host(.framedark) .bili-tip{color:#71717a;}",
     ":host(.framedark) .bili-p{color:#71717a;}",
-    /* v8.7.112 缓存抓取区（面板内第三区块，样式语言同 bili 区） */
-    ".catch{padding:9px 10px 8px;border-bottom:1px solid rgba(24,22,36,.07);}",
-    ".catch-h{display:flex;align-items:center;gap:6px;margin-bottom:6px;}",
+    /* v8.7.145 缓存抓取区重排美化（用户：「美化录制功能页面布局和 UI」）——
+       状态胶囊（捕获中红点脉冲）/ 主次两级按钮 / 截留流光条 / 统计行 /
+       折叠提示；样式语言仍同 bili 区（同族圆角、color-mix、tabular-nums） */
+    ".catch{padding:10px 10px 9px;border-bottom:1px solid rgba(24,22,36,.07);}",
+    ".catch-h{display:flex;align-items:center;gap:6px;margin-bottom:8px;}",
     ".catch-ic{flex-shrink:0;width:18px;height:18px;border-radius:5px;background:#0ea5e9;color:#fff;font-size:10px;font-weight:700;line-height:18px;text-align:center;}",
     ".catch-t{font-size:11.5px;font-weight:450;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
-    ".catch-s{flex-shrink:0;font-size:9.5px;color:#a1a1aa;font-variant-numeric:tabular-nums;}",
-    ".catch-s.live{color:#0ea5e9;font-weight:500;}",
+    ".catch-pill{flex-shrink:0;display:flex;align-items:center;gap:4px;padding:2px 8px;border-radius:999px;font-size:9.5px;font-weight:500;font-variant-numeric:tabular-nums;background:rgba(24,22,36,.05);color:#71717a;line-height:1.5;}",
+    ".catch-pill .dot{width:5px;height:5px;border-radius:999px;background:#a1a1aa;flex-shrink:0;}",
+    ".catch-pill.live{background:color-mix(in srgb,#0ea5e9 12%,transparent);color:#0ea5e9;}",
+    ".catch-pill.live .dot{background:#ef4444;animation:catchPulse 1.2s ease-in-out infinite;}",
+    ".catch-pill.done{background:color-mix(in srgb,#10b981 12%,transparent);color:#10b981;}",
+    ".catch-pill.done .dot{background:#10b981;}",
+    "@keyframes catchPulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.4;transform:scale(.75);}}",
+    "/* 主按钮：开始捕获 accent 满底 / 停止捕获 sky 满底（录制语义） */",
     ".catch-btns{display:flex;gap:6px;}",
-    ".catch-btns button{flex:1;border:0;background:color-mix(in srgb,var(--acc,#8b5cf6) 12%,transparent);color:var(--acc,#8b5cf6);font-size:10px;font-weight:500;padding:4px 0;border-radius:8px;cursor:pointer;transition:background .15s ease;white-space:nowrap;}",
-    ".catch-btns button:hover{background:color-mix(in srgb,var(--acc,#8b5cf6) 22%,transparent);}",
-    ".catch-btns button.stop{background:#0ea5e9;color:#fff;}",
+    ".catch-btns button{flex:1;display:flex;align-items:center;justify-content:center;gap:5px;border:0;background:var(--acc,#8b5cf6);color:#fff;font-size:10.5px;font-weight:500;padding:7px 0;border-radius:9px;cursor:pointer;transition:background .15s ease,transform .1s ease;white-space:nowrap;}",
+    ".catch-btns button svg{width:11px;height:11px;flex-shrink:0;}",
+    ".catch-btns button:hover{background:color-mix(in srgb,var(--acc,#8b5cf6) 86%,black);}",
+    ".catch-btns button:active{transform:scale(.98);}",
+    ".catch-btns button.stop{background:#0ea5e9;}",
     ".catch-btns button.stop:hover{background:#0284c7;}",
-    ".catch-btns button:disabled{opacity:.5;cursor:default;background:rgba(24,22,36,.06);color:#a1a1aa;}",
-    ".catch-tip{margin-top:5px;font-size:9px;font-weight:300;color:#a1a1aa;line-height:1.5;}",
-    ":host(.framedark) .catch-s{color:#71717a;}",
-    ":host(.framedark) .catch-btns button:disabled{background:rgba(255,255,255,.08);color:#71717a;}",
-    ":host(.framedark) .catch-tip{color:#71717a;}",
+    "/* 次按钮行：从头捕获 / 下载数据（ghost 同族） */",
+    ".catch-sub{display:flex;gap:6px;margin-top:6px;}",
+    ".catch-sub button{flex:1;display:flex;align-items:center;justify-content:center;gap:4px;border:0;background:color-mix(in srgb,var(--acc,#8b5cf6) 10%,transparent);color:var(--acc,#8b5cf6);font-size:10px;font-weight:500;padding:5px 0;border-radius:8px;cursor:pointer;transition:background .15s ease;white-space:nowrap;}",
+    ".catch-sub button svg{width:10px;height:10px;flex-shrink:0;}",
+    ".catch-sub button:hover{background:color-mix(in srgb,var(--acc,#8b5cf6) 20%,transparent);}",
+    ".catch-sub button:disabled{opacity:.5;cursor:default;background:rgba(24,22,36,.06);color:#a1a1aa;}",
+    "/* 截留流光条：捕获中 indeterminate（分段截留无总量预告，不做假百分比） */",
+    ".catch-bar{position:relative;height:3px;border-radius:999px;background:rgba(24,22,36,.06);margin-top:8px;overflow:hidden;}",
+    ".catch-bar .fill{position:absolute;top:0;bottom:0;width:40%;border-radius:999px;background:linear-gradient(90deg,transparent,#0ea5e9,transparent);animation:catchFlow 1.5s ease-in-out infinite;}",
+    "@keyframes catchFlow{from{left:-40%;}to{left:100%;}}",
+    "/* 统计行：已捕获大小 · 媒体轨数 · 其他源忽略 · 到尾 */",
+    ".catch-stat{margin-top:7px;font-size:9.5px;color:#a1a1aa;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}",
+    ".catch-stat b{color:#52525b;font-weight:600;}",
+    "/* 折叠提示：长文案默认收起，summary 旋针跟随开合 */",
+    ".catch-tip{margin-top:7px;font-size:9px;color:#a1a1aa;}",
+    ".catch-tip summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:3px;font-weight:400;user-select:none;color:#71717a;transition:color .15s ease;}",
+    ".catch-tip summary::-webkit-details-marker{display:none;}",
+    ".catch-tip summary:hover{color:#52525b;}",
+    ".catch-tip summary svg{width:9px;height:9px;transition:transform .18s ease;}",
+    ".catch-tip[open] summary svg{transform:rotate(90deg);}",
+    ".catch-tip .tb{margin-top:5px;padding:7px 8px;border-radius:8px;background:rgba(24,22,36,.04);line-height:1.7;font-weight:300;}",
+    "/* v8.7.145 视频录制区（rec）样式正规化：裸 ib 钮并入面板同族，容器补分区线 */",
+    ".catch-sec{padding:10px 10px 9px;border-bottom:1px solid rgba(24,22,36,.07);}",
+    ".catch-sec .catch-tip{margin-top:0;margin-bottom:7px;}",
+    ".catch-sec .ib{display:inline-flex;align-items:center;justify-content:center;gap:4px;width:auto;border:0;background:color-mix(in srgb,var(--acc,#8b5cf6) 10%,transparent);color:var(--acc,#8b5cf6);font-size:10px;font-weight:500;padding:5px 12px;border-radius:8px;cursor:pointer;transition:background .15s ease;font-family:inherit;white-space:nowrap;}",
+    ".catch-sec .ib:hover{background:color-mix(in srgb,var(--acc,#8b5cf6) 20%,transparent);}",
+    ".catch-sec .ib.stop{background:#0ea5e9;color:#fff;}",
+    ".catch-sec .ib.stop:hover{background:#0284c7;}",
+    ".catch-sec .ib svg{width:10px;height:10px;flex-shrink:0;}",
+    ":host(.framedark) .catch-sec .ib{background:color-mix(in srgb,var(--acc,#8b5cf6) 20%,transparent);}",
+    ":host(.framedark) .catch-sec .ib:hover{background:color-mix(in srgb,var(--acc,#8b5cf6) 30%,transparent);}",
+    ":host(.framedark) .catch-pill{background:rgba(255,255,255,.08);}",
+    ":host(.framedark) .catch-pill.live{background:color-mix(in srgb,#0ea5e9 22%,transparent);color:#38bdf8;}",
+    ":host(.framedark) .catch-pill.done{background:color-mix(in srgb,#10b981 22%,transparent);color:#34d399;}",
+    ":host(.framedark) .catch-bar{background:rgba(255,255,255,.1);}",
+    ":host(.framedark) .catch-stat{color:#71717a;}",
+    ":host(.framedark) .catch-stat b{color:#d4d4d8;}",
+    ":host(.framedark) .catch-sub button:disabled{background:rgba(255,255,255,.08);color:#71717a;}",
+    ":host(.framedark) .catch-tip summary{color:#a1a1aa;}",
+    ":host(.framedark) .catch-tip summary:hover{color:#e4e4e7;}",
+    ":host(.framedark) .catch-tip .tb{background:rgba(255,255,255,.05);color:#a1a1aa;}",
     /* v8.7.115 缓存完成自动下载开关（行内胶囊开关，样式同族） */
     ".catch-auto{display:flex;align-items:center;justify-content:space-between;margin-top:7px;}",
     ".catch-auto .ca-t{font-size:10px;font-weight:300;color:#71717a;}",
@@ -322,6 +383,17 @@
     panel.style.top = py + "px";
     placeToast();
   }
+  /* v8.7.145 录制/抓取区操作图标：主钮录音圆点/停止方块，次钮回转箭头，
+     折叠 summary 旋针——线稿风格同面板既有图标族 */
+  var ICON_CATCH_REC =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.2"/><circle cx="12" cy="12" r="3.2" fill="currentColor" stroke="none"/></svg>';
+  var ICON_CATCH_STOP =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="7" width="10" height="10" rx="2.2" fill="currentColor" stroke="none"/></svg>';
+  var ICON_CATCH_RESTART =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>';
+  var ICON_CATCH_CHEV =
+    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m9 6 6 6-6 6"/></svg>';
+
   /* v8.7.68 提示词改挂在嗅探面板上方（用户：「提示嗅探到多少资源的提示词
      位置放到嗅探弹窗的上方」）：旧定位锚在浮球上沿（by - 44），新定位 =
      面板左缘对齐 + 面板顶沿上方 10px 间距（toast 高度实时测，
@@ -627,9 +699,11 @@
   function onDouyinPage() {
     try {
       var h = String(location.hostname || "").toLowerCase();
-      if (h !== "douyin.com" && !/\.douyin\.com$/.test(h)) return false;
-      var href = String(location.href);
-      return /douyin\.com\/(?:video|note)\/\d+/.test(href) || /[?&]modal_id=\d+/.test(href);
+      /* v8.7.145 推荐页放开（用户指令，猫抓 2.6.1 同款覆盖面）：douyin.com
+         全域——推荐流/发现/关注/搜索页与视频页同用播放器 XHR 渐进式直链，
+         页面路径不再作为门禁；非直链形态（直播 MSE 等）由区块占位行
+         引导走「缓存抓取」。 */
+      return h === "douyin.com" || /\.douyin\.com$/.test(h);
     } catch (e) { return false; }
   }
   function hostInFam(h) {
@@ -667,13 +741,28 @@
     var body;
     if (it) {
       var idx = state.items.indexOf(it);
+      /* v8.7.145 推荐页：滑动流会预加载相邻视频，直链常多于一条——主行给
+         最新一条（当前播放档），其余按指纹去重后只报条数，完整挑选走下方
+         列表（列表索引仍指回 state.items，语义不变） */
+      var seen = {}, nOthers = 0, oi2, oit, ofp;
+      for (oi2 = state.items.length - 1; oi2 >= 0; oi2--) {
+        oit = state.items[oi2];
+        if (!oit || oit.type !== "video") continue;
+        ofp = fpOf(oit);
+        if (!ofp || seen[ofp]) continue;
+        seen[ofp] = 1;
+        if (oit !== it) nOthers++;
+      }
+      var tip = nOthers > 0
+        ? "另有 " + nOthers + " 条直链（相邻视频预加载），可到下方列表挑选；下载失败多为直链过期——重播视频刷新后再试"
+        : "直链来自网页播放器当前档位（含音轨）；若下载失败多为直链过期——重播视频刷新直链后再试";
       body =
         '<div class="bq">' +
         '<span class="l">完整视频</span>' +
         '<span class="s">' + (it.size > 0 ? fmtSize(it.size) + " · " : "") + "网页播放档 · 含音轨</span>" +
         '<button data-act="douyin-dl" data-i="' + idx + '">下载</button>' +
         "</div>" +
-        '<div class="bili-tip">直链来自网页播放器当前档位（含音轨）；若下载失败多为直链过期——重播视频刷新直链后再试</div>';
+        '<div class="bili-tip">' + tip + "</div>";
     } else {
       body = '<div class="bili-load">播放视频后自动捕获直链…（MSE 分段流形态请用下方「缓存抓取」）</div>';
     }
@@ -756,10 +845,10 @@ function recBlockHtml() {
     var sec = Math.max(0, Math.floor((Date.now() - state.rec.startedAt) / 1000));
     body = '<div class="catch-tip">录制中 ' + Math.floor(sec / 60) + ":" + ("0" + (sec % 60)).slice(-2) +
       "（格式 " + (state.rec.mime || "?") + "）——实时录制，录多久要播多久。</div>" +
-      '<button class="ib" data-act="rec-stop" title="停止并保存">停止并保存</button>';
+      '<button class="ib stop" data-act="rec-stop" title="停止并保存">' + ICON_CATCH_STOP + "停止并保存</button>";
   } else if (state.recList && state.recList.length) {
     body = state.recList.map(function (v) {
-      return '<div class="item"><span class="tag">视频</span><span class="meta">' +
+      return '<div class="item"><span class="tag" style="background:#ef4444">视频</span><span class="meta">' +
         '<span class="nm">' + v.w + "×" + v.h + " · " + v.t + "s" + (v.paused ? "（暂停）" : "（播放中）") + "</span>" +
         '<span class="sub">' + (v.muted ? "静音" : "有声") + "</span></span>" +
         '<button class="ib" data-act="rec-start" data-i="' + v.i + '" title="录制这一个">录</button></div>';
@@ -779,27 +868,35 @@ function catchBlockHtml() {
     var inf = api.info();
     if (!inf) return "";
     var size = inf.total > 0 ? fmtSize(inf.total) : "";
-    /* v8.7.125 媒体源分组过滤：忽略组计数随状态行提示 */
-    var extra = inf.extra > 0 ? " · 其他源" + inf.extra : "";
-    var stateHtml;
-    if (inf.on) {
-      stateHtml = '<span class="catch-s live">捕获中' + (size ? " · " + size : "") + (inf.done ? " · 已到尾" : "") + extra + "</span>";
-    } else if (inf.total > 0) {
-      stateHtml = '<span class="catch-s">已捕获 ' + size + (inf.done ? " · 已到尾" : "") + extra + "</span>";
-    } else {
-      stateHtml = '<span class="catch-s">待开始</span>';
+    /* v8.7.145 状态胶囊：捕获中（红点脉冲）＞已到尾（绿）＞已停止＞待开始；
+       尺寸/轨数/忽略组从头部胶囊挪进统计行，头部只留状态语义 */
+    var pillCls = "pill", pillTxt = "待开始";
+    if (inf.on) { pillCls = "pill live"; pillTxt = "捕获中"; }
+    else if (inf.done) { pillCls = "pill done"; pillTxt = "已到尾"; }
+    else if (inf.total > 0) pillTxt = "已停止";
+    var stat = "";
+    if (inf.total > 0) {
+      var extra = inf.extra > 0 ? " · 其他源 " + inf.extra + " 组已忽略" : "";
+      stat = '<div class="catch-stat">已捕获 <b>' + esc(size) + "</b>" +
+        (inf.tracks > 0 ? " · " + inf.tracks + " 条媒体轨" : "") + extra +
+        (inf.done ? " · 已到片尾" : "") + "</div>";
     }
+    var bar = inf.on ? '<div class="catch-bar"><div class="fill"></div></div>' : "";
     return (
       '<div class="catch">' +
-      '<div class="catch-h"><span class="catch-ic">抓</span><span class="catch-t">缓存抓取</span>' + stateHtml + "</div>" +
+      '<div class="catch-h"><span class="catch-ic">抓</span><span class="catch-t">缓存抓取</span>' +
+      '<span class="catch-' + pillCls + '"><span class="dot"></span>' + pillTxt + "</span></div>" +
       '<div class="catch-btns">' +
-      '<button data-act="catch-toggle"' + (inf.on ? ' class="stop"' : "") + ">" + (inf.on ? "停止捕获" : "开始捕获") + "</button>" +
-      '<button data-act="catch-restart">从头捕获</button>' +
-      '<button data-act="catch-dl"' + (inf.total > 0 ? "" : " disabled") + ">下载数据</button>" +
-      "</div>" +
+      '<button data-act="catch-toggle"' + (inf.on ? ' class="stop"' : "") + ">" +
+      (inf.on ? ICON_CATCH_STOP + "停止捕获" : ICON_CATCH_REC + "开始捕获") + "</button></div>" +
+      '<div class="catch-sub">' +
+      '<button data-act="catch-restart">' + ICON_CATCH_RESTART + "从头捕获</button>" +
+      '<button data-act="catch-dl"' + (inf.total > 0 ? "" : " disabled") + ">" + ICON_DL + "下载数据</button>" +
+      "</div>" + bar + stat +
       '<div class="catch-auto"><span class="ca-t">捕获完成后自动下载</span>' +
       '<button class="sw' + (catchAutoDl ? " on" : "") + '" data-act="catch-auto" role="switch" aria-checked="' + (catchAutoDl ? "true" : "false") + '" aria-label="捕获完成后自动下载"><span class="knob"></span></button></div>' +
-      '<div class="catch-tip">把页面播放器已缓存的分段数据（MSE 流）截留合并成文件，各视频站通用；建议「从头捕获」后重播视频，播完点「下载数据」。只保存当前播放的媒体源，广告/预加载自动忽略；播放中切换清晰度会按切换点拆成多段；多音轨分文件保存。</div>' +
+      '<details class="catch-tip"><summary>使用提示' + ICON_CATCH_CHEV + "</summary>" +
+      '<div class="tb">建议点「从头捕获」后把视频拉回开头重播，播完点「下载数据」，合成文件最完整。自动跳过广告与预加载，只保存当前播放的媒体源；播放中切换清晰度会按切换点拆成多段，多音轨分文件保存。MSE 分段流形态各视频站通用（长视频/直播等）。</div></details>' +
       "</div>"
     );
   }
@@ -1085,9 +1182,18 @@ function catchBlockHtml() {
      抖音同一视频常以多域名多签名 URL 出现，按末段聚成一条。 */
   function fpOf(it) {
     if (!it || typeof it.url !== "string") return "";
-    var u = it.url.split("?")[0].split("#")[0];
+    var qAt = it.url.indexOf("?");
+    var u = (qAt >= 0 ? it.url.slice(0, qAt) : it.url).split("#")[0];
     var seg = u.split("/").pop() || u;
-    return (it.type || "") + "|" + seg;
+    var fp = (it.type || "") + "|" + seg;
+    /* v8.7.145 推荐页连带修复：/aweme/v1/play/ 路径末段恒为 play，不同
+       视频的直链会被旧指纹误聚成一条——补 video_id 分辨（滑动换视频即
+       换 id），精选去重在推荐流上恢复按视频粒度 */
+    if (seg === "play" && qAt >= 0) {
+      var vm2 = it.url.slice(qAt + 1).match(/(?:^|&)video_id=([^&]+)/);
+      if (vm2) fp += "|" + vm2[1].slice(0, 24);
+    }
+    return fp;
   }
 
   function send(msg, cb) {
