@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.140",
+    date: "2026-10-14",
+    title: "嗅探面板：「全部/精选」切换按钮接上",
+    channel: "page",
+    highlights: [
+      "面板头部新增「全部/精选」按钮（class 复用现有 ib，插在清空按钮前），点击在「默认按指纹去重」与「显示全部」之间切换",
+      "show-all 动作由单向改为开关（state.showAll 取反后重渲染），sniffer-float.js 通过 node --check"
+    ],
+  },
+  {
     version: "8.7.139",
     date: "2026-10-14",
     title: "嗅探：默认精选去重，可切显示全部",
