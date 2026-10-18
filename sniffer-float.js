@@ -819,7 +819,7 @@
       '<span class="t">资源嗅探</span>' +
       (state.items.length > 0 ? '<span class="cnt">' + state.items.length + "</span>" : "") +
       '<span class="sp"></span>' +
-      '<button class="ib" data-act="clear" title="清空列表" aria-label="清空列表">' + ICON_TRASH + "</button>" +
+      '<button type="button" class="ib" data-act="show-all" title="切换：全部资源 / 仅精选">全部/精选</button><button class="ib" data-act="clear" title="清空列表" aria-label="清空列表">' + ICON_TRASH + "</button>" +
       '<button class="ib" data-act="hide" title="收起" aria-label="收起面板">' + ICON_X + "</button>" +
       "</div>" +
       biliBlockHtml() +
@@ -897,7 +897,7 @@
       showToast("抖音视频已发起下载（Referer 已由扩展补齐）");
       return;
     }
-    if (act === "show-all") { state.showAll = true; renderPanel(); return; }
+    if (act === "show-all") { state.showAll = !state.showAll; renderPanel(); return; }
     if (act === "show-uniq") { state.showAll = false; renderPanel(); return; }
     if (act === "hide") return togglePanel(false);
     if (act === "clear") {
