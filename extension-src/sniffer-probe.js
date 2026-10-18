@@ -351,3 +351,27 @@
   }
   window.__chushiRec = { list: list, start: start, stop: stop, pickMime: pickMime };
 })();
+
+/*! 第二步：主世界录制请求通道（探针 = MAIN world，桥 = ISOLATED world，
+ *  两者 window 不相通，只能用 postMessage 通信）。请求/应答约定：
+ *  请求  { __chushiRecReq: id, op: "list"|"start"|"stop"|"pickMime", i }
+ *  应答  { __chushiRecRes: id, ...payload }                                    */
+(function () {
+  "use strict";
+  window.addEventListener("message", function (ev) {
+    if (ev.source !== window) return;
+    var d = ev.data;
+    if (!d || d.__chushiRecReq === undefined) return;
+    var api = window.__chushiRec, id = d.__chushiRecReq, reply = function (payload) {
+      try { window.postMessage(Object.assign({ __chushiRecRes: id }, payload), "*"); } catch (e) { /* noop */ }
+    };
+    if (!api) { reply({ ok: false, error: "no-probe" }); return; }
+    try {
+      if (d.op === "list") reply({ ok: true, list: api.list() });
+      else if (d.op === "pickMime") reply({ ok: true, mime: api.pickMime() });
+      else if (d.op === "start") reply(api.start(d.i || 0));
+      else if (d.op === "stop") api.stop().then(reply, function (e) { reply({ ok: false, error: String((e && e.message) || e) }); });
+      else reply({ ok: false, error: "bad-op" });
+    } catch (e) { reply({ ok: false, error: String((e && e.message) || e) }); }
+  });
+})();

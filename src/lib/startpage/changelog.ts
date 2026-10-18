@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.143",
+    date: "2026-10-14",
+    title: "录制第二步（通路）：探针 ↔ 桥 跨世界通道",
+    channel: "page",
+    highlights: [
+      "探针（MAIN world）与桥（ISOLATED world）window 不相通，新增 postMessage 请求/应答通道：{__chushiRecReq,op} → {__chushiRecRes,...}",
+      "桥暴露 window.__chushiRecBridge.{list,pickMime,start,stop}（Promise，带超时）；与浮窗同属扩展 ISOLATED world，可直接调用；本版仍未接 UI"
+    ],
+  },
+  {
     version: "8.7.142",
     date: "2026-10-14",
     title: "视频录制第一步：主世界录制探针",
