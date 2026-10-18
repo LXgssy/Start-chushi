@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.141",
+    date: "2026-10-14",
+    title: "嗅探面板：切换按钮改回图标风格",
+    channel: "page",
+    highlights: [
+      "把上一版加的「全部/精选」文字按钮换成与面板其他按钮同款的内联 SVG 线形图标（三条递减横线，currentColor 描边、12×12）",
+      "按钮结构与清空/收起一致（class=ib + title/aria-label），不再破坏头部图标语言；交互仍是同一开关"
+    ],
+  },
+  {
     version: "8.7.140",
     date: "2026-10-14",
     title: "嗅探面板：「全部/精选」切换按钮接上",
