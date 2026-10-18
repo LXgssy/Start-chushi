@@ -819,7 +819,7 @@
       '<span class="t">资源嗅探</span>' +
       (state.items.length > 0 ? '<span class="cnt">' + state.items.length + "</span>" : "") +
       '<span class="sp"></span>' +
-      '<button type="button" class="ib" data-act="show-all" title="切换：全部资源 / 仅精选">全部/精选</button><button class="ib" data-act="clear" title="清空列表" aria-label="清空列表">' + ICON_TRASH + "</button>" +
+      '<button class="ib" data-act="show-all" title="切换全部/精选" aria-label="切换全部/精选"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button><button class="ib" data-act="clear" title="清空列表" aria-label="清空列表">' + ICON_TRASH + "</button>" +
       '<button class="ib" data-act="hide" title="收起" aria-label="收起面板">' + ICON_X + "</button>" +
       "</div>" +
       biliBlockHtml() +
