@@ -810,7 +810,7 @@
       '<span class="t">资源嗅探</span>' +
       (state.items.length > 0 ? '<span class="cnt">' + state.items.length + "</span>" : "") +
       '<span class="sp"></span>' +
-      '<button type="button" class="ib" data-act="dl-current" title="下载当前正在播放的视频">下载当前</button><button class="ib" data-act="clear" title="清空列表" aria-label="清空列表">' + ICON_TRASH + "</button>" +
+      '<button class="ib" data-act="clear" title="清空列表" aria-label="清空列表">' + ICON_TRASH + "</button>" +
       '<button class="ib" data-act="hide" title="收起" aria-label="收起面板">' + ICON_X + "</button>" +
       "</div>" +
       biliBlockHtml() +
@@ -886,13 +886,6 @@
       send({ type: "sniffer-download", url: dItem.url, filename: douyinTitle() + ".mp4" });
       btn.classList.add("ok");
       showToast("抖音视频已发起下载（Referer 已由扩展补齐）");
-      return;
-    }
-    if (act === "dl-current") {
-      send({ type: "sniffer-download-current" }, function (resp) {
-        if (resp && resp.ok) showToast("已发起下载：当前正在播放的那一条");
-        else showToast(resp && resp.reason === "no-media" ? "本页没有可下载的媒体" : "下载失败");
-      });
       return;
     }
     if (act === "hide") return togglePanel(false);
@@ -1000,6 +993,20 @@
   }
 
   /* ---------- 消息面 ---------- */
+  /* v8.7.135 HLS 合并进度：SW 转发的 hls-progress / hls-done 进 toast
+     （解析阶段「解析播放列表…」，下载阶段「合并中 n%（done/total）」）。 */
+  try {
+    chrome.runtime.onMessage.addListener(function (msg) {
+      if (!msg) return;
+      if (msg.type === "hls-progress") {
+        var pct = msg.total ? Math.floor((msg.done / msg.total) * 100) : 0;
+        showToast(msg.phase === "parse" ? "解析播放列表…" : "合并中 " + pct + "%（" + msg.done + "/" + msg.total + "）");
+      } else if (msg.type === "hls-done") {
+        showToast(msg.ok ? "合并完成，已发起下载" : "合并失败：" + (msg.error || "未知错误"));
+      }
+    });
+  } catch (e) { /* noop */ }
+
   function send(msg, cb) {
     try {
       if (cb) chrome.runtime.sendMessage(msg, function (resp) { void chrome.runtime.lastError; cb(resp); });
