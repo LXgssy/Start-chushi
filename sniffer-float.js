@@ -782,8 +782,17 @@
     if (state.bili.bvid) biliResolve();
     detectYt();
     if (state.yt.vid) ytResolve();
-    var rows = state.items
-      .map(function (it, i) {
+    /* v8.7.138 默认精选（按 URL 指纹去重）+ 可切「显示全部」。索引仍指回
+       state.items，保证列表里每个按钮的 data-i 点击语义不变。 */
+    if (typeof state.showAll !== "boolean") state.showAll = false;
+    var rowsIdx = [], seenFp = {}, ii, fpTmp;
+    for (ii = 0; ii < state.items.length; ii++) {
+      fpTmp = fpOf(state.items[ii]);
+      if (!state.showAll && fpTmp) { if (seenFp[fpTmp]) continue; seenFp[fpTmp] = 1; }
+      rowsIdx.push(ii);
+    }
+    var rows = rowsIdx
+      .map(function (i) { var it = state.items[i];
         var meta = TYPE_META[it.type] || TYPE_META.file;
         var size = fmtSize(it.size);
         var extLabel = it.ext === "m3u8" ? "m3u8 流列表" : "";
@@ -888,6 +897,8 @@
       showToast("抖音视频已发起下载（Referer 已由扩展补齐）");
       return;
     }
+    if (act === "show-all") { state.showAll = true; renderPanel(); return; }
+    if (act === "show-uniq") { state.showAll = false; renderPanel(); return; }
     if (act === "hide") return togglePanel(false);
     if (act === "clear") {
       send({ type: "sniffer-clear" });
@@ -1006,6 +1017,15 @@
       }
     });
   } catch (e) { /* noop */ }
+
+  /* v8.7.138 URL 指纹（去重用）：去掉查询/锚，取路径末段 + 类型。
+     抖音同一视频常以多域名多签名 URL 出现，按末段聚成一条。 */
+  function fpOf(it) {
+    if (!it || typeof it.url !== "string") return "";
+    var u = it.url.split("?")[0].split("#")[0];
+    var seg = u.split("/").pop() || u;
+    return (it.type || "") + "|" + seg;
+  }
 
   function send(msg, cb) {
     try {
