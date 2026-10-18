@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.142",
+    date: "2026-10-14",
+    title: "视频录制第一步：主世界录制探针",
+    channel: "page",
+    highlights: [
+      "MSE/blob 站点（抖音推荐页等）没有可下载媒体 URL，唯一路径是 captureStream + MediaRecorder 录制；本版在 sniffer-probe.js 追加主世界 API：__chushiRec.list/pickMime/start/stop",
+      "格式优先 video/mp4;codecs=avc1，不支持回退 video/webm；录制实时、停止返回 {url,size,mime,seconds}；本版不接 UI、不改既有逻辑，先用于手动验证"
+    ],
+  },
+  {
     version: "8.7.141",
     date: "2026-10-14",
     title: "嗅探面板：切换按钮改回图标风格",
