@@ -1,6 +1,16 @@
 /* ============================================================================
  * 「初始」资源嗅探全局浮窗 sniffer-float v2（v8.7.115 / v8.7.128 自愈）
  * ----------------------------------------------------------------------------
+ * v8.7.146 面板整体滚动 + 头部锁死（用户指令：「面板做成可上下滑动的，顶部
+ *   资源嗅探那一行锁死不要滑动」）：旧布局 .ph 与五个功能区都是面板直接子
+ *   元素、只有 .list 自带 overflow——当 B站/YouTube/抖音/录制/缓存抓取区
+ *   内容总高超出面板 max-height 时功能区被 flex 压缩或溢出圆角、够不到的
+ *   部分根本滑不动。改为 .ph 之下新增 .pbody 滚动壳（flex:1 min-height:0
+ *   overflow-y:auto）把全部功能区与资源列表整体收进；.ph 加 flex-shrink:0
+ *   锁死永不参与压缩，.panel 补 overflow:hidden 防滚动条越出圆角。重渲染
+ *   （嗅探新资源/下载进度/捕获 500ms 状态回刷）保存并恢复 .pbody scrollTop，
+ *   用户的滚动位置不再被打回顶部。点击/数据语义零变化。
+ * ----------------------------------------------------------------------------
  * v8.7.145 两区美化 + 抖音推荐页放开（用户指令，基于远端 v8.7.144 录制版合流）：
  *   ①缓存抓取区布局重排：状态胶囊（捕获中红点脉冲/已到尾/已停止/待开始，
  *     尺寸轨数挪进统计行）+ 主次两级按钮（开始捕获 accent 满底主钮，
@@ -66,7 +76,7 @@
  * ==========================================================================*/
 (function () {
   "use strict";
-  var MOUNT_VER = "v8.7.145";
+  var MOUNT_VER = "v8.7.146";
   if (window.__chushiSnifferMounted === MOUNT_VER) return;
   /* 旧挂载残迹判定：v8.7.127 及更早是布尔 true，128 起是版本串——
      两者皆视作「页面上可能留有旧宿主」，更新换代时整体拆除 */
@@ -130,14 +140,15 @@
     "background:var(--acc,#8b5cf6);color:#fff;font-size:10px;font-weight:600;line-height:17px;text-align:center;",
     "box-shadow:0 1px 4px rgba(0,0,0,.25);display:none;}",
     ".badge.show{display:block;}",
-    ".panel{pointer-events:auto;position:fixed;width:280px;max-height:420px;display:flex;flex-direction:column;",
+    ".panel{pointer-events:auto;position:fixed;width:280px;max-height:420px;display:flex;flex-direction:column;overflow:hidden;",
     "border-radius:14px;background:rgba(255,255,255,.9);backdrop-filter:blur(20px) saturate(1.6);-webkit-backdrop-filter:blur(20px) saturate(1.6);",
     "border:1px solid rgba(24,22,36,.12);box-shadow:0 12px 40px rgba(0,0,0,.22);color:#27272a;",
     "opacity:0;visibility:hidden;transform:translateY(6px) scale(.98);transition:opacity .22s ease,transform .22s cubic-bezier(.22,1,.36,1),visibility 0s linear .22s;}",
     ".panel.open{opacity:1;visibility:visible;transform:none;transition:opacity .22s ease,transform .22s cubic-bezier(.22,1,.36,1);}",
     /* v8.7.53 布局重排：头部 = 图标标题+计数徽章+图标动作钮；列表项 =
        类型色块 + 文件名/元信息两行分层；杜绝信息全堆一行 */
-    ".ph{display:flex;align-items:center;gap:7px;padding:11px 12px 10px;border-bottom:1px solid rgba(24,22,36,.07);}",
+    /* v8.7.146 头部锁死：flex-shrink:0 永不压缩；主体收进 .pbody 滚动壳整体滑动 */
+    ".ph{display:flex;align-items:center;gap:7px;padding:11px 12px 10px;border-bottom:1px solid rgba(24,22,36,.07);flex-shrink:0;}",
     ".ph .ico{flex-shrink:0;display:flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:8px;background:color-mix(in srgb,var(--acc,#8b5cf6) 12%,transparent);color:var(--acc,#8b5cf6);}",
     ".ph .ico svg{width:13px;height:13px;}",
     ".ph .t{font-size:12px;font-weight:500;letter-spacing:.04em;}",
@@ -146,8 +157,10 @@
     ".ph .ib{flex-shrink:0;display:flex;align-items:center;justify-content:center;width:22px;height:22px;border:0;border-radius:7px;background:none;color:#a1a1aa;cursor:pointer;transition:background .15s ease,color .15s ease;}",
     ".ph .ib:hover{background:rgba(24,22,36,.06);color:#52525b;}",
     ".ph .ib svg{width:13px;height:13px;}",
-    ".list{overflow-y:auto;padding:7px;scrollbar-width:thin;}",
-    ".list::-webkit-scrollbar{width:5px;}.list::-webkit-scrollbar-thumb{background:rgba(24,22,36,.15);border-radius:999px;}",
+    "/* v8.7.146 面板唯一滚动容器改为 .pbody（.list 变普通分区块，不再自带滚动） */",
+    ".pbody{flex:1 1 auto;min-height:0;overflow-y:auto;scrollbar-width:thin;overscroll-behavior:contain;}",
+    ".pbody::-webkit-scrollbar{width:5px;}.pbody::-webkit-scrollbar-thumb{background:rgba(24,22,36,.15);border-radius:999px;}",
+    ".list{padding:7px;}",
     ".empty{padding:26px 12px 24px;text-align:center;color:#a1a1aa;}",
     ".empty svg{width:20px;height:20px;display:block;margin:0 auto 8px;opacity:.6;}",
     ".empty .e1{font-size:11px;font-weight:400;color:#71717a;margin-bottom:3px;}",
@@ -177,7 +190,7 @@
     ":host(.framedark) .ph .ico{background:color-mix(in srgb,var(--acc,#8b5cf6) 22%,transparent);color:var(--acc-soft,#a78bfa);}",
     ":host(.framedark) .cnt{background:color-mix(in srgb,var(--acc,#8b5cf6) 22%,transparent);color:var(--acc-soft,#a78bfa);}",
     ":host(.framedark) .ph .ib:hover{background:rgba(255,255,255,.08);color:#f4f4f5;}",
-    ":host(.framedark) .list::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);}",
+    ":host(.framedark) .pbody::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);}",
     ":host(.framedark) .item:hover{background:rgba(255,255,255,.06);}",
     ":host(.framedark) .empty .e1{color:#a1a1aa;}",
     ":host(.framedark) .meta .sub{color:#71717a;}",
@@ -937,6 +950,11 @@ function catchBlockHtml() {
         );
       })
       .join("");
+    /* v8.7.146 整体滚动：头部 .ph 锁死，其余全部收进 .pbody 滚动壳；
+       重渲染前保存 scrollTop、重建后恢复（浏览器自动钳到合法区间），
+       捕获中 500ms 状态回刷不再打断用户滚动位置。 */
+    var pbOld = panel.querySelector(".pbody");
+    var keepScroll = pbOld ? pbOld.scrollTop : 0;
     panel.innerHTML =
       '<div class="ph">' +
       '<span class="ico">' + ICON_DOWN_DOC + "</span>" +
@@ -946,6 +964,7 @@ function catchBlockHtml() {
       '<button class="ib" data-act="show-all" title="切换全部/精选" aria-label="切换全部/精选"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 6h16M7 12h10M10 18h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button><button class="ib" data-act="clear" title="清空列表" aria-label="清空列表">' + ICON_TRASH + "</button>" +
       '<button class="ib" data-act="hide" title="收起" aria-label="收起面板">' + ICON_X + "</button>" +
       "</div>" +
+      '<div class="pbody">' +
       biliBlockHtml() +
       ytBlockHtml() +
       douyinBlockHtml() +
@@ -957,7 +976,10 @@ function catchBlockHtml() {
         '<div class="e1">暂无可下载资源</div>' +
         '<div class="e2">浏览网页时自动嗅探视频、音频、图片、文档等文件</div>' +
         "</div>") +
+      "</div>" +
       "</div>";
+    var pbNew = panel.querySelector(".pbody");
+    if (pbNew && keepScroll) pbNew.scrollTop = keepScroll;
   }
   function togglePanel(force) {
     var next = typeof force === "boolean" ? force : !state.panelOpen;

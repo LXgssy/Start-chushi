@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.146",
+    date: "2026-10-19",
+    title: "嗅探面板整体可滚动，标题栏固定",
+    channel: "page",
+    highlights: [
+      "资源嗅探面板主体改为整体上下滚动：B站 / YouTube / 抖音完整视频、视频录制、缓存抓取各区块与资源列表不再被压缩或截断，内容再多也能滑到底",
+      "顶部「资源嗅探」标题栏锁死固定，滚动时始终可见，清空 / 切换 / 收起按钮随时可点",
+      "滚动位置记忆：捕获中状态刷新、下载进度更新不再把面板滚回顶部",
+    ],
+  },
+  {
     version: "8.7.145",
     date: "2026-10-19",
     title: "嗅探面板两区美化 + 抖音推荐页视频下载",
