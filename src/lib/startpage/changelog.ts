@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.147",
+    date: "2026-10-20",
+    title: "抖音预载直链可直接挑选下载",
+    channel: "page",
+    highlights: [
+      "抖音区块新增「其余 N 条预载直链」折叠：相邻视频预载的全部直链逐行列出（新→旧），每行带独立下载按钮，不再只是报个数",
+      "修复提示与列表脱节：预载直链此前在列表里全显示为同貌「play」无从挑选，现按 video_id 尾段命名，行行可辨，下载落盘文件名也不再是 play.mp4",
+      "修复指纹死代码：/aweme/v1/play/ 尾斜杠形态下不同视频直链曾被聚成一条指纹，精选去重恢复按视频粒度",
+    ],
+  },
+  {
     version: "8.7.146",
     date: "2026-10-19",
     title: "嗅探面板整体可滚动，标题栏固定",
