@@ -1,6 +1,18 @@
 /* ============================================================================
  * 「初始」资源嗅探全局浮窗 sniffer-float v2（v8.7.115 / v8.7.128 自愈）
  * ----------------------------------------------------------------------------
+ * v8.7.147 抖音预载直链挑选进区块（用户实测：提示「另有 18 条直链可到下方
+ *   列表挑选」但列表里没有可选条目）：根因——那 18 条一直在 state.items
+ *   里也确实渲染成列表行，但 /aweme/v1/play/ 直链路径末段恒为 play，
+ *   guessName 兜底把每一行都命名成「play」，预载 XHR 又无 content-length
+ *   （size=0 不显示），18 行全是同貌「play · www.douyin.com」根本无从
+ *   挑选——提示与列表脱节。修三处：①抖音区块内新增 dy-more 折叠，把全部
+ *   去重预载直链（新→旧）逐行列出，每行独立下载钮（data-i 指回
+ *   state.items，走同一 DNR Referer 代理），开合态跨重渲染保持；②
+ *   guessName 对 play 直链改用 video_id 前 10 位命名，列表行与落盘
+ *   文件名行行可辨（顺带修「play.mp4」落地名）；③提示文案不再引导去
+ *   列表，预载行下载文件名用 data-nm 直传。面板滚动/点击语义零变化。
+ * ----------------------------------------------------------------------------
  * v8.7.146 面板整体滚动 + 头部锁死（用户指令：「面板做成可上下滑动的，顶部
  *   资源嗅探那一行锁死不要滑动」）：旧布局 .ph 与五个功能区都是面板直接子
  *   元素、只有 .list 自带 overflow——当 B站/YouTube/抖音/录制/缓存抓取区
@@ -76,7 +88,7 @@
  * ==========================================================================*/
 (function () {
   "use strict";
-  var MOUNT_VER = "v8.7.146";
+  var MOUNT_VER = "v8.7.147";
   if (window.__chushiSnifferMounted === MOUNT_VER) return;
   /* 旧挂载残迹判定：v8.7.127 及更早是布尔 true，128 起是版本串——
      两者皆视作「页面上可能留有旧宿主」，更新换代时整体拆除 */
@@ -211,6 +223,15 @@
     ".bq button:disabled{opacity:.55;cursor:default;}",
     ".bq .pc{flex-shrink:0;width:38px;font-size:9.5px;color:var(--acc,#8b5cf6);text-align:right;font-variant-numeric:tabular-nums;}",
     ".bili-tip{margin-top:5px;font-size:9px;font-weight:300;color:#a1a1aa;line-height:1.5;}",
+    "/* v8.7.147 抖音预载直链折叠：summary 旋针同 catch-tip 族，行复用 .bq，默认收起展开后逐行列出（新→旧） */",
+    ".dy-more{margin-top:6px;font-size:9px;}",
+    ".dy-more summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:3px;user-select:none;color:#71717a;transition:color .15s ease;}",
+    ".dy-more summary::-webkit-details-marker{display:none;}",
+    ".dy-more summary:hover{color:#52525b;}",
+    ".dy-more summary svg{width:9px;height:9px;transition:transform .18s ease;}",
+    ".dy-more[open] summary svg{transform:rotate(90deg);}",
+    ".dy-more .bq{margin-top:3px;}",
+    ":host(.framedark) .dy-more summary:hover{color:#f4f4f5;}",
     ".bili-err{padding:2px 6px;font-size:10.5px;line-height:1.6;color:#ef4444;}",
     ".bili-load{padding:6px;font-size:10.5px;color:#a1a1aa;}",
     ":host(.framedark) .bq:hover{background:rgba(255,255,255,.06);}",
@@ -491,6 +512,14 @@
     if (it.name) return it.name;
     try {
       var u = new URL(it.url);
+      /* v8.7.147 抖音播放直链：路径末段恒为 play——列表里 N 条预载直链
+         全渲染成同貌「play」无从挑选，落盘名也会是 play.mp4；改用
+         video_id 尾 12 位命名（前缀 v0d00fg100 全体同源，只有尾部才
+         是个性段），行行可辨且下载文件名即视频 id 尾段 */
+      var vm3 = it.url.match(/[?&]video_id=([^&]+)/);
+      if (vm3 && u.pathname.indexOf("/aweme/v1/play/") >= 0) {
+        return "抖音视频_" + vm3[1].slice(-12);
+      }
       var seg = u.pathname.split("/").filter(Boolean).pop() || u.hostname;
       return decodeURIComponent(seg).slice(0, 80);
     } catch (e) {
@@ -755,26 +784,46 @@
     if (it) {
       var idx = state.items.indexOf(it);
       /* v8.7.145 推荐页：滑动流会预加载相邻视频，直链常多于一条——主行给
-         最新一条（当前播放档），其余按指纹去重后只报条数，完整挑选走下方
-         列表（列表索引仍指回 state.items，语义不变） */
-      var seen = {}, nOthers = 0, oi2, oit, ofp;
+         最新一条（当前播放档）。
+         v8.7.147：旧版把挑选引导到下方列表，但列表行全是同貌「play」
+         （路径末段兜底命名+预载无 content-length 无大小），实际无从挑。改为在本区块内折叠逐行列出去重后的预载
+         直链（新→旧，每行独立下载钮 data-i 指回 state.items，与主行走
+         同一 DNR Referer 代理）；折叠开合态跨重渲染保持（state.dyMoreOpen
+         由 renderPanel 重建前回填）。 */
+      var seen = {}, nOthers = 0, moreRows = "", mi = 0, oi2, oit, ofp;
       for (oi2 = state.items.length - 1; oi2 >= 0; oi2--) {
         oit = state.items[oi2];
         if (!oit || oit.type !== "video") continue;
         ofp = fpOf(oit);
         if (!ofp || seen[ofp]) continue;
         seen[ofp] = 1;
-        if (oit !== it) nOthers++;
+        if (oit === it) continue;
+        nOthers++;
+        mi++;
+        var mSub = (oit.size > 0 ? fmtSize(oit.size) + " · " : "") + (hostOf(oit.url) || "抖音 CDN");
+        var mNm = guessName(oit);
+        moreRows +=
+          '<div class="bq">' +
+          '<span class="l" title="' + esc(mNm) + '">预载 ' + (mi < 10 ? "0" + mi : mi) + "</span>" +
+          '<span class="s" title="' + esc(mSub) + '">' + esc(mSub) + "</span>" +
+          '<button data-act="douyin-dl" data-i="' + oi2 + '" data-nm="' + esc(mNm) + '">下载</button>' +
+          "</div>";
       }
-      var tip = nOthers > 0
-        ? "另有 " + nOthers + " 条直链（相邻视频预加载），可到下方列表挑选；下载失败多为直链过期——重播视频刷新后再试"
-        : "直链来自网页播放器当前档位（含音轨）；若下载失败多为直链过期——重播视频刷新直链后再试";
+      var tip, moreHtml = "";
+      if (nOthers > 0) {
+        tip = "下载失败多为直链过期——重播视频刷新后再试";
+        moreHtml =
+          '<details class="dy-more"' + (state.dyMoreOpen ? " open" : "") + "><summary>其余 " + nOthers + " 条预载直链（相邻视频预加载，新→旧）" + ICON_CATCH_CHEV + "</summary>" + moreRows + "</details>";
+      } else {
+        tip = "直链来自网页播放器当前档位（含音轨）；若下载失败多为直链过期——重播视频刷新直链后再试";
+      }
       body =
         '<div class="bq">' +
         '<span class="l">完整视频</span>' +
         '<span class="s">' + (it.size > 0 ? fmtSize(it.size) + " · " : "") + "网页播放档 · 含音轨</span>" +
         '<button data-act="douyin-dl" data-i="' + idx + '">下载</button>' +
         "</div>" +
+        moreHtml +
         '<div class="bili-tip">' + tip + "</div>";
     } else {
       body = '<div class="bili-load">播放视频后自动捕获直链…（MSE 分段流形态请用下方「缓存抓取」）</div>';
@@ -955,6 +1004,9 @@ function catchBlockHtml() {
        捕获中 500ms 状态回刷不再打断用户滚动位置。 */
     var pbOld = panel.querySelector(".pbody");
     var keepScroll = pbOld ? pbOld.scrollTop : 0;
+    /* v8.7.147 抖音预载折叠开合态跨重渲染保持（同 scrollTop 保持律） */
+    var dyOld = pbOld ? pbOld.querySelector(".dy-more") : null;
+    state.dyMoreOpen = !!(dyOld && dyOld.hasAttribute("open"));
     panel.innerHTML =
       '<div class="ph">' +
       '<span class="ico">' + ICON_DOWN_DOC + "</span>" +
@@ -1039,7 +1091,10 @@ function catchBlockHtml() {
     if (act === "douyin-dl") {
       var dItem = state.items[Number(btn.getAttribute("data-i"))];
       if (!dItem) return;
-      send({ type: "sniffer-download", url: dItem.url, filename: douyinTitle() + ".mp4" });
+      /* v8.7.147 预载行下载文件名用 data-nm（video_id 命名，行行不同）；
+         主行无 data-nm 仍用页面标题（＝当前视频描述） */
+      var dNm = btn.getAttribute("data-nm");
+      send({ type: "sniffer-download", url: dItem.url, filename: (dNm ? dNm : douyinTitle()) + ".mp4" });
       btn.classList.add("ok");
       showToast("抖音视频已发起下载（Referer 已由扩展补齐）");
       return;
@@ -1207,6 +1262,13 @@ function catchBlockHtml() {
     var qAt = it.url.indexOf("?");
     var u = (qAt >= 0 ? it.url.slice(0, qAt) : it.url).split("#")[0];
     var seg = u.split("/").pop() || u;
+    /* v8.7.147 修复：/aweme/v1/play/ 尾带斜杠 → split("/").pop() 得空串
+       → || 回退整路径 → v8.7.145 的 video_id 分辨对带斜杠形态从未生效
+       （推荐页不同视频的 play/?video_id=… 全聚成一条指纹）。仅当带查询
+       且路径以斜杠结尾时重派生末段——其余 URL 形态指纹保持原样零回归 */
+    if (qAt >= 0 && /\/$/.test(u)) {
+      seg = u.replace(/\/+$/, "").split("/").pop() || u;
+    }
     var fp = (it.type || "") + "|" + seg;
     /* v8.7.145 推荐页连带修复：/aweme/v1/play/ 路径末段恒为 play，不同
        视频的直链会被旧指纹误聚成一条——补 video_id 分辨（滑动换视频即
