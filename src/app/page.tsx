@@ -474,6 +474,7 @@ function StartPageView() {
             点击磁贴开对应面板；出/入场动画与禅雾化由组件自持 */}
         <PinnedTiles
           todos={sp.todos}
+          setTodos={sp.setTodos}
           note={sp.note}
           todoTile={sp.settings.todoTile === true}
           noteTile={sp.settings.noteTile === true}

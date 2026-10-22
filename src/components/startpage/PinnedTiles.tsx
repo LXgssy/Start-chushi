@@ -27,6 +27,18 @@
  *     消失 = 反向散场（0.32s）；刷新入场 = 同出现动画 + 0.55s 错拍延迟
  *     （等磁贴墙入场过半，整页动效一气呵成）。
  * 禅模式：外层挂 .zen-gone（visibility+transform 零毒通道，globals.css）。
+ *
+ * v8.7.148 用户指令：待办浮窗磁贴加可交互——点击磁贴里的待办即可「划掉」
+ * （标记完成）：行级按钮化 + 划线动画（.strike 与面板同语言）+ 计数徽标
+ * 即时随 pending 数变化；划掉的条目带划线样式驻留 1.1s 再优雅退场，
+ * 驻留期内再点可反悔（恢复未完成）；拖拽 4px 容差与拖后 300ms 吞
+ * click 两律对行级点击同样生效——按住行上拖磁贴不误划，落点合法重钉。
+ * 存量修复（真扩展冒烟实证）：v8.7.106 起 pointerdown 即 setPointerCapture
+ * 会把点按的 pointerup/click 重定向到拖拽宿主——磁贴本体的 click 从未
+ * 到达过本体按钮，「点磁贴开面板」一直处于失效态（用户都走 Dock 入口
+ * 未察觉）；现 click 统一收口在宿主一层：capture 重定向流（target=宿主）
+ * 用 elementFromPoint 还原真实落点，键盘流（target=真实元素）直接用
+ * target——行级→划掉切换，磁贴本域→开面板（便签磁贴同批修复）。
  */
 
 import { memo, useCallback, useEffect, useRef, useState } from "react";
@@ -46,6 +58,8 @@ const FOCUS = { duration: 0.55, ease: EASE };
 const LAYOUT_SPRING = { type: "spring" as const, stiffness: 420, damping: 41, mass: 0.9 };
 /** 拖拽判定容差（px）：4px 内仍是点击（浮窗开关同律） */
 const DRAG_SLOP = 4;
+/** 划掉后驻留时长（ms）：划线扫过可辨 + 反悔窗口，随后优雅退场 */
+const LINGER_MS = 1100;
 
 const POS_KEY = { todo: "start:pintile-todo", note: "start:pintile-note" } as const;
 type PinKey = keyof typeof POS_KEY;
@@ -264,6 +278,7 @@ function PinnedTiles({
   pinTilePos,
   onPinPos,
   onOpenPanel,
+  setTodos,
 }: {
   todos: TodoItem[];
   note: string;
@@ -274,6 +289,8 @@ function PinnedTiles({
   /** 钉位提交：写回 settings.pinTile（随 settings 持久化+云同步） */
   onPinPos: (k: "todo" | "note", p: { x: number; y: number } | null) => void;
   onOpenPanel: (p: PanelId) => void;
+  /** 待办写回（v8.7.148 行级划掉）：与 TodoPanel 同一 setState 通道 */
+  setTodos: (updater: (prev: TodoItem[]) => TodoItem[]) => void;
 }) {
   const pending = todos.filter((t) => !t.done);
   const preview = pending.slice(0, 4);
@@ -289,6 +306,7 @@ function PinnedTiles({
           saved={pinTilePos?.todo ?? null}
           commit={(p) => onPinPos("todo", p)}
           onOpenPanel={onOpenPanel}
+          setTodos={setTodos}
         />
       )}
       {noteTile && (
@@ -304,13 +322,16 @@ function PinnedTiles({
   );
 }
 
-/** 待办常驻磁贴（左下默认锚位；v8.7.106 自由拖拽+禁区回弹+钉位持久化） */
+/** 待办常驻磁贴（左下默认锚位；v8.7.106 自由拖拽+禁区回弹+钉位持久化；
+ *  v8.7.148 行级划掉——点行即划掉，驻留期反悔，拖拽护栏对行同样生效） */
 function TodoTile({
+  todos,
   pending,
   preview,
   saved,
   commit,
   onOpenPanel,
+  setTodos,
 }: {
   todos: TodoItem[];
   pending: TodoItem[];
@@ -318,8 +339,67 @@ function TodoTile({
   saved: { x: number; y: number } | null;
   commit: (p: { x: number; y: number } | null) => void;
   onOpenPanel: (p: PanelId) => void;
+  setTodos: (updater: (prev: TodoItem[]) => TodoItem[]) => void;
 }) {
   const pin = usePinDrag("todo", saved, commit);
+  /* 行级划掉驻留表：刚划掉的 id 先驻留（带划线样式），LINGER_MS 后退场。
+     面板/云同步侧把条目改回未完成或删除时，lingerRows 派生过滤自然
+     兕底（done=false 或找不到即不出列），计时器到点只是清扫。 */
+  const [linger, setLinger] = useState<string[]>([]);
+  const timers = useRef<Map<string, number>>(new Map());
+  useEffect(
+    () => () => {
+      timers.current.forEach((t) => window.clearTimeout(t));
+      timers.current.clear();
+    },
+    [],
+  );
+
+  function toggleRow(t: TodoItem) {
+    const nowDone = !t.done;
+    setTodos((prev) => prev.map((x) => (x.id === t.id ? { ...x, done: nowDone } : x)));
+    const old = timers.current.get(t.id);
+    if (old) {
+      window.clearTimeout(old);
+      timers.current.delete(t.id);
+    }
+    if (nowDone) {
+      setLinger((prev) => (prev.includes(t.id) ? prev : [...prev, t.id]));
+      const tm = window.setTimeout(() => {
+        timers.current.delete(t.id);
+        setLinger((prev) => prev.filter((x) => x !== t.id));
+      }, LINGER_MS);
+      timers.current.set(t.id, tm);
+    } else {
+      setLinger((prev) => prev.filter((x) => x !== t.id));
+    }
+  }
+
+  const lingerRows = linger
+    .map((id) => todos.find((t) => t.id === id))
+    .filter((t): t is TodoItem => !!t && t.done && !preview.some((p) => p.id === t.id));
+
+  /* v8.7.148 点击统一宿主代理：pointerdown 即 setPointerCapture 会把点按
+     的 pointerup/click 重定向到拖拽宿主（真扩展冒烟实证），行级/本体
+     上的 onClick 永远收不到——故 click 统一收口在宿主一层：capture
+     重定向流（target=宿主）用 elementFromPoint 还原真实落点，键盘流
+     （target=真实元素）直接用 target；行级→划掉切换，本域→开面板。 */
+  const onTileClick = (e: React.MouseEvent) => {
+    if (pin.afterDragClick()) return;
+    const fromTarget =
+      e.target !== e.currentTarget ? (e.target as HTMLElement) : null;
+    const real =
+      fromTarget ??
+      (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null);
+    if (!real) return;
+    const rowEl = real.closest("[data-todo-row]");
+    if (rowEl) {
+      const item = todos.find((t) => t.id === rowEl.getAttribute("data-todo-id"));
+      if (item) toggleRow(item);
+      return;
+    }
+    if (real.closest("[data-tile-body]")) onOpenPanel("todo");
+  };
   return (
     <motion.div
       className={
@@ -334,7 +414,8 @@ function TodoTile({
       exit={{ y: 12, scale: 0.94, transition: SINK }}
       transition={{ ...RISE, delay: 0.55 }}
     >
-      {/* 拖拽层：transform-only（x/y 位移直写），磨砂存活律零毒 */}
+      {/* 拖拽层：transform-only（x/y 位移直写），磨砂存活律零毒；
+          onClick 收口在此（见 onTileClick 注释） */}
       <motion.div
         ref={pin.hostRef}
         className="cursor-grab touch-none active:cursor-grabbing"
@@ -343,11 +424,22 @@ function TodoTile({
         onPointerMove={pin.onPointerMove}
         onPointerUp={pin.onPointerUp}
         onPointerCancel={pin.onPointerUp}
+        onClick={onTileClick}
       >
-        <button
-          type="button"
+        {/* v8.7.148：磁贴本体从 <button> 退为 role="button" div——行级划掉
+            按钮不可嵌套在 button 里（HTML 交互元素禁嵌套）；onClick 已
+            收口到拖拽宿主（capture 重定向实证），此处只保留键盘语义：
+            Enter/Space 开面板仅响应磁贴自身焦点（e.target 守卫，行上
+            回车仍是行级切换）。data-tile-body 供宿主代理识别本域 */}
+        <div
+          role="button"
+          tabIndex={0}
           aria-label="打开待办面板"
-          onClick={() => {
+          data-tile-body="todo"
+          onKeyDown={(e) => {
+            if (e.target !== e.currentTarget) return;
+            if (e.key !== "Enter" && e.key !== " ") return;
+            e.preventDefault();
             if (pin.afterDragClick()) return;
             onOpenPanel("todo");
           }}
@@ -367,21 +459,56 @@ function TodoTile({
                 {pending.length}
               </span>
             </span>
-            {preview.length === 0 ? (
+            {preview.length === 0 && lingerRows.length === 0 ? (
               <span className="block py-1 text-xs font-extralight tracking-wide text-zinc-400 dark:text-zinc-500">
                 今日无事，从容一些
               </span>
             ) : (
-              <span className="block space-y-1.5">
-                {preview.map((t) => (
-                  <span key={t.id} className="flex items-center gap-2 text-xs font-light text-zinc-600 dark:text-zinc-300">
-                    <span
-                      className="h-1.5 w-1.5 shrink-0 rounded-full"
-                      style={{ background: "var(--ui-accent, #8b5cf6)", opacity: 0.55 }}
-                    />
-                    <span className="truncate">{t.text}</span>
-                  </span>
-                ))}
+              <span className="block space-y-1">
+                {/* 行级划掉（v8.7.148）：点行即切换完成态（点击由拖拽宿主
+                    统一代理，见 onTileClick 注释）；划线 .strike 与面板
+                    同语言（globals.css 0.45s scaleX 扫线）；划掉的行带
+                    划线驻留 LINGER_MS 再 exit 退场，驻留期再点可反悔；
+                    拖后 300ms 吞 click 律防拖拽起点落在行上时误划 */}
+                <AnimatePresence initial={false}>
+                  {[...preview, ...lingerRows].map((t) => {
+                    const struck = t.done;
+                    return (
+                      <motion.button
+                        key={t.id}
+                        type="button"
+                        layout
+                        data-todo-row={struck ? "done" : "open"}
+                        data-todo-id={t.id}
+                        aria-pressed={struck}
+                        aria-label={(struck ? "恢复待办：" : "划掉待办：") + t.text}
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, x: 18, transition: { duration: 0.26, ease: EASE } }}
+                        transition={{ duration: 0.3, ease: EASE }}
+                        className={
+                          "flex w-full cursor-pointer items-center gap-2 rounded-lg px-1 py-0.5 text-left text-xs font-light transition-colors duration-200 hover:bg-zinc-900/[0.05] dark:hover:bg-white/[0.06] " +
+                          (struck
+                            ? "text-zinc-400 dark:text-zinc-600"
+                            : "text-zinc-600 dark:text-zinc-300")
+                        }
+                      >
+                        <span
+                          className="h-1.5 w-1.5 shrink-0 rounded-full transition-opacity duration-300"
+                          style={{ background: "var(--ui-accent, #8b5cf6)", opacity: struck ? 0.18 : 0.55 }}
+                        />
+                        <span className="relative min-w-0 flex-1 truncate">
+                          <span
+                            aria-hidden
+                            className="strike absolute left-0 top-1/2 h-px w-full origin-left bg-zinc-400 dark:bg-zinc-500"
+                            style={{ transform: struck ? "scaleX(1)" : "scaleX(0)" }}
+                          />
+                          {t.text}
+                        </span>
+                      </motion.button>
+                    );
+                  })}
+                </AnimatePresence>
                 {pending.length > preview.length && (
                   <span className="block pl-3.5 text-[10px] font-extralight text-zinc-400 dark:text-zinc-500">
                     还有 {pending.length - preview.length} 项…
@@ -390,7 +517,7 @@ function TodoTile({
               </span>
             )}
           </motion.span>
-        </button>
+        </div>
       </motion.div>
     </motion.div>
   );
@@ -409,6 +536,17 @@ function NoteTile({
   onOpenPanel: (p: PanelId) => void;
 }) {
   const pin = usePinDrag("note", saved, commit);
+  /* v8.7.148 存量修复（同待办磁贴）：capture 重定向把点按 click 吞在宿主，
+     便签磁贴「点击开面板」自 v8.7.106 起同样失效——宿主代理同构收口 */
+  const onTileClick = (e: React.MouseEvent) => {
+    if (pin.afterDragClick()) return;
+    const fromTarget =
+      e.target !== e.currentTarget ? (e.target as HTMLElement) : null;
+    const real =
+      fromTarget ??
+      (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null);
+    if (real && real.closest("[data-tile-body]")) onOpenPanel("note");
+  };
   return (
     <motion.div
       className={
@@ -431,14 +569,12 @@ function NoteTile({
         onPointerMove={pin.onPointerMove}
         onPointerUp={pin.onPointerUp}
         onPointerCancel={pin.onPointerUp}
+        onClick={onTileClick}
       >
         <button
           type="button"
           aria-label="打开便签面板"
-          onClick={() => {
-            if (pin.afterDragClick()) return;
-            onOpenPanel("note");
-          }}
+          data-tile-body="note"
           className="glass-card block w-full cursor-pointer rounded-2xl p-3.5 text-left shadow-xl outline-none transition-shadow duration-300 hover:shadow-2xl focus-visible:ring-2 accent-ring"
         >
           <motion.span
