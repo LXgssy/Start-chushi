@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.149",
+    date: "2026-10-24",
+    title: "划掉的待办留在磁贴上，磁贴动画更顺滑",
+    channel: "page",
+    highlights: [
+      "划掉的待办不再自动消失：带划线一直留在磁贴上，在待办面板里删除它之后才会从磁贴移除",
+      "拖动磁贴后，里面的待办不再重复播放一次移动动画（拖拽落点更稳）",
+      "待办/便签磁贴的内容变多或变少时，磁贴高度会平滑地拉伸过渡，不再瞬间跳变",
+    ],
+  },
+  {
     version: "8.7.148",
     date: "2026-10-22",
     title: "待办磁贴可点击划掉待办",
