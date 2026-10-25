@@ -1829,10 +1829,26 @@ html.zen .zen-gone {
     border-color 0.65s cubic-bezier(0.22, 1, 0.36, 1),
     box-shadow 0.3s cubic-bezier(0.22, 1, 0.36, 1);
 }
+/* v8.7.151 板体 blur 值通道（用户实测「外壳消失后玻璃板延迟一秒才消失」）：
+   进禅方向（transition 参数取终态=禅态计算值）transition 表含
+   backdrop-filter——磨砂 blur 值 20px→1px 平滑散场，与内容雾化同拍整板
+   消融；backdrop-filter 属性全程在线、只做值插值不改链（backdrop root
+   只看属性有无不看值），取样链零变化=磨砂存活律零毒。端点只写 blur(1px)：压缩器两大陷阱（L27 法典）——blur(0px) 压成非法
+   blur()、saturate(1) 的参数 1 被当默认值吃掉成非法 saturate()，故端点
+   不带 saturate（filter 列表插值自动补齐缺省函数，saturate 1.5→1 照常
+   平滑）；残 1px 由 .zen-gone visibility 0.65s 末帧硬切兜底不可见。退禅方向（终态=基态）基态
+   transition 表不含 backdrop-filter——显影首帧 blur 瞬回满血 20px
+   （v8.7.150「显影首帧即满血」律原样保留），板色 α 照旧 0.65s 淡入。 */
 html.zen .zen-gone .glass-card {
   background-color: rgba(255, 255, 255, 0);
   border-color: rgba(24, 22, 36, 0);
   box-shadow: 0 0 #0000;
+  backdrop-filter: blur(1px);
+  transition:
+    background-color 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    backdrop-filter 0.65s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .dark html.zen .zen-gone .glass-card {
   background-color: rgba(22, 22, 27, 0);
@@ -2576,4 +2592,62 @@ html.photo-mode .pintile-label {
 }
 .tile-shell.h-14:hover .tile-frost > *:not(.tile-ring) {
   transform: scale(1);
+}
+
+/* ---------- v8.7.151 快捷服务常驻磁贴墙的禅雾化重建 ----------
+   v8.7.150 删 .zen-gone 外壳雾化（修待办/便签磨砂死亡窗）后，本墙雾化通道
+   全灭——v8.7.150 前外壳 opacity+filter 兼任本墙雾化载体，改道后只剩
+   visibility 0.65s 末帧硬切（用户实测「没有模糊动画过渡直接延迟一秒就
+   消失」）。重建三路零毒通道，全程不碰玻璃自身与祖先链的 opacity/filter：
+   ① 玻璃板 .tile-frost：backdrop-filter 值通道 blur(14px)→1px 平滑散场
+      （属性全程在线只插值不改链）+ 底色 α 淡出；进禅方向（终态=禅态）
+      transition 含 backdrop-filter、退禅方向（终态=基态）不含——显影首帧
+      blur 瞬回满血 14px（同 .zen-gone .glass-card v8.7.151 注）。
+   ② 板内容 .tile-ring/.tile-body：opacity+blur(12px) 雾化（玻璃子层，无
+      磨砂后代零毒）；transform 350ms 并表保 v8.7.120 h-14 hover 配方。
+   ③ 墙内无玻璃元素（.tile-label/添加位）：opacity+blur(12px) 雾化；
+      顶缘羽化遮罩随雾化隐没。
+   位置律：本块必须晚于 v8.7.120 h-14 配方（同特异性后胜——transition 是
+   单属性整表覆盖，故一律并表全量声明、逐项保留旧表成员）。端点只写
+   blur(1px) 不带 saturate（压缩器陷阱：blur(0px)→非法 blur()、
+   saturate(1)→非法 saturate()，见文件头法典），残 1px 由 visibility
+   末帧硬切兜底不可见。抽屉/拖拽浮层/布局幽灵均不在 .zen-gone 内，零染。 */
+.zen-gone .tile-shell .tile-frost {
+  transition:
+    background-color 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    clip-path 350ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+html.zen .zen-gone .tile-shell .tile-frost {
+  background-color: transparent;
+  backdrop-filter: blur(1px);
+  transition:
+    background-color 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    clip-path 350ms cubic-bezier(0.22, 1, 0.36, 1),
+    backdrop-filter 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.zen-gone .tile-shell .tile-frost .tile-ring,
+.zen-gone .tile-shell .tile-frost > .tile-body {
+  transition:
+    transform 350ms cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+}
+html.zen .zen-gone .tile-shell .tile-frost .tile-ring,
+html.zen .zen-gone .tile-shell .tile-frost > .tile-body {
+  opacity: 0;
+  filter: blur(12px);
+}
+.zen-gone .tile-label,
+.zen-gone .cl-links-docked button[data-cl-tile="add"] {
+  transition:
+    opacity 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    filter 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+}
+html.zen .zen-gone .tile-label,
+html.zen .zen-gone .cl-links-docked button[data-cl-tile="add"] {
+  opacity: 0;
+  filter: blur(12px);
+}
+html.zen .zen-gone .cl-fade-veil {
+  opacity: 0;
 }

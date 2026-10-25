@@ -765,16 +765,34 @@
   window.addEventListener("message", function (ev) {
     if (ev.source !== window) return;
     var d = ev.data;
-    if (!d || d.__chushiRecRes === undefined) return;
+    if (!d) return;
+    /* v8.7.151 探针源断自动收尾事件（轨道 ended / 录制器 error 自动停表）：
+       有挂起 stop 请求则直接拿事件负载应答（标 auto 供浮窗提示「视频源
+       已切换」）；无挂起请求则转发 __chushiRecOnEnded 给浮窗自动落盘——
+       源断的录制不再死等桥 60s 超时，点停止/不点停止都有下文。 */
+    if (d.__chushiRecEvt === "rec-ended" && d.payload) {
+      var hit = false, k, p;
+      for (k in pending) {
+        if (Object.prototype.hasOwnProperty.call(pending, k) && pending[k] && pending[k].op === "stop") {
+          p = pending[k]; delete pending[k]; hit = true;
+          try { p.fn(Object.assign({ auto: true }, d.payload)); } catch (e) { /* noop */ }
+        }
+      }
+      if (!hit && typeof window.__chushiRecOnEnded === "function") {
+        try { window.__chushiRecOnEnded(Object.assign({ auto: true }, d.payload)); } catch (e) { /* noop */ }
+      }
+      return;
+    }
+    if (d.__chushiRecRes === undefined) return;
     var fn = pending[d.__chushiRecRes];
     if (!fn) return;
     delete pending[d.__chushiRecRes];
-    fn(d);
+    fn.fn(d);
   });
   function call(op, i, timeout) {
     return new Promise(function (resolve) {
       var id = "r" + (++seq);
-      pending[id] = resolve;
+      pending[id] = { fn: resolve, op: op };
       setTimeout(function () {
         if (pending[id]) { delete pending[id]; resolve({ ok: false, error: "timeout" }); }
       }, timeout || 8000);
