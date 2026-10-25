@@ -88,7 +88,7 @@
  * ==========================================================================*/
 (function () {
   "use strict";
-  var MOUNT_VER = "v8.7.147";
+  var MOUNT_VER = "v8.7.151";
   if (window.__chushiSnifferMounted === MOUNT_VER) return;
   /* 旧挂载残迹判定：v8.7.127 及更早是布尔 true，128 起是版本串——
      两者皆视作「页面上可能留有旧宿主」，更新换代时整体拆除 */
@@ -903,9 +903,16 @@
 function recBlockHtml() {
   if (!state.recList) state.recList = null;
   var body, i;
-  if (state.rec && state.rec.startedAt) {
-    var sec = Math.max(0, Math.floor((Date.now() - state.rec.startedAt) / 1000));
-    body = '<div class="catch-tip">录制中 ' + Math.floor(sec / 60) + ":" + ("0" + (sec % 60)).slice(-2) +
+  var recOn = !!(state.rec && state.rec.startedAt);
+  var sec = recOn ? Math.max(0, Math.floor((Date.now() - state.rec.startedAt) / 1000)) : 0;
+  if (recOn && state.rec.stopping) {
+    /* v8.7.151 停止中：按钮禁用防重复点击；探针侧 5s 兑底必回结果 */
+    body = '<div class="catch-tip">正在停止并保存…</div>' +
+      '<button class="ib stop" disabled>' + ICON_CATCH_STOP + "停止中…</button>";
+  } else if (recOn) {
+    /* v8.7.151 时长抽独立 span（data-rec-time）：由 1s tick 直写，
+       不再只在别的重渲染顺带刷新（旧版假走秒） */
+    body = '<div class="catch-tip">录制中 <span data-rec-time>' + Math.floor(sec / 60) + ":" + ("0" + (sec % 60)).slice(-2) + "</span>" +
       "（格式 " + (state.rec.mime || "?") + "）——实时录制，录多久要播多久。</div>" +
       '<button class="ib stop" data-act="rec-stop" title="停止并保存">' + ICON_CATCH_STOP + "停止并保存</button>";
   } else if (state.recList && state.recList.length) {
@@ -919,10 +926,50 @@ function recBlockHtml() {
     body = '<div class="catch-tip">MSE/流媒体站点没有可下载的视频地址，只能对正在播放的画面做实时录制（录多久要播多久；mp4 仅部分 Chrome 支持，否则回退 webm）。</div>' +
       '<button class="ib" data-act="rec-list" title="扫描可录视频">扫描可录视频</button>';
   }
-  return '<div class="catch-sec">' +
+  return '<div class="catch-sec"' + (recOn && !state.rec.stopping ? ' data-rec-live' : '') + '>' +
     '<div class="catch-h"><span class="catch-ic">录</span><span class="catch-t">视频录制</span></div>' +
     body + "</div>";
 }
+
+/* v8.7.151 录制时长 1s tick：旧版时长只在别的重渲染发生时顺带刷新
+   （假走秒）；现在独立计时直写 data-rec-time，重渲染不重建录制中区块。 */
+var recTicker = null;
+function startRecTicker() {
+  if (recTicker) return;
+  recTicker = setInterval(function () {
+    if (!state.rec || !state.rec.startedAt || state.rec.stopping) return;
+    var el = panel.querySelector("[data-rec-time]");
+    if (!el) return;
+    var s = Math.max(0, Math.floor((Date.now() - state.rec.startedAt) / 1000));
+    el.textContent = Math.floor(s / 60) + ":" + ("0" + (s % 60)).slice(-2);
+  }, 1000);
+}
+function stopRecTicker() {
+  if (recTicker) { clearInterval(recTicker); recTicker = null; }
+}
+/* 录制收尾统一出口（用户点停 / 源断自动收尾共用）。按 blob URL 去重防
+   双保存：同一会话的 stop 应答与 rec-ended 事件负载同 URL 只落一次盘，
+   不同会话 URL 必异互不误伤（时间戳去重会误杀 4s 内的新会话）。 */
+var recFinUrl = "";
+function recFinished(r) {
+  stopRecTicker();
+  state.rec = null;
+  renderPanel();
+  if (r && r.ok) {
+    if (r.url && r.url === recFinUrl) return;
+    recFinUrl = r.url || "";
+    var ext = (r.mime || "").indexOf("mp4") >= 0 ? ".mp4" : ".webm";
+    send({ type: "hls-done", ok: true, url: r.url, filename: "录制视频" + ext });
+    showToast((r.auto ? "视频源已切换，录制自动收尾，已保存：" : "已保存：") +
+      Math.round((r.size || 0) / 1048576) + " MB / " + (r.seconds || 0) + " 秒");
+  } else if (r) {
+    showToast("停止失败：" + ((r && r.error) || "unknown"));
+  }
+}
+/* 探针源断自动收尾事件由桥转发（无挂起 stop 请求时）——自动落盘 */
+try {
+  window.__chushiRecOnEnded = function (r) { recFinished(r); };
+} catch (e) { /* noop */ }
 
 function catchBlockHtml() {
     var api = window.__chushiCatchApi;
@@ -1007,6 +1054,14 @@ function catchBlockHtml() {
     /* v8.7.147 抖音预载折叠开合态跨重渲染保持（同 scrollTop 保持律） */
     var dyOld = pbOld ? pbOld.querySelector(".dy-more") : null;
     state.dyMoreOpen = !!(dyOld && dyOld.hasAttribute("open"));
+    /* v8.7.151 录制中 rec 区跨重渲染保持（抖音「结束录制没反应」根主修）：
+       录制期间每条嗅探资源都会整表重建 panel，若停止按钮节点恰在
+       mousedown/mouseup 之间被重建拆除，click 永不派发＝点了完全没反应。
+       录制中（非停止中）先摘下整个 rec 区节点、innerHTML 里留槽、重建后
+       原节点回插——按钮 DOM 恒定，点击必达；时长由 1s tick 直写。 */
+    var liveRec = (state.rec && state.rec.startedAt && !state.rec.stopping)
+      ? panel.querySelector("[data-rec-live]") : null;
+    if (liveRec && liveRec.parentNode) liveRec.parentNode.removeChild(liveRec);
     panel.innerHTML =
       '<div class="ph">' +
       '<span class="ico">' + ICON_DOWN_DOC + "</span>" +
@@ -1020,7 +1075,7 @@ function catchBlockHtml() {
       biliBlockHtml() +
       ytBlockHtml() +
       douyinBlockHtml() +
-      recBlockHtml() +
+      (liveRec ? '<div class="catch-sec" data-rec-slot></div>' : recBlockHtml()) +
       catchBlockHtml() +
       '<div class="list">' +
       (rows ||
@@ -1032,6 +1087,11 @@ function catchBlockHtml() {
       "</div>";
     var pbNew = panel.querySelector(".pbody");
     if (pbNew && keepScroll) pbNew.scrollTop = keepScroll;
+    var recSlot = panel.querySelector("[data-rec-slot]");
+    if (recSlot) {
+      if (liveRec) recSlot.parentNode.replaceChild(liveRec, recSlot);
+      else recSlot.parentNode.removeChild(recSlot);
+    }
   }
   function togglePanel(force) {
     var next = typeof force === "boolean" ? force : !state.panelOpen;
@@ -1119,21 +1179,18 @@ function catchBlockHtml() {
           state.rec = { startedAt: Date.now(), mime: r.mime || (m && m.mime) || "" };
           showToast("开始录制（" + (state.rec.mime || "默认格式") + "）");
           renderPanel();
-        });
-      });
+          startRecTicker();
+        }, function () { showToast("录制失败：异常"); });
+      }, function () { showToast("录制格式探测失败"); });
       return;
     }
     if (act === "rec-stop") {
       var br2 = window.__chushiRecBridge;
       if (!br2 || !state.rec) return;
-      br2.stop().then(function (r) {
-        state.rec = null;
-        renderPanel();
-        if (!r || !r.ok) { showToast("停止失败：" + ((r && r.error) || "unknown")); return; }
-        var ext = (r.mime || "").indexOf("mp4") >= 0 ? ".mp4" : ".webm";
-        send({ type: "hls-done", ok: true, url: r.url, filename: "录制视频" + ext });
-        showToast("已保存：" + Math.round((r.size || 0) / 1048576) + " MB / " + (r.seconds || 0) + " 秒");
-      });
+      if (state.rec.stopping) return;
+      state.rec.stopping = true;
+      renderPanel();
+      br2.stop().then(recFinished, function () { recFinished({ ok: false, error: "exception" }); });
       return;
     }
     if (act === "hide") return togglePanel(false);

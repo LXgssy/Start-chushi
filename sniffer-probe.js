@@ -320,7 +320,56 @@
     }
     return "";
   }
+  /* v8.7.151 录制会话生命周期根修二（抖音「结束录制没反应」）：
+   ① onstop/onerror/轨道 onended 从 start() 即挂（旧版只在点停止时才挂
+      onstop——抖音 SPA 滑动切视频会移除/换源 <video>，captureStream 轨道
+      ended 令 Chrome 自动停表，事件落空会话残废：rec 残留非 null，之后
+      点停止 r.stop() 抛 InvalidStateError 或永不 settle）；
+   ② 源断自动收尾不与 Chrome 内建 auto-stop 抢跑：track ended 时 Chrome
+      会自停录制器并 flush 尾帧（实测 mp4 muxer 的 timeslice 不增量出片、
+      全部攒到停表 flush——显式 r.stop() 与内建自停竞速会打断 flush=空
+      文件）。改为置 autoFlag 后 350ms 宽限让内建自停走完 flush→onstop→
+      finalize(auto) 全链，仅多轨仍录中才显式补停；结果 postMessage
+      __chushiRecEvt 事件（桥转发浮窗自动落盘）+ 缓存 lastAuto——迟到的
+      stop() 请求也能拿到已收尾的成品，不死等桥 60s 超时；
+   ③ stop() 挂 5s 兜底：onstop 不来也按已有 chunks 出片，不再永不 settle。 */
   var rec = null, chunks = [], startedAt = 0;
+  var lastAuto = null, stopWaiter = null, stopTimer = null, autoFlag = false;
+  /* 会话开闭戳：inactive 窗口内轨道 ended 与 onstop 可能双触发，finalize
+     必须幂等（二次进入直接早退，防 lastAuto 被空负载覆盖/事件重复发） */
+  var sessOpen = false;
+  function finalize(errText, auto) {
+    if (!sessOpen) return;
+    sessOpen = false;
+    var r = rec; rec = null;
+    var w = stopWaiter; stopWaiter = null;
+    if (stopTimer) { clearTimeout(stopTimer); stopTimer = null; }
+    var payload = null;
+    try {
+      if (r) {
+        var b = new Blob(chunks, { type: r.mimeType || "video/webm" });
+        if (b && b.size) {
+          payload = { ok: true, url: URL.createObjectURL(b), size: b.size, mime: b.type, seconds: Math.max(1, Math.round((Date.now() - startedAt) / 1000)) };
+        }
+      }
+    } catch (e) { payload = null; }
+    chunks = [];
+    if (!payload) payload = { ok: false, error: errText || "empty" };
+    if (auto) {
+      lastAuto = payload;
+      try { window.postMessage({ __chushiRecEvt: "rec-ended", payload: payload }, "*"); } catch (e) { /* noop */ }
+    }
+    if (w) { try { w(payload); } catch (e) { /* noop */ } }
+  }
+  function autoFinish() {
+    autoFlag = true;
+    setTimeout(function () {
+      var r = rec;
+      if (!r) return; /* 内建自停已走完 onstop→finalize */
+      if (r.state === "inactive") { finalize(null, true); return; }
+      try { r.stop(); } catch (e) { finalize("auto-finish", true); }
+    }, 350);
+  }
   function start(i) {
     if (rec) return { ok: false, error: "busy" };
     var v = videos()[i];
@@ -331,23 +380,39 @@
     try { stream = v.captureStream ? v.captureStream() : (v.mozCaptureStream ? v.mozCaptureStream() : null); } catch (e) { stream = null; }
     if (!stream) return { ok: false, error: "no-captureStream" };
     chunks = []; startedAt = Date.now();
+    lastAuto = null; stopWaiter = null; autoFlag = false;
+    if (stopTimer) { clearTimeout(stopTimer); stopTimer = null; }
     try { rec = new MediaRecorder(stream, { mimeType: mime }); } catch (e) { rec = null; return { ok: false, error: "recorder-failed" }; }
+    sessOpen = true;
     rec.ondataavailable = function (e) { if (e.data && e.data.size) chunks.push(e.data); };
+    rec.onstop = function () { finalize(null, autoFlag); };
+    rec.onerror = function () { autoFinish(); };
+    try {
+      var tracks = stream.getTracks ? stream.getTracks() : [];
+      for (var ti = 0; ti < tracks.length; ti++) {
+        (function (t) {
+          try { t.onended = function () { autoFinish(); }; } catch (e) { /* noop */ }
+        })(tracks[ti]);
+      }
+    } catch (e) { /* noop */ }
     rec.start(1000);
     return { ok: true, mime: mime };
   }
   function stop() {
-    if (!rec) return Promise.reject(new Error("not-recording"));
-    return new Promise(function (resolve) {
-      var r = rec;
-      r.onstop = function () {
-        var b = new Blob(chunks, { type: (r && r.mimeType) || "video/webm" });
-        var secs = Math.round((Date.now() - startedAt) / 1000);
-        rec = null; chunks = [];
-        resolve({ ok: true, url: URL.createObjectURL(b), size: b.size, mime: b.type, seconds: secs });
-      };
-      try { r.stop(); } catch (e) { rec = null; resolve({ ok: false, error: "stop-failed" }); }
-    });
+    if (rec) {
+      return new Promise(function (resolve) {
+        stopWaiter = resolve;
+        autoFlag = false;
+        /* 5s 兜底：onstop 不来也按已有 chunks 出片（再补一拍 stop+强制 finalize） */
+        stopTimer = setTimeout(function () {
+          try { if (rec && rec.state !== "inactive") rec.stop(); } catch (e) { /* noop */ }
+          setTimeout(function () { finalize("stop-timeout", false); }, 300);
+        }, 5000);
+        try { rec.stop(); } catch (e) { finalize("stop-failed", false); }
+      });
+    }
+    if (lastAuto) { var p = lastAuto; lastAuto = null; return Promise.resolve(Object.assign({ auto: true }, p)); }
+    return Promise.reject(new Error("not-recording"));
   }
   window.__chushiRec = { list: list, start: start, stop: stop, pickMime: pickMime };
 })();
