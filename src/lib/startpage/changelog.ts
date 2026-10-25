@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.150",
+    date: "2026-10-25",
+    title: "禅模式进出后磁贴磨砂立即恢复",
+    channel: "page",
+    highlights: [
+      "修复进入再退出禅模式后，待办/便签磁贴的磨砂玻璃效果消失、要等一两秒才恢复的问题",
+      "现在退出禅模式的瞬间磁贴就是满血磨砂，雾化散场与显影聚拢的观感保持不变",
+    ],
+  },
+  {
     version: "8.7.149",
     date: "2026-10-24",
     title: "划掉的待办留在磁贴上，磁贴动画更顺滑",

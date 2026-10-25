@@ -55,6 +55,17 @@
  *   layout 动画纯 transform 通道，磨砂存活律零毒）；删除行的 exit 完成
  *   卸载阶段 props 引用已稳定，onExitComplete 递增 exitTick 并入
  *   dependency 补一次测量，磁贴收缩/兄弟行上移不丢动画。
+ *
+ * v8.7.150 用户实测：进禅再退禅，磁贴磨砂消失 1-2s 才恢复。根因=禅雾化
+ * opacity+filter 挂 .zen-gone 外壳（v8.7.105 起复用旧语言），外壳是玻璃
+ * 本体 .glass-card 的【祖先】——v8.7.64 search-pill 同款拆层毒结构，退禅
+ * 显影末段毒物清除后 Chrome 不即时回连磨砂取样（像素探针 +0.8s 死
+ * +1.7s 活，CSS 计算值全程干净，纯合成器 backdrop root 换链迟滞）。
+ * 修复（globals.css v8.7.150 改道同款）：外壳只留 visibility；玻璃板走
+ * bg alpha+border+shadow 零毒淡入淡出（backdrop 取样全程不改链，磨砂
+ * 从进禅到退禅连续在线）；内容雾化下放本文件新增的 .zen-fog 普通包装
+ * 层（玻璃板直接子层、无磨砂后代零毒；不挂既有 framer 内容 span——
+ * framer 入场后内联 opacity/filter 常驻会压制 CSS 雾化值）。
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -453,13 +464,14 @@ function TodoTile({
           transition={{ ...RISE, delay: 0.55, layout: { duration: 0.38, ease: EASE } }}
           className="glass-card block w-full cursor-pointer rounded-2xl p-3.5 text-left shadow-xl outline-none transition-shadow duration-300 hover:shadow-2xl focus-visible:ring-2 accent-ring"
         >
-          <motion.span
-            className="block"
-            initial={{ opacity: 0, filter: "blur(8px)" }}
-            animate={{ opacity: 1, filter: "blur(0px)" }}
-            exit={{ opacity: 0, filter: "blur(8px)", transition: { duration: 0.22 } }}
-            transition={{ ...FOCUS, delay: 0.62 }}
-          >
+          <span className="zen-fog">
+            <motion.span
+              className="block"
+              initial={{ opacity: 0, filter: "blur(8px)" }}
+              animate={{ opacity: 1, filter: "blur(0px)" }}
+              exit={{ opacity: 0, filter: "blur(8px)", transition: { duration: 0.22 } }}
+              transition={{ ...FOCUS, delay: 0.62 }}
+            >
             <span className="mb-2 flex items-center gap-1.5">
               <CheckSquare className="h-3.5 w-3.5" strokeWidth={1.5} style={{ color: "var(--ui-accent, #8b5cf6)" }} />
               <span className="text-[11px] font-normal tracking-[0.18em] text-zinc-500 dark:text-zinc-400">待办</span>
@@ -536,7 +548,8 @@ function TodoTile({
                 )}
               </span>
             )}
-          </motion.span>
+            </motion.span>
+          </span>
         </motion.div>
       </motion.div>
     </motion.div>
@@ -602,13 +615,14 @@ function NoteTile({
           transition={{ layout: { duration: 0.38, ease: EASE } }}
           className="glass-card block w-full cursor-pointer rounded-2xl p-3.5 text-left shadow-xl outline-none transition-shadow duration-300 hover:shadow-2xl focus-visible:ring-2 accent-ring"
         >
-          <motion.span
-            className="block"
-            initial={{ opacity: 0, filter: "blur(8px)" }}
-            animate={{ opacity: 1, filter: "blur(0px)" }}
-            exit={{ opacity: 0, filter: "blur(8px)", transition: { duration: 0.22 } }}
-            transition={{ ...FOCUS, delay: 0.69 }}
-          >
+          <span className="zen-fog">
+            <motion.span
+              className="block"
+              initial={{ opacity: 0, filter: "blur(8px)" }}
+              animate={{ opacity: 1, filter: "blur(0px)" }}
+              exit={{ opacity: 0, filter: "blur(8px)", transition: { duration: 0.22 } }}
+              transition={{ ...FOCUS, delay: 0.69 }}
+            >
             <span className="mb-2 flex items-center gap-1.5">
               <StickyNote className="h-3.5 w-3.5" strokeWidth={1.5} style={{ color: "var(--ui-accent, #8b5cf6)" }} />
               <span className="text-[11px] font-normal tracking-[0.18em] text-zinc-500 dark:text-zinc-400">便签</span>
@@ -616,7 +630,8 @@ function NoteTile({
             <span className="pintile-label block max-h-[6.25rem] overflow-hidden whitespace-pre-wrap break-all text-xs font-extralight leading-relaxed text-zinc-600 dark:text-zinc-300 [-webkit-box-orient:vertical] [-webkit-line-clamp:5] [display:-webkit-box]">
               {note.trim() || "随手记点什么…"}
             </span>
-          </motion.span>
+            </motion.span>
+          </span>
         </motion.button>
       </motion.div>
     </motion.div>

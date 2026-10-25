@@ -1776,12 +1776,23 @@ main .cl-links .link-intro-ring {
 
 /* ================================================================
    禅模式进出：雾化散场/聚拢——雾化 filter 只作用于无玻璃子树
-   （zen-fade=时钟段 / cl-widgets=iframe 容器）；玻璃载体（zen-gone 磁贴墙 /
-   zen-dock）退场一律 opacity+blur(12px) 雾化 + visibility 末帧隐没（玻璃
-   载体已由退禅 defrostGlass 强制重挂兜底磨砂复原，见 use-start-zen.ts——
-   雾化观感与磨砂存活双满足）。search-pill 例外：v8.7.61 拆层后磨砂在
-   子层，form 上雾化会杀死子层磨砂取样——雾化通道下放子层（见其规则区
-   v8.7.64 改道注释）。
+   （zen-fade=时钟段 / cl-widgets=iframe 容器）；玻璃载体（zen-dock）退场
+   一律 opacity+blur(12px) 雾化 + visibility 末帧隐没（雾化载体=玻璃本体
+   同元素，v8.6.34 起 defrostGlass 重挂兜底，雾化观感与磨砂存活双满足）。
+   search-pill 例外：v8.7.61 拆层后磨砂在子层，form 上雾化会杀死子层磨砂
+   取样——雾化通道下放子层（见其规则区 v8.7.64 改道注释）。
+   v8.7.150 zen-gone（待办/便签磁贴）同款改道：雾化原挂磁贴外壳=玻璃本体
+   .glass-card 的【祖先】（v8.7.105 引入磁贴时复用了 zen-gone 旧语言），
+   退禅显影末段外壳毒物清除后 Chrome 不即时回连磨砂取样（像素探针实测：
+   退禅 +0.8s 玻璃板仍直透锐利壁纸、+1.7s 才复活；CSS 计算值全程干净，
+   纯合成器 backdrop root 换链迟滞——用户实测「磨砂消失 1-2s 才恢复」）。
+   改道后外壳只管 visibility，玻璃板与雾化全程零毒通道：
+     · 玻璃板走 background-color alpha + border-color + box-shadow 淡入
+       淡出（存活律 blessed 通道）——玻璃自身与其祖先链全程 opacity=1/
+       filter=none，backdrop 取样从不改链，磨砂从进禅到退禅连续在线，
+       显影首帧即是满血磨砂；
+     · 内容雾化（opacity+blur(12px)）下放 .zen-fog 内容层（玻璃板子层、
+       无磨砂后代零毒）。
    ================================================================ */
 .zen-fade {
   transition:
@@ -1795,23 +1806,50 @@ html.zen .zen-fade {
 /* 时钟段零 transform：纯 opacity+blur(12px) 雾化与三玻璃载体完全同语言
    （「模糊过渡而不是缩放动画」对时钟段同样适用） */
 
-/* 磁贴墙禅退场：opacity+blur(12px) 雾化散场/显影聚拢。
-   进禅：opacity/filter 雾化散场，visibility 过渡末帧隐没（延迟 0.65s）；
-   退禅：visibility 即时可见（基线 0s 无延迟），自雾化显影复现。 */
+/* 磁贴（待办/便签）禅退场（v8.7.150 改道·磨砂存活律）：外壳只管
+   visibility 末帧隐没/即时复现；玻璃板走 bg alpha+border+shadow 淡入淡出
+   （backdrop 取样全程不改链——显影首帧即满血磨砂）；内容雾化下放
+   .zen-fog（opacity+blur，无磨砂后代零毒）。
+   进禅：板色淡出 + 内容雾化散场，visibility 过渡末帧隐没（延迟 0.65s）；
+   退禅：visibility 即时可见（基线 0s 无延迟），板色显影 + 内容雾化聚拢。 */
 .zen-gone {
-  transition:
-    opacity 0.65s cubic-bezier(0.22, 1, 0.36, 1),
-    filter 0.65s cubic-bezier(0.22, 1, 0.36, 1),
-    visibility 0s;
+  transition: visibility 0s;
 }
 html.zen .zen-gone {
-  opacity: 0;
-  filter: blur(12px);
   visibility: hidden;
+  transition: visibility 0s 0.65s;
+}
+/* 玻璃板零毒淡入淡出：background-color 同色相 α 端点插值（白板对白板、
+   墨板对墨板，中途不出灰）；box-shadow 收放与 hover 的 0.3s 过渡共存
+   （hover:shadow-2xl 仍走 0.3s，雾化收影同拍不突兀）。特异性 0-3-1 压过
+   Tailwind transition-shadow（0-1-0）与 .glass-card 基态（0-1-0）。 */
+.zen-gone .glass-card {
+  transition:
+    background-color 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+html.zen .zen-gone .glass-card {
+  background-color: rgba(255, 255, 255, 0);
+  border-color: rgba(24, 22, 36, 0);
+  box-shadow: 0 0 #0000;
+}
+.dark html.zen .zen-gone .glass-card {
+  background-color: rgba(22, 22, 27, 0);
+  border-color: rgba(255, 255, 255, 0);
+}
+/* 内容雾化层（玻璃板直接子层，包住既有 framer 内容 span）：framer v12
+   入场后内联 opacity/filter 常驻，CSS 雾化挂同元素会被内联值压制——
+   故雾化走独立普通 span 包装层，与 framer 各管各的属性零冲突。 */
+.zen-gone .zen-fog {
+  display: block;
   transition:
     opacity 0.65s cubic-bezier(0.22, 1, 0.36, 1),
-    filter 0.65s cubic-bezier(0.22, 1, 0.36, 1),
-    visibility 0s 0.65s;
+    filter 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+}
+html.zen .zen-gone .zen-fog {
+  opacity: 0;
+  filter: blur(12px);
 }
 
 /* 预设角落小部件层：禅模式同步雾化散场（与 .zen-fade 同语言）。
