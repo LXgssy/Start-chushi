@@ -65,10 +65,45 @@
         })();
 
         const fadeBoot = () => {
-                if (!boot) return;
+                if (!boot || boot.dataset.csFaded) return;
+                boot.dataset.csFaded = "1";
                 boot.style.opacity = "0";
                 setTimeout(() => boot.remove(), 380);
         };
+
+        /* ============ v8.7.152 boot 转圈跟随强调色 ============
+           「初始」加载中… 的转圈此前硬编码 #7c8cf8，不随设置里的强调色。
+           两级取色：① 同步读 localStorage start:settings.accent（与 iframe
+           页面同源共享，即刻上色，首绘前生效）；② chrome.storage.local
+           cardAcc（v8.2.3 浮窗镜像通道，页面强调色变更即时写入）权威覆盖。
+           非法/缺省回落应用默认 --ui-accent #8b5cf6（shell.html 同步对齐）。 */
+        (function bootAccent() {
+                const dot = boot && boot.querySelector(".cs-boot-dot");
+                if (!dot) return;
+                const ok = (v) =>
+                        typeof v === "string" && v.length <= 40 &&
+                        /^#[0-9a-fA-F]{3,8}$/.test(v.trim());
+                const apply = (v) => {
+                        if (!ok(v)) return;
+                        dot.style.borderTopColor = v.trim();
+                };
+                try {
+                        const raw = localStorage.getItem("start:settings");
+                        if (raw) apply((JSON.parse(raw) || {}).accent);
+                } catch (_) { /* 残缺 JSON 忽略 */ }
+                try {
+                        chrome.storage.local.get("cardAcc", (o) => {
+                                if (chrome.runtime.lastError) return;
+                                apply(o && o.cardAcc);
+                        });
+                } catch (_) { /* 无 chrome.storage 环境（理论不可达） */ }
+        })();
+
+        /* ============ v8.7.152 弱网兜底：转圈最多停留 8s ============
+           真内容迟迟不到时硬揭（页面侧已把远程壁纸媒体移出 load 阻塞集，此为
+           防御未知文档级阻塞资源的最后防线）：宁可露底色页也不永挂转圈。
+           正常路径 iframe load 先到（fadeBoot 已跑），本兜底空转。 */
+        setTimeout(fadeBoot, 8000);
 
         /* ============ 快照 IDB 读（与 sw.js / ext-bg.js 三份同构） ============ */
         let __snapDbProm = null;

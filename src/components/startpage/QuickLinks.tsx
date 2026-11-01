@@ -247,26 +247,48 @@ function TileIcon({
       start();
     };
     setFav({ url: null, dead: false });
-    if (saved) {
-      /* 记忆源单路直达：挂死同样 4s 看门狗，失效即从整条链竞速 */
-      const im = new Image();
-      imgs.push(im);
-      im.referrerPolicy = "no-referrer";
-      im.decoding = "async";
-      im.onload = () => win(saved);
-      im.onerror = () => start();
-      im.src = saved;
-      watchdog = window.setTimeout(() => {
-        if (!settled) start();
-      }, 4000);
+    /* v8.7.152 弱网卡加载根修：竞速链延至 window load 之后起跑。
+       new Image() 创建的 img 即使不进 DOM 也 delay 所属文档的 load 事件
+       （HTML 规范 delaying-the-load-event 律），弱网下悬挂的图标请求会把
+       壳层「初始加载中」转圈拖到分钟级（探针实测 load 10s 不发——每磁贴
+       记忆源 4s 看门狗 × 轮数成倍放大）。load 前磁贴保持渐变底+字母回退，
+       load 后竞速/记忆源/看门狗语义原样。 */
+    let offWait: (() => void) | null = null;
+    const kick = () => {
+      offWait = null;
+      if (dead || settled) return;
+      if (saved) {
+        /* 记忆源单路直达：挂死同样 4s 看门狗，失效即从整条链竞速 */
+        const im = new Image();
+        imgs.push(im);
+        im.referrerPolicy = "no-referrer";
+        im.decoding = "async";
+        im.onload = () => win(saved);
+        im.onerror = () => start();
+        im.src = saved;
+        watchdog = window.setTimeout(() => {
+          if (!settled) start();
+        }, 4000);
+      } else {
+        start();
+      }
+    };
+    if (document.readyState === "complete") {
+      kick();
     } else {
-      start();
+      const on = () => {
+        window.removeEventListener("load", on);
+        kick();
+      };
+      window.addEventListener("load", on, { once: true });
+      offWait = () => window.removeEventListener("load", on);
     }
     return () => {
       dead = true;
       settled = true;
       window.clearTimeout(watchdog);
       stop();
+      offWait?.();
     };
   }, [host]);
 

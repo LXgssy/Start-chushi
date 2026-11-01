@@ -48,41 +48,65 @@ const BLOB_FADE_MS = 2000; // 黑幕外光斑柔化（仅注释记录，类名�
 const PHOTO_FADE_MS = 1800; // 黑幕外壁纸自身柔化（仅注释记录，类名为字面量）
 const BOOT_FADE_MS = 450; // 首载壁纸快显（仅注释记录，类名为字面量）
 
+/** v8.7.152 弱网卡加载根修：JS 预载延至 window load。new Image()/<video>
+ *  即使不进 DOM 也 delay 所属文档的 load 事件（HTML 规范律），弱网下悬挂
+ *  请求会拖死壳层「初始加载中」转圈；load 后预载照旧（调用方的预算竞速
+ *  不受影响——load 前预算照走，仅预载起点顺延）。 */
+function afterWindowLoad(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof document === "undefined" || document.readyState === "complete") {
+      resolve();
+      return;
+    }
+    const on = () => {
+      window.removeEventListener("load", on);
+      resolve();
+    };
+    window.addEventListener("load", on, { once: true });
+  });
+}
+
 /** 预加载 + 解码壁纸（decode 确保揭幕瞬间可完整绘制；失败也继续，揭示后露底色而非卡黑屏） */
 function preloadImage(url: string): Promise<void> {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      if (typeof img.decode === "function") {
-        img.decode().then(() => resolve(), () => resolve());
-      } else {
-        resolve();
-      }
-    };
-    img.onerror = () => resolve();
-    img.src = url;
-  });
+  return afterWindowLoad().then(
+    () =>
+      new Promise<void>((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          if (typeof img.decode === "function") {
+            img.decode().then(() => resolve(), () => resolve());
+          } else {
+            resolve();
+          }
+        };
+        img.onerror = () => resolve();
+        img.src = url;
+      })
+  );
 }
 
 /** 视频预热：等 canplay（可首播）或预算内放行 */
 function preloadVideo(url: string): Promise<void> {
-  return new Promise((resolve) => {
-    const v = document.createElement("video");
-    let done = false;
-    const finish = () => {
-      if (done) return;
-      done = true;
-      v.removeAttribute("src");
-      v.load();
-      resolve();
-    };
-    v.muted = true;
-    v.preload = "auto";
-    v.oncanplay = finish;
-    v.onerror = finish;
-    window.setTimeout(finish, VIDEO_PRELOAD_BUDGET);
-    v.src = url;
-  });
+  return afterWindowLoad().then(
+    () =>
+      new Promise<void>((resolve) => {
+        const v = document.createElement("video");
+        let done = false;
+        const finish = () => {
+          if (done) return;
+          done = true;
+          v.removeAttribute("src");
+          v.load();
+          resolve();
+        };
+        v.muted = true;
+        v.preload = "auto";
+        v.oncanplay = finish;
+        v.onerror = finish;
+        window.setTimeout(finish, VIDEO_PRELOAD_BUDGET);
+        v.src = url;
+      })
+  );
 }
 
 function preloadMedia(url: string, kind: WallpaperKind): Promise<void> {
@@ -114,6 +138,32 @@ function AuroraBackground({
   const blobUrlRef = useRef<string | null>(null);
   const customKindRef = useRef<WallpaperKind>("image");
   const customUrlRef = useRef<string | null>(null);
+
+  /* ---------- v8.7.152 弱网卡加载根修：远程壁纸媒体在 window load 前不进文档树 ----------
+   * 图库壁纸同步解析（galleryMeta）→ hydration 初始树里就有
+   * <img src="https://images.unsplash.com/…"> = 文档级阻塞资源：弱网下请求悬挂
+   * 会无限推迟 iframe 的 load 事件 → 壳层「初始加载中」转圈永挂（探针实测
+   * bootGone=-1 确定性复现；快照模式/慢机上 effect 链先于 load 事件时必现，
+   * 即用户所述「有概率」）。门槛只 hold 远程源（http/https）——包内
+   * /gallery/…、blob:、data: 均为本地即时挂载零影响；load 事件后媒体照常
+   * 挂载，首载快显（bootUrlRef 450ms 档）与黑幕节奏均不变。 */
+  const [bootLoaded, setBootLoaded] = useState(
+    () => typeof document !== "undefined" && document.readyState === "complete"
+  );
+  useEffect(() => {
+    if (bootLoaded) return;
+    const on = () => setBootLoaded(true);
+    window.addEventListener("load", on, { once: true });
+    /* readyState 轮询兜底：once 监听错过已发事件的理论窗口（挂载晚于 load
+       时 readyState 已 complete，initializer 分支本应接住） */
+    const iv = window.setInterval(() => {
+      if (document.readyState === "complete") setBootLoaded(true);
+    }, 250);
+    return () => {
+      window.removeEventListener("load", on);
+      window.clearInterval(iv);
+    };
+  }, [bootLoaded]);
 
   useEffect(() => {
     const update = () => setPhase(phaseOf(new Date().getHours()));
@@ -287,10 +337,16 @@ function AuroraBackground({
 
   const blobStrength = BLOB_OPACITY[phase];
   const showBlobs = shownKey === "bg:glow";
-  const shownUrl =
+  const shownUrlRaw =
     shownKey.startsWith("photo:") && !shownKey.endsWith(":none")
       ? shownKey.slice("photo:".length)
       : null;
+  /* v8.7.152 弱网卡加载根修的落点：window load 前远程源不进文档树（见顶部
+     bootLoaded 注释）。本地源零影响；bootUrlRef 仍记 raw 值保首载快显律。 */
+  const shownUrl =
+    shownUrlRaw != null && !bootLoaded && /^https?:/i.test(shownUrlRaw)
+      ? null
+      : shownUrlRaw;
   const photoReady = shownUrl != null && loadedUrl === shownUrl;
   /* 显示中的媒体形态：blob/URL 源用记录值；图库恒为静态图（kenburns 专属） */
   const shownKind: WallpaperKind = shownUrl
@@ -298,8 +354,9 @@ function AuroraBackground({
       ? customKindRef.current
       : wallpaperKindOf(shownUrl)
     : "image";
-  /* 首载壁纸快显：揭幕即完整画面；后续壁纸变化保留自身柔化（防白闪语义） */
-  const bootUrlRef = useRef<string | null>(shownUrl);
+  /* 首载壁纸快显：揭幕即完整画面；后续壁纸变化保留自身柔化（防白闪语义）。
+     记 raw 值（非门槛后值）：远程壁纸 load 后挂载时仍走 450ms 快显档 */
+  const bootUrlRef = useRef<string | null>(shownUrlRaw);
 
   /** 媒体/遮罩共用的渐显时长：黑幕中 0（揭幕即完整画面）、首载 450ms、其后 1800ms。
       ⚠ Tailwind JIT 只识别字面量类名——三档必须写死在分支里，禁止模板拼接 */

@@ -22,6 +22,17 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.152",
+    date: "2026-11-01",
+    title: "弱网不再卡在加载转圈，转圈颜色跟随强调色",
+    channel: "shell",
+    highlights: [
+      "网络不好时新标签页不再概率性一直转圈卡加载：壁纸与站点图标改为页面就绪后再联网预载，加载遮罩最长停留 8 秒",
+      "「初始」加载中的转圈动画跟随设置的强调色",
+      "壁纸与图标显示逻辑不变：本地壁纸即时显示，网络壁纸页面就绪后照常挂载",
+    ],
+  },
+  {
     version: "8.7.151",
     date: "2026-10-25",
     title: "禅模式进出更顺滑，录制停止更可靠",
