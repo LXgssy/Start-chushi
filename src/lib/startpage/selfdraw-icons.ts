@@ -2,8 +2,10 @@
 
 /* 「初始」— 自绘快捷服务图标（v8.7.44）：按 host 匹配内联 SVG 磁贴。
  *
- * 来源与口径：187 站全部为自绘矢量 path（v9 全量描摹册，用户逐轮审阅认可，
- * 见 download/icon-preview-v8744/preview-v9.html 的审阅口径）。本模块只带
+ * 来源与口径：188 站全部为自绘矢量 path（v9 全量描摹册，用户逐轮审阅认可，
+ * 见 download/icon-preview-v8744/preview-v9.html 的审阅口径；v8.7.153 增补
+ * chaoxing 学习通——源图 App Store 官方图标 potrace 描摹白流星（星+四道
+ * 扫尾，1 轮廓 58 段平滑贝塞尔 2.4KB），底换纯色红 #E60012，用户指定）。本模块只带
  * 两样轻量东西：
  *   ① host → 注册表 key 的映射表（suffix 最长匹配，数 KB）；
  *   ② useSelfdrawIcon() hook —— 仅当用户在设置里选「自绘图标」且当前磁贴
@@ -54,6 +56,7 @@ const HOST_MAP: Record<string, string> = {
   "thepaper.cn": "thepaper",
   "toutiao.com": "toutiao",
   "xuexi.cn": "xuexi",
+  "chaoxing.com": "chaoxing", /* 学习通（超星）v8.7.153：suffix 覆盖 i./mooc1-2./passport2./csm. 等全部子域 */
   /* 社交 · 社区 */
   "douban.com": "douban",
   "miyoushe.com": "miyoushe",

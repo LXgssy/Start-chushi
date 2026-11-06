@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.153",
+    date: "2026-11-06",
+    title: "学习通磁贴换上自绘矢量图标",
+    channel: "page",
+    highlights: [
+      "学习通磁贴（chaoxing.com 及其全部子域，含 i.、mooc1-2.、passport2. 等）补上自绘矢量图标：纯红底配白色流星（五角星与四道扫尾），与官方图标同构",
+      "从 App Store 官方图标逐笔描摹为矢量路径，任意分辨率下锐利无锯齿；自绘图标库扩至 188 站",
+    ],
+  },
+  {
     version: "8.7.152",
     date: "2026-11-01",
     title: "弱网不再卡在加载转圈，转圈颜色跟随强调色",
