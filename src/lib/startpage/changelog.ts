@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    version: "8.7.154",
+    date: "2026-11-06",
+    title: "自绘图标全册锐度总检，渲染精度加固",
+    channel: "page",
+    highlights: [
+      "全部 188 枚自绘矢量图标整册审计完成：磁贴原大与 4 倍放大逐枚目检，无锯齿、无断线、无空带",
+      "自绘图标渲染显式声明几何精度档（geometricPrecision）：Windows 125% / 150% 等非整数缩放下，弧线与斜线的抗锯齿按几何精度走，显示更稳",
+    ],
+  },
+  {
     version: "8.7.153",
     date: "2026-11-06",
     title: "学习通磁贴换上自绘矢量图标",

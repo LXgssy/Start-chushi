@@ -5,7 +5,10 @@
  * 来源与口径：188 站全部为自绘矢量 path（v9 全量描摹册，用户逐轮审阅认可，
  * 见 download/icon-preview-v8744/preview-v9.html 的审阅口径；v8.7.153 增补
  * chaoxing 学习通——源图 App Store 官方图标 potrace 描摹白流星（星+四道
- * 扫尾，1 轮廓 58 段平滑贝塞尔 2.4KB），底换纯色红 #E60012，用户指定）。本模块只带
+ * 扫尾，1 轮廓 58 段平滑贝塞尔 2.4KB），底换纯色红 #E60012，用户指定）。
+ * v8.7.154 全册锐度总检：download/icon-audit-v87154/ 整册 1×磁贴原大 +
+ * 4× 放大逐枚目检通过（无锯齿/断线/空带/拼块），渲染端加 shape-rendering
+ * geometricPrecision 精度档（非整数 DPI 抗锯齿稳态）。本模块只带
  * 两样轻量东西：
  *   ① host → 注册表 key 的映射表（suffix 最长匹配，数 KB）；
  *   ② useSelfdrawIcon() hook —— 仅当用户在设置里选「自绘图标」且当前磁贴
@@ -438,12 +441,16 @@ export function useSelfdrawIcon(
  *  xMidYMid slice——方形视口 × 方形 vb 时 slice 与 meet 数学等价（glyph 居中
  *  构图不变），非方形（huya 1024×800）slice 裁长边铺满短边，meet 的
  *  letterbox dom 空带退役（冒烟实证：宽高比分支会让 huya 落回 meet 出空带）。
- *  数据侧纪律：未来非方形 glyph 入册前先归方形 vb，渲染侧不再设分支。 */
+ *  数据侧纪律：未来非方形 glyph 入册前先归方形 vb，渲染侧不再设分支。
+ *  v8.7.154 精度档：显式 shape-rendering="geometricPrecision"——默认 auto
+ *  允许光栅化器按启发式走 crispEdges 类快速路径，Windows 125%/150% 等非整数
+ *  DPI 下弧线/斜线可能出现台阶；显式声明后抗锯齿按几何精度走，全册锐度
+ *  审计（download/icon-audit-v87154/ 1×+4× 逐条目检）基线上再稳一档。 */
 export function selfdrawSvg(e: SelfdrawEntry): string {
   return (
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="' +
     e.vb +
-    '" width="100%" height="100%" preserveAspectRatio="xMidYMid slice">' +
+    '" width="100%" height="100%" preserveAspectRatio="xMidYMid slice" shape-rendering="geometricPrecision">' +
     e.body +
     "</svg>"
   );
