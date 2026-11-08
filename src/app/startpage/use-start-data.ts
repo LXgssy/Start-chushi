@@ -6,22 +6,23 @@
  * 成功落快照，失败回退最近快照（面板标注缓存时间），无快照才报错。
  */
 
-import { useCallback, useEffect, useState } from "react";
-import { useStored } from "@/hooks/use-start";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useStored, useStoredDeferred } from "@/hooks/use-start";
 import {
   DEFAULT_SETTINGS,
   INITIAL_WEATHER,
   type Place,
   type Settings,
-  type StartLink,
+  type StartEntry,
   type TodoItem,
   type WeatherState,
 } from "@/lib/startpage/types";
+import { sanitizeEntries } from "@/lib/startpage/link-folders";
 import { fetchForecast, readWeatherSnapshot, writeWeatherSnapshot } from "@/lib/startpage/weather";
 import type { ToastFn } from "./toast-types";
 import { KEYS } from "./keys";
 
-const DEFAULT_LINKS: StartLink[] = [
+const DEFAULT_LINKS: StartEntry[] = [
   { id: "gh", name: "GitHub", url: "https://github.com" },
   { id: "bili", name: "哔哩哔哩", url: "https://www.bilibili.com" },
   { id: "zhihu", name: "知乎", url: "https://www.zhihu.com" },
@@ -41,26 +42,26 @@ export function useStartData(
   /** 备份导出内容（引用最新 settings 值） */
   settings: Settings
 ) {
-  const [links, setLinks] = useStored<StartLink[]>(KEYS.links, DEFAULT_LINKS);
+  /* v8.7.156 磁贴墙升级 StartEntry[]（链接｜文件夹混存）：
+     · 写入走 useStoredDeferred（拖拽让位高频 setState 的写合并，掉帧根修
+       主线程侧；pagehide/隐藏双路兜底，云同步晚 ≤800ms 读到，语义不变）；
+     · 读入期 sanitizeEntries 消毒（旧数据零迁移 / 弹窗直写 / 备份导入
+       / storage 事件四路共用；残缺修剪 + 单层律 + id 去重）。 */
+  const [linksRaw, setLinks] = useStoredDeferred<StartEntry[]>(KEYS.links, DEFAULT_LINKS);
+  const links = useMemo(() => sanitizeEntries(linksRaw), [linksRaw]);
 
   /* ---------- v8.7.38 弹窗「添加至快捷服务」热跟随 ----------
      popup 直写 start:links（新标签页可能已开），storage 事件并入本地状态
-     （与 settings 热跟随同律）。条目形状校验（id/name/url 字符串），残缺
-     条目过滤；写回同值不广播（storage 事件只达跨文档），无事件环。 */
+     （与 settings 热跟随同律）。条目形状校验（v8.7.156 起 sanitizeEntries
+     统一消毒：文件夹/链接混存均合法），残缺条目过滤；写回同值不广播
+     （storage 事件只达跨文档），无事件环。 */
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
       if (e.key !== KEYS.links || e.newValue == null) return;
       try {
         const j = JSON.parse(e.newValue) as unknown;
         if (!Array.isArray(j)) return;
-        const ok = j.filter(
-          (l): l is StartLink =>
-            !!l && typeof l === "object" &&
-            typeof (l as StartLink).id === "string" &&
-            typeof (l as StartLink).name === "string" &&
-            typeof (l as StartLink).url === "string"
-        );
-        setLinks(ok);
+        setLinks(sanitizeEntries(j));
       } catch {
         /* 残缺 JSON 忽略 */
       }
@@ -177,7 +178,7 @@ export function useStartData(
           if (d.settings && typeof d.settings === "object") {
             replaceSettings({ ...DEFAULT_SETTINGS, ...d.settings });
           }
-          if (Array.isArray(d.links)) setLinks(d.links as StartLink[]);
+          if (Array.isArray(d.links)) setLinks(sanitizeEntries(d.links));
           if (Array.isArray(d.todos)) setTodos(d.todos as TodoItem[]);
           if (typeof d.note === "string") setNote(d.note);
           if (d.place && typeof d.place === "object") setPlace(d.place as Place);

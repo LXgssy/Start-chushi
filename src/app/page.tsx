@@ -32,6 +32,7 @@ import { useToast } from "@/hooks/use-toast";
 import { StartPageProvider, useStartPage } from "./startpage/startpage-context";
 import { INTENT_KEY, SEEN_KEY } from "./startpage/keys";
 import type { StartLink } from "@/lib/startpage/types";
+import { createFolder, locateLink, patchFolder } from "@/lib/startpage/link-folders";
 
 /** 判定按键事件是否发生在输入场景（输入框/可编辑区不抢全局快捷键） */
 function isTypingTarget(el: Element | null): boolean {
@@ -288,6 +289,18 @@ function StartPageView() {
   const openSettings = useCallback(() => sp.gotoPanel("settings"), [sp.gotoPanel]);
   const openDevDocs = useCallback(() => sp.setDevDocs(true), [sp.setDevDocs]);
 
+  /* ---------- v8.7.156 新建文件夹（三种入口共用：右键菜单 / ⌘K / 拖叠） ----------
+     空夹落墙尾，用户把磁贴拖进去（悬停夹磁贴 500ms 自动展开入夹）或
+     点夹名改名。声明置顶于 ctxActions（useMemo 依赖引用需先于使用）。 */
+  const newFolder = useCallback(() => {
+    sp.setLinks((prev) => [...prev, createFolder()]);
+    toast({
+      title: "已创建文件夹",
+      description: "拖磁贴到夹上悬停半秒即自动展开入夹；点夹名可重命名",
+      duration: 5000,
+    });
+  }, [sp.setLinks, toast]);
+
   /* v8.7.55 PDF 工具箱（右键菜单直达；宫格式 13 功能，全程本地） */
   const [pdfOpen, setPdfOpen] = useState(false);
   const openPdfTools = useCallback(() => setPdfOpen(true), []);
@@ -297,6 +310,7 @@ function StartPageView() {
     () => [
       { id: "palette", label: "指令面板", icon: CM_ICONS.palette, run: sp.openPalette },
       { id: "add-link", label: "添加链接", icon: CM_ICONS.addLink, run: sp.openAddLink },
+      { id: "new-folder", label: "新建文件夹", icon: CM_ICONS.newFolder, run: newFolder },
       { id: "manage-links", label: "批量管理磁贴", icon: CM_ICONS.manageLinks, run: manageLinks },
       { id: "theme", label: "明暗切换", icon: CM_ICONS.theme, run: toggleTheme, sep: true },
       { id: "zen", label: "禅模式", icon: CM_ICONS.zen, run: openZen },
@@ -305,7 +319,7 @@ function StartPageView() {
       { id: "pdf-tools", label: "PDF 工具箱", icon: CM_ICONS.pdf, run: openPdfTools },
       { id: "export", label: "导出备份", icon: CM_ICONS.export, run: sp.exportData },
     ],
-    [sp.openPalette, sp.openAddLink, manageLinks, toggleTheme, openZen, openSettings, openDevDocs, openPdfTools, sp.exportData]
+    [sp.openPalette, sp.openAddLink, newFolder, manageLinks, toggleTheme, openZen, openSettings, openDevDocs, openPdfTools, sp.exportData]
   );
 
   /* ---------- 沙箱自定义页 overlay 稳定回调 ---------- */
@@ -319,14 +333,25 @@ function StartPageView() {
 
   /* ---------- 链接保存 / 删除 ----------
      v8.7.105 磁贴数量不限律：v8.7.41 的 4 行上限拦截退役（QuickLinks/popup
-     同步删除），磁贴多时由磁贴区内部滚动承接（QuickLinks dockMaxH）。 */
+     同步删除），磁贴多时由磁贴区内部滚动承接（QuickLinks dockMaxH）。
+     v8.7.156 文件夹感知：链接可能住在文件夹里——保存/删除均先 locateLink
+     定位（夹内更新/删除走 patchFolder，顶层路径原语义不变）；新增恒落
+     顶层尾部（新链接不自动进夹）。 */
   const saveLink = useCallback(
     (link: StartLink) => {
-      sp.setLinks((prev) =>
-        link.id
-          ? prev.map((l) => (l.id === link.id ? link : l))
-          : [...prev, { ...link, id: uid() }]
-      );
+      sp.setLinks((prev) => {
+        if (link.id) {
+          const loc = locateLink(prev, link.id);
+          if (loc?.folder) {
+            return patchFolder(prev, loc.folder.id, (f) => ({
+              ...f,
+              children: f.children.map((c) => (c.id === link.id ? link : c)),
+            }));
+          }
+          return prev.map((l) => (l.id === link.id ? link : l));
+        }
+        return [...prev, { ...link, id: uid() }];
+      });
       sp.setEditor({ open: false, editing: null });
       toast({ title: link.id ? "链接已更新" : "链接已添加" });
     },
@@ -335,12 +360,23 @@ function StartPageView() {
 
   const deleteLink = useCallback(
     (id: string) => {
-      sp.setLinks((prev) => prev.filter((l) => l.id !== id));
+      sp.setLinks((prev) => {
+        const loc = locateLink(prev, id);
+        if (loc?.folder) {
+          return patchFolder(prev, loc.folder.id, (f) => ({
+            ...f,
+            children: f.children.filter((c) => c.id !== id),
+          }));
+        }
+        return prev.filter((l) => l.id !== id);
+      });
       sp.setEditor({ open: false, editing: null });
       toast({ title: "链接已删除" });
     },
     [sp.setLinks, sp.setEditor, toast]
   );
+
+  /* ---------- v8.7.156 新建文件夹入口已在上方定义（newFolder） ---------- */
 
   /* ---------- 未挂载前的优雅启动画面（配合 head 脚本预置主题，无闪烁） ---------- */
   if (!mounted) {
@@ -514,6 +550,7 @@ function StartPageView() {
         open={sp.paletteOpen}
         onClose={sp.closePalette}
         links={sp.links}
+        onNewFolder={newFolder}
         runSearch={sp.runSearch}
         toggleTheme={toggleTheme}
         themeIsDark={sp.isDark}

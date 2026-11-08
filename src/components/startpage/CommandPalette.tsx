@@ -36,6 +36,7 @@ import {
 import {
   Compass,
   Download,
+  FolderPlus,
   Globe,
   Moon,
   Music2,
@@ -48,8 +49,9 @@ import {
 import { ENGINES, looksLikeUrl, toUrl } from "@/lib/startpage/engines";
 import { openExternalUrl } from "@/lib/startpage/nav";
 import { OFFICIAL_PRESETS } from "@/lib/startpage/official-presets";
+import { flattenLinks } from "@/lib/startpage/link-folders";
 import type { InstalledPreset, PresetAction, PresetPayload } from "@/lib/startpage/preset";
-import type { StartLink } from "@/lib/startpage/types";
+import type { StartEntry } from "@/lib/startpage/types";
 
 /* ⌘K 专属 Q 弹弹簧（过冲回弹），高度互切用重阻尼弹簧（不过冲，dock 同参） */
 export const SPRING_CARD = { type: "spring" as const, stiffness: 480, damping: 19, mass: 0.9 };
@@ -61,7 +63,9 @@ const ITEM_CLASS =
 function CommandPalette(props: {
   open: boolean;
   onClose: () => void;
-  links: StartLink[];
+  links: StartEntry[];
+  /** v8.7.156 新建文件夹指令（空夹落墙尾） */
+  onNewFolder: () => void;
   runSearch: (engineId: string, q: string) => void;
   toggleTheme: () => void;
   themeIsDark: boolean;
@@ -82,6 +86,7 @@ function CommandPalette(props: {
 function PaletteInner({
   onClose,
   links,
+  onNewFolder,
   runSearch,
   toggleTheme,
   themeIsDark,
@@ -97,7 +102,8 @@ function PaletteInner({
 }: {
   open: boolean;
   onClose: () => void;
-  links: StartLink[];
+  links: StartEntry[];
+  onNewFolder: () => void;
   runSearch: (engineId: string, q: string) => void;
   toggleTheme: () => void;
   themeIsDark: boolean;
@@ -168,6 +174,9 @@ function PaletteInner({
   }
 
   const q = inputValue.trim();
+  /* v8.7.156 文件夹扁平化：搜索/打开列表覆盖夹内链接（文件夹只是收纳，
+     不隐藏站点——⌘K 搜「github」仍能直达夹内 GitHub） */
+  const flatLinks = useMemo(() => flattenLinks(links), [links]);
   /* 官方预设已装判定（同名即装过；安装走替换语义，重装即更新部件） */
   const installedNames = useMemo(() => new Set(presets.map((p) => p.name)), [presets]);
 
@@ -323,6 +332,7 @@ function PaletteInner({
                         onSelect={() => exec(toggleTheme)}
                       />
                       <StaticItem icon={<Plus />} label="添加快捷链接" onSelect={() => exec(openAddLink)} />
+                      <StaticItem icon={<FolderPlus />} label="新建文件夹" onSelect={() => exec(onNewFolder)} />
                       {/* 预设系统：不关面板，指令面板原地形变为预设系统面板（同一张卡片连续形变） */}
                       <StaticItem
                         icon={<PackagePlus />}
@@ -380,9 +390,9 @@ function PaletteInner({
                       </CmdGroup>
                     )}
 
-                    {links.length > 0 && (
+                    {flatLinks.length > 0 && (
                       <CmdGroup heading="链接">
-                        {links.map((l) => (
+                        {flatLinks.map((l) => (
                           <Command.Item
                             key={l.id}
                             value={`link-${l.name}-${l.url}`}

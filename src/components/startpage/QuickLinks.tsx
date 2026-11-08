@@ -22,6 +22,10 @@
  *
  * 两形态共享：
  *   · 拖拽排序（dnd-kit 跟踪 + framer layout 弹簧让位 + 速度倾斜/光晕/厚影浮层）
+ *   · v8.7.156 文件夹磁贴：StartEntry[]（链接｜文件夹 混存）——拖磁贴悬停
+ *     文件夹 500ms 自动原位展开（iOS 同款），松手落进夹内；夹内可拖出/排序；
+ *     右键菜单/⌘K 指令面板可新建文件夹；毛玻璃夹形磁贴；拖拽会话期背景冻结
+ *     （useBgFreeze）+ 写合并（useStoredDeferred，掉帧根修双件套）
  *   · 批量管理（右键菜单 start:links-manage / 触屏长按磁贴；v8.6.3 移除抽屉内
  *     「批量管理」pill——独立按钮多余，用户指令删除）：
  *     整单元抖动动画（.jiggle，v8.6.2 强化 ±2° 交替反向 + 流畅模式豁免；
@@ -34,15 +38,16 @@
  * 自动滚动被 preventDefault 吞掉。
  */
 
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion, useReducedMotion, useSpring } from "framer-motion";
-import { X } from "lucide-react";
+import { Check, Folder, FolderMinus, FolderPlus, Pencil, X } from "lucide-react";
 import {
   DndContext,
   DragOverlay,
   MouseSensor,
   closestCenter,
+  useDroppable,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -51,9 +56,19 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { SortableContext, rectSortingStrategy, useSortable } from "@dnd-kit/sortable";
-import type { IconStyle, LinksForm, StartLink } from "@/lib/startpage/types";
+import type { IconStyle, LinksForm, StartEntry, StartFolder, StartLink } from "@/lib/startpage/types";
+import {
+  dissolveFolder,
+  isFolder,
+  locateLink,
+  patchFolder,
+  putLinkIntoFolder,
+  reorderWall,
+  takeLinkOutOfFolder,
+} from "@/lib/startpage/link-folders";
 import { hostOf } from "@/lib/startpage/link-utils";
 import { inExtIframe, openExternalUrl } from "@/lib/startpage/nav";
+import { useBgFreeze } from "@/hooks/use-start";
 import {
   clearIconSource,
   orderedIconSources,
@@ -469,6 +484,78 @@ function TileIcon({
   );
 }
 
+/* ---------- v8.7.156 毛玻璃夹形磁贴（用户选型） ----------
+ * 与链接磁贴共用同一套三层拆分外壳（tile-shell/霜层/描边环/内容层，
+ * 入场三通道与磨砂存活律零例外），内容层画 lucide Folder 夹形图标：
+ *   · 底色沿用域名色相渐变语言，但色相从文件夹【名称】稳定派生
+ *     （hueOf 同算法——同夹恒同色，与链接磁贴同构互异）；
+ *   · 不放子站点图标/数量角标（用户指令「毛玻璃夹形，更统一」）；
+ *   · 点击 = 原位展开 popover（QuickLinks 主组件接手）；
+ *   · 编辑态 × = 拆夹散落（children 依序回墙，链接零丢失，非破坏）。 */
+function FolderTileVisual({
+  folder,
+  intro = false,
+  sm = false,
+}: {
+  folder: StartFolder;
+  intro?: boolean;
+  sm?: boolean;
+}) {
+  const hue = hueOf(folder.name);
+  return (
+    <span
+      aria-hidden
+      className={
+        "relative block tile-shell " +
+        (sm ? "h-14 w-14 rounded-[18px] " : "h-16 w-16 rounded-[20px] ") +
+        (intro ? "link-intro-tile" : "")
+      }
+    >
+      <span
+        aria-hidden
+        className={
+          "tile-frost absolute inset-0 rounded-[inherit] cl-fade-leaf " +
+          (intro ? "link-intro-frost" : "")
+        }
+      >
+        <span
+          aria-hidden
+          className={
+            "tile-ring pointer-events-none absolute inset-0 rounded-[inherit] cl-fade-leaf " +
+            (intro ? "link-intro-ring" : "")
+          }
+          style={{
+            boxShadow:
+              "inset 0 0 0 1px hsl(" + hue + " 44% var(--tile-ring-l, 60%) / var(--tile-ring-a, 0.28)), inset 0 1px 0 rgba(255,255,255,var(--tile-hl-a, 0.18))",
+          }}
+        />
+        <span
+          className={
+            "tile-body relative flex h-full w-full items-center justify-center overflow-hidden rounded-[inherit] cl-fade-leaf " +
+            (intro ? "link-intro-body" : "")
+          }
+          style={{
+            background:
+              "linear-gradient(135deg, hsl(" +
+              hue +
+              " 42% var(--tile-grad-l1, 62%) / var(--tile-grad-a1, 0.22)), hsl(" +
+              ((hue + 40) % 360) +
+              " 46% var(--tile-grad-l2, 50%) / var(--tile-grad-a2, 0.14)))",
+          }}
+        >
+          <Folder
+            className={
+              (sm ? "h-7 w-7" : "h-8 w-8") +
+              " text-zinc-600/80 dark:text-zinc-200/85 drop-shadow-[0_1px_2px_rgba(0,0,0,0.12)]"
+            }
+            strokeWidth={1.4}
+          />
+        </span>
+      </span>
+    </span>
+  );
+}
+
 /** 磁贴视觉（图标 + 名称）：正常磁贴与拖拽浮层共用，保证「拖起来的就是原来那个」。
  *  v8.6.2 抖动换位：.jiggle 挂在包裹层而非玻璃本体——玻璃与 .link-intro
  *  同元素时，后定义的 intro-rise 动画在级联上覆盖 .jiggle（同特异性后胜），
@@ -477,13 +564,13 @@ function TileIcon({
  *  单元，此前只有图标框摆、名称静置，观感即「名称没跟着图标一起动」。
  *  包裹层 transform 动画不形成 backdrop root，磨砂存活律无虞。 */
 function TileVisual({
-  link,
+  entry,
   iconStyle,
   jiggle = false,
   intro = false,
   sm = false,
 }: {
-  link: StartLink;
+  entry: StartEntry;
   iconStyle: IconStyle;
   jiggle?: boolean;
   intro?: boolean;
@@ -510,13 +597,17 @@ function TileVisual({
           (jiggle || sm ? "" : "hover:scale-[1.07]")
         }
       >
-        <TileIcon
-          link={link}
-          iconStyle={iconStyle}
-          intro={showIntro}
-          onIntroDone={() => setIntroDone(true)}
-          sm={sm}
-        />
+        {isFolder(entry) ? (
+          <FolderTileVisual folder={entry} intro={showIntro} sm={sm} />
+        ) : (
+          <TileIcon
+            link={entry}
+            iconStyle={iconStyle}
+            intro={showIntro}
+            onIntroDone={() => setIntroDone(true)}
+            sm={sm}
+          />
+        )}
       </span>
       <span
         className={
@@ -524,7 +615,7 @@ function TileVisual({
           (showIntro ? " link-intro" : "")
         }
       >
-        {link.name}
+        {entry.name}
       </span>
     </span>
   );
@@ -558,6 +649,256 @@ function TilePlaceholder({ sm = false }: { sm?: boolean }) {
       </span>
       <span className="h-4 w-10 rounded-full bg-zinc-900/5 dark:bg-white/5" />
     </motion.div>
+  );
+}
+
+/* ---------- v8.7.156 文件夹系统：droppable 区与原位展开 popover ---------- */
+
+/** 墙面空白 droppable：夹内磁贴拖到墙面空白处即出夹回墙。
+ *  只挂 droppable 不参与 sortable——closestCenter 在磁贴密集处命中的仍是
+ *  磁贴自身，磁贴之间的空隙/容器边缘才轮到整墙区（出夹落点），语义清晰。 */
+function WallZone({ children }: { children: React.ReactNode }) {
+  const { setNodeRef } = useDroppable({ id: "cl-wall-zone" });
+  return (
+    <div ref={setNodeRef} className="w-full">
+      {children}
+    </div>
+  );
+}
+
+/** 夹区空白 droppable（popover 网格内）：墙内磁贴拖到夹面板空隙即入夹追加。 */
+function FolderZone({ children }: { children: React.ReactNode }) {
+  const { setNodeRef } = useDroppable({ id: "cl-folder-zone" });
+  return (
+    <div ref={setNodeRef} className="w-full">
+      {children}
+    </div>
+  );
+}
+
+/** 文件夹原位展开面板（portal 到 body，锚定磁贴节点实时跟随）：
+ *  · 定位：优先磁贴正下方，空间不足翻上方；水平居中并 clamp 进视口；
+ *    transformOrigin 随翻转方向取上/下中——scale 0.72→1 从磁贴「长出来」；
+ *  · 跟随：每次渲染后实测（拖拽让位/增删磁贴全跟随）+ 滚动/resize 兜底；
+ *  · 头部：名称（点击改名）+ 拆散（children 依序回墙零丢失）+ 关闭；
+ *  · 网格：children SortableContext（夹内排序）+ FolderZone（空白处入夹）；
+ *  · 外点收起：点在另一磁贴上不收（可能是下一轮拖拽/开另一夹）。 */
+function FolderPopover({
+  folder,
+  iconStyle,
+  editing,
+  onEnterEdit,
+  onDelete,
+  onRename,
+  onDissolve,
+  onClose,
+  anchorEl,
+}: {
+  folder: StartFolder;
+  iconStyle: IconStyle;
+  editing: boolean;
+  onEnterEdit: () => void;
+  onDelete: (id: string) => void;
+  onRename: (name: string) => void;
+  onDissolve: () => void;
+  onClose: () => void;
+  anchorEl: HTMLElement | null;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ left: number; top: number; below: boolean } | null>(null);
+  const [renaming, setRenaming] = useState(false);
+  const [draft, setDraft] = useState(folder.name);
+
+  const measure = useCallback(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    if (!anchorEl || !anchorEl.isConnected) {
+      onClose();
+      return;
+    }
+    const a = anchorEl.getBoundingClientRect();
+    const pw = panel.offsetWidth;
+    const ph = panel.offsetHeight;
+    const gap = 10;
+    let left = a.left + a.width / 2 - pw / 2;
+    left = Math.max(8, Math.min(left, window.innerWidth - pw - 8));
+    let top = a.bottom + gap;
+    let below = true;
+    if (top + ph > window.innerHeight - 8) {
+      const alt = a.top - ph - gap;
+      if (alt >= 8) {
+        top = alt;
+        below = false;
+      } else {
+        top = Math.max(8, window.innerHeight - ph - 8);
+      }
+    }
+    setPos((p) =>
+      p && p.left === Math.round(left) && p.top === Math.round(top) && p.below === below
+        ? p
+        : { left: Math.round(left), top: Math.round(top), below }
+    );
+  }, [anchorEl, onClose]);
+
+  /* 无依赖数组 = 每次渲染后重定位（父级重渲染即跟随拖拽让位） */
+  useLayoutEffect(() => {
+    measure();
+  });
+  useEffect(() => {
+    const onMove = () => measure();
+    window.addEventListener("scroll", onMove, true);
+    window.addEventListener("resize", onMove);
+    return () => {
+      window.removeEventListener("scroll", onMove, true);
+      window.removeEventListener("resize", onMove);
+    };
+  }, [measure]);
+
+  /* 外点收起：面板内/磁贴本体不收；点在另一磁贴上不收（下一轮拖拽或开另一夹） */
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Element | null;
+      if (!t || typeof t.closest !== "function") return;
+      if (panelRef.current?.contains(t)) return;
+      if (anchorEl?.contains(t)) return;
+      if (t.closest("[data-cl-tile], [data-cl-folder-popover]")) return;
+      onClose();
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [onClose, anchorEl]);
+
+  const commitRename = () => {
+    setRenaming(false);
+    const name = draft.trim();
+    if (name && name !== folder.name) onRename(name);
+    else setDraft(folder.name);
+  };
+
+  return (
+    <div
+      ref={panelRef}
+      data-cl-folder-popover="1"
+      className="fixed z-[55]"
+      style={{
+        left: pos?.left ?? -9999,
+        top: pos?.top ?? -9999,
+        visibility: pos ? undefined : "hidden",
+      }}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.72 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ type: "spring", stiffness: 420, damping: 34, mass: 0.9 }}
+        style={{ transformOrigin: pos?.below ? "top center" : "bottom center" }}
+        className="glass-card rounded-2xl shadow-2xl"
+      >
+        {/* 头部：名称 / 改名 / 拆散 / 关闭 */}
+        <div className="flex items-center gap-1.5 border-b border-zinc-900/5 px-3 py-2 dark:border-white/5">
+          {renaming ? (
+            <>
+              <input
+                autoFocus
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={commitRename}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === "Enter") commitRename();
+                  if (e.key === "Escape") {
+                    setDraft(folder.name);
+                    setRenaming(false);
+                  }
+                }}
+                maxLength={24}
+                aria-label="文件夹名称"
+                className="h-7 min-w-0 flex-1 rounded-md border border-zinc-900/10 bg-transparent px-2 text-sm font-light text-zinc-800 outline-none focus:ring-1 focus:ring-[var(--ui-accent)] dark:border-white/10 dark:text-zinc-100"
+              />
+              <button
+                type="button"
+                aria-label="确认名称"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={commitRename}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[var(--ui-accent)] transition-colors hover:bg-zinc-900/5 dark:hover:bg-white/5"
+              >
+                <Check className="h-4 w-4" strokeWidth={1.5} />
+              </button>
+            </>
+          ) : (
+            <>
+              <span className="min-w-0 flex-1 truncate text-sm font-light tracking-wide text-zinc-700 dark:text-zinc-200">
+                {folder.name}
+                <span className="ml-2 text-[10px] font-extralight text-zinc-400 dark:text-zinc-500">
+                  {folder.children.length} 个站点
+                </span>
+              </span>
+              <button
+                type="button"
+                aria-label="重命名文件夹"
+                title="重命名"
+                onClick={() => {
+                  setDraft(folder.name);
+                  setRenaming(true);
+                }}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-900/5 hover:text-zinc-600 dark:hover:bg-white/5 dark:hover:text-zinc-300"
+              >
+                <Pencil className="h-3.5 w-3.5" strokeWidth={1.5} />
+              </button>
+              <button
+                type="button"
+                aria-label="拆散文件夹"
+                title="拆散文件夹（站点散落回墙，不丢失）"
+                onClick={onDissolve}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-900/5 hover:text-zinc-600 dark:hover:bg-white/5 dark:hover:text-zinc-300"
+              >
+                <FolderMinus className="h-4 w-4" strokeWidth={1.5} />
+              </button>
+              <button
+                type="button"
+                aria-label="关闭文件夹"
+                onClick={onClose}
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-900/5 hover:text-zinc-600 dark:hover:bg-white/5 dark:hover:text-zinc-300"
+              >
+                <X className="h-4 w-4" strokeWidth={1.5} />
+              </button>
+            </>
+          )}
+        </div>
+
+        {/* 夹内网格：children 排序 + 空白处入夹 + 编辑态删除 */}
+        <FolderZone>
+          <div className="slim-scroll max-h-[300px] w-[336px] overflow-y-auto p-2">
+            {folder.children.length === 0 ? (
+              <p className="px-2 py-6 text-center text-xs font-light tracking-wide text-zinc-400 dark:text-zinc-500">
+                把磁贴拖进来收纳
+              </p>
+            ) : (
+              <SortableContext
+                items={folder.children.map((c) => c.id)}
+                strategy={rectSortingStrategy}
+              >
+                <div className="flex flex-wrap items-start justify-center gap-x-3 gap-y-4">
+                  <AnimatePresence mode="popLayout">
+                    {folder.children.map((c) => (
+                      <Tile
+                        key={c.id}
+                        entry={c}
+                        iconStyle={iconStyle}
+                        sm
+                        editing={editing}
+                        onEnterEdit={onEnterEdit}
+                        onDelete={onDelete}
+                        onOpenFolder={onClose}
+                      />
+                    ))}
+                  </AnimatePresence>
+                </div>
+              </SortableContext>
+            )}
+          </div>
+        </FolderZone>
+      </motion.div>
+    </div>
   );
 }
 
@@ -606,20 +947,25 @@ function FadeVeil({
 }
 
 interface TileProps {
-  link: StartLink;
+  entry: StartEntry;
   iconStyle: IconStyle;
   editing: boolean;
   /** 常驻形态 56px */
   sm?: boolean;
   onEnterEdit: () => void;
+  /** 链接 = 深度删除；文件夹 = 拆夹散落（QuickLinks 主组件内按类型分派） */
   onDelete: (id: string) => void;
+  /** v8.7.156 文件夹点击 → 原位展开 popover */
+  onOpenFolder: (id: string) => void;
 }
 
 /** memo 化：拖拽跨格只动数组顺序，未受影响磁贴的 props 恒等 → 跳过重渲染 */
-const Tile = memo(function Tile({ link, iconStyle, editing, sm = false, onEnterEdit, onDelete }: TileProps) {
+const Tile = memo(function Tile({ entry, iconStyle, editing, sm = false, onEnterEdit, onDelete, onOpenFolder }: TileProps) {
   /* dnd-kit 只用来「跟踪指针 + 判定落点」：重排走数组 splice，位置动画由
      framer layout 承载（两层各管一段，transform 不打架） */
-  const { setNodeRef, listeners, isDragging } = useSortable({ id: link.id });
+  const { setNodeRef, listeners, isDragging } = useSortable({ id: entry.id });
+  const folder = isFolder(entry);
+  const link = folder ? null : (entry as StartLink);
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** 按下位置：位移容差判定基准 */
@@ -669,6 +1015,7 @@ const Tile = memo(function Tile({ link, iconStyle, editing, sm = false, onEnterE
     <motion.div
       ref={setNodeRef}
       layout
+      data-entry-id={entry.id}
       /* v8.5.6 律：包裹层不承担入场（initial={false}）——祖先 opacity<1 会成为
          backdrop root 令磨砂失效；入场由玻璃本体与名称的 .link-intro 自承载 */
       initial={false}
@@ -683,57 +1030,97 @@ const Tile = memo(function Tile({ link, iconStyle, editing, sm = false, onEnterE
         transition={{ duration: 0.16, ease: "easeOut" }}
         style={{ pointerEvents: isDragging ? ("none" as const) : undefined }}
       >
-        <a
-          href={link.url}
-          data-cl-tile="1"
-          draggable={false}
-          onDragStart={(e) => {
-            /* 原生链接拖拽劫持：Chrome 原生 drag 阈值先于 dnd-kit 激活阈值，
-               dragstart 一出 pointer 流即被征用——磁贴「卡手」的真身 */
-            e.preventDefault();
-          }}
-          onClick={(e) => {
-            if (justEntered.current) {
-              justEntered.current = false;
+        {folder ? (
+          /* v8.7.156 文件夹磁贴：无 href——点击 = 原位展开 popover；
+             右键同开（不放系统菜单）；编辑态短按 = 重命名（popover 内改名） */
+          <div
+            role="button"
+            tabIndex={0}
+            data-cl-tile="1"
+            onClick={(e) => {
+              if (justEntered.current) {
+                justEntered.current = false;
+                return;
+              }
+              if (timer.current || longPressed.current) {
+                longPressed.current = false;
+                return;
+              }
+              onOpenFolder(entry.id);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onOpenFolder(entry.id);
+              }
+            }}
+            onContextMenu={(e) => {
               e.preventDefault();
-              return;
-            }
-            if (timer.current || longPressed.current || editing) {
+              if (timer.current || longPressed.current) return;
+              onOpenFolder(entry.id);
+            }}
+            onPointerDown={armLongPress}
+            onPointerUp={clearTimer}
+            onPointerMove={guardMove}
+            onPointerCancel={clearTimer}
+            aria-label={"打开文件夹 " + entry.name}
+            className="flex w-20 touch-pan-y cursor-pointer flex-col items-center gap-2.5 rounded-xl outline-none focus-visible:ring-2 accent-ring"
+          >
+            <TileVisual entry={entry} iconStyle={iconStyle} jiggle={editing} intro sm={sm} />
+          </div>
+        ) : (
+          <a
+            href={link!.url}
+            data-cl-tile="1"
+            draggable={false}
+            onDragStart={(e) => {
+              /* 原生链接拖拽劫持：Chrome 原生 drag 阈值先于 dnd-kit 激活阈值，
+                 dragstart 一出 pointer 流即被征用——磁贴「卡手」的真身 */
               e.preventDefault();
-              longPressed.current = false;
-              if (editing) emitEditLink(link); // 编辑态短按 = 编辑该快捷服务
-              return;
-            }
-            // 非编辑态短按 = 正常打开链接。壳 iframe 内提升到顶层整页打开
-            //（v8.4.8「拒绝连接」修复）；修饰键/中键不拦，维持原生新标签页。
-            if (
-              e.button === 0 &&
-              !e.ctrlKey &&
-              !e.metaKey &&
-              !e.shiftKey &&
-              !e.altKey &&
-              inExtIframe()
-            ) {
+            }}
+            onClick={(e) => {
+              if (justEntered.current) {
+                justEntered.current = false;
+                e.preventDefault();
+                return;
+              }
+              if (timer.current || longPressed.current || editing) {
+                e.preventDefault();
+                longPressed.current = false;
+                if (editing) emitEditLink(link!); // 编辑态短按 = 编辑该快捷服务
+                return;
+              }
+              // 非编辑态短按 = 正常打开链接。壳 iframe 内提升到顶层整页打开
+              //（v8.4.8「拒绝连接」修复）；修饰键/中键不拦，维持原生新标签页。
+              if (
+                e.button === 0 &&
+                !e.ctrlKey &&
+                !e.metaKey &&
+                !e.shiftKey &&
+                !e.altKey &&
+                inExtIframe()
+              ) {
+                e.preventDefault();
+                openExternalUrl(link!.url);
+              }
+            }}
+            onContextMenu={(e) => {
+              /* v8.6.0（线上并行版同款）：桌面右键不再弹系统菜单——直接进该
+                 快捷服务的编辑界面；触屏长按只拦菜单（长按本身已进编辑态） */
               e.preventDefault();
-              openExternalUrl(link.url);
-            }
-          }}
-          onContextMenu={(e) => {
-            /* v8.6.0（线上并行版同款）：桌面右键不再弹系统菜单——直接进该
-               快捷服务的编辑界面；触屏长按只拦菜单（长按本身已进编辑态） */
-            e.preventDefault();
-            if (timer.current || longPressed.current) return;
-            emitEditLink(link);
-          }}
-          onPointerDown={armLongPress}
-          onPointerUp={clearTimer}
-          onPointerMove={guardMove}
-          onPointerCancel={clearTimer}
-          aria-label={editing ? "编辑 " + link.name : link.name}
-          className="flex w-20 touch-pan-y flex-col items-center gap-2.5 rounded-xl outline-none focus-visible:ring-2 accent-ring"
-        >
-          <TileVisual link={link} iconStyle={iconStyle} jiggle={editing} intro sm={sm} />
-        </a>
+              if (timer.current || longPressed.current) return;
+              emitEditLink(link!);
+            }}
+            onPointerDown={armLongPress}
+            onPointerUp={clearTimer}
+            onPointerMove={guardMove}
+            onPointerCancel={clearTimer}
+            aria-label={editing ? "编辑 " + entry.name : entry.name}
+            className="flex w-20 touch-pan-y flex-col items-center gap-2.5 rounded-xl outline-none focus-visible:ring-2 accent-ring"
+          >
+            <TileVisual entry={entry} iconStyle={iconStyle} jiggle={editing} intro sm={sm} />
+          </a>
+        )}
       </motion.div>
 
       {/* 凹槽垫层：拖拽期间盖在隐身磁贴的位置上，松手淡出（与磁贴淡入交叉） */}
@@ -752,17 +1139,19 @@ const Tile = memo(function Tile({ link, iconStyle, editing, sm = false, onEnterE
       </AnimatePresence>
 
       {/* 编辑态：右上角删除键。非编辑态不再有悬浮铅笔角标——
-          桌面右键即进编辑（v8.6.0）、触屏长按进编辑（v1.7.1） */}
+          桌面右键即进编辑（v8.6.0）、触屏长按进编辑（v1.7.1）。
+          v8.7.156：文件夹的 × = 拆夹散落（非破坏，children 回墙） */}
       {editing && (
         <button
           type="button"
-          aria-label={"删除 " + link.name}
+          aria-label={(folder ? "拆散文件夹 " : "删除 ") + entry.name}
+          title={folder ? "拆散文件夹（站点保留散落回墙）" : undefined}
           tabIndex={-1}
           onMouseDown={(e) => e.stopPropagation()}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.preventDefault();
-            onDelete(link.id);
+            onDelete(entry.id);
           }}
           className="absolute -right-1.5 -top-1.5 z-10 flex h-6 w-6 items-center justify-center rounded-full bg-red-500/90 text-white shadow-md transition-transform duration-200 hover:scale-110"
         >
@@ -783,8 +1172,8 @@ function QuickLinks({
   ghost = false,
   dockOn = true,
 }: {
-  links: StartLink[];
-  setLinks: (updater: (prev: StartLink[]) => StartLink[]) => void;
+  links: StartEntry[];
+  setLinks: (updater: (prev: StartEntry[]) => StartEntry[]) => void;
   iconStyle: IconStyle;
   /** 预设 layout.linksColumns：限制每行磁贴数（磁贴 5rem + 间距 1rem + 内边距 2rem
    *  → max-width = 6N+1 rem）；未设时保持默认宽度 */
@@ -815,6 +1204,36 @@ function QuickLinks({
   /* mount latch 声明置顶：cs-drawer 类同步 effect 依赖数组渲染期即求值，
      声明若留在下方 latch effect 旁会触发 TDZ（Cannot access before init） */
   const [mount, setMount] = useState(false);
+
+  /* ---------- v8.7.156 文件夹原位展开（popover） ----------
+     · openFolderId = 当前展开的文件夹；popover 每次渲染实测磁贴 rect 定位
+       （拖拽让位/滚动/resize 全部跟随，不存死坐标）；
+     · 拖拽悬停文件夹 500ms 自动展开（dwellTimer）；拖拽会话结束后 popover
+       保持展开（连续拖多枚入夹），外点/Esc 收起。 */
+  const [openFolderId, setOpenFolderId] = useState<string | null>(null);
+  const dwellTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dwellFolderId = useRef<string | null>(null);
+  const openFolder = links.find((e) => e.id === openFolderId && isFolder(e)) as StartFolder | undefined;
+
+  /** 点击/右键文件夹磁贴：原位展开（再点同一夹 = 收起） */
+  const openFolderPopover = useCallback((id: string) => {
+    setOpenFolderId((cur) => (cur === id ? null : id));
+  }, []);
+
+  /* 拖拽会话期背景冻结（v8.7.155 三闸门律复用）：activeId 非空 = 拖拽中——
+     极光/壁纸 kenburns/视频暂停，毛玻璃磁贴的 backdrop 采样链全链静止，
+     多开场景下拖拽让位的合成成本大幅下降（掉帧根修 GPU 侧） */
+  useBgFreeze(activeId != null);
+
+  /** 文件夹磁贴定位节点（popover 锚定用）：data-entry-id 由 Tile 挂在
+   *  sortable 包裹层上，两形态（常驻/抽屉）磁贴都在 rootRef 子树内 */
+  const folderAnchorEl = useCallback(
+    (id: string) =>
+      rootRef.current?.querySelector<HTMLElement>(
+        `[data-entry-id="${CSS.escape(id)}"]`
+      ) ?? null,
+    []
+  );
 
   /* ---------- v8.7.38 标签系统退役 ----------
      v8.7.36/37 的收藏书签区与滚轮翻页整体退役（用户指令：删掉标签系统，
@@ -900,7 +1319,7 @@ function QuickLinks({
       if (!t || typeof t.closest !== "function") return;
       if (
         t.closest(
-          "a, button, input, textarea, select, [role='button'], [role='dialog'], [data-cl-tile], .cl-dock, .cl-dockwidget",
+          "a, button, input, textarea, select, [role='button'], [role='dialog'], [data-cl-tile], [data-cl-folder-popover], .cl-dock, .cl-dockwidget",
         )
       )
         return;
@@ -989,10 +1408,15 @@ function QuickLinks({
      顶层（window.top ≠ window 时）挂同一份监听双保险。
      v8.6.2：常驻形态也要能 ESC 退编辑 → 注册条件 open || editing。 */
   useEffect(() => {
-    if (!open && !editing) return;
+    if (!open && !editing && !openFolderId) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       if (document.querySelector("[role='dialog']")) return;
+      if (openFolderId) {
+        /* v8.7.156 文件夹 popover 最先收起（层联最上层） */
+        setOpenFolderId(null);
+        return;
+      }
       if (editing) {
         setEditing(false);
         return;
@@ -1006,7 +1430,7 @@ function QuickLinks({
       window.removeEventListener("keydown", onKey);
       if (top && top !== window) top.removeEventListener("keydown", onKey);
     };
-  }, [open, editing, drawer]);
+  }, [open, editing, drawer, openFolderId]);
 
   /* 抽屉打开期间点 Dock：先收抽屉（capture 先于 Dock 自身逻辑），面板随后正常打开 */
   useEffect(() => {
@@ -1028,13 +1452,29 @@ function QuickLinks({
       if (rootRef.current?.contains(t)) return;
       // 链接编辑对话框内点击不退出
       if (t.closest("[role='dialog']")) return;
+      // v8.7.156 文件夹 popover（portal 到 body，不在 rootRef 内）不退出
+      if (t.closest("[data-cl-folder-popover]")) return;
       setEditing(false);
     };
     document.addEventListener("pointerdown", onDown);
     return () => document.removeEventListener("pointerdown", onDown);
   }, [editing]);
 
-  const activeLink = activeId ? links.find((l) => l.id === activeId) ?? null : null;
+  /* v8.7.156 拖拽浮层条目：顶层或文件夹内皆可命中（拖夹内磁贴浮层照常） */
+  const activeEntry: StartEntry | null = (() => {
+    if (!activeId) return null;
+    const loc = locateLink(links, activeId);
+    if (loc) return loc.folder ? loc.folder.children[loc.childIndex] : (links[loc.wallIndex] as StartLink);
+    return links.find((e) => e.id === activeId) ?? null; // 拖的是文件夹
+  })();
+
+  function clearDwell() {
+    if (dwellTimer.current) {
+      clearTimeout(dwellTimer.current);
+      dwellTimer.current = null;
+    }
+    dwellFolderId.current = null;
+  }
 
   function handleDragStart(e: DragStartEvent) {
     dragSample.current = null;
@@ -1061,35 +1501,142 @@ function QuickLinks({
     tilt.set(Math.max(-7, Math.min(7, vx * 0.012)));
   }
 
-  /* 越过邻居即就地重排：数组换序 → framer layout 把其余磁贴弹开让位 */
+  /* ---------- v8.7.156 跨容器拖拽让位（墙 ⇄ 文件夹） ----------
+     · 墙内磁贴互让 = 顶层 splice（原语义）；链接掠过文件夹 = 粘滞不排序；
+     · 拖到夹内子磁贴/夹区 = 入夹（putLinkIntoFolder）；
+     · 夹内子磁贴拖到墙上磁贴 = 出夹插位（takeLinkOutOfFolder）；
+     · 悬停文件夹磁贴 500ms = dwell 自动展开该夹（iOS 同款）——展开后
+       松手（指针仍在夹上）= 入夹；展开态夹磁贴 = 吸收落点；
+     · 拖拽会话结束后 popover 保持展开，可连续拖多枚入夹。 */
   function handleDragOver(e: DragOverEvent) {
     const from = String(e.active.id);
     const to = e.over ? String(e.over.id) : null;
-    if (!to || from === to) return;
+    if (!to || from === to) {
+      clearDwell();
+      return;
+    }
+    /* 拖的是否文件夹（拖拽会话中类型不变，闭包读当前 links 足够） */
+    const isFolderActive = links.some((x) => x.id === from && isFolder(x));
+
+    /* dwell 自动开夹：over = 墙上文件夹磁贴（且非已展开的那个）→ 500ms 展开 */
+    const overWallEntry = links.find((x) => x.id === to);
+    if (overWallEntry && isFolder(overWallEntry) && to !== openFolderId) {
+      if (dwellFolderId.current !== to) {
+        clearDwell();
+        dwellFolderId.current = to;
+        dwellTimer.current = setTimeout(() => {
+          dwellTimer.current = null;
+          dwellFolderId.current = null;
+          setOpenFolderId(to);
+        }, 500);
+      }
+    } else {
+      clearDwell();
+    }
+
     setLinks((prev) => {
-      const fi = prev.findIndex((l) => l.id === from);
-      const ti = prev.findIndex((l) => l.id === to);
-      if (fi < 0 || ti < 0 || fi === ti) return prev;
-      const next = [...prev];
-      const [moved] = next.splice(fi, 1);
-      next.splice(ti, 0, moved);
-      return next;
+      const fromLoc = locateLink(prev, from);
+
+      if (to === "cl-wall-zone") {
+        /* 墙面空白区：夹内磁贴出夹追加到墙尾；墙内磁贴无操作 */
+        return fromLoc?.folder ? takeLinkOutOfFolder(prev, from)[0] : prev;
+      }
+      if (to === "cl-folder-zone") {
+        /* 夹区空白：入当前展开夹（追加尾）；已在夹内则为自由落点不动 */
+        if (openFolderId && (!fromLoc?.folder || fromLoc.folder.id !== openFolderId)) {
+          return putLinkIntoFolder(prev, from, openFolderId)[0];
+        }
+        return prev;
+      }
+
+      const overEntry = prev.find((x) => x.id === to);
+      if (overEntry && isFolder(overEntry)) {
+        /* over = 墙上文件夹磁贴：
+           - 拖的是另一夹内子磁贴 → 出夹进该夹（追加尾）；
+           - 该夹 popover 已展开（dwell 刚自动开的/手动点的）→ 落点即入夹
+             ——展开就是「打开盖子」，指针仍停在夹磁贴上松手 = 收进去；
+           - 拖链接掠过 → 【粘滞】：不触发邻位排序（文件夹不被弹开、dwell
+             不被 over 翻转重置——否则「追着夹子跑」，500ms 悬停永不开夹）。
+             链接与文件夹的相对排序由夹旁链接磁贴的让位挪动承担；文件夹
+             之间排序走「拖文件夹到另一文件夹」分支（下方 reorderWall）。 */
+        if (fromLoc?.folder) {
+          if (fromLoc.folder.id !== to) return putLinkIntoFolder(prev, from, to)[0];
+          return prev;
+        }
+        if (to === openFolderId) return putLinkIntoFolder(prev, from, to)[0];
+        if (isFolderActive) return reorderWall(prev, from, to);
+        return prev;
+      }
+
+      const toLoc = locateLink(prev, to);
+      if (!toLoc) return prev;
+
+      if (fromLoc?.folder && toLoc.folder && fromLoc.folder.id === toLoc.folder.id) {
+        /* 同夹内排序 */
+        const fid = fromLoc.folder.id;
+        return patchFolder(prev, fid, (f) => {
+          const ci = f.children.findIndex((c) => c.id === from);
+          const ti = f.children.findIndex((c) => c.id === to);
+          if (ci < 0 || ti < 0 || ci === ti) return f;
+          const children = [...f.children];
+          const [moved] = children.splice(ci, 1);
+          children.splice(ti, 0, moved);
+          return { ...f, children };
+        });
+      }
+      if (fromLoc?.folder && !toLoc.folder) {
+        /* 夹内 → 墙上磁贴：出夹插到该磁贴位置 */
+        return takeLinkOutOfFolder(prev, from, toLoc.wallIndex)[0];
+      }
+      if (!fromLoc?.folder && toLoc.folder) {
+        /* 墙内 → 夹内子磁贴：入夹插到该子磁贴位置 */
+        return putLinkIntoFolder(prev, from, toLoc.folder.id, toLoc.childIndex)[0];
+      }
+      /* 墙内互让（含文件夹磁贴参与排序） */
+      return reorderWall(prev, from, to);
     });
   }
 
-  function handleDragEnd(_e: DragEndEvent) {
+  function handleDragEnd(e: DragEndEvent) {
+    clearDwell();
     dragSample.current = null;
     tilt.set(0);
     liftScale.set(1);
     glowO.set(0);
     shadowO.set(0);
+    /* v8.7.156 松手兜底：dwell 自动开夹后指针若未再移动（dragOver 不再
+       触发），落点=已展开夹的磁贴本身——此刻松手应入夹而非排序。
+       putLinkIntoFolder 幂等：dragOver 已吸收过的再次调用零变更。 */
+    const overId = e.over ? String(e.over.id) : null;
+    if (overId && overId === openFolderId) {
+      const from = String(e.active.id);
+      setLinks((prev) => {
+        const loc = locateLink(prev, from);
+        if (loc?.folder && loc.folder.id === overId) return prev; // 已在夹内
+        return putLinkIntoFolder(prev, from, overId)[0];
+      });
+    }
     setActiveId(null);
   }
 
   const enterEdit = useCallback(() => setEditing(true), []);
-  const removeLink = useCallback(
+  /* v8.7.156 删除分派：文件夹 × = 拆夹散落（非破坏）；链接 = 深度删除
+     （顶层或在夹内都删得掉）；正展开的夹被拆 → 同步收起 popover */
+  const removeEntry = useCallback(
     (id: string) => {
-      setLinks((prev) => prev.filter((l) => l.id !== id));
+      setLinks((prev) => {
+        const entry = prev.find((e) => e.id === id);
+        if (entry && isFolder(entry)) return dissolveFolder(prev, id);
+        const loc = locateLink(prev, id);
+        if (loc?.folder) {
+          return patchFolder(prev, loc.folder.id, (f) => ({
+            ...f,
+            children: f.children.filter((c) => c.id !== id),
+          }));
+        }
+        return prev.filter((l) => l.id !== id);
+      });
+      setOpenFolderId((cur) => (cur === id ? null : cur));
     },
     [setLinks],
   );
@@ -1209,70 +1756,75 @@ function QuickLinks({
   }, [open, mount]);
 
   /** 磁贴墙（两形态共用 JSX）：docked 56px / drawer 64px。
-   *  cl-links-grid：nth-child(even) 反向抖动（globals.css，青柠同款交替摆）。 */
+   *  cl-links-grid：nth-child(even) 反向抖动（globals.css，青柠同款交替摆）。
+   *  v8.7.156：StartEntry 混存渲染（文件夹磁贴走 FolderTileVisual）；
+   *  整墙包 cl-wall-zone droppable——夹内磁贴拖到墙面空白处即出夹回墙。 */
   const renderGrid = (sm: boolean) => (
     <div className="relative w-full">
-      <div
-        className="cl-links-grid mx-auto flex max-w-[680px] flex-wrap items-start justify-center gap-x-4 gap-y-6 px-4"
-        style={columns ? { maxWidth: 6 * columns + 1 + "rem" } : undefined}
-      >
-        <SortableContext items={links.map((l) => l.id)} strategy={rectSortingStrategy}>
-          <AnimatePresence mode="popLayout">
-            {links.map((l) => (
-              <Tile
-                key={l.id}
-                link={l}
-                iconStyle={iconStyle}
-                sm={sm}
-                editing={editing}
-                onEnterEdit={enterEdit}
-                onDelete={removeLink}
-              />
-            ))}
-          </AnimatePresence>
-        </SortableContext>
+      <WallZone>
+        <div
+          className="cl-links-grid mx-auto flex max-w-[680px] flex-wrap items-start justify-center gap-x-4 gap-y-6 px-4"
+          style={columns ? { maxWidth: 6 * columns + 1 + "rem" } : undefined}
+        >
+          <SortableContext items={links.map((e) => e.id)} strategy={rectSortingStrategy}>
+            <AnimatePresence mode="popLayout">
+              {links.map((en) => (
+                <Tile
+                  key={en.id}
+                  entry={en}
+                  iconStyle={iconStyle}
+                  sm={sm}
+                  editing={editing}
+                  onEnterEdit={enterEdit}
+                  onDelete={removeEntry}
+                  onOpenFolder={openFolderPopover}
+                />
+              ))}
+            </AnimatePresence>
+          </SortableContext>
 
-        {/* 添加磁贴（v8.6.3：抖动上移整单元包裹层——+框与「添加」随磁贴同频
-            摆动，修「新建按钮没跟着图标一起动」；data-cl-tile=add 让页面右键
-            菜单让位，右键自身只吞默认菜单不弹任何菜单） */}
-        {/* v8.6.4：不再用无延迟的 framer 弹簧 —— 与磁贴图标同一套自承载入场
-            （.link-intro：同延迟、同缓动、同模糊），整排同拍升起。
-            v8.7.105：数量上限删除，添加位恒显示 */}
-        <motion.div layout initial={false} exit={{ opacity: 0 }} transition={LAYOUT_SPRING}>
-          <button
-            type="button"
-            data-cl-tile="add"
-            onClick={() => emitEditLink(null)}
-            onContextMenu={(e) => e.preventDefault()}
-            aria-label="添加快捷链接"
-            className="group flex w-20 flex-col items-center gap-2.5 rounded-xl outline-none focus-visible:ring-2 accent-ring"
-          >
-            <span className={"flex w-full flex-col items-center gap-2.5" + (editing ? " jiggle" : "")}>
-              <span
-                className={
-                  "link-intro cl-fade-leaf flex items-center justify-center border border-dashed transition-all duration-300 " +
-                  (sm ? "h-14 w-14 rounded-[18px] text-xl " : "h-16 w-16 rounded-[20px] text-2xl ") +
-                  (editing
-                    ? "border-zinc-400/70 text-zinc-500 dark:border-zinc-500 dark:text-zinc-400"
-                    : "border-zinc-300 text-zinc-400 group-hover:scale-105 group-hover:border-zinc-400/70 group-hover:text-zinc-600 dark:border-zinc-700 dark:text-zinc-600 dark:group-hover:border-zinc-500 dark:group-hover:text-zinc-300")
-                }
-              >
-                +
+          {/* 添加磁贴（v8.6.3：抖动上移整单元包裹层——+框与「添加」随磁贴同频
+              摆动，修「新建按钮没跟着图标一起动」；data-cl-tile=add 让页面右键
+              菜单让位，右键自身只吞默认菜单不弹任何菜单） */}
+          {/* v8.6.4：不再用无延迟的 framer 弹簧 —— 与磁贴图标同一套自承载入场
+              （.link-intro：同延迟、同缓动、同模糊），整排同拍升起。
+              v8.7.105：数量上限删除，添加位恒显示 */}
+          <motion.div layout initial={false} exit={{ opacity: 0 }} transition={LAYOUT_SPRING}>
+            <button
+              type="button"
+              data-cl-tile="add"
+              onClick={() => emitEditLink(null)}
+              onContextMenu={(e) => e.preventDefault()}
+              aria-label="添加快捷链接"
+              className="group flex w-20 flex-col items-center gap-2.5 rounded-xl outline-none focus-visible:ring-2 accent-ring"
+            >
+              <span className={"flex w-full flex-col items-center gap-2.5" + (editing ? " jiggle" : "")}>
+                <span
+                  className={
+                    "link-intro cl-fade-leaf flex items-center justify-center border border-dashed transition-all duration-300 " +
+                    (sm ? "h-14 w-14 rounded-[18px] text-xl " : "h-16 w-16 rounded-[20px] text-2xl ") +
+                    (editing
+                      ? "border-zinc-400/70 text-zinc-500 dark:border-zinc-500 dark:text-zinc-400"
+                      : "border-zinc-300 text-zinc-400 group-hover:scale-105 group-hover:border-zinc-400/70 group-hover:text-zinc-600 dark:border-zinc-700 dark:text-zinc-600 dark:group-hover:border-zinc-500 dark:group-hover:text-zinc-300")
+                  }
+                >
+                  +
+                </span>
+                <span
+                  className={
+                    "link-intro cl-fade-leaf text-center text-xs font-light tracking-wide transition-colors duration-300 " +
+                    (editing
+                      ? "text-zinc-500 dark:text-zinc-400"
+                      : "text-transparent group-hover:text-zinc-500 dark:group-hover:text-zinc-400")
+                  }
+                >
+                  添加
+                </span>
               </span>
-              <span
-                className={
-                  "link-intro cl-fade-leaf text-center text-xs font-light tracking-wide transition-colors duration-300 " +
-                  (editing
-                    ? "text-zinc-500 dark:text-zinc-400"
-                    : "text-transparent group-hover:text-zinc-500 dark:group-hover:text-zinc-400")
-                }
-              >
-                添加
-              </span>
-            </span>
-          </button>
-        </motion.div>
-      </div>
+            </button>
+          </motion.div>
+        </div>
+      </WallZone>
     </div>
   );
 
@@ -1411,7 +1963,7 @@ function QuickLinks({
               dropAnimation={{ duration: 300, easing: "cubic-bezier(0.22, 1, 0.36, 1)" }}
               style={{ zIndex: 60 }}
             >
-              {activeLink ? (
+              {activeEntry ? (
                 <motion.div
                   style={reduceMotion ? undefined : { rotate: tilt, scale: liftScale }}
                   className="pointer-events-none flex w-20 cursor-grabbing flex-col items-center gap-2.5 rounded-xl will-change-transform"
@@ -1436,15 +1988,48 @@ function QuickLinks({
                       }}
                     />
                     <span className="relative block">
-                      <TileIcon link={activeLink} iconStyle={iconStyle} sm={form === "docked"} />
+                      {/* v8.7.156：拖文件夹 = 夹形浮层（与磁贴同款外壳） */}
+                      {isFolder(activeEntry) ? (
+                        <FolderTileVisual folder={activeEntry} sm={form === "docked"} />
+                      ) : (
+                        <TileIcon link={activeEntry} iconStyle={iconStyle} sm={form === "docked"} />
+                      )}
                     </span>
                   </span>
                   <span className="tile-label w-full truncate text-center text-xs font-light tracking-wide text-zinc-600 dark:text-zinc-300">
-                    {activeLink.name}
+                    {activeEntry.name}
                   </span>
                 </motion.div>
               ) : null}
             </DragOverlay>,
+            document.body,
+          )
+        : null}
+
+      {/* ---------- v8.7.156 文件夹原位展开 popover（portal，锚定磁贴节点） ----------
+          原位展开 = 从磁贴中心 scale 0.72→1 弹出，不做居中大浮层；
+          磁贴让位/滚动/resize 实时跟随（FolderPopover 内实测 rect 定位）；
+          外点/Esc 收起；拖拽会话中保持展开可连续入夹。 */}
+      {portalReady && openFolder && !ghost
+        ? createPortal(
+            <FolderPopover
+              folder={openFolder}
+              iconStyle={iconStyle}
+              editing={editing}
+              onEnterEdit={enterEdit}
+              onDelete={removeEntry}
+              onRename={(name) =>
+                setLinks((prev) =>
+                  patchFolder(prev, openFolder.id, (f) => ({ ...f, name }))
+                )
+              }
+              onDissolve={() => {
+                setLinks((prev) => dissolveFolder(prev, openFolder.id));
+                setOpenFolderId(null);
+              }}
+              onClose={() => setOpenFolderId(null)}
+              anchorEl={folderAnchorEl(openFolder.id)}
+            />,
             document.body,
           )
         : null}

@@ -46,7 +46,8 @@ import { getEngine } from "@/lib/startpage/engines";
 import { openExternalUrl } from "@/lib/startpage/nav";
 import type { ActiveWidget } from "@/components/startpage/PresetWidgets";
 import type { ActivePage } from "@/components/startpage/SandboxPage";
-import type { PanelId, Settings, StartLink } from "@/lib/startpage/types";
+import type { PanelId, Settings, StartEntry, StartLink } from "@/lib/startpage/types";
+import { flattenLinks } from "@/lib/startpage/link-folders";
 import type { ToastFn } from "./toast-types";
 import { KEYS } from "./keys";
 
@@ -78,7 +79,8 @@ export function useStartPresets({
   /** 用户强调色：令牌注入的回落值（无预设令牌时还原用户设置） */
   accent: string;
   patchSettings: (patch: Partial<Settings>) => void;
-  setLinks: React.Dispatch<React.SetStateAction<StartLink[]>>;
+  /** v8.7.156 起 start:links 为 StartEntry[]（链接｜文件夹混存） */
+  setLinks: React.Dispatch<React.SetStateAction<StartEntry[]>>;
   setDockWidget: React.Dispatch<React.SetStateAction<string | null>>;
   gotoPanel: (p: PanelId) => void;
   setActivePage: (p: ActivePage | null) => void;
@@ -123,10 +125,11 @@ export function useStartPresets({
           },
         ];
       });
-      /* 磁贴一次性合入（url 去重，重复导入不产生副本） */
+      /* 磁贴一次性合入（url 去重，重复导入不产生副本；v8.7.156 起
+         去重基准改为扁平化全量链接——夹内已有站点同样拦重复） */
       if (payload.links.length > 0) {
         setLinks((prev) => {
-          const seen = new Set(prev.map((l) => l.url.replace(/\/+$/, "")));
+          const seen = new Set(flattenLinks(prev).map((l) => l.url.replace(/\/+$/, "")));
           const add = payload.links
             .filter((l) => !seen.has(l.url.replace(/\/+$/, "")))
             .map((l) => ({ id: uid(), name: l.name, url: l.url }));

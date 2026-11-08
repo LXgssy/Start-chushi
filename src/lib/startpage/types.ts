@@ -6,6 +6,24 @@ export interface StartLink {
   url: string;
 }
 
+/* ---------- v8.7.156 文件夹磁贴 ----------
+ * start:links 数组内与 StartLink 平级混存（同键同构，云同步六键契约零改动）：
+ *   · 判别字段 folder:true 恒真——StartLink 无此字段（undefined），旧数据
+ *     零迁移天然兼容；sanitizeEntries 读入期兜底（children 非数组/残缺条目
+ *     修剪，孤儿散点直接按链接保留）。
+ *   · 只允许一层嵌套：children 恒为 StartLink[]（文件夹不可套文件夹），
+ *     iOS 桌面同构，拖拽/排序/散落的状态机保持单层简单。
+ *   · StartEntry = 两种磁贴的联合类型；消费端一律经 isFolder 收窄后分支。 */
+export interface StartFolder {
+  id: string;
+  name: string;
+  folder: true;
+  children: StartLink[];
+}
+
+/** start:links 数组条目：链接磁贴 或 文件夹磁贴（v8.7.156） */
+export type StartEntry = StartLink | StartFolder;
+
 export interface TodoItem {
   id: string;
   text: string;
