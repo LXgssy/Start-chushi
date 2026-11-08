@@ -161,6 +161,7 @@ function TileIcon({
   iconStyle,
   intro = false,
   sm = false,
+  bare = false,
   onIntroDone,
 }: {
   link: StartLink;
@@ -171,6 +172,10 @@ function TileIcon({
   onIntroDone?: () => void;
   /** 常驻形态 56px（抽屉 64px） */
   sm?: boolean;
+  /** v8.7.157 九宫格裸格形态：文件夹磁贴 2×2 缩微格内嵌——只渲染图标本体，
+   *  无三层外壳/描边环（磨砂与描边由外层磁贴统一承载），解析链与常态
+   *  完全同构（上传图标 > 自绘册 > favicon 竞速 > 首字母）。 */
+  bare?: boolean;
 }) {
   const host = hostOf(link.url);
   /* v8.7.108 图标双路竞速（用户实测「站点图标大陆网络加载不出来，有没有办法
@@ -340,6 +345,54 @@ function TileIcon({
      不受本次回归影响；v8.7.127 起上传图标在场时整体让位，见 sdActive）。 */
   const effHue = sdActive ? (hexHue(sd.entry.dom) ?? hue) : hue;
 
+  /* v8.7.157 九宫格裸格形态（bare）：早退分支在全部 hooks 之后，解析链
+     与常态零差异；格子底白雾提对比，自绘命中改条目主色实底（同色无缝
+     同 v8.7.127 让位律），画作满铺格子圆角由 overflow-hidden 统一裁切。 */
+  if (bare) {
+    return (
+      <span className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-[6px] bg-white/30 dark:bg-white/10">
+        {customIcon ? (
+          <img
+            src={customIcon}
+            alt=""
+            draggable={false}
+            className="h-3.5 w-3.5 object-contain"
+          />
+        ) : sdActive ? (
+          <span
+            aria-hidden
+            className="absolute inset-0 block"
+            style={{ background: sd.entry.dom }}
+            dangerouslySetInnerHTML={{ __html: selfdrawSvg(sd.entry) }}
+          />
+        ) : showFavicon ? (
+          <img
+            key={fav.url ?? ""}
+            src={fav.url ?? undefined}
+            alt=""
+            width={16}
+            height={16}
+            loading="lazy"
+            decoding="async"
+            draggable={false}
+            referrerPolicy="no-referrer"
+            onError={() => {
+              /* 竞速胜出源在可见 img 上二段失效（罕见：网络闪断）——记忆
+                 作废回落字母，下次挂载按整链重试 */
+              if (host) clearIconSource(host);
+              setFav((f) => ({ ...f, url: null, dead: true }));
+            }}
+            className="h-4 w-4 object-contain"
+          />
+        ) : (
+          <span className="text-[11px] font-light tracking-wide text-zinc-600/85 dark:text-zinc-200/85">
+            {ch}
+          </span>
+        )}
+      </span>
+    );
+  }
+
   /* v8.6.7 三层拆分（入场三通道，见 globals.css intro-tile-*）：
    *   包裹层（link-intro-tile）只动 transform；霜层（link-intro-frost）承载
    *   backdrop-filter、0.18s 快速凝聚——本体永不被 filter/长透明期压掉，
@@ -484,24 +537,33 @@ function TileIcon({
   );
 }
 
-/* ---------- v8.7.156 毛玻璃夹形磁贴（用户选型） ----------
+/* ---------- v8.7.157 九宫格迷你预览磁贴（用户选型 1，替代毛玻璃夹形） ----------
  * 与链接磁贴共用同一套三层拆分外壳（tile-shell/霜层/描边环/内容层，
- * 入场三通道与磨砂存活律零例外），内容层画 lucide Folder 夹形图标：
- *   · 底色沿用域名色相渐变语言，但色相从文件夹【名称】稳定派生
- *     （hueOf 同算法——同夹恒同色，与链接磁贴同构互异）；
- *   · 不放子站点图标/数量角标（用户指令「毛玻璃夹形，更统一」）；
- *   · 点击 = 原位展开 popover（QuickLinks 主组件接手）；
- *   · 编辑态 × = 拆夹散落（children 依序回墙，链接零丢失，非破坏）。 */
+ * 入场三通道与磨砂存活律零例外），内容层从 lucide 夹形图标升级为
+ * 2×2 缩微站点格（iOS 文件夹范式——夹形图标信息量为零，「一眼看到
+ * 夹里有什么」才是文件夹）：
+ *   · 1~4 站：逐格画子站点图标（TileIcon bare 形态，解析链同构）；
+ *   · >4 站：前 3 格图标 + 第 4 格「+N」计数格（N=站数-3，iOS 同款收敛）；
+ *   · 空夹：居中夹形图标占位（拖入站点即转九宫格）；
+ *   · 色相/描边环仍由夹名 hueOf 稳定派生（同夹恒同色）；
+ *   · 点击 = 原位展开 popover；编辑态 × = 拆夹散落（零丢失非破坏）；
+ *   · data-cl-folder-grid：九宫格内容层稳定标记（verify/冒烟锚）。 */
 function FolderTileVisual({
   folder,
+  iconStyle,
   intro = false,
   sm = false,
 }: {
   folder: StartFolder;
+  iconStyle: IconStyle;
   intro?: boolean;
   sm?: boolean;
 }) {
   const hue = hueOf(folder.name);
+  const n = folder.children.length;
+  /* >4 站时第 4 格让位给「+N」计数格（只画前 3 格图标，iOS 同款） */
+  const shown = n <= 4 ? folder.children : folder.children.slice(0, 3);
+  const more = n - shown.length;
   return (
     <span
       aria-hidden
@@ -543,13 +605,29 @@ function FolderTileVisual({
               " 46% var(--tile-grad-l2, 50%) / var(--tile-grad-a2, 0.14)))",
           }}
         >
-          <Folder
-            className={
-              (sm ? "h-7 w-7" : "h-8 w-8") +
-              " text-zinc-600/80 dark:text-zinc-200/85 drop-shadow-[0_1px_2px_rgba(0,0,0,0.12)]"
-            }
-            strokeWidth={1.4}
-          />
+          {n === 0 ? (
+            <Folder
+              className={
+                (sm ? "h-7 w-7" : "h-8 w-8") +
+                " text-zinc-600/80 dark:text-zinc-200/85 drop-shadow-[0_1px_2px_rgba(0,0,0,0.12)]"
+              }
+              strokeWidth={1.4}
+            />
+          ) : (
+            <span
+              data-cl-folder-grid="1"
+              className="grid h-full w-full grid-cols-2 gap-[3px] p-[9px]"
+            >
+              {shown.map((c) => (
+                <TileIcon key={c.id} link={c} iconStyle={iconStyle} bare />
+              ))}
+              {more > 0 && (
+                <span className="flex items-center justify-center rounded-[6px] bg-white/30 text-[10px] font-light tracking-wide text-zinc-600/80 dark:bg-white/10 dark:text-zinc-200/85">
+                  +{more}
+                </span>
+              )}
+            </span>
+          )}
         </span>
       </span>
     </span>
@@ -598,7 +676,7 @@ function TileVisual({
         }
       >
         {isFolder(entry) ? (
-          <FolderTileVisual folder={entry} intro={showIntro} sm={sm} />
+          <FolderTileVisual folder={entry} iconStyle={iconStyle} intro={showIntro} sm={sm} />
         ) : (
           <TileIcon
             link={entry}
@@ -791,7 +869,7 @@ function FolderPopover({
         animate={{ opacity: 1, scale: 1 }}
         transition={{ type: "spring", stiffness: 420, damping: 34, mass: 0.9 }}
         style={{ transformOrigin: pos?.below ? "top center" : "bottom center" }}
-        className="glass-card rounded-2xl shadow-2xl"
+        className="solid-card rounded-2xl shadow-2xl"
       >
         {/* 头部：名称 / 改名 / 拆散 / 关闭 */}
         <div className="flex items-center gap-1.5 border-b border-zinc-900/5 px-3 py-2 dark:border-white/5">
@@ -1990,7 +2068,7 @@ function QuickLinks({
                     <span className="relative block">
                       {/* v8.7.156：拖文件夹 = 夹形浮层（与磁贴同款外壳） */}
                       {isFolder(activeEntry) ? (
-                        <FolderTileVisual folder={activeEntry} sm={form === "docked"} />
+                        <FolderTileVisual folder={activeEntry} iconStyle={iconStyle} sm={form === "docked"} />
                       ) : (
                         <TileIcon link={activeEntry} iconStyle={iconStyle} sm={form === "docked"} />
                       )}
