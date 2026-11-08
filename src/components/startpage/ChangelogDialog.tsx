@@ -15,6 +15,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { ArrowLeft } from "lucide-react";
 import { PresenceClass } from "./PresenceClass";
 import { CHANGELOG } from "@/lib/startpage/changelog";
+import { useBgFreeze } from "@/hooks/use-start";
 
 const SPRING = { type: "spring" as const, stiffness: 460, damping: 38 };
 
@@ -41,6 +42,8 @@ const itemVariants = {
 };
 
 function ChangelogDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  /* v8.7.155 背景冻结律：纱罩打开期暂停极光/kenburns（globals.cs-bg-frozen） */
+  useBgFreeze(open);
   /* v8.4.9：portal 到 body —— 本弹窗原挂在 SettingsPanel（z-30 层叠上下文）内，
    * veil 自身的 z-50 只在该上下文内生效，整层被 dock（z-40）压住：弹窗底部
    * 「返回设置」按钮落进 dock 条区域，真鼠标点击被 dock 拦截（dbg-backbtn 取证：

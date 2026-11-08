@@ -138,6 +138,31 @@ function AuroraBackground({
   const blobUrlRef = useRef<string | null>(null);
   const customKindRef = useRef<WallpaperKind>("image");
   const customUrlRef = useRef<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  /* ---------- v8.7.155 背景冻结律 · 媒体闸门 ----------
+     漂移/kenburns 由 CSS 三闸门暂停（globals.cs-bg-frozen / cs-drawer /
+     cs-hidden），视频播放是媒体层，CSS 管不了——同三条件下显式 pause：
+     多开 N 页 = N 个解码器抢 CPU；满屏模糊纱罩之下每帧重滤波是同一账。
+     恢复一律 play()（muted 自动播族，NotAllowedError 吞掉即可）。 */
+  const [bgFrozen, setBgFrozen] = useState(false);
+  useEffect(() => {
+    const root = document.documentElement;
+    const sync = () =>
+      setBgFrozen(
+        document.hidden ||
+          root.classList.contains("cs-bg-frozen") ||
+          root.classList.contains("cs-drawer")
+      );
+    sync();
+    document.addEventListener("visibilitychange", sync);
+    const mo = new MutationObserver(sync);
+    mo.observe(root, { attributeFilter: ["class"] });
+    return () => {
+      document.removeEventListener("visibilitychange", sync);
+      mo.disconnect();
+    };
+  }, []);
 
   /* ---------- v8.7.152 弱网卡加载根修：远程壁纸媒体在 window load 前不进文档树 ----------
    * 图库壁纸同步解析（galleryMeta）→ hydration 初始树里就有
@@ -348,6 +373,22 @@ function AuroraBackground({
       ? null
       : shownUrlRaw;
   const photoReady = shownUrl != null && loadedUrl === shownUrl;
+
+  /* ---------- v8.7.155 背景冻结律 · 视频播放执行位（依 shownUrl/photoReady，
+     必须在其声明之后——deps 数组随渲染求值，声明前引用即 TDZ） ----------
+     壁纸层 key={shownUrl} 随换壁纸重挂：新 <video> 需按当前冻结态决定
+     起播/暂停，故 deps 带 shownUrl；photoReady 变化对应 canplay 路径。 */
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    if (bgFrozen) {
+      v.pause();
+    } else {
+      v.play().catch(() => {
+        /* 自动播策略拒绝：静默，用户交互后由浏览器自身策略恢复 */
+      });
+    }
+  }, [bgFrozen, shownUrl, photoReady]);
   /* 显示中的媒体形态：blob/URL 源用记录值；图库恒为静态图（kenburns 专属） */
   const shownKind: WallpaperKind = shownUrl
     ? shownUrl === customUrlRef.current
@@ -397,6 +438,7 @@ function AuroraBackground({
         <div key={shownUrl} className="wallpaper-layer absolute inset-0">
           {shownKind === "video" ? (
             <video
+              ref={videoRef}
               src={shownUrl}
               muted
               loop

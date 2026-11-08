@@ -454,6 +454,28 @@ html.dark .accent-bar {
   to   { transform: scale(1.12) translate3d(0, -1.6%, 0); }
 }
 
+/* ---------- v8.7.155 背景冻结律（多开掉帧根修·玻璃面省钱通道） ----------
+ * 三类闸门把持续动画（极光 drift ×4 / 壁纸 kenburns）按需暂停，其余时刻
+ * 原样——观感零变化，只砍「玻璃算不过来」的帧：
+ *   ① html.cs-bg-frozen —— 满屏玻璃纱罩打开期（命令面板/链接编辑/PDF 工具
+ *      箱/更新日志/开发者文档，useBgFreeze 计数挂类）：背景在 24px+ 高斯
+ *      模糊之下，漂移动画每帧强制 backdrop-filter 重滤波，是开纱罩掉帧的
+ *      主账；冻结后玻璃底静帧，滤波结果可缓存复用。纱罩之下看不出冻结。
+ *   ② html.cs-drawer —— 快捷服务抽屉挂载期（QuickLinks 同步，存量类）：
+ *      整页 28px 纱罩同账，同律冻结。
+ *   ③ html.cs-hidden —— document.hidden（use-start-settings 同步）：隐藏页
+ *      多开时动画时钟照走，回前台瞬间全部补帧挤兑；隐藏期直接停摆。
+ * 注意学 cs-lite 律：animation-play-state 暂停保合成层身份（display:none
+ * 会拆层重建，回 visible 时首帧抖动）——这里只用 play-state，层不拆。 */
+html.cs-bg-frozen .aurora-blob,
+html.cs-bg-frozen .kenburns,
+html.cs-drawer .aurora-blob,
+html.cs-drawer .kenburns,
+html.cs-hidden .aurora-blob,
+html.cs-hidden .kenburns {
+  animation-play-state: paused !important;
+}
+
 /* ---------- 掠影双层压暗遮罩：平底 + 上下渐变，保证前景可读 ----------
    v8.7.35 压暗程度自定义：全部 α 乘 --photo-dim 倍率（AuroraBackground 注入，
    设置面板「压暗程度」0–200%，缺省 1=原设计值）。calc 在 rgba α 位求值，

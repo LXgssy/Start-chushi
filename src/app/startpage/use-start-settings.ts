@@ -152,6 +152,24 @@ export function useStartSettings(mounted: boolean) {
     return () => window.removeEventListener("storage", onStorage);
   }, [mounted, settings.perfLite, setSettings]);
 
+  /* ---------- v8.7.155 背景冻结律 · 隐藏页闸门 ----------
+     document.hidden → html.cs-hidden：globals.css 据此暂停极光 drift /
+     壁纸 kenburns（animation-play-state 保合成层身份，不拆层）。多开新
+     标签页时先开的页转后台，动画时钟若照走，回前台瞬间所有页的补帧
+     挤兑在同一时刻（切 tab 集中掉帧的来源之一）；隐藏期直接停摆。
+     video 的暂停/恢复在 AuroraBackground（元素级，CSS 管不了媒体播放）。 */
+  useEffect(() => {
+    if (!mounted) return;
+    const root = document.documentElement;
+    const sync = () => root.classList.toggle("cs-hidden", document.hidden);
+    sync();
+    document.addEventListener("visibilitychange", sync);
+    return () => {
+      document.removeEventListener("visibilitychange", sync);
+      root.classList.remove("cs-hidden");
+    };
+  }, [mounted]);
+
   /* ---------- 流畅模式 × 辉光互斥（v8.7.37） ----------
      cs-lite 下光斑层整体隐藏（globals.css .aurora-blob display:none），
      辉光在流畅系统里语义已死。开启流畅模式时背景=辉光 → 自动切掠影；

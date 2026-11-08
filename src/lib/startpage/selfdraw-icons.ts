@@ -12,10 +12,11 @@
  * 两样轻量东西：
  *   ① host → 注册表 key 的映射表（suffix 最长匹配，数 KB）；
  *   ② useSelfdrawIcon() hook —— 仅当用户在设置里选「自绘图标」且当前磁贴
- *      host 命中映射时，才惰性 fetch 注册表数据 selfdraw-icons.json
- *      （15MB 全彩堆叠描摹，不进 bundle；相对 URL 与页面 chunk 同服务层，
- *      扩展包内置与云端热更两态皆达）。未命中 host 走 favicon 链兜底，
- *      加载失败同理 —— 永不因自绘册拖死磁贴渲染。
+ *      host 命中映射时，才按 key 惰性 fetch 拆分条目 selfdraw/i/<key>.json
+ *      （v8.7.155 拆分律：全册 selfdraw-icons.json 15.4MB 退役——每新标签页
+ *      全量 fetch+parse 是多开掉帧根因，见文内注；拆分后逐磁贴按需 +
+ *      force-cache 长缓存，条目字节与全册逐字节一致）。未命中 host 走
+ *      favicon 链兜底，加载失败同理 —— 永不因自绘册拖死磁贴渲染。
  * 渲染约定（v8.7.46 铺满律）：条目 = 完整磁贴面设计 + 主色 dom，vb 已在构建
  * 期收紧至画作真实边界（描摹源图 2.34% 系统性透明边距退役），selfdrawSvg 按
  * 宽高比选 slice/meet 铺满磁贴面（absolute inset-0），四角由磁贴自身
@@ -367,25 +368,49 @@ export function selfdrawKeyForHost(host: string | null | undefined): string | nu
   return best;
 }
 
-/* ---------- 注册表数据（惰性单飞 fetch） ----------
- * 存储形状：{key: [vb, body, dom]}——元组省键名（15MB 级资产，键名冗余可观），
- * 数据边界处展开为 SelfdrawEntry 对象，消费方只见对象。dom 由构建期光栅化
- * 提取（scripts/domcolor-v8745.mjs + build-dom-v8745.py），运行时零计算。 */
-type SelfdrawData = Record<string, [string, string, string]>;
+/* ---------- 注册表数据（v8.7.155 拆分按需加载） ----------
+ * 存储形状（拆分后）：public/selfdraw/i/<key>.json = [vb, body, dom] 裸三元组
+ * （历史：单文件 selfdraw-icons.json 全册 15.4MB —— 每个新标签页命中任一 host
+ * 即 fetch 全册 + 全量 JSON.parse，多开新标签页时 N×(15MB 读 + parse + 内存)
+ * 风暴，用户实测严重掉帧，探针实测 201+26ms/页。拆分后按磁贴逐 key 拉取，
+ * 默认 6 磁贴页 ~0.4MB ≈ 30× 削减；条目字节与全册逐字节一致，锐度审计
+ * 基线不回退。）
+ * 缓存三层：① 模块级 Map（同页零重复）② per-key 单飞 Promise（并发磁贴
+ * 同 key 合并）③ HTTP force-cache + URL ?v= 版本钉（跨标签页/跨会话零
+ * 重校验；扩展本地资源本就近磁盘，网页版受益最大）。
+ * ⚠ SELFDRAW_REG_VER 纪律：注册表内容变更（加图标/改笔迹/改 dom）必须
+ *   同步 +1 —— force-cache 永不回源，版本钉是唯一失效通道。
+ * dom 由构建期光栅化提取（scripts/domcolor-v8745.mjs + build-dom-v8745.py），
+ * 运行时零计算。 */
+type SelfdrawTuple = [string, string, string];
 
-let dataP: Promise<SelfdrawData> | null = null;
+/** 注册表内容版本钉（v8.7.155=2：拆分首版；下次注册表内容变更 +1） */
+const SELFDRAW_REG_VER = 2;
 
-function loadSelfdrawData(): Promise<SelfdrawData> {
-  dataP ??= fetch("selfdraw-icons.json", { cache: "no-cache" })
+const memCache = new Map<string, SelfdrawEntry>();
+const inflight = new Map<string, Promise<SelfdrawEntry | null>>();
+
+function fetchEntry(key: string): Promise<SelfdrawEntry | null> {
+  let p = inflight.get(key);
+  if (p) return p;
+  p = fetch(`selfdraw/i/${key}.json?v=${SELFDRAW_REG_VER}`, {
+    cache: "force-cache",
+  })
     .then((r) => {
-      if (!r.ok) throw new Error("selfdraw-icons.json " + r.status);
-      return r.json() as Promise<SelfdrawData>;
+      if (!r.ok) throw new Error("selfdraw/i " + key + " " + r.status);
+      return r.json() as Promise<SelfdrawTuple>;
     })
-    .catch((e) => {
-      dataP = null; /* 失败不缓存：下个磁贴/下个新标签页可重试 */
-      throw e;
+    .then((t) => {
+      const e = { vb: t[0], body: t[1], dom: t[2] };
+      memCache.set(key, e);
+      return e;
+    })
+    .catch(() => null /* 失败不缓存：下个磁贴/下个新标签页可重试 */)
+    .finally(() => {
+      inflight.delete(key);
     });
-  return dataP;
+  inflight.set(key, p);
+  return p;
 }
 
 const OFF: SelfdrawIcon = { state: "off" };
@@ -413,21 +438,18 @@ export function useSelfdrawIcon(
       setSt(MISS);
       return;
     }
+    /* ① 模块级内存缓存命中（同页二次挂载/其它磁贴已拉过）：同步态零等待 */
+    const cached = memCache.get(key);
+    if (cached) {
+      setSt({ state: "hit", entry: cached });
+      return;
+    }
     let alive = true;
     setSt(LOADING);
-    loadSelfdrawData()
-      .then((d) => {
-        if (!alive) return;
-        const raw = d[key];
-        setSt(
-          raw
-            ? { state: "hit", entry: { vb: raw[0], body: raw[1], dom: raw[2] } }
-            : MISS
-        );
-      })
-      .catch(() => {
-        if (alive) setSt(MISS);
-      });
+    fetchEntry(key).then((e) => {
+      if (!alive) return;
+      setSt(e ? { state: "hit", entry: e } : MISS);
+    });
     return () => {
       alive = false;
     };

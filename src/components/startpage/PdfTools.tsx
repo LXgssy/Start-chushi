@@ -28,6 +28,7 @@
  * ============================================================ */
 
 import { useEffect, useRef, useState } from "react";
+import { useBgFreeze } from "@/hooks/use-start";
 import { createPortal } from "react-dom";
 import { AnimatePresence, useReducedMotion } from "framer-motion";
 import { PresenceClass } from "./PresenceClass";
@@ -822,6 +823,8 @@ export default function PdfTools({
   open: boolean;
   onClose: () => void;
 }) {
+  /* v8.7.155 背景冻结律：纱罩打开期暂停极光/kenburns（globals.cs-bg-frozen） */
+  useBgFreeze(open);
   const [host] = useState<HTMLElement | null>(() =>
     typeof document === "undefined" ? null : document.body
   );
