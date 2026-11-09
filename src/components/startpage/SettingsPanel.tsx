@@ -975,6 +975,21 @@ function SettingsPanel({
           ]}
           onChange={(v) => onPatch({ linksForm: v })}
         />
+        {/* v8.7.158 文件夹展开方式三选一（用户选型）：形变（默认，白卡从磁贴
+            原位绽放，iOS 同款）/ 居中（模态，背景压暗虚化）/ 内嵌（磁贴原地
+            膨胀成大卡，邻居让位，Win11 同款）。三形态面板内容与拖拽链路
+            完全同源，随时切换零迁移 */}
+        <Segmented
+          segKey="folder-open-style"
+          label="文件夹展开方式"
+          value={settings.folderOpenStyle ?? "morph"}
+          options={[
+            { value: "morph", label: "形变" },
+            { value: "modal", label: "居中" },
+            { value: "inline", label: "内嵌" },
+          ]}
+          onChange={(v) => onPatch({ folderOpenStyle: v })}
+        />
         <div className="flex items-center justify-between gap-4 py-2.5">
           <span className="text-xs font-light tracking-wide text-zinc-600 dark:text-zinc-300">
             称呼

@@ -83,6 +83,16 @@ export const DEFAULT_DURATIONS: PomodoroDurations = {
   longMin: 15,
 };
 
+/* ---------- 文件夹展开方式（v8.7.158，用户选型三选一）----------
+ * morph  = 形变绽放（默认）：白卡从磁贴原位长大（iOS 文件夹同款，九宫格
+ *          迷你格交叉淡入成品网格）；
+ * modal  = 居中模态：整墙压暗虚化，白卡飞入屏幕中央放大，点遮罩即收起；
+ * inline = 原位内嵌：不用浮层——磁贴原地膨胀成大卡，邻居磁贴自动让位
+ *          （Windows 11 同款）。
+ * 三形态共享同一套面板内容（改名/拆散/夹内排序/拖入拖出），仅「怎么出现」
+ * 不同；缺省 morph，老数据零迁移。 */
+export type FolderOpenStyle = "morph" | "modal" | "inline";
+
 export interface Settings {
   themeMode: ThemeMode;
   background: BackgroundMode;
@@ -133,6 +143,11 @@ export interface Settings {
    *  若被直接恢复，会让 8.6.x 起一直用抽屉的用户升级后突變回常驻；新字段从零开始，
    *  缺省即抽屉，想要原样式去设置面板显式切换。 */
   linksForm: LinksForm;
+  /** 文件夹展开方式（v8.7.158）：morph = 磁贴形变绽放（默认）/ modal = 居中模态
+   *  （背景压暗虚化）/ inline = 原位内嵌（磁贴膨胀成大卡，邻居让位）。
+   *  三形态交互行为完全一致（点击展开/外点收起/拖拽 dwell/拖入拖出），
+   *  仅视觉表现不同；入口：设置 → 链接 →「文件夹展开方式」 */
+  folderOpenStyle: FolderOpenStyle;
   /** v8.7.36 Dock 栏显隐（v8.5.0 起常驻底部）：false = 整条 Dock 不渲染。
    *  入口：扩展弹窗快捷面板开关；跨文档热跟随走 settings storage 事件 */
   showDock: boolean;
@@ -169,6 +184,7 @@ export const DEFAULT_SETTINGS: Settings = {
   perfLite: false,
   noOmniboxFocus: false,
   linksForm: "drawer",
+  folderOpenStyle: "morph",
   showDock: true,
   todoTile: false,
   noteTile: false,

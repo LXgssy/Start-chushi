@@ -459,6 +459,7 @@ function StartPageView() {
                   links={sp.links}
                   setLinks={sp.setLinks}
                   iconStyle={sp.settings.iconStyle}
+                  folderOpenStyle={sp.settings.folderOpenStyle ?? "morph"}
                   columns={sp.layout.linksColumns}
                   form="docked"
                   dockOn={sp.settings.showDock !== false}
@@ -479,6 +480,7 @@ function StartPageView() {
                   links={sp.links}
                   setLinks={sp.setLinks}
                   iconStyle={sp.settings.iconStyle}
+                  folderOpenStyle={sp.settings.folderOpenStyle ?? "morph"}
                   columns={sp.layout.linksColumns}
                   form="docked"
                   ghost
@@ -496,6 +498,7 @@ function StartPageView() {
             links={sp.links}
             setLinks={sp.setLinks}
             iconStyle={sp.settings.iconStyle}
+            folderOpenStyle={sp.settings.folderOpenStyle ?? "morph"}
             columns={sp.layout.linksColumns}
             form="drawer"
           />

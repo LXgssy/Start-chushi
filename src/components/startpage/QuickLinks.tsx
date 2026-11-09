@@ -56,7 +56,14 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { SortableContext, rectSortingStrategy, useSortable } from "@dnd-kit/sortable";
-import type { IconStyle, LinksForm, StartEntry, StartFolder, StartLink } from "@/lib/startpage/types";
+import type {
+  FolderOpenStyle,
+  IconStyle,
+  LinksForm,
+  StartEntry,
+  StartFolder,
+  StartLink,
+} from "@/lib/startpage/types";
 import {
   dissolveFolder,
   isFolder,
@@ -754,14 +761,12 @@ function FolderZone({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** 文件夹原位展开面板（portal 到 body，锚定磁贴节点实时跟随）：
- *  · 定位：优先磁贴正下方，空间不足翻上方；水平居中并 clamp 进视口；
- *    transformOrigin 随翻转方向取上/下中——scale 0.72→1 从磁贴「长出来」；
- *  · 跟随：每次渲染后实测（拖拽让位/增删磁贴全跟随）+ 滚动/resize 兜底；
- *  · 头部：名称（点击改名）+ 拆散（children 依序回墙零丢失）+ 关闭；
- *  · 网格：children SortableContext（夹内排序）+ FolderZone（空白处入夹）；
- *  · 外点收起：点在另一磁贴上不收（可能是下一轮拖拽/开另一夹）。 */
-function FolderPopover({
+/* ---------- v8.7.158 文件夹面板内容（三形态共享）----------
+ *  头部：名称（点击改名）+ 拆散（children 依序回墙零丢失）+ 关闭；
+ *  网格：children SortableContext（夹内排序）+ FolderZone（空白处入夹）+ 编辑态删除。
+ *  popover（morph/modal）与 inline 原位内嵌卡完全同源——交互行为（改名落盘/
+ *  拆散散落/夹内排序/拖入拖出）零差异，只有「怎么出现」不同。 */
+function FolderPanelBody({
   folder,
   iconStyle,
   editing,
@@ -770,7 +775,8 @@ function FolderPopover({
   onRename,
   onDissolve,
   onClose,
-  anchorEl,
+  /** 内容区高度上限：modal 居中模态空间更大，morph/inline 默认 300px */
+  maxH = "max-h-[300px]",
 }: {
   folder: StartFolder;
   iconStyle: IconStyle;
@@ -780,71 +786,10 @@ function FolderPopover({
   onRename: (name: string) => void;
   onDissolve: () => void;
   onClose: () => void;
-  anchorEl: HTMLElement | null;
+  maxH?: string;
 }) {
-  const panelRef = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ left: number; top: number; below: boolean } | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(folder.name);
-
-  const measure = useCallback(() => {
-    const panel = panelRef.current;
-    if (!panel) return;
-    if (!anchorEl || !anchorEl.isConnected) {
-      onClose();
-      return;
-    }
-    const a = anchorEl.getBoundingClientRect();
-    const pw = panel.offsetWidth;
-    const ph = panel.offsetHeight;
-    const gap = 10;
-    let left = a.left + a.width / 2 - pw / 2;
-    left = Math.max(8, Math.min(left, window.innerWidth - pw - 8));
-    let top = a.bottom + gap;
-    let below = true;
-    if (top + ph > window.innerHeight - 8) {
-      const alt = a.top - ph - gap;
-      if (alt >= 8) {
-        top = alt;
-        below = false;
-      } else {
-        top = Math.max(8, window.innerHeight - ph - 8);
-      }
-    }
-    setPos((p) =>
-      p && p.left === Math.round(left) && p.top === Math.round(top) && p.below === below
-        ? p
-        : { left: Math.round(left), top: Math.round(top), below }
-    );
-  }, [anchorEl, onClose]);
-
-  /* 无依赖数组 = 每次渲染后重定位（父级重渲染即跟随拖拽让位） */
-  useLayoutEffect(() => {
-    measure();
-  });
-  useEffect(() => {
-    const onMove = () => measure();
-    window.addEventListener("scroll", onMove, true);
-    window.addEventListener("resize", onMove);
-    return () => {
-      window.removeEventListener("scroll", onMove, true);
-      window.removeEventListener("resize", onMove);
-    };
-  }, [measure]);
-
-  /* 外点收起：面板内/磁贴本体不收；点在另一磁贴上不收（下一轮拖拽或开另一夹） */
-  useEffect(() => {
-    const onDown = (e: PointerEvent) => {
-      const t = e.target as Element | null;
-      if (!t || typeof t.closest !== "function") return;
-      if (panelRef.current?.contains(t)) return;
-      if (anchorEl?.contains(t)) return;
-      if (t.closest("[data-cl-tile], [data-cl-folder-popover]")) return;
-      onClose();
-    };
-    document.addEventListener("pointerdown", onDown);
-    return () => document.removeEventListener("pointerdown", onDown);
-  }, [onClose, anchorEl]);
 
   const commitRename = () => {
     setRenaming(false);
@@ -854,25 +799,9 @@ function FolderPopover({
   };
 
   return (
-    <div
-      ref={panelRef}
-      data-cl-folder-popover="1"
-      className="fixed z-[55]"
-      style={{
-        left: pos?.left ?? -9999,
-        top: pos?.top ?? -9999,
-        visibility: pos ? undefined : "hidden",
-      }}
-    >
-      <motion.div
-        initial={{ opacity: 0, scale: 0.72 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ type: "spring", stiffness: 420, damping: 34, mass: 0.9 }}
-        style={{ transformOrigin: pos?.below ? "top center" : "bottom center" }}
-        className="solid-card rounded-2xl shadow-2xl"
-      >
-        {/* 头部：名称 / 改名 / 拆散 / 关闭 */}
-        <div className="flex items-center gap-1.5 border-b border-zinc-900/5 px-3 py-2 dark:border-white/5">
+    <>
+      {/* 头部：名称 / 改名 / 拆散 / 关闭 */}
+      <div className="flex items-center gap-1.5 border-b border-zinc-900/5 px-3 py-2 dark:border-white/5">
           {renaming ? (
             <>
               <input
@@ -941,42 +870,316 @@ function FolderPopover({
               </button>
             </>
           )}
-        </div>
+      </div>
 
-        {/* 夹内网格：children 排序 + 空白处入夹 + 编辑态删除 */}
-        <FolderZone>
-          <div className="slim-scroll max-h-[300px] w-[336px] overflow-y-auto p-2">
-            {folder.children.length === 0 ? (
-              <p className="px-2 py-6 text-center text-xs font-light tracking-wide text-zinc-400 dark:text-zinc-500">
-                把磁贴拖进来收纳
-              </p>
-            ) : (
-              <SortableContext
-                items={folder.children.map((c) => c.id)}
-                strategy={rectSortingStrategy}
-              >
-                <div className="flex flex-wrap items-start justify-center gap-x-3 gap-y-4">
-                  <AnimatePresence mode="popLayout">
-                    {folder.children.map((c) => (
-                      <Tile
-                        key={c.id}
-                        entry={c}
-                        iconStyle={iconStyle}
-                        sm
-                        editing={editing}
-                        onEnterEdit={onEnterEdit}
-                        onDelete={onDelete}
-                        onOpenFolder={onClose}
-                      />
-                    ))}
-                  </AnimatePresence>
-                </div>
-              </SortableContext>
-            )}
-          </div>
-        </FolderZone>
-      </motion.div>
-    </div>
+      {/* 夹内网格：children 排序 + 空白处入夹 + 编辑态删除 */}
+      <FolderZone>
+        <div className={"slim-scroll " + maxH + " w-[336px] overflow-y-auto p-2"}>
+          {folder.children.length === 0 ? (
+            <p className="px-2 py-6 text-center text-xs font-light tracking-wide text-zinc-400 dark:text-zinc-500">
+              把磁贴拖进来收纳
+            </p>
+          ) : (
+            <SortableContext
+              items={folder.children.map((c) => c.id)}
+              strategy={rectSortingStrategy}
+            >
+              <div className="flex flex-wrap items-start justify-center gap-x-3 gap-y-4">
+                <AnimatePresence mode="popLayout">
+                  {folder.children.map((c) => (
+                    <Tile
+                      key={c.id}
+                      entry={c}
+                      iconStyle={iconStyle}
+                      sm
+                      editing={editing}
+                      onEnterEdit={onEnterEdit}
+                      onDelete={onDelete}
+                      onOpenFolder={onClose}
+                    />
+                  ))}
+                </AnimatePresence>
+              </div>
+            </SortableContext>
+          )}
+        </div>
+      </FolderZone>
+    </>
+  );
+}
+
+/* ---------- v8.7.156/v8.7.158 文件夹原位展开 popover（portal 到 body，锚定磁贴节点实时跟随）----------
+ *  两形态（openStyle，inline 内嵌不走此组件，见 Tile 内 FolderInlineCard）：
+ *   · morph 形变绽放（默认）：白卡从磁贴中心原位长出——transformOrigin 实测
+ *     锚定磁贴中心（拖拽让位/滚动/resize 全跟随，origin 随卡片位置走），
+ *     scale 0.22→1 spring；2×2 迷你格覆盖层（data-cl-folder-morph-preview，
+ *     与 v8.7.157 九宫格磁贴完全同源）随卡片绽放淡入、再交叉淡入成品面板；
+ *     收起经 AnimatePresence exit 反向缩回磁贴中心；
+ *   · modal 居中模态：整墙压暗虚化（data-cl-folder-modal 遮罩层，点遮罩即
+ *     收起），白卡飞入屏幕中央放大，内容区上限抬到 min(420px, 58vh)，
+ *     收起淡出还原整墙；
+ *  定位：morph 优先磁贴正下方、空间不足翻上方，水平居中 clamp 进视口；
+ *  modal 实测居中 clamp。跟随：每次渲染后实测（拖拽让位/增删磁贴全跟随）
+ *  + 滚动/resize 兜底；
+ *  外点收起：点在面板内/磁贴本体不收；点在另一磁贴上不收（可能是下一轮
+ *  拖拽/开另一夹）；modal 遮罩在面板外，点击由遮罩自身 pointerdown 收起。 */
+function FolderPopover({
+  folder,
+  iconStyle,
+  editing,
+  onEnterEdit,
+  onDelete,
+  onRename,
+  onDissolve,
+  onClose,
+  anchorEl,
+  openStyle,
+}: {
+  folder: StartFolder;
+  iconStyle: IconStyle;
+  editing: boolean;
+  onEnterEdit: () => void;
+  onDelete: (id: string) => void;
+  onRename: (name: string) => void;
+  onDissolve: () => void;
+  onClose: () => void;
+  anchorEl: HTMLElement | null;
+  /** v8.7.158 展开形态（主组件透传 settings.folderOpenStyle；inline 不达此处） */
+  openStyle: Exclude<FolderOpenStyle, "inline">;
+}) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{
+    left: number;
+    top: number;
+    below: boolean;
+    /** v8.7.158 morph 绽放原点：磁贴中心相对面板的坐标（transformOrigin 用） */
+    ox: number;
+    oy: number;
+  } | null>(null);
+  const modal = openStyle === "modal";
+
+  const measure = useCallback(() => {
+    const panel = panelRef.current;
+    if (!panel) return;
+    if (!anchorEl || !anchorEl.isConnected) {
+      onClose();
+      return;
+    }
+    const a = anchorEl.getBoundingClientRect();
+    const pw = panel.offsetWidth;
+    const ph = panel.offsetHeight;
+    const gap = 10;
+    let left: number;
+    let top: number;
+    let below: boolean;
+    if (modal) {
+      /* 居中模态：几何中心 clamp 进视口（四周留 8px 边距） */
+      left = Math.max(8, (window.innerWidth - pw) / 2);
+      left = Math.min(left, window.innerWidth - pw - 8);
+      top = Math.max(8, (window.innerHeight - ph) / 2);
+      top = Math.min(top, window.innerHeight - ph - 8);
+      below = false;
+    } else {
+      left = a.left + a.width / 2 - pw / 2;
+      left = Math.max(8, Math.min(left, window.innerWidth - pw - 8));
+      top = a.bottom + gap;
+      below = true;
+      if (top + ph > window.innerHeight - 8) {
+        const alt = a.top - ph - gap;
+        if (alt >= 8) {
+          top = alt;
+          below = false;
+        } else {
+          top = Math.max(8, window.innerHeight - ph - 8);
+        }
+      }
+    }
+    /* morph 绽放原点：磁贴中心相对面板左上角的偏移（面板相对定位磁贴
+       上下/左右翻转时 origin 自动跟随，绽放方向恒指向磁贴） */
+    const ox = Math.round(a.left + a.width / 2 - left);
+    const oy = Math.round(a.top + a.height / 2 - top);
+    setPos((p) =>
+      p &&
+      p.left === Math.round(left) &&
+      p.top === Math.round(top) &&
+      p.below === below &&
+      p.ox === ox &&
+      p.oy === oy
+        ? p
+        : { left: Math.round(left), top: Math.round(top), below, ox, oy }
+    );
+  }, [anchorEl, onClose, modal]);
+
+  /* 无依赖数组 = 每次渲染后重定位（父级重渲染即跟随拖拽让位） */
+  useLayoutEffect(() => {
+    measure();
+  });
+  useEffect(() => {
+    const onMove = () => measure();
+    window.addEventListener("scroll", onMove, true);
+    window.addEventListener("resize", onMove);
+    return () => {
+      window.removeEventListener("scroll", onMove, true);
+      window.removeEventListener("resize", onMove);
+    };
+  }, [measure]);
+
+  /* 外点收起：面板内/磁贴本体不收；点在另一磁贴上不收（下一轮拖拽或开另一夹）。
+     modal 遮罩是面板的兄弟层（不在 data-cl-folder-popover 标记内），点击不命中
+     本守卫的早退分支，落到 onClose——与遮罩自身 onPointerDown 收起双保险同效 */
+  useEffect(() => {
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Element | null;
+      if (!t || typeof t.closest !== "function") return;
+      if (panelRef.current?.contains(t)) return;
+      if (anchorEl?.contains(t)) return;
+      if (t.closest("[data-cl-tile], [data-cl-folder-popover]")) return;
+      onClose();
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [onClose, anchorEl]);
+
+  return (
+    <>
+      {/* modal 遮罩：整墙压暗 + 高斯模糊（面板兄弟层，z 在卡下；点遮罩即收起；
+          AnimatePresence exit 与卡片同窗淡出还原整墙） */}
+      {modal && (
+        <motion.div
+          aria-hidden
+          data-cl-folder-modal="1"
+          className="fixed inset-0 z-[54] bg-zinc-950/45 backdrop-blur-[6px]"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0, transition: { duration: 0.16 } }}
+          transition={{ duration: 0.2 }}
+          onPointerDown={(e) => {
+            if (e.button === 0) onClose();
+          }}
+        />
+      )}
+      <div
+        ref={panelRef}
+        data-cl-folder-popover="1"
+        className="fixed z-[55]"
+        style={{
+          left: pos?.left ?? -9999,
+          top: pos?.top ?? -9999,
+          visibility: pos ? undefined : "hidden",
+        }}
+      >
+        <motion.div
+          initial={modal ? { opacity: 0, scale: 0.88, y: 16 } : { opacity: 0, scale: 0.22 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={
+            modal
+              ? { opacity: 0, scale: 0.9, y: 8, transition: { duration: 0.18, ease: "easeIn" } }
+              : { opacity: 0, scale: 0.24, transition: { duration: 0.2, ease: "easeIn" } }
+          }
+          transition={{ type: "spring", stiffness: 420, damping: 34, mass: 0.9 }}
+          style={{
+            /* morph：原点实测锚定磁贴中心（缩回同路径）；modal：居中缩放 */
+            transformOrigin: modal ? "center center" : `${pos?.ox ?? 0}px ${pos?.oy ?? 0}px`,
+          }}
+          className="solid-card relative rounded-2xl shadow-2xl"
+        >
+          {/* morph 迷你格覆盖层：2×2 缩微格与 v8.7.157 九宫格磁贴完全同源——
+              随卡片从磁贴绽放淡入，160ms 后交叉淡出露出演成品面板内容；
+              pointer-events 恒关，绝不拦截交互 */}
+          {openStyle === "morph" && pos && (
+            <motion.span
+              aria-hidden
+              data-cl-folder-morph-preview="1"
+              className="pointer-events-none absolute inset-0 z-10 overflow-hidden rounded-[inherit]"
+              initial={{ opacity: 1 }}
+              animate={{ opacity: 0 }}
+              transition={{ delay: 0.16, duration: 0.18 }}
+            >
+              {folder.children.length === 0 ? (
+                <span className="flex h-full w-full items-center justify-center">
+                  <Folder
+                    className="h-10 w-10 text-zinc-600/70 dark:text-zinc-200/70"
+                    strokeWidth={1.4}
+                  />
+                </span>
+              ) : (
+                <span className="grid h-full w-full grid-cols-2 gap-[4px] p-[10px]">
+                  {folder.children.slice(0, 3).map((c) => (
+                    <TileIcon key={c.id} link={c} iconStyle={iconStyle} bare />
+                  ))}
+                  {folder.children.length > 3 ? (
+                    <span className="flex items-center justify-center rounded-[6px] bg-white/45 text-[12px] font-light tracking-wide text-zinc-700/85 dark:bg-white/15 dark:text-zinc-100/90">
+                      +{folder.children.length - 3}
+                    </span>
+                  ) : (
+                    <span className="rounded-[6px] bg-white/45 dark:bg-white/15" />
+                  )}
+                </span>
+              )}
+            </motion.span>
+          )}
+          <FolderPanelBody
+            folder={folder}
+            iconStyle={iconStyle}
+            editing={editing}
+            onEnterEdit={onEnterEdit}
+            onDelete={onDelete}
+            onRename={onRename}
+            onDissolve={onDissolve}
+            onClose={onClose}
+            maxH={modal ? "max-h-[min(420px,58vh)]" : "max-h-[300px]"}
+          />
+        </motion.div>
+      </div>
+    </>
+  );
+}
+
+/* ---------- v8.7.158 inline 原位内嵌展开（Win11 式，用户选型 4）----------
+ *  不走 portal：文件夹磁贴原地膨胀成大卡（FolderPanelBody 完全同源），邻居
+ *  磁贴由外层 Tile 的 motion layout 弹簧自动让位；挂 data-cl-folder-inline
+ *  稳定锚（verify/冒烟）+ data-cl-folder-popover 标记（编辑退出/中键呩出
+ *  外点守卫三处自动兼容，inline 外点收起守卫在主组件）。入场轻绽放，
+ *  尺寸/位置交外层 layout 弹簧；膨胀态外层 sortable 监听已摘（见 Tile）。 */
+function FolderInlineCard({
+  folder,
+  iconStyle,
+  editing,
+  onEnterEdit,
+  onDelete,
+  onRename,
+  onDissolve,
+  onClose,
+}: {
+  folder: StartFolder;
+  iconStyle: IconStyle;
+  editing: boolean;
+  onEnterEdit: () => void;
+  onDelete: (id: string) => void;
+  onRename: (name: string) => void;
+  onDissolve: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <motion.div
+      data-cl-folder-inline="1"
+      data-cl-folder-popover="1"
+      initial={{ opacity: 0, scale: 0.94 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={LAYOUT_SPRING}
+      className="solid-card w-[336px] max-w-[88vw] overflow-hidden rounded-2xl shadow-2xl"
+    >
+      <FolderPanelBody
+        folder={folder}
+        iconStyle={iconStyle}
+        editing={editing}
+        onEnterEdit={onEnterEdit}
+        onDelete={onDelete}
+        onRename={onRename}
+        onDissolve={onDissolve}
+        onClose={onClose}
+      />
+    </motion.div>
   );
 }
 
@@ -1035,13 +1238,21 @@ interface TileProps {
   onDelete: (id: string) => void;
   /** v8.7.156 文件夹点击 → 原位展开 popover */
   onOpenFolder: (id: string) => void;
+  /** v8.7.158 inline 原位内嵌：本夹已膨胀为内嵌大卡（取代磁贴本体，
+   *  外层 sortable 拖拽监听同步摘除——子磁贴拖拽不与外层抢指针） */
+  inlineOpen?: boolean;
+  /** v8.7.158 文件夹改名（inline 膨胀卡头部用；popover 走 portal props） */
+  onRenameFolder?: (id: string, name: string) => void;
 }
 
 /** memo 化：拖拽跨格只动数组顺序，未受影响磁贴的 props 恒等 → 跳过重渲染 */
-const Tile = memo(function Tile({ entry, iconStyle, editing, sm = false, onEnterEdit, onDelete, onOpenFolder }: TileProps) {
+const Tile = memo(function Tile({ entry, iconStyle, editing, sm = false, onEnterEdit, onDelete, onOpenFolder, inlineOpen = false, onRenameFolder }: TileProps) {
   /* dnd-kit 只用来「跟踪指针 + 判定落点」：重排走数组 splice，位置动画由
      framer layout 承载（两层各管一段，transform 不打架） */
   const { setNodeRef, listeners, isDragging } = useSortable({ id: entry.id });
+  /* v8.7.158 inline 膨胀态摘拖拽监听：大卡不再被整卡拖走（收起后照常），
+     夹内子磁贴的 useSortable 监听独占指针 */
+  const sortableListeners = inlineOpen ? undefined : listeners;
   const folder = isFolder(entry);
   const link = folder ? null : (entry as StartLink);
 
@@ -1100,7 +1311,7 @@ const Tile = memo(function Tile({ entry, iconStyle, editing, sm = false, onEnter
       exit={{ opacity: 0, scale: 0.86, transition: { duration: 0.22 } }}
       transition={LAYOUT_SPRING}
       className="group relative select-none"
-      {...listeners}
+      {...sortableListeners}
     >
       {/* 拖拽期间磁贴「隐身」（透明 + 穿透），松手 160ms 淡入——浮层飞回落点即本体 */}
       <motion.div
@@ -1109,6 +1320,20 @@ const Tile = memo(function Tile({ entry, iconStyle, editing, sm = false, onEnter
         style={{ pointerEvents: isDragging ? ("none" as const) : undefined }}
       >
         {folder ? (
+          inlineOpen ? (
+            /* v8.7.158 inline 原位内嵌展开（Win11 式）：磁贴本体被膨胀大卡取代，
+               外层 motion layout 弹簧带动邻居让位；收起走 onOpenFolder 翻转 */
+            <FolderInlineCard
+              folder={entry}
+              iconStyle={iconStyle}
+              editing={editing}
+              onEnterEdit={onEnterEdit}
+              onDelete={onDelete}
+              onRename={(name) => onRenameFolder?.(entry.id, name)}
+              onDissolve={() => onDelete(entry.id)}
+              onClose={() => onOpenFolder(entry.id)}
+            />
+          ) : (
           /* v8.7.156 文件夹磁贴：无 href——点击 = 原位展开 popover；
              右键同开（不放系统菜单）；编辑态短按 = 重命名（popover 内改名） */
           <div
@@ -1146,6 +1371,7 @@ const Tile = memo(function Tile({ entry, iconStyle, editing, sm = false, onEnter
           >
             <TileVisual entry={entry} iconStyle={iconStyle} jiggle={editing} intro sm={sm} />
           </div>
+          )
         ) : (
           <a
             href={link!.url}
@@ -1249,6 +1475,7 @@ function QuickLinks({
   form = "drawer",
   ghost = false,
   dockOn = true,
+  folderOpenStyle = "morph",
 }: {
   links: StartEntry[];
   setLinks: (updater: (prev: StartEntry[]) => StartEntry[]) => void;
@@ -1267,6 +1494,10 @@ function QuickLinks({
   /** v8.7.108 Dock 栏在位标志（settings.showDock）：翻转触发磁贴区下边界
    *  复测——Dock 挂/卸不改变 rootRef 自身尺寸，rootRef 的 RO 感知不到 */
   dockOn?: boolean;
+  /** v8.7.158 文件夹展开方式：morph = 磁贴形变绽放（默认，iOS 同款）/
+   *  modal = 居中模态（背景压暗虚化）/ inline = 原位内嵌（磁贴膨胀成大卡）。
+   *  三形态面板内容与拖拽链路同源，仅「怎么出现」不同 */
+  folderOpenStyle?: FolderOpenStyle;
 }) {
   const drawer = form === "drawer";
   /* v8.7.105 磁贴数量不限律（用户指令：不要限制磁贴的数量）：
@@ -1297,6 +1528,57 @@ function QuickLinks({
   const openFolderPopover = useCallback((id: string) => {
     setOpenFolderId((cur) => (cur === id ? null : id));
   }, []);
+
+  /* ---------- v8.7.158 三形态展开（folderOpenStyle: morph/modal/inline）----------
+     · renameFolder：popover 与 inline 膨胀卡共用的改名动作（id 定位，
+       与 v8.7.156 popover 直改同语义）；
+     · 收起存续窗：popover 收起后把最后一个夹短保留 270ms，让 portal 内
+       AnimatePresence 的 exit 播完（morph 缩回磁贴中心 / modal 淡出）
+       再卸载——AnimatePresence 不能包 createPortal 外层（framer v12
+       PORTAL 子元素 presence 注册失效律，同抽屉 latch 注释），故放
+       portal 内部 + latch 控存续；
+     · inline 外点收起：无 portal 守卫，挂主组件（点膨胀卡/另一磁贴
+       不收，空白收起）。 */
+  const renameFolder = useCallback(
+    (id: string, name: string) => {
+      setLinks((prev) => patchFolder(prev, id, (f) => ({ ...f, name })));
+    },
+    [setLinks],
+  );
+  const [exitFolder, setExitFolder] = useState<StartFolder | null>(null);
+  const lastOpenRef = useRef<StartFolder | null>(null);
+  useEffect(() => {
+    if (openFolder) {
+      setExitFolder(null);
+      lastOpenRef.current = openFolder;
+      return;
+    }
+    const last = lastOpenRef.current;
+    if (!last) return;
+    setExitFolder(last);
+    const t = setTimeout(() => {
+      setExitFolder(null);
+      lastOpenRef.current = null;
+    }, 270);
+    return () => clearTimeout(t);
+  }, [openFolder]);
+  /** portal 渲染目标（收起存续窗共用）：exit 期的夹已离场但仍在播动画 */
+  const popFolder = openFolder ?? exitFolder;
+
+  /* inline 原位内嵌外点收起：点在膨胀卡/磁贴上不收（可能是下一轮拖拽/
+     开另一夹），空白处收起；守卫语义与 popover 外点完全对齐 */
+  useEffect(() => {
+    if (folderOpenStyle !== "inline" || !openFolderId || ghost) return;
+    const onDown = (e: PointerEvent) => {
+      const t = e.target as Element | null;
+      if (!t || typeof t.closest !== "function") return;
+      if (t.closest("[data-cl-folder-inline]")) return;
+      if (t.closest("[data-cl-tile]")) return;
+      setOpenFolderId(null);
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [folderOpenStyle, openFolderId, ghost]);
 
   /* 拖拽会话期背景冻结（v8.7.155 三闸门律复用）：activeId 非空 = 拖拽中——
      极光/壁纸 kenburns/视频暂停，毛玻璃磁贴的 backdrop 采样链全链静止，
@@ -1833,6 +2115,9 @@ function QuickLinks({
     return () => clearTimeout(t);
   }, [open, mount]);
 
+  /* v8.7.158 inline 形态：唯一展开的夹（逐磁贴 bool 透传，memo 未受影响磁贴跳过重渲染） */
+  const inlineOpenId = folderOpenStyle === "inline" ? openFolderId : null;
+
   /** 磁贴墙（两形态共用 JSX）：docked 56px / drawer 64px。
    *  cl-links-grid：nth-child(even) 反向抖动（globals.css，青柠同款交替摆）。
    *  v8.7.156：StartEntry 混存渲染（文件夹磁贴走 FolderTileVisual）；
@@ -1856,6 +2141,8 @@ function QuickLinks({
                   onEnterEdit={enterEdit}
                   onDelete={removeEntry}
                   onOpenFolder={openFolderPopover}
+                  inlineOpen={inlineOpenId === en.id}
+                  onRenameFolder={renameFolder}
                 />
               ))}
             </AnimatePresence>
@@ -2084,30 +2371,35 @@ function QuickLinks({
           )
         : null}
 
-      {/* ---------- v8.7.156 文件夹原位展开 popover（portal，锚定磁贴节点） ----------
-          原位展开 = 从磁贴中心 scale 0.72→1 弹出，不做居中大浮层；
-          磁贴让位/滚动/resize 实时跟随（FolderPopover 内实测 rect 定位）；
-          外点/Esc 收起；拖拽会话中保持展开可连续入夹。 */}
-      {portalReady && openFolder && !ghost
+      {/* ---------- v8.7.156/v8.7.158 文件夹原位展开 popover（portal，锚定磁贴节点） ----------
+          morph 形变/modal 居中走 portal（从磁贴中心绽放 / 居中模态，见 FolderPopover）；
+          inline 原位内嵌不走 portal——磁贴原地膨胀（Tile inline 分支 FolderInlineCard）。
+          AnimatePresence 置于 portal 内部（framer v12 对 PORTAL 类型子元素的
+          presence 注册失效律，见抽屉 latch 注释）；收起 exit（morph 缩回磁贴
+          中心 / modal 淡出还原）由 popFolder 存续窗播出后再卸载 portal；
+          磁贴让位/滚动/resize 实时跟随；外点/Esc 收起；拖拽会话中保持展开可连续入夹。 */}
+      {portalReady && popFolder && !ghost && folderOpenStyle !== "inline"
         ? createPortal(
-            <FolderPopover
-              folder={openFolder}
-              iconStyle={iconStyle}
-              editing={editing}
-              onEnterEdit={enterEdit}
-              onDelete={removeEntry}
-              onRename={(name) =>
-                setLinks((prev) =>
-                  patchFolder(prev, openFolder.id, (f) => ({ ...f, name }))
-                )
-              }
-              onDissolve={() => {
-                setLinks((prev) => dissolveFolder(prev, openFolder.id));
-                setOpenFolderId(null);
-              }}
-              onClose={() => setOpenFolderId(null)}
-              anchorEl={folderAnchorEl(openFolder.id)}
-            />,
+            <AnimatePresence>
+              {openFolder ? (
+                <FolderPopover
+                  key={openFolder.id}
+                  folder={openFolder}
+                  iconStyle={iconStyle}
+                  editing={editing}
+                  onEnterEdit={enterEdit}
+                  onDelete={removeEntry}
+                  onRename={(name) => renameFolder(openFolder.id, name)}
+                  onDissolve={() => {
+                    setLinks((prev) => dissolveFolder(prev, openFolder.id));
+                    setOpenFolderId(null);
+                  }}
+                  onClose={() => setOpenFolderId(null)}
+                  anchorEl={folderAnchorEl(openFolder.id)}
+                  openStyle={folderOpenStyle}
+                />
+              ) : null}
+            </AnimatePresence>,
             document.body,
           )
         : null}
