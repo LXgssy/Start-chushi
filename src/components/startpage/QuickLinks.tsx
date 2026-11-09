@@ -40,7 +40,13 @@
 
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { AnimatePresence, motion, useReducedMotion, useSpring } from "framer-motion";
+import {
+  AnimatePresence,
+  motion,
+  useReducedMotion,
+  useSpring,
+  type Variants,
+} from "framer-motion";
 import { Check, Folder, FolderMinus, FolderPlus, Pencil, X } from "lucide-react";
 import {
   DndContext,
@@ -908,19 +914,78 @@ function FolderPanelBody({
   );
 }
 
-/* ---------- v8.7.156/v8.7.158 文件夹原位展开 popover（portal 到 body，锚定磁贴节点实时跟随）----------
+/* ---------- v8.7.159 morph 真形变卡片三态 variants（用户定稿口径）----------
+ *  面板从磁贴矩形（.tile-shell 实测，不含下方名称标签）原地 rect 弹簧长到
+ *  成品尺寸——x/y/width/height 全量 rect 动画，即「磁贴本体长大成白卡」，
+ *  起终点像素级对齐磁贴，替代 v8.7.158 的 scale 0.22→1 白卡缩放；
+ *  shown 终点 width/height = auto（内容自然高），弹簧收尾无跳变。
+ *  enter/gone 共用同一实测矩形（mrect）——绽放起点与收起终点同为磁贴本体。 */
+type MorphRect = { x: number; y: number; w: number; h: number };
+const FOLDER_SPRING = {
+  type: "spring",
+  stiffness: 420,
+  damping: 34,
+  mass: 0.9,
+} as const;
+function morphCardVariants(r: MorphRect | null): Variants {
+  const x = r?.x ?? 0;
+  const y = r?.y ?? 0;
+  const w = r?.w ?? 64;
+  const h = r?.h ?? 64;
+  return {
+    enter: { x, y, width: w, height: h, opacity: 1 },
+    shown: {
+      x: 0,
+      y: 0,
+      width: "auto",
+      height: "auto",
+      opacity: 1,
+      transition: FOLDER_SPRING,
+    },
+    gone: {
+      x,
+      y,
+      width: w,
+      height: h,
+      opacity: 1,
+      transition: { duration: 0.24, ease: "easeIn" },
+    },
+  };
+}
+/* skin 层（磁贴本体观感）：enter 全显 → shown 160ms 延迟交叉淡出露出演成
+ * 面板 → gone 淡回磁贴观感（delay 50ms）再随整卡缩回磁贴矩形；
+ * 子 motion 组件不带 initial/animate，沿父卡片 variants 状态机自动跟随。 */
+const FOLDER_SKIN_VARIANTS: Variants = {
+  enter: { opacity: 1 },
+  shown: { opacity: 0, transition: { delay: 0.16, duration: 0.2, ease: "easeOut" } },
+  gone: { opacity: 1, transition: { delay: 0.05, duration: 0.15, ease: "easeOut" } },
+};
+/* 内容层（FolderPanelBody 包裹）：enter 透明 → shown 150ms 延迟交叉淡入 →
+ * gone 100ms 快速淡出（先于整卡缩回，露出 skin 磁贴观感）。 */
+const FOLDER_CONTENT_VARIANTS: Variants = {
+  enter: { opacity: 0 },
+  shown: { opacity: 1, transition: { delay: 0.15, duration: 0.24, ease: "easeOut" } },
+  gone: { opacity: 0, transition: { duration: 0.1, ease: "easeIn" } },
+};
+
+/* ---------- v8.7.156/v8.7.158/v8.7.159 文件夹原位展开 popover（portal 到 body，锚定磁贴节点实时跟随）----------
  *  两形态（openStyle，inline 内嵌不走此组件，见 Tile 内 FolderInlineCard）：
- *   · morph 形变绽放（默认）：白卡从磁贴中心原位长出——transformOrigin 实测
- *     锚定磁贴中心（拖拽让位/滚动/resize 全跟随，origin 随卡片位置走），
- *     scale 0.22→1 spring；2×2 迷你格覆盖层（data-cl-folder-morph-preview，
- *     与 v8.7.157 九宫格磁贴完全同源）随卡片绽放淡入、再交叉淡入成品面板；
- *     收起经 AnimatePresence exit 反向缩回磁贴中心；
+ *   · morph 真形变（默认，v8.7.159 用户定稿口径）：白卡从磁贴矩形原地
+ *     rect 弹簧长大——磁贴本体长大成卡（x/y/width/height 全量 rect 动画，
+ *     起终点像素级对齐磁贴，非 scale 弹出）；skin 层（data-cl-folder-
+ *     morph-preview）升级磁贴本体观感（hueOf 渐变玻璃 + 与九宫格完全同源
+ *     gap-[3px] p-[9px] 2×2 缩微格），随卡片一起放大，160ms 后与成品面板
+ *     交叉淡入；收起反向：内容 100ms 淡出 → skin 淡回磁贴观感 → 整卡
+ *     240ms easeIn 缩回磁贴矩形；绽放期 growingRef 跟随闸（~520ms）防
+ *     逐帧中间尺寸回灌 clamp 抖动；
  *   · modal 居中模态：整墙压暗虚化（data-cl-folder-modal 遮罩层，点遮罩即
  *     收起），白卡飞入屏幕中央放大，内容区上限抬到 min(420px, 58vh)，
  *     收起淡出还原整墙；
  *  定位：morph 优先磁贴正下方、空间不足翻上方，水平居中 clamp 进视口；
- *  modal 实测居中 clamp。跟随：每次渲染后实测（拖拽让位/增删磁贴全跟随）
- *  + 滚动/resize 兜底；
+ *  modal 实测居中 clamp。量尺态首帧：pos 未定时渲染自然尺寸静置份供
+ *  measure 实测（同一时刻只挂一份 FolderPanelBody），pos 到位换真身卡片
+ *  重挂（framer initial 从磁贴矩形起跳）。跟随：每次渲染后实测（拖拽
+ *  让位/增删磁贴全跟随）+ 滚动/resize 兜底（绽放期闸内暂缓）；
  *  外点收起：点在面板内/磁贴本体不收；点在另一磁贴上不收（可能是下一轮
  *  拖拽/开另一夹）；modal 遮罩在面板外，点击由遮罩自身 pointerdown 收起。 */
 function FolderPopover({
@@ -952,11 +1017,17 @@ function FolderPopover({
     left: number;
     top: number;
     below: boolean;
-    /** v8.7.158 morph 绽放原点：磁贴中心相对面板的坐标（transformOrigin 用） */
-    ox: number;
-    oy: number;
   } | null>(null);
+  /** v8.7.159 morph 真形变矩形：磁贴本体（.tile-shell）相对面板容器的
+   *  偏移与尺寸——enter 起点与 gone 终点共用，起终点像素级对齐磁贴 */
+  const [mrect, setMrect] = useState<MorphRect | null>(null);
+  /** v8.7.159 绽放期跟随闸：磁贴 rect 弹簧长卡期间面板宽度逐帧处于中间值，
+   *  此窗内 measure 的 clamp 回灌会让弹簧追着抖（逐帧中间尺寸回灌），
+   *  一律短路；~520ms（spring 420/34/0.9 收敛尾）后恢复让位/滚动跟随 */
+  const growingRef = useRef(false);
   const modal = openStyle === "modal";
+  /* v8.7.159 skin 磁贴观感色相：与九宫格磁贴同源 hueOf(夹名)（同夹恒同色） */
+  const hue = hueOf(folder.name);
 
   const measure = useCallback(() => {
     const panel = panelRef.current;
@@ -965,7 +1036,15 @@ function FolderPopover({
       onClose();
       return;
     }
-    const a = anchorEl.getBoundingClientRect();
+    /* v8.7.159 绽放期跟随闸：真身卡片 rect 弹簧中，短路口径见 growingRef 注 */
+    if (!modal && growingRef.current) return;
+    const a0 = anchorEl.getBoundingClientRect();
+    /* v8.7.159 morph 真形变起点：磁贴本体（.tile-shell，不含下方名称标签）
+     * 实测——面板锚定的 data-entry-id 包裹层含标签，须下沉取本体 */
+    const a =
+      modal
+        ? a0
+        : (anchorEl.querySelector<HTMLElement>(".tile-shell")?.getBoundingClientRect() ?? a0);
     const pw = panel.offsetWidth;
     const ph = panel.offsetHeight;
     const gap = 10;
@@ -994,21 +1073,41 @@ function FolderPopover({
         }
       }
     }
-    /* morph 绽放原点：磁贴中心相对面板左上角的偏移（面板相对定位磁贴
-       上下/左右翻转时 origin 自动跟随，绽放方向恒指向磁贴） */
-    const ox = Math.round(a.left + a.width / 2 - left);
-    const oy = Math.round(a.top + a.height / 2 - top);
+    if (!modal) {
+      /* v8.7.159 morph 真形变矩形：磁贴本体相对面板容器的偏移与尺寸
+       * （enter 起点与 gone 终点），绽放期闸外实时跟随磁贴让位 */
+      const mx = Math.round(a.left - left);
+      const my = Math.round(a.top - top);
+      const mw = Math.round(a.width);
+      const mh = Math.round(a.height);
+      setMrect((r) =>
+        r && r.x === mx && r.y === my && r.w === mw && r.h === mh
+          ? r
+          : { x: mx, y: my, w: mw, h: mh }
+      );
+    }
     setPos((p) =>
       p &&
       p.left === Math.round(left) &&
       p.top === Math.round(top) &&
-      p.below === below &&
-      p.ox === ox &&
-      p.oy === oy
+      p.below === below
         ? p
-        : { left: Math.round(left), top: Math.round(top), below, ox, oy }
+        : { left: Math.round(left), top: Math.round(top), below }
     );
   }, [anchorEl, onClose, modal]);
+
+  /* v8.7.159 绽放期置位：pos 到位（静置量尺份 → 真身重挂）即开闸，spring
+   * 收敛尾后恢复 measure 跟随；声明在 measure effect 之前——同轮 layout
+   * effects 按声明序执行，保证真身首帧 measure 前已闸住 */
+  const posReady = pos != null;
+  useLayoutEffect(() => {
+    if (!posReady || modal) return;
+    growingRef.current = true;
+    const t = setTimeout(() => {
+      growingRef.current = false;
+    }, 520);
+    return () => clearTimeout(t);
+  }, [posReady, modal]);
 
   /* 无依赖数组 = 每次渲染后重定位（父级重渲染即跟随拖拽让位） */
   useLayoutEffect(() => {
@@ -1068,68 +1167,116 @@ function FolderPopover({
           visibility: pos ? undefined : "hidden",
         }}
       >
-        <motion.div
-          initial={modal ? { opacity: 0, scale: 0.88, y: 16 } : { opacity: 0, scale: 0.22 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={
-            modal
-              ? { opacity: 0, scale: 0.9, y: 8, transition: { duration: 0.18, ease: "easeIn" } }
-              : { opacity: 0, scale: 0.24, transition: { duration: 0.2, ease: "easeIn" } }
-          }
-          transition={{ type: "spring", stiffness: 420, damping: 34, mass: 0.9 }}
-          style={{
-            /* morph：原点实测锚定磁贴中心（缩回同路径）；modal：居中缩放 */
-            transformOrigin: modal ? "center center" : `${pos?.ox ?? 0}px ${pos?.oy ?? 0}px`,
-          }}
-          className="solid-card relative rounded-2xl shadow-2xl"
-        >
-          {/* morph 迷你格覆盖层：2×2 缩微格与 v8.7.157 九宫格磁贴完全同源——
-              随卡片从磁贴绽放淡入，160ms 后交叉淡出露出演成品面板内容；
-              pointer-events 恒关，绝不拦截交互 */}
-          {openStyle === "morph" && pos && (
-            <motion.span
-              aria-hidden
-              data-cl-folder-morph-preview="1"
-              className="pointer-events-none absolute inset-0 z-10 overflow-hidden rounded-[inherit]"
-              initial={{ opacity: 1 }}
-              animate={{ opacity: 0 }}
-              transition={{ delay: 0.16, duration: 0.18 }}
-            >
-              {folder.children.length === 0 ? (
-                <span className="flex h-full w-full items-center justify-center">
-                  <Folder
-                    className="h-10 w-10 text-zinc-600/70 dark:text-zinc-200/70"
-                    strokeWidth={1.4}
-                  />
-                </span>
-              ) : (
-                <span className="grid h-full w-full grid-cols-2 gap-[4px] p-[10px]">
-                  {folder.children.slice(0, 3).map((c) => (
-                    <TileIcon key={c.id} link={c} iconStyle={iconStyle} bare />
-                  ))}
-                  {folder.children.length > 3 ? (
-                    <span className="flex items-center justify-center rounded-[6px] bg-white/45 text-[12px] font-light tracking-wide text-zinc-700/85 dark:bg-white/15 dark:text-zinc-100/90">
-                      +{folder.children.length - 3}
-                    </span>
-                  ) : (
-                    <span className="rounded-[6px] bg-white/45 dark:bg-white/15" />
-                  )}
-                </span>
-              )}
-            </motion.span>
-          )}
-          <FolderPanelBody
-            folder={folder}
-            iconStyle={iconStyle}
-            editing={editing}
-            onEnterEdit={onEnterEdit}
-            onDelete={onDelete}
-            onRename={onRename}
-            onDissolve={onDissolve}
-            onClose={onClose}
-            maxH={modal ? "max-h-[min(420px,58vh)]" : "max-h-[300px]"}
-          />
-        </motion.div>
+        {pos ? (
+          <motion.div
+            {...(modal
+              ? {
+                  initial: { opacity: 0, scale: 0.88, y: 16 },
+                  animate: { opacity: 1, scale: 1, y: 0 },
+                  exit: {
+                    opacity: 0,
+                    scale: 0.9,
+                    y: 8,
+                    transition: { duration: 0.18, ease: "easeIn" },
+                  },
+                  transition: FOLDER_SPRING,
+                  style: { transformOrigin: "center center" },
+                }
+              : {
+                  /* v8.7.159 morph 真形变：从磁贴矩形（enter）rect 弹簧长到
+                     成品自然尺寸（shown，width/height auto），收起经 gone
+                     反向缩回磁贴矩形——起终点像素级对齐磁贴本体 */
+                  variants: morphCardVariants(mrect),
+                  initial: "enter" as const,
+                  animate: "shown" as const,
+                  exit: "gone" as const,
+                })}
+            className="solid-card relative rounded-2xl shadow-2xl"
+          >
+            {/* morph skin 层：磁贴本体观感（hueOf 渐变玻璃 + 白/墨玻璃底 +
+                与九宫格完全同源 gap-[3px] p-[9px] 2×2 缩微格/空夹夹形），
+                格子随卡片 rect 放大一起拉伸；160ms 后交叉淡出露出演成面板；
+                pointer-events 恒关，绝不拦截交互 */}
+            {openStyle === "morph" && (
+              <motion.span
+                aria-hidden
+                data-cl-folder-morph-preview="1"
+                variants={FOLDER_SKIN_VARIANTS}
+                className="pointer-events-none absolute inset-0 z-10 overflow-hidden rounded-[inherit]"
+              >
+                <span
+                  aria-hidden
+                  className="absolute inset-0 rounded-[inherit]"
+                  style={{
+                    background:
+                      "linear-gradient(135deg, hsl(" +
+                      hue +
+                      " 42% var(--tile-grad-l1, 62%) / var(--tile-grad-a1, 0.22)), hsl(" +
+                      ((hue + 40) % 360) +
+                      " 46% var(--tile-grad-l2, 50%) / var(--tile-grad-a2, 0.14)))",
+                  }}
+                />
+                <span
+                  aria-hidden
+                  className="absolute inset-0 rounded-[inherit] bg-white/30 dark:bg-zinc-900/70"
+                />
+                {folder.children.length === 0 ? (
+                  <span className="relative flex h-full w-full items-center justify-center">
+                    <Folder
+                      className="h-10 w-10 text-zinc-600/70 dark:text-zinc-200/70"
+                      strokeWidth={1.4}
+                    />
+                  </span>
+                ) : (
+                  <span className="relative grid h-full w-full grid-cols-2 gap-[3px] p-[9px]">
+                    {folder.children.slice(0, 3).map((c) => (
+                      <TileIcon key={c.id} link={c} iconStyle={iconStyle} bare />
+                    ))}
+                    {folder.children.length > 3 ? (
+                      <span className="flex items-center justify-center rounded-[6px] bg-white/30 text-[10px] font-light tracking-wide text-zinc-600/80 dark:bg-white/10 dark:text-zinc-200/85">
+                        +{folder.children.length - 3}
+                      </span>
+                    ) : (
+                      <span className="rounded-[6px] bg-white/30 dark:bg-white/10" />
+                    )}
+                  </span>
+                )}
+              </motion.span>
+            )}
+            {/* 内容层包裹：morph 下沿父 variants 状态机交叉淡入/淡出
+                （shown delay 150ms / gone 100ms）；modal 下无动画直挂 */}
+            <motion.div variants={modal ? undefined : FOLDER_CONTENT_VARIANTS} className="relative">
+              <FolderPanelBody
+                folder={folder}
+                iconStyle={iconStyle}
+                editing={editing}
+                onEnterEdit={onEnterEdit}
+                onDelete={onDelete}
+                onRename={onRename}
+                onDissolve={onDissolve}
+                onClose={onClose}
+                maxH={modal ? "max-h-[min(420px,58vh)]" : "max-h-[300px]"}
+              />
+            </motion.div>
+          </motion.div>
+        ) : (
+          /* v8.7.159 量尺态首帧：pos 未定渲染自然尺寸静置份供 measure 实测
+             （同一时刻只挂一份 FolderPanelBody），pos 到位换真身卡片重挂
+             （framer initial 从磁贴矩形起跳，绽放零跳变） */
+          <div aria-hidden className="w-[336px]">
+            <FolderPanelBody
+              folder={folder}
+              iconStyle={iconStyle}
+              editing={editing}
+              onEnterEdit={onEnterEdit}
+              onDelete={onDelete}
+              onRename={onRename}
+              onDissolve={onDissolve}
+              onClose={onClose}
+              maxH={modal ? "max-h-[min(420px,58vh)]" : "max-h-[300px]"}
+            />
+          </div>
+        )}
       </div>
     </>
   );
