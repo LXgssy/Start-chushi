@@ -10,7 +10,7 @@ import fs from "node:fs";
 import { createHash } from "node:crypto";
 import { execSync } from "node:child_process";
 
-const ZIP = "/home/z/beta-wt/download/v8.7.159/ChuShi-NewTab-v8.7.159.zip";
+const ZIP = "/home/z/beta-wt/download/v8.7.160/ChuShi-NewTab-v8.7.160.zip";
 const STAGE = "/tmp/ext-smoke-v87159-regress";
 const PROFILE = "/tmp/ext-profile-v87159";
 const CHROME = "/home/z/.cache/ms-playwright/chromium-1200/chrome-linux64/chrome";
