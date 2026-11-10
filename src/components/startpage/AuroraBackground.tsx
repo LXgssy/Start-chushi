@@ -142,17 +142,20 @@ function AuroraBackground({
 
   /* ---------- v8.7.155 背景冻结律 · 媒体闸门 ----------
      漂移/kenburns 由 CSS 三闸门暂停（globals.cs-bg-frozen / cs-drawer /
-     cs-hidden），视频播放是媒体层，CSS 管不了——同三条件下显式 pause：
-     多开 N 页 = N 个解码器抢 CPU；满屏模糊纱罩之下每帧重滤波是同一账。
-     恢复一律 play()（muted 自动播族，NotAllowedError 吞掉即可）。 */
+     cs-hidden），视频播放是媒体层，CSS 管不了——显式 pause。
+     v8.7.163 闸门收敛（用户口径「打开抽屉页面时视频壁纸不要暂停」）：
+     cs-drawer（快捷服务抽屉挂载期）从视频闸退役——抽屉纱罩本来就是整页
+     高斯模糊让位，壁纸在纱罩下继续播不碍事；<video> 不带 kenburns/drift
+     类，CSS 闸门本就管不到视频帧，抽屉期暂停全部来自本媒体闸。现闸门
+     只剩两条件：页面隐藏（document.hidden，后台页解码器让路）与拖拽
+     会话（cs-bg-frozen，毛玻璃 backdrop 采样链静止降合成成本）。恢复
+     一律 play()（muted 自动播族，NotAllowedError 吞掉即可）。 */
   const [bgFrozen, setBgFrozen] = useState(false);
   useEffect(() => {
     const root = document.documentElement;
     const sync = () =>
       setBgFrozen(
-        document.hidden ||
-          root.classList.contains("cs-bg-frozen") ||
-          root.classList.contains("cs-drawer")
+        document.hidden || root.classList.contains("cs-bg-frozen")
       );
     sync();
     document.addEventListener("visibilitychange", sync);

@@ -134,6 +134,26 @@ export function createFolder(name = "新建文件夹", children: StartLink[] = [
   };
 }
 
+/** 拖叠建夹（v8.7.163）：链接 A 悬停链接 B 的 merge-dwell 到点——被悬停的
+ *  B 原位转夹（保持墙面位置与邻序，墙面观感 = B 原地变成文件夹），拖拽者
+ *  A 吸收为第二成员（children = [B, A]，后拖入者排后，iOS 同款语义）。
+ *  先摘 A 再在 B 的实位转夹：两序（A 在 B 前/后）文件夹都精确落在 B 原
+ *  墙位（若先置后摘，A 在 B 前时 splice 移位会让文件夹左漂一格）。
+ *  任一方已是文件夹则零变更（单层嵌套律：夹套夹由既有 putLinkIntoFolder
+ *  语义承担，不走这里）。 */
+export function mergeLinksWith(entries: StartEntry[], fromId: string, toId: string): StartEntry[] {
+  const fi = entries.findIndex((e) => e.id === fromId);
+  const ti = entries.findIndex((e) => e.id === toId);
+  if (fi < 0 || ti < 0 || fi === ti) return entries;
+  const a = entries[fi];
+  const b = entries[ti];
+  if (isFolder(a) || isFolder(b)) return entries;
+  const next = entries.filter((e) => e.id !== fromId);
+  const bi = next.findIndex((e) => e.id === toId);
+  next[bi] = createFolder("新建文件夹", [b as StartLink, a as StartLink]);
+  return next;
+}
+
 /* ---------- 读入期消毒（旧数据 / 弹窗直写 / 备份导入 / storage 事件共用） ----------
  * 规则：
  *   · 非对象条目丢弃；

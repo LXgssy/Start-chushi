@@ -76,6 +76,7 @@ import {
   dissolveFolder,
   isFolder,
   locateLink,
+  mergeLinksWith,
   patchFolder,
   putLinkIntoFolder,
   reorderWall,
@@ -572,12 +573,45 @@ function TileIcon({
  * 夹里有什么」才是文件夹；形态由 folderIconStyle 切换，v8.7.161）：
  *   · grid2（默认）：2×2 双排迷你格——1~4 站逐格画子站点图标（TileIcon bare
  *     形态，解析链同构）；>4 站前 3 格图标 + 第 4 格「+N」计数格（N=站数-3）；
- *   · grid3：3×3 三排微缩墙——1~8 站逐格 + 空位淡占位；>8 站前 8 格 +
- *     第 9 格「+N」（N=站数-8）；
- *   · 空夹：居中夹形图标占位（拖入站点即转九宫格）；
+ *   · grid3：3×3 三排微缩墙——1~9 站逐格（未满格留白，v8.7.163 淡占位退役）；
+ *     >9 站前 8 格 + 第 9 格「+N」（N=站数-8）；
+ *   · 空夹：居中夹形图标占位（拖入站点即转迷你格）；
  *   · 色相/描边环仍由夹名 hueOf 稳定派生（同夹恒同色）；
  *   · 点击 = 原位展开 popover；编辑态 × = 拆夹散落（零丢失非破坏）；
- *   · data-cl-folder-grid：九宫格内容层稳定标记（verify/冒烟锚）。 */
+ *   · data-cl-folder-grid：迷你格内容层稳定标记（verify/冒烟锚）。 */
+/** v8.7.163 文件夹迷你格共享渲染器（磁贴本体 + morph 皮层像素级同源律）：
+ *  满格律 full = grid3 ? 9 : 4（2×2 / 3×3）；n ≤ full 全画——grid3 未满格
+ *  留白不补占位（v8.7.161 淡占位格退役，用户口径「三排微缩墙的样式不要给
+ *  空位加上灰色占位格」）；n > full 画前 cap 格 + 末格「+N」计数格（iOS
+ *  同款收敛）。磁贴与皮层从此同源同律，杜绝两处 slice 口径漂移。 */
+function FolderMiniCells({
+  folder,
+  iconStyle,
+  folderIconStyle = "grid2",
+}: {
+  folder: StartFolder;
+  iconStyle: IconStyle;
+  folderIconStyle?: FolderIconStyle;
+}) {
+  const grid3 = folderIconStyle === "grid3";
+  const full = grid3 ? 9 : 4;
+  const cap = full - 1;
+  const n = folder.children.length;
+  const shown = n <= full ? folder.children.slice(0, full) : folder.children.slice(0, cap);
+  const more = n - shown.length;
+  return (
+    <>
+      {shown.map((c) => (
+        <TileIcon key={c.id} link={c} iconStyle={iconStyle} bare />
+      ))}
+      {more > 0 && (
+        <span className="flex items-center justify-center rounded-[6px] bg-white/30 text-[10px] font-light tracking-wide text-zinc-600/80 dark:bg-white/10 dark:text-zinc-200/85">
+          +{more}
+        </span>
+      )}
+    </>
+  );
+}
 function FolderTileVisual({
   folder,
   iconStyle,
@@ -588,20 +622,14 @@ function FolderTileVisual({
   folder: StartFolder;
   iconStyle: IconStyle;
   /** v8.7.161 图标形态（用户选型 A/B）：grid2 = 2×2 双排迷你格（默认，
-   *  v8.7.157 现状）/ grid3 = 3×3 三排微缩墙（空位淡占位，>8 站第 9 格「+N」） */
+   *  v8.7.157 现状）/ grid3 = 3×3 三排微缩墙（未满格留白，>8 站第 9 格「+N」） */
   folderIconStyle?: FolderIconStyle;
   intro?: boolean;
   sm?: boolean;
 }) {
   const hue = hueOf(folder.name);
   const n = folder.children.length;
-  const grid3 = folderIconStyle === "grid3";
-  /* 满格站点数（grid2: 4 = 2×2 / grid3: 9 = 3×3）；超满时最后一格让位给
-     「+N」计数格（只画前 cap 格图标，iOS 同款收敛） */
-  const full = grid3 ? 9 : 4;
-  const cap = full - 1;
-  const shown = n <= full ? folder.children.slice(0, full) : folder.children.slice(0, cap);
-  const more = n - shown.length;
+  /* 满格/留白/计数律已收敛进 FolderMiniCells（v8.7.163 磁贴与皮层同源） */
   return (
     <span
       aria-hidden
@@ -656,27 +684,13 @@ function FolderTileVisual({
               data-cl-folder-grid="1"
               className={
                 "grid h-full w-full " +
-                (grid3 ? "grid-cols-3 gap-[2px] p-[7px]" : "grid-cols-2 gap-[3px] p-[9px]")
+                (folderIconStyle === "grid3"
+                  ? "grid-cols-3 gap-[2px] p-[7px]"
+                  : "grid-cols-2 gap-[3px] p-[9px]")
               }
             >
-              {shown.map((c) => (
-                <TileIcon key={c.id} link={c} iconStyle={iconStyle} bare />
-              ))}
-              {more > 0 && (
-                <span className="flex items-center justify-center rounded-[6px] bg-white/30 text-[10px] font-light tracking-wide text-zinc-600/80 dark:bg-white/10 dark:text-zinc-200/85">
-                  +{more}
-                </span>
-              )}
-              {/* grid3 未满格补淡占位（微缩墙容量感）；grid2 保持 v8.7.157
-                  现状不补位，老用户观感零变化 */}
-              {grid3 &&
-                more === 0 &&
-                Array.from({ length: full - shown.length }, (_, i) => (
-                  <span
-                    key={"ph" + i}
-                    className="rounded-[6px] bg-white/20 dark:bg-white/[0.04]"
-                  />
-                ))}
+              {/* v8.7.163 磁贴/皮层同源渲染器：满格律 + 留白律像素级一致 */}
+              <FolderMiniCells folder={folder} iconStyle={iconStyle} folderIconStyle={folderIconStyle} />
             </span>
           )}
         </span>
@@ -1302,26 +1316,11 @@ function FolderPopover({
                           : "grid-cols-2 gap-[3px] p-[9px]")
                       }
                     >
-                      {folder.children.slice(0, folderIconStyle === "grid3" ? 8 : 3).map((c) => (
-                        <TileIcon key={c.id} link={c} iconStyle={iconStyle} bare />
-                      ))}
-                      {folder.children.length > (folderIconStyle === "grid3" ? 8 : 3) ? (
-                        <span className="flex items-center justify-center rounded-[6px] bg-white/30 text-[10px] font-light tracking-wide text-zinc-600/80 dark:bg-white/10 dark:text-zinc-200/85">
-                          +{folder.children.length - (folderIconStyle === "grid3" ? 8 : 3)}
-                        </span>
-                      ) : folderIconStyle === "grid3" ? (
-                        Array.from(
-                          { length: 9 - Math.min(folder.children.length, 9) },
-                          (_, i) => (
-                            <span
-                              key={"sph" + i}
-                              className="rounded-[6px] bg-white/20 dark:bg-white/[0.04]"
-                            />
-                          ),
-                        )
-                      ) : (
-                        <span className="rounded-[6px] bg-white/30 dark:bg-white/10" />
-                      )}
+                      {/* v8.7.163 皮层与磁贴同源渲染器：旧独立 slice(0,3/8)
+                          + 补底 span + grid3 淡占位全部退役——旧皮层 grid2
+                          满夹画 3 格 +「+1」而磁贴画 4 格，两处口径漂移
+                          修正为同一满格律（FolderMiniCells 注释） */}
+                      <FolderMiniCells folder={folder} iconStyle={iconStyle} folderIconStyle={folderIconStyle} />
                     </span>
                   )}
                 </motion.span>
@@ -1543,6 +1542,14 @@ const Tile = memo(function Tile({ entry, iconStyle, folderIconStyle = "grid2", e
   /* dnd-kit 只用来「跟踪指针 + 判定落点」：重排走数组 splice，位置动画由
      framer layout 承载（两层各管一段，transform 不打架） */
   const { setNodeRef, listeners, isDragging } = useSortable({ id: entry.id });
+  /* v8.7.163 inline 收起零重播：膨胀期磁贴本体（TileVisual）被大卡取代而
+     卸载，收起还原时本体重挂——TileVisual 新实例 introDone 复位，入场三
+     通道重播（用户口径「关闭动画播放完后文件夹磁贴图标会播放入场动画」）。
+     everInlineRef 渲染期幂等置位（等价 onMount latch，不进依赖数组不触发
+     额外渲染）：本 Tile 一旦 inline 过，intro 永久静默——收起还原即「直接
+     在位」，与夹内面板 intro={false} 同一语义。首次入场（从未 inline）照常。 */
+  const everInlineRef = useRef(false);
+  everInlineRef.current = everInlineRef.current || inlineOpen;
   /* v8.7.158 inline 膨胀态摘拖拽监听：大卡不再被整卡拖走（收起后照常），
      夹内子磁贴的 useSortable 监听独占指针 */
   const sortableListeners = inlineOpen ? undefined : listeners;
@@ -1662,7 +1669,15 @@ const Tile = memo(function Tile({ entry, iconStyle, folderIconStyle = "grid2", e
             aria-label={"打开文件夹 " + entry.name}
             className="flex w-20 touch-pan-y cursor-pointer flex-col items-center gap-2.5 rounded-xl outline-none focus-visible:ring-2 accent-ring"
           >
-            <TileVisual entry={entry} iconStyle={iconStyle} folderIconStyle={folderIconStyle} jiggle={editing} intro={intro} sm={sm} />
+            {/* v8.7.163 intro && !everInlineRef：inline 收起还原不重播入场（fix①） */}
+            <TileVisual
+              entry={entry}
+              iconStyle={iconStyle}
+              folderIconStyle={folderIconStyle}
+              jiggle={editing}
+              intro={intro && !everInlineRef.current}
+              sm={sm}
+            />
           </div>
           )
         ) : (
@@ -1819,6 +1834,18 @@ function QuickLinks({
   const [openFolderId, setOpenFolderId] = useState<string | null>(null);
   const dwellTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dwellFolderId = useRef<string | null>(null);
+  /* v8.7.163 拖叠建夹 merge-dwell（与文件夹 dwell 同拍同构 500ms）：链接
+     悬停顶层链接自动合并建夹——被悬停者 B 原位转夹、拖拽者 A 吸收为成员。
+     链接悬停链接改粘滞不重排是前提：墙内实时 swap 会把被悬停的 B 弹走
+     （A 顶位、over 翻转成 A 自身），指针永远无法稳定停留在 B 上，500ms
+     永不满足——即用户所见「A 悬停在 B 上面不会正常创建文件夹」（bug⑤ 根因） */
+  const mergeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mergeTargetId = useRef<string | null>(null);
+  /* v8.7.163 拖拽起点在夹内标记：dragOver 的「夹内→墙」出夹/同夹排序分支
+     仅对「主动从夹内拖出」的会话生效——拖叠建夹吸收拖拽者后，墙左移会让
+     指针的 hover 目标被动翻转，若不闸住会把刚吸收的磁贴拉出夹外（合并被
+     被动漂移抵消），拖拽起点在墙顶层的会话一律粘滞不响应这些分支 */
+  const dragStartedInsideRef = useRef(false);
   const openFolder = links.find((e) => e.id === openFolderId && isFolder(e)) as StartFolder | undefined;
 
   /** 点击/右键文件夹磁贴：原位展开（再点同一夹 = 收起） */
@@ -2125,8 +2152,21 @@ function QuickLinks({
     dwellFolderId.current = null;
   }
 
+  /** v8.7.163 merge-dwell 清理（与 clearDwell 同构） */
+  function clearMergeDwell() {
+    if (mergeTimer.current) {
+      clearTimeout(mergeTimer.current);
+      mergeTimer.current = null;
+    }
+    mergeTargetId.current = null;
+  }
+
   function handleDragStart(e: DragStartEvent) {
     dragSample.current = null;
+    /* v8.7.163 会话起点快照：起点在夹内 = 主动出夹拖拽，起点在墙顶层 =
+       墙面拖拽（含拖叠建夹），后者合并吸收后的被动 hover 翻转不触发
+       夹内分支（见 dragStartedInsideRef 注释） */
+    dragStartedInsideRef.current = !!locateLink(links, String(e.active.id))?.folder;
     tilt.set(0);
     liftScale.jump(reduceMotion ? 1 : 0.92);
     liftScale.set(reduceMotion ? 1 : 1.07);
@@ -2151,25 +2191,36 @@ function QuickLinks({
   }
 
   /* ---------- v8.7.156 跨容器拖拽让位（墙 ⇄ 文件夹） ----------
-     · 墙内磁贴互让 = 顶层 splice（原语义）；链接掠过文件夹 = 粘滞不排序；
+     · 墙内磁贴互让：链接悬停链接 = 粘滞不排序（v8.7.163，merge-dwell
+       前提），拖拽者与被悬停者的排序由 dragEnd 落点 reorderWall 兜底；
+       拖文件夹 = 实时 splice 让位（拖夹换位手感不回归）；
      · 拖到夹内子磁贴/夹区 = 入夹（putLinkIntoFolder）；
      · 夹内子磁贴拖到墙上磁贴 = 出夹插位（takeLinkOutOfFolder）；
      · 悬停文件夹磁贴 500ms = dwell 自动展开该夹（iOS 同款）——展开后
        松手（指针仍在夹上）= 入夹；展开态夹磁贴 = 吸收落点；
+     · v8.7.163 悬停顶层链接 500ms = merge-dwell 拖叠建夹（iOS 同款）；
      · 拖拽会话结束后 popover 保持展开，可连续拖多枚入夹。 */
   function handleDragOver(e: DragOverEvent) {
     const from = String(e.active.id);
     const to = e.over ? String(e.over.id) : null;
     if (!to || from === to) {
       clearDwell();
+      clearMergeDwell();
       return;
     }
     /* 拖的是否文件夹（拖拽会话中类型不变，闭包读当前 links 足够） */
     const isFolderActive = links.some((x) => x.id === from && isFolder(x));
+    /* 拖的是否夹内子磁贴（出夹插位语义，merge-dwell 不参与） */
+    const draggingInsideFolder = !!locateLink(links, from)?.folder;
 
-    /* dwell 自动开夹：over = 墙上文件夹磁贴（且非已展开的那个）→ 500ms 展开 */
+    /* ---------- 三分支互斥守门（v8.7.163）----------
+       A. over = 墙上文件夹磁贴（未展开）→ dwell 自动开夹；
+       B. 拖顶层链接悬停顶层链接 → merge-dwell 拖叠建夹（500ms 同拍）；
+       C. 其余（空白/夹区/掠过/夹内）→ 双清不驻留。 */
     const overWallEntry = links.find((x) => x.id === to);
     if (overWallEntry && isFolder(overWallEntry) && to !== openFolderId) {
+      /* A. dwell 自动开夹（原 v8.7.156 语义原样） */
+      clearMergeDwell();
       if (dwellFolderId.current !== to) {
         clearDwell();
         dwellFolderId.current = to;
@@ -2179,16 +2230,42 @@ function QuickLinks({
           setOpenFolderId(to);
         }, 500);
       }
-    } else {
+    } else if (
+      overWallEntry &&
+      !isFolder(overWallEntry) &&
+      !isFolderActive &&
+      !draggingInsideFolder
+    ) {
+      /* B. merge-dwell 拖叠建夹：拖顶层链接悬停顶层链接 500ms 到点合并。
+         拖文件夹（isFolderActive）与夹内磁贴（draggingInsideFolder）不参与
+         ——前者建夹无意义（单层律），后者悬停墙面是出夹插位语义。到点
+         mergeLinksWith：B 原位转夹 + A 吸收为成员；若 A 已在此前 merge 中
+         入夹，mergeLinksWith 顶层 findIndex 不命中零变更（防连锁误并）。 */
       clearDwell();
+      if (mergeTargetId.current !== to) {
+        clearMergeDwell();
+        mergeTargetId.current = to;
+        mergeTimer.current = setTimeout(() => {
+          mergeTimer.current = null;
+          const target = mergeTargetId.current;
+          mergeTargetId.current = null;
+          if (target) setLinks((prev) => mergeLinksWith(prev, from, target));
+        }, 500);
+      }
+    } else {
+      /* C. 其余：双清 */
+      clearDwell();
+      clearMergeDwell();
     }
 
     setLinks((prev) => {
       const fromLoc = locateLink(prev, from);
 
       if (to === "cl-wall-zone") {
-        /* 墙面空白区：夹内磁贴出夹追加到墙尾；墙内磁贴无操作 */
-        return fromLoc?.folder ? takeLinkOutOfFolder(prev, from)[0] : prev;
+        /* 墙面空白区：夹内磁贴【主动拖出】→ 出夹追加到墙尾；墙面拖拽会话
+           （含拖叠建夹吸收后的被动漂移）无操作——否则合并后指针静止、
+           over 翻转到 wall-zone 会把刚吸收的磁贴拉回墙上（v8.7.163） */
+        return fromLoc?.folder && dragStartedInsideRef.current ? takeLinkOutOfFolder(prev, from)[0] : prev;
       }
       if (to === "cl-folder-zone") {
         /* 夹区空白：入当前展开夹（追加尾）；已在夹内则为自由落点不动 */
@@ -2201,14 +2278,16 @@ function QuickLinks({
       const overEntry = prev.find((x) => x.id === to);
       if (overEntry && isFolder(overEntry)) {
         /* over = 墙上文件夹磁贴：
-           - 拖的是另一夹内子磁贴 → 出夹进该夹（追加尾）；
+           - 拖的是另一夹内子磁贴【主动拖出】→ 出夹进该夹（追加尾）；
+             v8.7.163：拖叠建夹吸收后的被动漂移（起点在墙顶）不触发——
+             否则合并后指针静止、over 翻到另一个夹会把吸收的磁贴搬走；
            - 该夹 popover 已展开（dwell 刚自动开的/手动点的）→ 落点即入夹
              ——展开就是「打开盖子」，指针仍停在夹磁贴上松手 = 收进去；
            - 拖链接掠过 → 【粘滞】：不触发邻位排序（文件夹不被弹开、dwell
              不被 over 翻转重置——否则「追着夹子跑」，500ms 悬停永不开夹）。
              链接与文件夹的相对排序由夹旁链接磁贴的让位挪动承担；文件夹
              之间排序走「拖文件夹到另一文件夹」分支（下方 reorderWall）。 */
-        if (fromLoc?.folder) {
+        if (fromLoc?.folder && dragStartedInsideRef.current) {
           if (fromLoc.folder.id !== to) return putLinkIntoFolder(prev, from, to)[0];
           return prev;
         }
@@ -2221,7 +2300,9 @@ function QuickLinks({
       if (!toLoc) return prev;
 
       if (fromLoc?.folder && toLoc.folder && fromLoc.folder.id === toLoc.folder.id) {
-        /* 同夹内排序 */
+        /* 同夹内排序：仅主动出夹拖拽会话生效（拖叠建夹吸收后的被动漂移
+           不重排夹内成员序，保住 children=[被悬停者, 拖拽者] 语义） */
+        if (!dragStartedInsideRef.current) return prev;
         const fid = fromLoc.folder.id;
         return patchFolder(prev, fid, (f) => {
           const ci = f.children.findIndex((c) => c.id === from);
@@ -2234,35 +2315,59 @@ function QuickLinks({
         });
       }
       if (fromLoc?.folder && !toLoc.folder) {
-        /* 夹内 → 墙上磁贴：出夹插到该磁贴位置 */
+        /* 夹内 → 墙上磁贴：出夹插到该磁贴位置。仅主动出夹会话（v8.7.163）
+           ——拖叠建夹吸收后墙左移、over 被动翻到右邻链接会把刚吸收的
+           磁贴拉出夹外（合并被抵消）——起点在墙顶的会话一律粘滞 */
+        if (!dragStartedInsideRef.current) return prev;
         return takeLinkOutOfFolder(prev, from, toLoc.wallIndex)[0];
       }
       if (!fromLoc?.folder && toLoc.folder) {
         /* 墙内 → 夹内子磁贴：入夹插到该子磁贴位置 */
         return putLinkIntoFolder(prev, from, toLoc.folder.id, toLoc.childIndex)[0];
       }
-      /* 墙内互让（含文件夹磁贴参与排序） */
-      return reorderWall(prev, from, to);
+      /* 墙内互让（v8.7.163 拖叠建夹律）：拖文件夹照旧实时让位；拖链接
+         改【粘滞】——实时 swap 会把被悬停的 B 弹走（A 顶替进位、over
+         翻转成 A 自身），merge-dwell 永不满足即「A 悬停 B 不建夹」根因；
+         链接排序由 handleDragEnd 落点 reorderWall 兜底（松手才换位，
+         iOS 同款）。 */
+      if (prev.some((x) => x.id === from && isFolder(x))) {
+        return reorderWall(prev, from, to);
+      }
+      return prev;
     });
   }
 
   function handleDragEnd(e: DragEndEvent) {
     clearDwell();
+    clearMergeDwell();
     dragSample.current = null;
     tilt.set(0);
     liftScale.set(1);
     glowO.set(0);
     shadowO.set(0);
-    /* v8.7.156 松手兜底：dwell 自动开夹后指针若未再移动（dragOver 不再
-       触发），落点=已展开夹的磁贴本身——此刻松手应入夹而非排序。
-       putLinkIntoFolder 幂等：dragOver 已吸收过的再次调用零变更。 */
+    /* ---------- v8.7.163 松手兜底（重构自 v8.7.156 单一兜底）----------
+       兜底一（fix④ 免开层入夹）：落点 = 任意墙上文件夹磁贴 → 直接入夹
+       ——文件夹页面不打开也能拖入（用户口径「磁贴悬停于文件夹上方时
+       文件夹页面不打开就可以拖入」）。putLinkIntoFolder 幂等：dragOver
+       已吸收过的再次调用零变更；拖文件夹时 locateLink 不命中 → 零变更
+       （文件夹实时让位已在 dragOver 完成）。
+       兜底二（拖叠建夹律）：拖链接落点 = 顶层链接 → reorderWall 重排
+       （悬停期粘滞不重排，松手换位）；落点 = 夹内子磁贴 → 上方 loc.folder
+       分支直接零变更（dragOver 已入夹）。 */
+    const from = String(e.active.id);
     const overId = e.over ? String(e.over.id) : null;
-    if (overId && overId === openFolderId) {
-      const from = String(e.active.id);
+    if (overId && overId !== from) {
       setLinks((prev) => {
         const loc = locateLink(prev, from);
-        if (loc?.folder && loc.folder.id === overId) return prev; // 已在夹内
-        return putLinkIntoFolder(prev, from, overId)[0];
+        if (!loc) return prev; // 拖的是文件夹：排序已实时完成
+        if (loc.folder && loc.folder.id === overId) return prev; // 已在本夹内
+        const overWallEntry = prev.find((x) => x.id === overId);
+        if (overWallEntry && isFolder(overWallEntry)) {
+          /* 落点 = 墙上文件夹磁贴：免开层直接入夹（追加尾） */
+          return putLinkIntoFolder(prev, from, overId)[0];
+        }
+        if (loc.folder) return prev; // 落点 = 墙上链接：夹内磁贴已出夹插位
+        return reorderWall(prev, from, overId); // 顶层链接松手重排兜底
       });
     }
     setActiveId(null);
