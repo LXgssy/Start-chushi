@@ -1,7 +1,7 @@
 "use client";
 
 /* ============================================================
- * 「初始」PDF 工具箱（v8.7.52 落地 / v8.7.55 重构）
+ * 「初始」PDF 工具箱（v8.7.52 落地 / v8.7.55 重构 / v8.7.164 修复）
  *
  * itab「PDF 转换大师」同构布局：两行分组宫格（转换 / 处理）+ 选中后
  * 操作区（描述 → 条件输入 → 选择文件 → 文件列表 → 执行 → 结果）。
@@ -20,6 +20,16 @@
  *   html2canvas + jspdf：Word/Excel → HTML 排版 → 光栅化 → A4 分页；
  *   docx：PDF 文本 → .docx（每页标题 + 段落）；
  *   pptxgenjs：PDF 每页 2x PNG → 16:9 全幅图片型 .pptx。
+ *
+ * v8.7.164 修复（用户反馈「全部功能不可用」实证收窄）：
+ *   ① Word/Excel→PDF 红字报错 oklch —— html2canvas 克隆 ownerDocument 全文档
+ *      样式，Tailwind v4 @theme 的 oklch() 在其 CSS 解析器直接抛错；根修：
+ *      排版容器迁入 srcdoc 同源 iframe（独立文档零应用样式表）；
+ *   ② pdf2excel 下载名丢成 UUID —— XLSX.writeFile 在扩展页的 blob 触发链
+ *      不同于锚点下载，统一改 XLSX.write + downloadBlob；
+ *   ③ PDF 拆分新增每组 N 页（飞鼠格式同款口径）；
+ *   ④ 选文件前置类型校验：accept 是软限制，拖入可绕过，不匹配直接红字提示
+ *      （.doc 明确告知需另存 .docx）。
  *
  * 保真度声明（诚实降级，UI 内注明）：
  *   Word/Excel → PDF 走「HTML 重排版 + 光栅化」（视觉保真、文字不可选）；
@@ -91,7 +101,7 @@ const TOOLS: ToolMeta[] = [
     desc: "多张图片合成一个 PDF，每图一页，按列表顺序",
     icon: <ImagePlus strokeWidth={1.5} />,
     group: "convert",
-    accept: "image/jpeg,image/png,image/webp,image/gif,image/bmp,image/avif",
+    accept: "image/jpeg,image/png,image/webp,image/gif,image/bmp,image/avif,.jpg,.jpeg,.png,.webp,.gif,.bmp,.avif",
     multiple: true,
   },
   {
@@ -127,7 +137,7 @@ const TOOLS: ToolMeta[] = [
     desc: "提取 PDF 文本生成 docx（每页标题 + 段落）",
     icon: <FileText strokeWidth={1.5} />,
     group: "convert",
-    accept: "application/pdf",
+    accept: "application/pdf,.pdf",
     multiple: false,
   },
   {
@@ -136,7 +146,7 @@ const TOOLS: ToolMeta[] = [
     desc: "按坐标还原表格结构，每页一张工作表",
     icon: <FileSpreadsheet strokeWidth={1.5} />,
     group: "convert",
-    accept: "application/pdf",
+    accept: "application/pdf,.pdf",
     multiple: false,
   },
   {
@@ -145,7 +155,7 @@ const TOOLS: ToolMeta[] = [
     desc: "每页渲染成图片，生成 16:9 演示文稿",
     icon: <Presentation strokeWidth={1.5} />,
     group: "convert",
-    accept: "application/pdf",
+    accept: "application/pdf,.pdf",
     multiple: false,
   },
   {
@@ -154,7 +164,7 @@ const TOOLS: ToolMeta[] = [
     desc: "每一页渲染成 PNG，多页自动打包 zip",
     icon: <Images strokeWidth={1.5} />,
     group: "convert",
-    accept: "application/pdf",
+    accept: "application/pdf,.pdf",
     multiple: false,
   },
   {
@@ -163,16 +173,16 @@ const TOOLS: ToolMeta[] = [
     desc: "多个 PDF 按列表顺序合并为一个文件",
     icon: <Files strokeWidth={1.5} />,
     group: "process",
-    accept: "application/pdf",
+    accept: "application/pdf,.pdf",
     multiple: true,
   },
   {
     id: "split",
     name: "PDF 拆分",
-    desc: "每一页拆成独立 PDF，多页自动打包 zip",
+    desc: "逐页或按每组 N 页拆成独立 PDF，多组自动打包 zip",
     icon: <Scissors strokeWidth={1.5} />,
     group: "process",
-    accept: "application/pdf",
+    accept: "application/pdf,.pdf",
     multiple: false,
   },
   {
@@ -181,7 +191,7 @@ const TOOLS: ToolMeta[] = [
     desc: "AES-256 加密，打开需要密码",
     icon: <Lock strokeWidth={1.5} />,
     group: "process",
-    accept: "application/pdf",
+    accept: "application/pdf,.pdf",
     multiple: false,
     password: true,
     passwordConfirm: true,
@@ -192,7 +202,7 @@ const TOOLS: ToolMeta[] = [
     desc: "输入密码，导出无密码副本",
     icon: <LockOpen strokeWidth={1.5} />,
     group: "process",
-    accept: "application/pdf",
+    accept: "application/pdf,.pdf",
     multiple: false,
     password: true,
   },
@@ -202,7 +212,7 @@ const TOOLS: ToolMeta[] = [
     desc: "抽取 PDF 全部文字，下载 txt 或直接复制",
     icon: <Type strokeWidth={1.5} />,
     group: "process",
-    accept: "application/pdf",
+    accept: "application/pdf,.pdf",
     multiple: false,
   },
 ];
@@ -233,6 +243,22 @@ function baseName(name: string) {
   return name.replace(/\.[^.]+$/, "");
 }
 
+/** v8.7.164 前置类型校验：accept 串（.ext / type/* / type）逐项匹配，
+ *  MIME 空的文件回退扩展名判定 */
+function acceptOk(meta: ToolMeta, f: File): boolean {
+  const parts = meta.accept
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  const name = f.name.toLowerCase();
+  const mime = (f.type || "").toLowerCase();
+  return parts.some((p) => {
+    if (p.startsWith(".")) return name.endsWith(p);
+    if (p.endsWith("/*")) return mime.startsWith(p.slice(0, -1));
+    return mime === p;
+  });
+}
+
 function decodeXmlEntities(s: string) {
   return s
     .replace(/&lt;/g, "<")
@@ -251,7 +277,12 @@ async function loadPdfJs() {
   return pdfjs;
 }
 
-/* ---------------- HTML → A4 PDF 管道（word2pdf / excel2pdf 共用） ---------------- */
+/* ---------------- HTML → A4 PDF 管道（word2pdf / excel2pdf 共用） ----------------
+ * v8.7.164 根修：排版容器迁入 srcdoc 同源 iframe——独立文档、零应用样式表。
+ * 根因：html2canvas 克隆的是元素 ownerDocument 全文档样式（主文档含 Tailwind v4，
+ * @theme 的 oklch() 色值在其 CSS 解析器里直接抛
+ * “Attempting to parse an unsupported color function”，排版容器自身再干净也救不回）。
+ * iframe 文档内只有我们手写的 hex 样式，克隆面从源头不含 oklch。 */
 
 /** 把已排版好的 HTML 容器光栅化并按 A4 竖版分页输出。
  *  容器要求：固定宽 794px（96dpi A4），高度任意，白底黑字自备样式 */
@@ -291,18 +322,39 @@ async function renderHtmlToA4(container: HTMLElement, outName: string) {
   return page;
 }
 
-/** Word/Excel 转换共用的离屏排版容器（794px A4 宽，中文衬线标题+无衬线正文） */
-function mountOffscreenDoc(html: string) {
-  const holder = document.createElement("div");
-  holder.style.cssText =
-    "position:fixed;left:-10000px;top:0;width:794px;background:#ffffff;color:#1c1c22;";
-  holder.innerHTML = html;
-  document.body.appendChild(holder);
-  return holder;
+/** Word/Excel 转换共用的离屏排版容器（794px A4 宽，中文衬线标题+无衬线正文）。
+ *  v8.7.164 起容器住在 srcdoc 同源 iframe 里（返回 iframe 与其中的 .doc-root）。
+ *  同步律：load 监听必须先于 appendChild 注册（否则可能吃别 about:blank 假 load），
+ *  且轮询等 .doc-root 真身在场再返回——首张 about:blank 文档会被 srcdoc 替换，
+ *  捕在旧文档上的容器 defaultView 会变 null（html2canvas 直接抛 not attached） */
+async function mountOffscreenDoc(html: string): Promise<{ iframe: HTMLIFrameElement; container: HTMLElement }> {
+  const iframe = document.createElement("iframe");
+  iframe.setAttribute("aria-hidden", "true");
+  iframe.style.cssText =
+    "position:fixed;left:-10000px;top:0;width:824px;height:1200px;border:0;background:#ffffff;";
+  iframe.srcdoc =
+    `<!doctype html><html><head><meta charset="utf-8"><style>` +
+    `html,body{margin:0;padding:0;background:#ffffff;}` +
+    `</style></head><body>${html}</body></html>`;
+  const loaded = new Promise<void>((res) => {
+    iframe.addEventListener("load", () => res(), { once: true });
+  });
+  document.body.appendChild(iframe);
+  await loaded;
+  /* 双保险：等到 srcdoc 文档真身（.doc-root 在场 + defaultView 存活）再返回 */
+  for (let i = 0; i < 120; i++) {
+    const d = iframe.contentDocument;
+    if (d && d.defaultView && d.querySelector(".doc-root")) break;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  const doc = iframe.contentDocument;
+  if (!doc || !doc.defaultView) throw new Error("离屏排版容器初始化失败");
+  const container = doc.querySelector<HTMLElement>(".doc-root") ?? doc.body;
+  return { iframe, container };
 }
 
-function unmountOffscreenDoc(holder: HTMLElement) {
-  holder.remove();
+function unmountOffscreenDoc(iframe: HTMLIFrameElement) {
+  iframe.remove();
 }
 
 /* ---------------- 各功能实现（run 包装统一错误/状态） ---------------- */
@@ -374,9 +426,9 @@ async function toolWord2pdf(
     { styleMap: ["p[style-name='Title'] => h1.doc-title:fresh", "p[style-name='Heading 1'] => h1.doc-h1:fresh"] }
   );
   setStatus("排版并输出 PDF…");
-  const holder = mountOffscreenDoc(
+  const { iframe, container } = await mountOffscreenDoc(
     `<style>
-      .doc-root{font-family:'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;font-size:15px;line-height:1.75;padding:56px 64px;}
+      .doc-root{font-family:'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;font-size:15px;line-height:1.75;padding:56px 64px;width:794px;background:#ffffff;color:#1c1c22;}
       .doc-root h1.doc-title{font-size:28px;font-weight:600;margin:0 0 18px;line-height:1.4;}
       .doc-root h1.doc-h1{font-size:22px;font-weight:600;margin:26px 0 12px;}
       .doc-root h2{font-size:18px;font-weight:600;margin:22px 0 10px;}
@@ -389,10 +441,10 @@ async function toolWord2pdf(
     </style><div class="doc-root">${html}</div>`
   );
   try {
-    const pages = await renderHtmlToA4(holder, `${baseName(f.name)}.pdf`);
+    const pages = await renderHtmlToA4(container, `${baseName(f.name)}.pdf`);
     return `已生成「${baseName(f.name)}.pdf」（${pages} 页）`;
   } finally {
-    unmountOffscreenDoc(holder);
+    unmountOffscreenDoc(iframe);
   }
 }
 
@@ -409,12 +461,15 @@ async function toolExcel2pdf(
   setStatus(`渲染 ${wb.SheetNames.length} 张工作表…`);
   let tables = "";
   for (const sn of wb.SheetNames) {
-    const html = XLSX.utils.sheet_to_html(wb.Sheets[sn], { header: "", footer: "" });
-    tables += `<h2 class="sheet-name">${sn}</h2>${html}`;
+    /* v8.7.164：sheet_to_html 输出的是完整 HTML 文档（含 html/head/style 包裹），
+     * 嵌进我们自己的文档会引发生僻 CSS 解析错——只取 <table> 本体 */
+    const raw = XLSX.utils.sheet_to_html(wb.Sheets[sn], { header: "", footer: "" });
+    const m = raw.match(/<table[\s\S]*<\/table>/i);
+    tables += `<h2 class="sheet-name">${sn}</h2>${m ? m[0] : raw}`;
   }
-  const holder = mountOffscreenDoc(
+  const { iframe, container } = await mountOffscreenDoc(
     `<style>
-      .doc-root{font-family:'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;padding:48px 56px;color:#1c1c22;}
+      .doc-root{font-family:'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;padding:48px 56px;color:#1c1c22;background:#ffffff;width:794px;}
       .doc-root h2.sheet-name{font-size:16px;font-weight:600;margin:0 0 10px;}
       .doc-root h2.sheet-name:not(:first-child){margin-top:28px;}
       .doc-root table{border-collapse:collapse;width:100%;margin:0 0 8px;}
@@ -423,10 +478,10 @@ async function toolExcel2pdf(
     </style><div class="doc-root">${tables}</div>`
   );
   try {
-    const pages = await renderHtmlToA4(holder, `${baseName(f.name)}.pdf`);
+    const pages = await renderHtmlToA4(container, `${baseName(f.name)}.pdf`);
     return `已生成「${baseName(f.name)}.pdf」（${wb.SheetNames.length} 张表 / ${pages} 页）`;
   } finally {
-    unmountOffscreenDoc(holder);
+    unmountOffscreenDoc(iframe);
   }
 }
 
@@ -587,7 +642,15 @@ async function toolPdf2excel(
     const ws = XLSX.utils.aoa_to_sheet(rows.length ? rows : [["（本页未提取到文本）"]]);
     XLSX.utils.book_append_sheet(wb, ws, `第${i}页`);
   }
-  XLSX.writeFile(wb, `${baseName(f.name)}.xlsx`);
+  /* v8.7.164：XLSX.writeFile 在扩展页会丢下载名（blob 触发链不同），
+   * 统一改 XLSX.write + downloadBlob 锚点下载 */
+  const bytes = XLSX.write(wb, { bookType: "xlsx", type: "array" }) as unknown as ArrayBuffer;
+  downloadBlob(
+    new Blob([bytes as unknown as BlobPart], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }),
+    `${baseName(f.name)}.xlsx`
+  );
   return `已生成「${baseName(f.name)}.xlsx」（${doc.numPages} 张工作表）`;
 }
 
@@ -695,12 +758,14 @@ async function toolMerge(
   return `已生成「合并文档.pdf」（${files.length} 个文件 / ${pages} 页）`;
 }
 
-/* ⑩ PDF 拆分：逐页独立 PDF，多页 zip */
+/* ⑩ PDF 拆分：逐页/每组 N 页独立 PDF，多组打包 zip（飞鼠格式同款每组 N 页） */
 async function toolSplit(
   files: File[],
+  perGroup: number,
   setStatus: (s: string) => void
 ): Promise<string> {
   if (files.length !== 1) throw new Error("请选择 1 个 PDF 文件");
+  const pg = Math.max(1, Math.min(99, Math.floor(perGroup || 1)));
   const f = files[0];
   const { PDFDocument } = await import("@cantoo/pdf-lib");
   setStatus("解析 PDF…");
@@ -715,13 +780,17 @@ async function toolSplit(
     return "该 PDF 只有 1 页，已原样导出";
   }
   const zipBag: Record<string, Uint8Array> = {};
-  for (let i = 0; i < n; i++) {
-    setStatus(`拆出第 ${i + 1}/${n} 页…`);
+  let group = 0;
+  for (let start = 0; start < n; start += pg) {
+    const end = Math.min(start + pg, n);
+    group += 1;
+    setStatus(`拆出第 ${start + 1}-${end} 页…`);
     const single = await PDFDocument.create();
-    const [copied] = await single.copyPages(src, [i]);
-    single.addPage(copied);
+    const copied = await single.copyPages(src, Array.from({ length: end - start }, (_, k) => start + k));
+    copied.forEach((p) => single.addPage(p));
     const bytes = await single.save();
-    zipBag[`${baseName(f.name)}-第${i + 1}页.pdf`] = bytes;
+    const range = pg === 1 ? `第${start + 1}页` : `第${start + 1}-${end}页`;
+    zipBag[`${baseName(f.name)}-${range}.pdf`] = bytes;
   }
   const { zipSync } = await import("fflate");
   setStatus("打包 zip…");
@@ -730,7 +799,7 @@ async function toolSplit(
     new Blob([zipped as unknown as BlobPart], { type: "application/zip" }),
     `${baseName(f.name)}-拆分.zip`
   );
-  return `已拆分为 ${n} 个 PDF 并打包 zip`;
+  return `已拆分为 ${group} 个 PDF（每组 ${pg} 页）并打包 zip`;
 }
 
 /* ⑪ PDF 加密：@cantoo/pdf-lib AES-256 */
@@ -837,6 +906,7 @@ export default function PdfTools({
   const [textOut, setTextOut] = useState("");
   const [pwd1, setPwd1] = useState("");
   const [pwd2, setPwd2] = useState("");
+  const [splitEvery, setSplitEvery] = useState(1);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const reduceMotion = useReducedMotion();
   const meta = TOOLS.find((t) => t.id === tool)!;
@@ -852,6 +922,7 @@ export default function PdfTools({
       setTextOut("");
       setPwd1("");
       setPwd2("");
+      setSplitEvery(1);
     }
   }, [open]);
 
@@ -881,13 +952,24 @@ export default function PdfTools({
   function onPicked(e: React.ChangeEvent<HTMLInputElement>) {
     const list = Array.from(e.target.files || []);
     if (!list.length) return;
-    setFiles((prev) => {
-      /* 同名同大小去重（重复拖选同一文件） */
-      const seen = new Set(prev.map((f) => f.name + ":" + f.size));
-      return [...prev, ...list.filter((f) => !seen.has(f.name + ":" + f.size))];
-    });
+    /* v8.7.164 前置类型校验：accept 是软限制（拖入/手动全选可绕过），
+     * 不匹配直接红字提示而非让深层引擎报玄学错 */
+    const ok = list.filter((f) => acceptOk(meta, f));
+    const bad = list.filter((f) => !acceptOk(meta, f));
+    if (ok.length) {
+      setFiles((prev) => {
+        /* 同名同大小去重（重复拖选同一文件） */
+        const seen = new Set(prev.map((f) => f.name + ":" + f.size));
+        return [...prev, ...ok.filter((f) => !seen.has(f.name + ":" + f.size))];
+      });
+    }
+    if (bad.length) {
+      const hint = meta.id === "word2pdf" ? "仅支持 .docx（.doc 请先用 Word 另存为 .docx）" : `需要：${meta.accept}`;
+      setErr(`不支持的文件类型：${bad.map((f) => f.name).join("、")} —— ${hint}`);
+    } else {
+      setErr("");
+    }
     setDoneMsg("");
-    setErr("");
   }
 
   function selectTool(id: ToolId) {
@@ -898,6 +980,7 @@ export default function PdfTools({
     setTextOut("");
     setPwd1("");
     setPwd2("");
+    setSplitEvery(1);
   }
 
   function moveFile(i: number, dir: -1 | 1) {
@@ -931,7 +1014,7 @@ export default function PdfTools({
       else if (tool === "pdf2ppt") msg = await toolPdf2ppt(files, setStatus);
       else if (tool === "pdf2img") msg = await toolPdf2img(files, setStatus);
       else if (tool === "merge") msg = await toolMerge(files, setStatus);
-      else if (tool === "split") msg = await toolSplit(files, setStatus);
+      else if (tool === "split") msg = await toolSplit(files, splitEvery, setStatus);
       else if (tool === "encrypt") msg = await toolEncrypt(files, pwd1, pwd2, setStatus);
       else if (tool === "decrypt") msg = await toolDecrypt(files, pwd1, setStatus);
       else {
@@ -1089,6 +1172,32 @@ export default function PdfTools({
                       className="h-9 rounded-xl border border-zinc-900/10 bg-zinc-900/[0.02] px-3 text-xs font-light text-zinc-800 outline-none transition-colors placeholder:text-zinc-400 focus:border-zinc-900/25 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-100 dark:placeholder:text-zinc-500 dark:focus:border-white/30"
                     />
                   )}
+                </div>
+              )}
+
+              {tool === "split" && (
+                <div className="mb-3 flex items-center gap-2">
+                  <label
+                    htmlFor="pdf-split-every"
+                    className="shrink-0 text-[11px] font-extralight text-zinc-500 dark:text-zinc-400"
+                  >
+                    每组页数
+                  </label>
+                  <input
+                    id="pdf-split-every"
+                    type="number"
+                    min={1}
+                    max={99}
+                    value={splitEvery}
+                    onChange={(e) =>
+                      setSplitEvery(Math.max(1, Math.min(99, Math.floor(Number(e.target.value) || 1))))
+                    }
+                    aria-label="每组页数"
+                    className="h-9 w-20 rounded-xl border border-zinc-900/10 bg-zinc-900/[0.02] px-3 text-xs font-light text-zinc-800 outline-none transition-colors focus:border-zinc-900/25 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-100 dark:focus:border-white/30"
+                  />
+                  <span className="text-[10px] font-extralight leading-tight text-zinc-400 dark:text-zinc-500">
+                    1 = 每页一个文件；N = 每 N 页合为一个文件
+                  </span>
                 </div>
               )}
 

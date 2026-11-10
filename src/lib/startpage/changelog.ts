@@ -22,6 +22,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
     {
+    version: "8.7.164",
+    date: "2026-11-11",
+    title: "PDF 工具箱修复：Word/Excel 转 PDF 不再报错，拆分支持每组 N 页",
+    channel: "page",
+    highlights: [
+      "修复 Word 转 PDF / Excel 转 PDF 点击后报错（oklch 颜色解析失败）的问题，现在可以正常输出 PDF",
+      "PDF 拆分新增「每组页数」：逐页拆分照旧，也可以每 N 页合成一个文件（如每 2 页一份）",
+      "PDF 转 Excel 的下载文件名不再变成乱码编号，正确显示原文件名",
+      "选错文件类型时直接红字提示（如把 .doc 拖入 Word 转 PDF 会提示先用 Word 另存为 .docx），不再报晦涩的深层错误",
+    ],
+  },
+    {
     version: "8.7.163",
     date: "2026-11-10",
     title: "文件夹拖拽体验五连修：拖叠建夹 / 免开层入夹 / 收起不再重播入场",
