@@ -362,7 +362,20 @@ function TileIcon({
 
   /* v8.7.157 九宫格裸格形态（bare）：早退分支在全部 hooks 之后，解析链
      与常态零差异；格子底白雾提对比，自绘命中改条目主色实底（同色无缝
-     同 v8.7.127 让位律），画作满铺格子圆角由 overflow-hidden 统一裁切。 */
+     同 v8.7.127 让位律），画作满铺格子圆角由 overflow-hidden 统一裁切。
+     v8.7.162 迷你格形状统一律（用户反馈「图标形状不统一，应该全是正方
+     形」）：上传图标/站点图标一律 16px 正方形框 + object-cover 中心裁
+     切——源图非正方形（横版 logo / 长条上传图）不再以长方形字形混入
+     迷你格；正方形源图 cover 与 contain 渲染逐像素一致，存量站点观感
+     零变化。上传图标同步从 14px 提齐到 16px（两种来源同尺寸同规则，
+     尺寸不再二义）。另修 grid3 挤压形变（真机诊断发现）：Tailwind
+     preflight `img,video{max-width:100%;height:auto}` 把 img 宽度钳到
+     迷你格容器宽（~13.9px）而高度被 h-4 锁 14.9px——img 盒恒为稳定
+     长方形（诊断实测 13.1×14.9，grid3 格子小于 16px 时必发）；两枚
+     img 加 max-w-none（解除 preflight 宽度钳制）+ shrink-0（防 flex
+     收缩）锁死正方形盒，超格部分由格子 rounded+overflow-hidden 裁
+     切，可见区恒为正方形窗口（grid2 格子大于 16px 时两规则本就不触
+     发，渲染零变化）。 */
   if (bare) {
     return (
       <span className="relative flex h-full w-full items-center justify-center overflow-hidden rounded-[6px] bg-white/30 dark:bg-white/10">
@@ -371,7 +384,7 @@ function TileIcon({
             src={customIcon}
             alt=""
             draggable={false}
-            className="h-3.5 w-3.5 object-contain"
+            className="h-4 w-4 shrink-0 max-w-none object-cover"
           />
         ) : sdActive ? (
           <span
@@ -397,7 +410,7 @@ function TileIcon({
               if (host) clearIconSource(host);
               setFav((f) => ({ ...f, url: null, dead: true }));
             }}
-            className="h-4 w-4 object-contain"
+            className="h-4 w-4 shrink-0 max-w-none object-cover"
           />
         ) : (
           <span className="text-[11px] font-light tracking-wide text-zinc-600/85 dark:text-zinc-200/85">

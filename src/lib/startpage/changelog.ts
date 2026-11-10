@@ -22,6 +22,16 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
     {
+    version: "8.7.162",
+    date: "2026-11-10",
+    title: "文件夹迷你格形状统一：所有图标一律正方形",
+    channel: "page",
+    highlights: [
+      "文件夹磁贴迷你格内的站点图标统一为正方形：宽版/长条形图标按中心裁切成正方形展示，不再长方形正方形混排",
+      "上传的自定义图标与站点图标同尺寸（16px）同规则，迷你格观感整齐划一",
+    ],
+  },
+    {
     version: "8.7.161",
     date: "2026-11-10",
     title: "文件夹图标两种新形态：双排迷你格 / 三排微缩墙随你选",
