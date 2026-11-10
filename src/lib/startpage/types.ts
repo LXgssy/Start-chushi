@@ -93,6 +93,14 @@ export const DEFAULT_DURATIONS: PomodoroDurations = {
  * 不同；缺省 morph，老数据零迁移。 */
 export type FolderOpenStyle = "morph" | "modal" | "inline";
 
+/** 文件夹磁贴图标形态（v8.7.161，用户在 11 式探索页选型 A+B 全做）：
+ *  grid2 = 双排迷你格（2×2，iOS 经典款；1~4 站逐格 / >4 站前 3 格 + 「+N」计数格，
+ *          即 v8.7.157 起的现状）；
+ *  grid3 = 三排微缩墙（3×3；未满 9 格时空位画淡占位格，>8 站第 9 格让位
+ *          「+N」计数格——一眼读出收藏规模与剩余容量的「微缩墙」感）。
+ *  与 folderOpenStyle 自由组合；缺省 grid2，老数据零迁移。 */
+export type FolderIconStyle = "grid2" | "grid3";
+
 export interface Settings {
   themeMode: ThemeMode;
   background: BackgroundMode;
@@ -148,6 +156,10 @@ export interface Settings {
    *  三形态交互行为完全一致（点击展开/外点收起/拖拽 dwell/拖入拖出），
    *  仅视觉表现不同；入口：设置 → 链接 →「文件夹展开方式」 */
   folderOpenStyle: FolderOpenStyle;
+  /** 文件夹磁贴图标形态（v8.7.161）：grid2 = 双排迷你格（默认，现状 2×2）/
+   *  grid3 = 三排微缩墙（3×3，空位淡占位 + 「+N」计数格）。
+   *  入口：设置 → 链接 →「文件夹图标」；morph 皮层迷你格同步跟随本设置 */
+  folderIconStyle: FolderIconStyle;
   /** v8.7.36 Dock 栏显隐（v8.5.0 起常驻底部）：false = 整条 Dock 不渲染。
    *  入口：扩展弹窗快捷面板开关；跨文档热跟随走 settings storage 事件 */
   showDock: boolean;
@@ -185,6 +197,7 @@ export const DEFAULT_SETTINGS: Settings = {
   noOmniboxFocus: false,
   linksForm: "drawer",
   folderOpenStyle: "morph",
+  folderIconStyle: "grid2",
   showDock: true,
   todoTile: false,
   noteTile: false,

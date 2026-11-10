@@ -64,6 +64,7 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, rectSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import type {
+  FolderIconStyle,
   FolderOpenStyle,
   IconStyle,
   LinksForm,
@@ -554,10 +555,12 @@ function TileIcon({
 /* ---------- v8.7.157 九宫格迷你预览磁贴（用户选型 1，替代毛玻璃夹形） ----------
  * 与链接磁贴共用同一套三层拆分外壳（tile-shell/霜层/描边环/内容层，
  * 入场三通道与磨砂存活律零例外），内容层从 lucide 夹形图标升级为
- * 2×2 缩微站点格（iOS 文件夹范式——夹形图标信息量为零，「一眼看到
- * 夹里有什么」才是文件夹）：
- *   · 1~4 站：逐格画子站点图标（TileIcon bare 形态，解析链同构）；
- *   · >4 站：前 3 格图标 + 第 4 格「+N」计数格（N=站数-3，iOS 同款收敛）；
+ * 缩微站点格墙（iOS 文件夹范式——夹形图标信息量为零，「一眼看到
+ * 夹里有什么」才是文件夹；形态由 folderIconStyle 切换，v8.7.161）：
+ *   · grid2（默认）：2×2 双排迷你格——1~4 站逐格画子站点图标（TileIcon bare
+ *     形态，解析链同构）；>4 站前 3 格图标 + 第 4 格「+N」计数格（N=站数-3）；
+ *   · grid3：3×3 三排微缩墙——1~8 站逐格 + 空位淡占位；>8 站前 8 格 +
+ *     第 9 格「+N」（N=站数-8）；
  *   · 空夹：居中夹形图标占位（拖入站点即转九宫格）；
  *   · 色相/描边环仍由夹名 hueOf 稳定派生（同夹恒同色）；
  *   · 点击 = 原位展开 popover；编辑态 × = 拆夹散落（零丢失非破坏）；
@@ -565,18 +568,26 @@ function TileIcon({
 function FolderTileVisual({
   folder,
   iconStyle,
+  folderIconStyle = "grid2",
   intro = false,
   sm = false,
 }: {
   folder: StartFolder;
   iconStyle: IconStyle;
+  /** v8.7.161 图标形态（用户选型 A/B）：grid2 = 2×2 双排迷你格（默认，
+   *  v8.7.157 现状）/ grid3 = 3×3 三排微缩墙（空位淡占位，>8 站第 9 格「+N」） */
+  folderIconStyle?: FolderIconStyle;
   intro?: boolean;
   sm?: boolean;
 }) {
   const hue = hueOf(folder.name);
   const n = folder.children.length;
-  /* >4 站时第 4 格让位给「+N」计数格（只画前 3 格图标，iOS 同款） */
-  const shown = n <= 4 ? folder.children : folder.children.slice(0, 3);
+  const grid3 = folderIconStyle === "grid3";
+  /* 满格站点数（grid2: 4 = 2×2 / grid3: 9 = 3×3）；超满时最后一格让位给
+     「+N」计数格（只画前 cap 格图标，iOS 同款收敛） */
+  const full = grid3 ? 9 : 4;
+  const cap = full - 1;
+  const shown = n <= full ? folder.children.slice(0, full) : folder.children.slice(0, cap);
   const more = n - shown.length;
   return (
     <span
@@ -630,7 +641,10 @@ function FolderTileVisual({
           ) : (
             <span
               data-cl-folder-grid="1"
-              className="grid h-full w-full grid-cols-2 gap-[3px] p-[9px]"
+              className={
+                "grid h-full w-full " +
+                (grid3 ? "grid-cols-3 gap-[2px] p-[7px]" : "grid-cols-2 gap-[3px] p-[9px]")
+              }
             >
               {shown.map((c) => (
                 <TileIcon key={c.id} link={c} iconStyle={iconStyle} bare />
@@ -640,6 +654,16 @@ function FolderTileVisual({
                   +{more}
                 </span>
               )}
+              {/* grid3 未满格补淡占位（微缩墙容量感）；grid2 保持 v8.7.157
+                  现状不补位，老用户观感零变化 */}
+              {grid3 &&
+                more === 0 &&
+                Array.from({ length: full - shown.length }, (_, i) => (
+                  <span
+                    key={"ph" + i}
+                    className="rounded-[6px] bg-white/20 dark:bg-white/[0.04]"
+                  />
+                ))}
             </span>
           )}
         </span>
@@ -658,12 +682,15 @@ function FolderTileVisual({
 function TileVisual({
   entry,
   iconStyle,
+  folderIconStyle = "grid2",
   jiggle = false,
   intro = false,
   sm = false,
 }: {
   entry: StartEntry;
   iconStyle: IconStyle;
+  /** v8.7.161 文件夹磁贴图标形态（透传 FolderTileVisual） */
+  folderIconStyle?: FolderIconStyle;
   jiggle?: boolean;
   intro?: boolean;
   sm?: boolean;
@@ -690,7 +717,7 @@ function TileVisual({
         }
       >
         {isFolder(entry) ? (
-          <FolderTileVisual folder={entry} iconStyle={iconStyle} intro={showIntro} sm={sm} />
+          <FolderTileVisual folder={entry} iconStyle={iconStyle} folderIconStyle={folderIconStyle} intro={showIntro} sm={sm} />
         ) : (
           <TileIcon
             link={entry}
@@ -990,6 +1017,7 @@ const FOLDER_SKIN_VARIANTS: Variants = {
 function FolderPopover({
   folder,
   iconStyle,
+  folderIconStyle = "grid2",
   editing,
   onEnterEdit,
   onDelete,
@@ -1010,6 +1038,9 @@ function FolderPopover({
   anchorEl: HTMLElement | null;
   /** v8.7.158 展开形态（主组件透传 settings.folderOpenStyle；inline 不达此处） */
   openStyle: Exclude<FolderOpenStyle, "inline">;
+  /** v8.7.161 磁贴图标形态（透传 settings.folderIconStyle）：morph 皮层
+   *  迷你格与磁贴本体同源跟随（grid2 2×2 / grid3 3×3） */
+  folderIconStyle?: FolderIconStyle;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   /* v8.7.160 exit 期闸 + 卸载报告：AnimatePresence 退出时 isPresent 变
@@ -1215,7 +1246,8 @@ function FolderPopover({
               }
             >
               {/* morph skin 层：磁贴本体观感（hueOf 渐变玻璃 + 白/墨玻璃底 +
-                  与九宫格完全同源 gap-[3px] p-[9px] 2×2 缩微格/空夹夹形），
+                  与磁贴本体完全同源的缩微格墙/空夹夹形——网格随 folderIconStyle
+                  同步：grid2 2×2 gap-[3px] p-[9px] / grid3 3×3 gap-[2px] p-[7px]），
                   格子随卡片 rect 放大一起拉伸；160ms 后交叉淡出露出演成面板；
                   pointer-events 恒关，绝不拦截交互 */}
               {openStyle === "morph" && (
@@ -1249,14 +1281,31 @@ function FolderPopover({
                       />
                     </span>
                   ) : (
-                    <span className="relative grid h-full w-full grid-cols-2 gap-[3px] p-[9px]">
-                      {folder.children.slice(0, 3).map((c) => (
+                    <span
+                      className={
+                        "relative grid h-full w-full " +
+                        (folderIconStyle === "grid3"
+                          ? "grid-cols-3 gap-[2px] p-[7px]"
+                          : "grid-cols-2 gap-[3px] p-[9px]")
+                      }
+                    >
+                      {folder.children.slice(0, folderIconStyle === "grid3" ? 8 : 3).map((c) => (
                         <TileIcon key={c.id} link={c} iconStyle={iconStyle} bare />
                       ))}
-                      {folder.children.length > 3 ? (
+                      {folder.children.length > (folderIconStyle === "grid3" ? 8 : 3) ? (
                         <span className="flex items-center justify-center rounded-[6px] bg-white/30 text-[10px] font-light tracking-wide text-zinc-600/80 dark:bg-white/10 dark:text-zinc-200/85">
-                          +{folder.children.length - 3}
+                          +{folder.children.length - (folderIconStyle === "grid3" ? 8 : 3)}
                         </span>
+                      ) : folderIconStyle === "grid3" ? (
+                        Array.from(
+                          { length: 9 - Math.min(folder.children.length, 9) },
+                          (_, i) => (
+                            <span
+                              key={"sph" + i}
+                              className="rounded-[6px] bg-white/20 dark:bg-white/[0.04]"
+                            />
+                          ),
+                        )
                       ) : (
                         <span className="rounded-[6px] bg-white/30 dark:bg-white/10" />
                       )}
@@ -1472,10 +1521,12 @@ interface TileProps {
   /** v8.7.160 入场动画通道开关：墙面默认播（首屏升起），夹内面板禁
    *  （用户口径「打开文件夹不要播入场动画」——磁贴直接在位零位移） */
   intro?: boolean;
+  /** v8.7.161 文件夹磁贴图标形态（grid2/grid3，透传 TileVisual→FolderTileVisual） */
+  folderIconStyle?: FolderIconStyle;
 }
 
 /** memo 化：拖拽跨格只动数组顺序，未受影响磁贴的 props 恒等 → 跳过重渲染 */
-const Tile = memo(function Tile({ entry, iconStyle, editing, sm = false, onEnterEdit, onDelete, onOpenFolder, inlineOpen = false, onRenameFolder, intro = true }: TileProps) {
+const Tile = memo(function Tile({ entry, iconStyle, folderIconStyle = "grid2", editing, sm = false, onEnterEdit, onDelete, onOpenFolder, inlineOpen = false, onRenameFolder, intro = true }: TileProps) {
   /* dnd-kit 只用来「跟踪指针 + 判定落点」：重排走数组 splice，位置动画由
      framer layout 承载（两层各管一段，transform 不打架） */
   const { setNodeRef, listeners, isDragging } = useSortable({ id: entry.id });
@@ -1598,7 +1649,7 @@ const Tile = memo(function Tile({ entry, iconStyle, editing, sm = false, onEnter
             aria-label={"打开文件夹 " + entry.name}
             className="flex w-20 touch-pan-y cursor-pointer flex-col items-center gap-2.5 rounded-xl outline-none focus-visible:ring-2 accent-ring"
           >
-            <TileVisual entry={entry} iconStyle={iconStyle} jiggle={editing} intro={intro} sm={sm} />
+            <TileVisual entry={entry} iconStyle={iconStyle} folderIconStyle={folderIconStyle} jiggle={editing} intro={intro} sm={sm} />
           </div>
           )
         ) : (
@@ -1651,7 +1702,7 @@ const Tile = memo(function Tile({ entry, iconStyle, editing, sm = false, onEnter
             aria-label={editing ? "编辑 " + entry.name : entry.name}
             className="flex w-20 touch-pan-y flex-col items-center gap-2.5 rounded-xl outline-none focus-visible:ring-2 accent-ring"
           >
-            <TileVisual entry={entry} iconStyle={iconStyle} jiggle={editing} intro={intro} sm={sm} />
+            <TileVisual entry={entry} iconStyle={iconStyle} folderIconStyle={folderIconStyle} jiggle={editing} intro={intro} sm={sm} />
           </a>
         )}
       </motion.div>
@@ -1705,6 +1756,7 @@ function QuickLinks({
   ghost = false,
   dockOn = true,
   folderOpenStyle = "morph",
+  folderIconStyle = "grid2",
 }: {
   links: StartEntry[];
   setLinks: (updater: (prev: StartEntry[]) => StartEntry[]) => void;
@@ -1727,6 +1779,9 @@ function QuickLinks({
    *  modal = 居中模态（背景压暗虚化）/ inline = 原位内嵌（磁贴膨胀成大卡）。
    *  三形态面板内容与拖拽链路同源，仅「怎么出现」不同 */
   folderOpenStyle?: FolderOpenStyle;
+  /** v8.7.161 文件夹磁贴图标形态：grid2 = 双排迷你格（默认，现状 2×2）/
+   *  grid3 = 三排微缩墙（3×3）；morph 皮层迷你格同步跟随本设置 */
+  folderIconStyle?: FolderIconStyle;
 }) {
   const drawer = form === "drawer";
   /* v8.7.105 磁贴数量不限律（用户指令：不要限制磁贴的数量）：
@@ -2357,6 +2412,7 @@ function QuickLinks({
                   key={en.id}
                   entry={en}
                   iconStyle={iconStyle}
+                  folderIconStyle={folderIconStyle}
                   sm={sm}
                   editing={editing}
                   onEnterEdit={enterEdit}
@@ -2576,7 +2632,7 @@ function QuickLinks({
                     <span className="relative block">
                       {/* v8.7.156：拖文件夹 = 夹形浮层（与磁贴同款外壳） */}
                       {isFolder(activeEntry) ? (
-                        <FolderTileVisual folder={activeEntry} iconStyle={iconStyle} sm={form === "docked"} />
+                        <FolderTileVisual folder={activeEntry} iconStyle={iconStyle} folderIconStyle={folderIconStyle} sm={form === "docked"} />
                       ) : (
                         <TileIcon link={activeEntry} iconStyle={iconStyle} sm={form === "docked"} />
                       )}
@@ -2618,6 +2674,7 @@ function QuickLinks({
                   onClose={() => setOpenFolderId(null)}
                   anchorEl={folderAnchorEl(openFolder.id)}
                   openStyle={folderOpenStyle}
+                  folderIconStyle={folderIconStyle}
                 />
               ) : null}
             </AnimatePresence>,

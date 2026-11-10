@@ -990,6 +990,20 @@ function SettingsPanel({
           ]}
           onChange={(v) => onPatch({ folderOpenStyle: v })}
         />
+        {/* v8.7.161 文件夹磁贴图标形态（用户在 11 式探索页选型 A/B 全做）：
+            双排迷你格（2×2，iOS 经典款，现状默认）/ 三排微缩墙（3×3，空位淡
+            占位 + 「+N」计数格，容量感更强）。与「文件夹展开方式」自由组合，
+            morph 形变皮层同步跟随，随时切换零迁移 */}
+        <Segmented
+          segKey="folder-icon-style"
+          label="文件夹图标"
+          value={settings.folderIconStyle ?? "grid2"}
+          options={[
+            { value: "grid2", label: "双排迷你格" },
+            { value: "grid3", label: "三排微缩墙" },
+          ]}
+          onChange={(v) => onPatch({ folderIconStyle: v })}
+        />
         <div className="flex items-center justify-between gap-4 py-2.5">
           <span className="text-xs font-light tracking-wide text-zinc-600 dark:text-zinc-300">
             称呼
