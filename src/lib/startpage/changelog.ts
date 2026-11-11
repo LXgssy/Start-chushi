@@ -22,6 +22,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
     {
+    version: "8.7.166",
+    date: "2026-11-11",
+    title: "PDF 工具箱新增 OCR 文字识别：扫描件也能提取文字了",
+    channel: "page",
+    highlights: [
+      "PDF 工具箱新增「OCR 文字识别」：扫描件/图片型 PDF 逐页识别出文本，下载 txt 或直接复制，此前「提取文本」对扫描件无能为力的场景补齐",
+      "双引擎自动切换：装了本地 OCR 引擎的自动走本机原生识别（快、零下载），没装的用浏览器内置引擎，首次联网下载语言包后离线可用",
+      "识别语言可选：中英文混合（推荐）/ 仅中文 / 仅英文；识别前自动做灰度对比度增强，扫描件识别率更高",
+      "开源致谢：本地引擎架构与识别口径参考开源项目「飞鼠格式转换」（作者 牢蜂 LaoFeng，非商用许可），OCR 引擎 Tesseract 与语言包均为 Apache-2.0，详见仓库 THIRD_PARTY_NOTICES.md",
+    ],
+  },
+    {
     version: "8.7.165",
     date: "2026-11-11",
     title: "文件夹磁贴图标恢复正方形 + 拖叠建夹退役 + 拖拽不再暂停视频壁纸",

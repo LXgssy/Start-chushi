@@ -572,7 +572,7 @@ docs/                       # README 预览图
 ## 许可证
 
 - **源代码**：[MIT License](./LICENSE)
-- **第三方代码与方案**：「初始 · 网易云播放器」使用了 [fpsmaster（FPSMasterTeam/Cadence）](https://github.com/FPSMasterTeam/Cadence) 的代码（MIT License）；资源嗅探的探针方案与 cat-catch 分类规则表参考/移植自 [Ghost-Downloader-3](https://github.com/XiaoYouChR/Ghost-Downloader-3) 与 [cat-catch](https://github.com/xifangczy/cat-catch)（GPL-3.0 License）；B 站接口算法依据 [bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect) 社区共识文档
+- **第三方代码与方案**：「初始 · 网易云播放器」使用了 [fpsmaster（FPSMasterTeam/Cadence）](https://github.com/FPSMasterTeam/Cadence) 的代码（MIT License）；资源嗅探的探针方案与 cat-catch 分类规则表参考/移植自 [Ghost-Downloader-3](https://github.com/XiaoYouChR/Ghost-Downloader-3) 与 [cat-catch](https://github.com/xifangczy/cat-catch)（GPL-3.0 License）；B 站接口算法依据 [bilibili-API-collect](https://github.com/SocialSisterYi/bilibili-API-collect) 社区共识文档；**PDF 工具箱的本地 OCR 引擎架构与识别口径参考开源项目 [飞鼠格式转换](https://github.com/LaoFeng-mouse/flyingmouse-format)（原作者：牢蜂 LaoFeng，依其非商用许可显著署名，本项目同样非商用）**；OCR 引擎 [Tesseract](https://github.com/tesseract-ocr/tesseract) / [tesseract.js](https://github.com/naptha/tesseract.js) 与语言包 tessdata 均为 Apache-2.0（完整清单见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)）
 - **摄影图片**：各自适用 [Unsplash License](https://unsplash.com/license)，与代码许可相互独立
 - **字体与图标**：SIL OFL / ISC（详见上文）
 

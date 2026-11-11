@@ -1,7 +1,7 @@
 "use client";
 
 /* ============================================================
- * 「初始」PDF 工具箱（v8.7.52 落地 / v8.7.55 重构 / v8.7.164 修复）
+ * 「初始」PDF 工具箱（v8.7.52 落地 / v8.7.55 重构 / v8.7.164 修复 / v8.7.166 OCR）
  *
  * itab「PDF 转换大师」同构布局：两行分组宫格（转换 / 处理）+ 选中后
  * 操作区（描述 → 条件输入 → 选择文件 → 文件列表 → 执行 → 结果）。
@@ -21,6 +21,15 @@
  *   docx：PDF 文本 → .docx（每页标题 + 段落）；
  *   pptxgenjs：PDF 每页 2x PNG → 16:9 全幅图片型 .pptx。
  *
+ * v8.7.166 新增 OCR 文字识别（双轨制，扫描件/图片型 PDF 逐页提取文本）：
+ *   轨道 A（默认，人人可用）：tesseract.js WASM 随包离线（/ocr/），语言包
+ *     首用 CDN 拉取（tessdata Apache-2.0）+ IndexedDB 缓存，之后离线可用；
+ *   轨道 B（增强，可选）：本机运行「初始 PDF 桥接」（bridge/，零依赖 Node
+ *     服务 + 原生 tesseract.exe），探活命中走本地，更快且零下载；桥不在
+ *     自动漫回轨道 A，用户无感。
+ *   预处理致谢：飞鼠格式转换（牢蜂 LaoFeng，非商用许可）300dpi + 灰度
+ *     归一化口径。OCR 引擎：Tesseract（Apache-2.0）。
+ *
  * v8.7.164 修复（用户反馈「全部功能不可用」实证收窄）：
  *   ① Word/Excel→PDF 红字报错 oklch —— html2canvas 克隆 ownerDocument 全文档
  *      样式，Tailwind v4 @theme 的 oklch() 在其 CSS 解析器直接抛错；根修：
@@ -39,6 +48,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useBgFreeze } from "@/hooks/use-start";
+import { bridgeOcr, probePdfBridge } from "@/lib/startpage/pdf-bridge";
+import { browserOcrCanvas, preprocessCanvas } from "@/lib/startpage/ocr-engine";
 import { createPortal } from "react-dom";
 import { AnimatePresence, useReducedMotion } from "framer-motion";
 import { PresenceClass } from "./PresenceClass";
@@ -56,6 +67,7 @@ import {
   LockOpen,
   Loader2,
   Presentation,
+  ScanText,
   Scissors,
   Type,
   X,
@@ -76,7 +88,8 @@ type ToolId =
   | "split"
   | "encrypt"
   | "decrypt"
-  | "text";
+  | "text"
+  | "ocr";
 
 interface ToolMeta {
   id: ToolId;
@@ -211,6 +224,15 @@ const TOOLS: ToolMeta[] = [
     name: "提取文本",
     desc: "抽取 PDF 全部文字，下载 txt 或直接复制",
     icon: <Type strokeWidth={1.5} />,
+    group: "process",
+    accept: "application/pdf,.pdf",
+    multiple: false,
+  },
+  {
+    id: "ocr",
+    name: "OCR 文字识别",
+    desc: "扫描件/图片型 PDF 逐页识别出文本（默认中英文）",
+    icon: <ScanText strokeWidth={1.5} />,
     group: "process",
     accept: "application/pdf,.pdf",
     multiple: false,
@@ -883,6 +905,94 @@ async function toolText(
   };
 }
 
+/* ⑭ OCR 文字识别（v8.7.166 双轨）：pdf.js 逐页光栅化（~300dpi）→ 灰度归一化
+ *  → 本地桥接（轨道 B）优先，未命中自动落浏览器 tesseract.js（轨道 A）。
+ *  逐页独立识别，单页失败不拖垮整份（留占位继续） */
+type OcrLang = "chi_sim+eng" | "chi_sim" | "eng";
+
+async function canvasToBase64(canvas: HTMLCanvasElement): Promise<string> {
+  const blob: Blob | null = await new Promise((res) => canvas.toBlob(res, "image/png"));
+  if (!blob) throw new Error("页面 PNG 导出失败");
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  let s = "";
+  const CH = 0x8000;
+  for (let i = 0; i < buf.length; i += CH) {
+    s += String.fromCharCode(...buf.subarray(i, i + CH));
+  }
+  return btoa(s);
+}
+
+async function toolOcr(
+  files: File[],
+  lang: OcrLang,
+  setStatus: (s: string) => void
+): Promise<{ msg: string; text: string }> {
+  if (files.length !== 1) throw new Error("请选择 1 个 PDF 文件");
+  const f = files[0];
+  const pdfjs = await loadPdfJs();
+  setStatus("解析 PDF…");
+  const doc = await pdfjs.getDocument({ data: await f.arrayBuffer() }).promise;
+  /* 轨道判定：探活本地桥接（60s 粘滞），未命中落浏览器引擎 */
+  setStatus("探测本地 OCR 引擎…");
+  const bridge = await probePdfBridge();
+  let engine: "bridge" | "browser" = bridge ? "bridge" : "browser";
+  const engineLabel = engine === "bridge"
+    ? `本地引擎（${bridge!.base.replace("http://", "")}）`
+    : "浏览器引擎（语言包首次需联网下载，之后离线可用）";
+  const parts: string[] = [];
+  for (let i = 1; i <= doc.numPages; i++) {
+    setStatus(`识别第 ${i}/${doc.numPages} 页…（${engineLabel}）`);
+    const page = await doc.getPage(i);
+    /* 300dpi 口径：A4 竖版 1x 宽 612pt，目标 ~2200px（内存与精度平衡） */
+    const p1 = page.getViewport({ scale: 1 });
+    const scale = Math.min(3, Math.max(1.5, 2200 / p1.width));
+    const vp = page.getViewport({ scale });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.floor(vp.width);
+    canvas.height = Math.floor(vp.height);
+    const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    preprocessCanvas(canvas);
+    let pageText = "";
+    if (engine === "bridge") {
+      try {
+        pageText = await bridgeOcr(bridge!.base, await canvasToBase64(canvas), lang);
+      } catch {
+        /* 桥中途掉线（关机/退出）→ 本页起自动落浏览器轨道，不打断整体 */
+        engine = "browser";
+        setStatus(`本地引擎失联，第 ${i} 页起切换浏览器引擎…`);
+        pageText = "";
+      }
+    }
+    if (engine === "browser") {
+      pageText = await browserOcrCanvas(canvas, lang, (p) => {
+        if (p.status.includes("recognizing")) {
+          setStatus(`识别第 ${i}/${doc.numPages} 页…（浏览器引擎 ${Math.round(p.progress * 100)}%）`);
+        }
+      });
+    }
+    const clean = pageText.replace(/\n{3,}/g, "\n\n").trim();
+    parts.push(`【第 ${i} 页】\n${clean || "（本页未识别出文字）"}`);
+  }
+  const text = parts.join("\n\n");
+  const got = parts.filter((p) => !p.endsWith("（本页未识别出文字）")).length;
+  if (!got) {
+    throw new Error(
+      "未识别出文字——请确认 PDF 是扫描件且文字清晰可辨，或改用「提取文本」（文字型 PDF 更快更准）"
+    );
+  }
+  downloadBlob(
+    new Blob([text], { type: "text/plain;charset=utf-8" }),
+    `${baseName(f.name)}-OCR文本.txt`
+  );
+  return {
+    msg: `OCR 完成（${engine === "bridge" ? "本地引擎" : "浏览器引擎"}）：${got}/${doc.numPages} 页识别出文字，txt 已下载`,
+    text: text.slice(0, 6000) + (text.length > 6000 ? "\n…（全文已含在下载文件中）" : ""),
+  };
+}
+
 /* ================= 组件 ================= */
 
 export default function PdfTools({
@@ -907,6 +1017,8 @@ export default function PdfTools({
   const [pwd1, setPwd1] = useState("");
   const [pwd2, setPwd2] = useState("");
   const [splitEvery, setSplitEvery] = useState(1);
+  /* v8.7.166 OCR 语言：默认中英混合（中文用户主口径），eng 更小更快 */
+  const [ocrLang, setOcrLang] = useState<"chi_sim+eng" | "chi_sim" | "eng">("chi_sim+eng");
   const inputRef = useRef<HTMLInputElement | null>(null);
   const reduceMotion = useReducedMotion();
   const meta = TOOLS.find((t) => t.id === tool)!;
@@ -923,6 +1035,7 @@ export default function PdfTools({
       setPwd1("");
       setPwd2("");
       setSplitEvery(1);
+      setOcrLang("chi_sim+eng");
     }
   }, [open]);
 
@@ -981,6 +1094,7 @@ export default function PdfTools({
     setPwd1("");
     setPwd2("");
     setSplitEvery(1);
+    setOcrLang("chi_sim+eng");
   }
 
   function moveFile(i: number, dir: -1 | 1) {
@@ -1017,6 +1131,11 @@ export default function PdfTools({
       else if (tool === "split") msg = await toolSplit(files, splitEvery, setStatus);
       else if (tool === "encrypt") msg = await toolEncrypt(files, pwd1, pwd2, setStatus);
       else if (tool === "decrypt") msg = await toolDecrypt(files, pwd1, setStatus);
+      else if (tool === "ocr") {
+        const r = await toolOcr(files, ocrLang, setStatus);
+        msg = r.msg;
+        setTextOut(r.text);
+      }
       else {
         const r = await toolText(files, setStatus);
         msg = r.msg;
@@ -1201,6 +1320,31 @@ export default function PdfTools({
                 </div>
               )}
 
+              {tool === "ocr" && (
+                <div className="mb-3 flex items-center gap-2">
+                  <label
+                    htmlFor="pdf-ocr-lang"
+                    className="shrink-0 text-[11px] font-extralight text-zinc-500 dark:text-zinc-400"
+                  >
+                    识别语言
+                  </label>
+                  <select
+                    id="pdf-ocr-lang"
+                    value={ocrLang}
+                    onChange={(e) => setOcrLang(e.target.value as "chi_sim+eng" | "chi_sim" | "eng")}
+                    aria-label="识别语言"
+                    className="h-9 rounded-xl border border-zinc-900/10 bg-zinc-900/[0.02] px-3 text-xs font-light text-zinc-800 outline-none transition-colors focus:border-zinc-900/25 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-100 dark:focus:border-white/30"
+                  >
+                    <option value="chi_sim+eng">中英文混合（推荐）</option>
+                    <option value="chi_sim">仅简体中文</option>
+                    <option value="eng">仅英文（语言包更小）</option>
+                  </select>
+                  <span className="text-[10px] font-extralight leading-tight text-zinc-400 dark:text-zinc-500">
+                    语言包首次使用需联网下载，之后自动缓存离线可用
+                  </span>
+                </div>
+              )}
+
               <div
                 role="button"
                 tabIndex={0}
@@ -1306,7 +1450,9 @@ export default function PdfTools({
                           ? "开始合并"
                           : tool === "text"
                             ? "提取文本"
-                            : "开始转换"}
+                            : tool === "ocr"
+                              ? "开始识别"
+                              : "开始转换"}
               </button>
 
               {doneMsg && (

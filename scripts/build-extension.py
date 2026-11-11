@@ -62,7 +62,7 @@ OUT = ROOT / "out"
 STAGE = pathlib.Path("/tmp/ext-stage")
 REF = pathlib.Path("/tmp/ext-ref")  # v1.1.2 参考包（_locales/icons 素材源）
 EXT_SRC = ROOT / "extension-src"    # v8.2.0 SW/内容脚本源
-VERSION = "8.7.165"
+VERSION = "8.7.166"
 DEST = ROOT / f"download/v{VERSION}/ChuShi-NewTab-v{VERSION}.zip"
 
 if not OUT.exists() or not (OUT / "index.html").exists():
@@ -393,8 +393,12 @@ manifest = {
     ],
     # v8.4.5：+ cs-snap/sandbox.html——快照虚拟目录下的沙箱页必须保留
     # 沙箱特权（unsafe-eval），否则云端快照模式预设脚本被 CSP 拦截。
+    # v8.7.166：+ extension_pages 显式 CSP——PDF 工具箱 OCR（tesseract.js
+    # core WASM）需要 'wasm-unsafe-eval'；MV3 默认 CSP 不含它，不加 OCR 直接
+    # 挂。wasm-unsafe-eval 只放行 WASM 实例化，不放开 eval，MV3 官方口径。
     "sandbox": {"pages": ["sandbox.html", "cs-snap/sandbox.html"]},
     "content_security_policy": {
+        "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
         "sandbox": "sandbox allow-scripts; script-src 'self' 'unsafe-inline' 'unsafe-eval'; object-src 'self'"
     },
 }
