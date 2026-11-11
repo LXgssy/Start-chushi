@@ -141,30 +141,24 @@ function AuroraBackground({
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   /* ---------- v8.7.155 背景冻结律 · 媒体闸门 ----------
-     漂移/kenburns 由 CSS 三闸门暂停（globals.cs-bg-frozen / cs-drawer /
-     cs-hidden），视频播放是媒体层，CSS 管不了——显式 pause。
-     v8.7.163 闸门收敛（用户口径「打开抽屉页面时视频壁纸不要暂停」）：
-     cs-drawer（快捷服务抽屉挂载期）从视频闸退役——抽屉纱罩本来就是整页
-     高斯模糊让位，壁纸在纱罩下继续播不碍事；<video> 不带 kenburns/drift
-     类，CSS 闸门本就管不到视频帧，抽屉期暂停全部来自本媒体闸。现闸门
-     只剩两条件：页面隐藏（document.hidden，后台页解码器让路）与拖拽
-     会话（cs-bg-frozen，毛玻璃 backdrop 采样链静止降合成成本）。恢复
-     一律 play()（muted 自动播族，NotAllowedError 吞掉即可）。 */
+     漂移/kenburns 由 CSS 闸门暂停（globals.cs-bg-frozen / cs-hidden），
+     视频播放是媒体层，CSS 管不了——显式 pause。
+     v8.7.165 闸门单条件化（用户口径「抽屉页面里拖拽磁贴图标时视频壁纸
+     不要暂停」）：cs-bg-frozen 从视频闸退役。拖拽会话挂 cs-bg-frozen 的
+     收益是让 drift/kenburns 这类 CSS 动画静止、毛玻璃磁贴的 backdrop
+     采样链全链静止降合成成本——但 <video> 不带这类 CSS 动画，视频帧
+     本就每帧都在变，冻结闸对视频壁纸用户零收益、纯暂停伤害（v8.7.163
+     对抽屉纱罩的同律裁决推广到全部冻结场景：壁纸在纱罩/冻结态下继续
+     播不碍事）。极光/kenburns 用户的拖拽期性能福利原样保留（CSS 闸
+     不动）。现视频闸只剩一条件：页面隐藏（document.hidden，后台页
+     解码器让路）。恢复一律 play()（muted 自动播族，NotAllowedError
+     吞掉即可）。 */
   const [bgFrozen, setBgFrozen] = useState(false);
   useEffect(() => {
-    const root = document.documentElement;
-    const sync = () =>
-      setBgFrozen(
-        document.hidden || root.classList.contains("cs-bg-frozen")
-      );
+    const sync = () => setBgFrozen(document.hidden);
     sync();
     document.addEventListener("visibilitychange", sync);
-    const mo = new MutationObserver(sync);
-    mo.observe(root, { attributeFilter: ["class"] });
-    return () => {
-      document.removeEventListener("visibilitychange", sync);
-      mo.disconnect();
-    };
+    return () => document.removeEventListener("visibilitychange", sync);
   }, []);
 
   /* ---------- v8.7.152 弱网卡加载根修：远程壁纸媒体在 window load 前不进文档树 ----------

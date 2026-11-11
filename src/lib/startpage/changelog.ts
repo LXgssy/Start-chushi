@@ -22,6 +22,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
     {
+    version: "8.7.165",
+    date: "2026-11-11",
+    title: "文件夹磁贴图标恢复正方形 + 拖叠建夹退役 + 拖拽不再暂停视频壁纸",
+    channel: "page",
+    highlights: [
+      "修复文件夹磁贴上的小图标又变回长方形的问题，格子重新锁定正方形",
+      "删除「把 A 磁贴拖到 B 磁贴上就创建文件夹」的操作，拖拽磁贴到另一磁贴只做换位，建夹请用右键菜单",
+      "修复在抽屉页面拖拽磁贴时视频壁纸暂停播放的问题，拖拽全程壁纸继续播",
+      "拖拽磁贴悬停在文件夹上 500ms 自动打开文件夹、松手直接入夹的体验保持不变",
+    ],
+  },
+    {
     version: "8.7.164",
     date: "2026-11-11",
     title: "PDF 工具箱修复：Word/Excel 转 PDF 不再报错，拆分支持每组 N 页",
