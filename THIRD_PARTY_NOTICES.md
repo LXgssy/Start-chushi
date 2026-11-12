@@ -12,6 +12,14 @@
 | tessdata 语言包 | chi_sim / eng 识别模型（首次使用经 CDN 拉取并本地缓存） | Apache-2.0 | github.com/tesseract-ocr/tessdata（经 tessdata.projectnaptha.com 分发） |
 | tesseract（可选，本地桥接） | 本地原生引擎（轨道 B，用户自装/自备） | Apache-2.0 | github.com/tesseract-ocr/tesseract |
 
+**v8.7.167 补充（官方 Release 分发的 Windows 引擎包）**：Releases 发布的
+`chushi-pdf-bridge-win64-v1.0.0.zip` 内含——桥接服务 exe（Node.js SEA 官方
+单可执行方案打包，运行时为 Node.js v26，Node.js 许可 MIT）；原生
+Tesseract 5.2.0 引擎及其依赖库，自 **conda-forge 发行版**（win-64，Apache-2.0
+/ BSD 系各组件原许可）按依赖闭环组装；MSVC 运行时（vcruntime140 等，微软
+凭再分发许可随应用程序本地部署）；tessdata_fast 语言包（Apache-2.0）。
+全部仅作非商用分发，来源与许可不变。
+
 「初始」与上述组件同样遵循 Apache-2.0 精神：**不商用、保留署名**。
 
 ## 飞鼠格式转换（设计取经与致谢）

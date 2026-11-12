@@ -1,7 +1,7 @@
 "use client";
 
 /* ============================================================
- * 「初始」PDF 工具箱（v8.7.52 落地 / v8.7.55 重构 / v8.7.164 修复 / v8.7.166 OCR）
+ * 「初始」PDF 工具箱（v8.7.52 落地 / v8.7.55 重构 / v8.7.164 修复 / v8.7.166 OCR / v8.7.167 引擎下载入口）
  *
  * itab「PDF 转换大师」同构布局：两行分组宫格（转换 / 处理）+ 选中后
  * 操作区（描述 → 条件输入 → 选择文件 → 文件列表 → 执行 → 结果）。
@@ -30,6 +30,12 @@
  *   预处理致谢：飞鼠格式转换（牢蜂 LaoFeng，非商用许可）300dpi + 灰度
  *     归一化口径。OCR 引擎：Tesseract（Apache-2.0）。
  *
+ * v8.7.167 新增本地引擎下载入口（用户口径「就像预设功能里的开发工具一样」）：
+ *   选 OCR 即自动探活本地桥接并显示状态——已就绪（走本地，快/离线）或
+ *   未运行时内嵌下载链接直达 GitHub Releases 官方发布页的免安装 zip
+ *   （chushi-pdf-bridge.exe SEA 单文件 + 原生 tesseract.exe + tessdata，
+ *   下载解压双击即用），与预设导入面板「开发工具」下载入口同款交互。
+ *
  * v8.7.164 修复（用户反馈「全部功能不可用」实证收窄）：
  *   ① Word/Excel→PDF 红字报错 oklch —— html2canvas 克隆 ownerDocument 全文档
  *      样式，Tailwind v4 @theme 的 oklch() 在其 CSS 解析器直接抛错；根修：
@@ -48,7 +54,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useBgFreeze } from "@/hooks/use-start";
-import { bridgeOcr, probePdfBridge } from "@/lib/startpage/pdf-bridge";
+import { bridgeOcr, probePdfBridge, type PdfBridgeInfo } from "@/lib/startpage/pdf-bridge";
 import { browserOcrCanvas, preprocessCanvas } from "@/lib/startpage/ocr-engine";
 import { createPortal } from "react-dom";
 import { AnimatePresence, useReducedMotion } from "framer-motion";
@@ -56,6 +62,7 @@ import { PresenceClass } from "./PresenceClass";
 import { SPRING_CARD } from "./CommandPalette";
 import {
   Check,
+  Download,
   FileSpreadsheet,
   FileText,
   FileType,
@@ -66,6 +73,7 @@ import {
   Lock,
   LockOpen,
   Loader2,
+  PlugZap,
   Presentation,
   ScanText,
   Scissors,
@@ -243,6 +251,11 @@ const GROUP_TITLE: Record<ToolMeta["group"], string> = {
   convert: "格式转换",
   process: "PDF 处理",
 };
+
+/* v8.7.167 本地 OCR 增强引擎官方发布页（Releases 直链，与预设「开发工具」
+ * 下载入口同款交互；资产由官方 Release 分发，不倒卖不重托管） */
+const BRIDGE_DOWNLOAD_URL =
+  "https://github.com/LXgssy/Start-chushi/releases/download/pdf-bridge-v1.0.0/chushi-pdf-bridge-win64-v1.0.0.zip";
 
 function fmtSize(n: number) {
   if (n >= 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + " MB";
@@ -1019,6 +1032,8 @@ export default function PdfTools({
   const [splitEvery, setSplitEvery] = useState(1);
   /* v8.7.166 OCR 语言：默认中英混合（中文用户主口径），eng 更小更快 */
   const [ocrLang, setOcrLang] = useState<"chi_sim+eng" | "chi_sim" | "eng">("chi_sim+eng");
+  /* v8.7.167 本地引擎探测态：undefined=探测中 / null=未运行 / info=已就绪 */
+  const [bridgeState, setBridgeState] = useState<PdfBridgeInfo | null | undefined>(undefined);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const reduceMotion = useReducedMotion();
   const meta = TOOLS.find((t) => t.id === tool)!;
@@ -1036,8 +1051,26 @@ export default function PdfTools({
       setPwd2("");
       setSplitEvery(1);
       setOcrLang("chi_sim+eng");
+      setBridgeState(undefined);
     }
   }, [open]);
+
+  /* v8.7.167 选中 OCR 即探活本地引擎（60s 粘滞缓存复用，不额外扫口） */
+  useEffect(() => {
+    if (!open || tool !== "ocr") return;
+    let alive = true;
+    setBridgeState(undefined);
+    probePdfBridge()
+      .then((info) => {
+        if (alive) setBridgeState(info);
+      })
+      .catch(() => {
+        if (alive) setBridgeState(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [open, tool]);
 
   /* Esc 捕获拦截：开着时 Esc 只关本面板，不穿透全局链 */
   useEffect(() => {
@@ -1342,6 +1375,49 @@ export default function PdfTools({
                   <span className="text-[10px] font-extralight leading-tight text-zinc-400 dark:text-zinc-500">
                     语言包首次使用需联网下载，之后自动缓存离线可用
                   </span>
+                </div>
+              )}
+
+              {/* v8.7.167 本地引擎状态 + 下载入口（与预设导入面板「开发工具」
+                  下载入口同款交互：探活在位显示引擎态，不在位给官方 Releases
+                  直链；链接恒在，用户自行取用） */}
+              {tool === "ocr" && (
+                <div className="mb-3 rounded-xl border border-zinc-900/[0.06] bg-zinc-900/[0.02] px-3 py-2.5 dark:border-white/[0.07] dark:bg-white/[0.04]">
+                  {bridgeState === undefined ? (
+                    <p className="text-[10px] font-extralight leading-relaxed text-zinc-400 dark:text-zinc-500">
+                      正在探测本地 OCR 引擎…
+                    </p>
+                  ) : bridgeState ? (
+                    <p
+                      className="flex items-center gap-1.5 text-[10px] font-extralight leading-relaxed"
+                      style={{ color: accent }}
+                    >
+                      <PlugZap className="h-3 w-3 shrink-0" strokeWidth={1.5} />
+                      本地引擎已就绪（{bridgeState.base.replace("http://", "")}）——本次识别将走本机原生
+                      Tesseract，更快且完全离线
+                    </p>
+                  ) : (
+                    <>
+                      <p className="text-[10px] font-extralight leading-relaxed text-zinc-500 dark:text-zinc-400">
+                        可选增强：未检测到本地引擎，当前用浏览器内置引擎（识别稍慢、语言包首次需联网）。
+                      </p>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <a
+                          href={BRIDGE_DOWNLOAD_URL}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="下载本地 OCR 引擎（Windows 免安装包，来源为本项目官方 GitHub Releases）"
+                          className="inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-light text-zinc-600 transition-colors duration-150 hover:bg-zinc-900/5 hover:text-zinc-900 dark:text-zinc-300 dark:hover:bg-white/10 dark:hover:text-zinc-50"
+                        >
+                          <Download className="h-3 w-3" strokeWidth={1.5} />
+                          下载 Windows 本地引擎（约 55 MB）
+                        </a>
+                        <span className="text-[10px] font-extralight text-zinc-400 dark:text-zinc-500">
+                          解压后双击 chushi-pdf-bridge.exe（SmartScreen 提示点「仍要运行」），回本页自动启用
+                        </span>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 

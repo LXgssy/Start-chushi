@@ -22,6 +22,18 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
     {
+    version: "8.7.167",
+    date: "2026-11-12",
+    title: "OCR 本地增强引擎可以直接下载了：解压双击即用，识别更快",
+    channel: "page",
+    highlights: [
+      "PDF 工具箱「OCR 文字识别」面板内嵌本地引擎下载入口：未检测到本地引擎时一键直达官方发布页下载 Windows 免安装包（约 55 MB），与预设导入面板「开发工具」下载入口同款交互",
+      "下载解压后双击运行，识别自动优先走本机原生引擎：更快、完全离线、不再需要联网下载语言包；关掉窗口自动回到浏览器引擎",
+      "选中 OCR 即自动探测本地引擎状态：已就绪会显示引擎地址；没装也完全不影响使用（浏览器引擎兜底）",
+      "本地引擎为开源 Node.js 服务官方打包产物，架构取自「飞鼠格式转换」（作者 牢蜂 LaoFeng，非商用许可），OCR 引擎 Tesseract 与语言包均为 Apache-2.0",
+    ],
+  },
+    {
     version: "8.7.166",
     date: "2026-11-11",
     title: "PDF 工具箱新增 OCR 文字识别：扫描件也能提取文字了",

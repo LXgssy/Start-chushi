@@ -28,6 +28,24 @@ OCR 引擎与语言包均为 Apache-2.0（Tesseract / tessdata）。
 3. 打开「初始」→ 右键 → PDF 工具箱 → OCR 文字识别，状态栏出现
    `本地引擎（127.0.0.1:27001）` 即已生效。
 
+## 就绪包（免装 Node，直接下载，v8.7.167 起扩展内嵌下载入口）
+
+不想装环境的话，用官方 Releases 已打包好的 Windows 免安装包
+（PDF 工具箱 → OCR 文字识别面板内也有这个下载入口）：
+
+```
+https://github.com/LXgssy/Start-chushi/releases/download/pdf-bridge-v1.0.0/chushi-pdf-bridge-win64-v1.0.0.zip
+SHA256: a37244af52b86f5d67649f942778c95b4d66bed522d1284078abb48faa0b9361
+```
+
+解压后双击 `chushi-pdf-bridge.exe`（SmartScreen 提示点「更多信息 → 仍要运行」），
+扩展 OCR 面板自动探活并优先走本地引擎。包内布局：
+
+- `chushi-pdf-bridge.exe` —— 桥接服务单文件（Node.js SEA 官方方案打包）；
+- `tesseract\` —— 原生 Tesseract 5.2.0 引擎与依赖（依 conda-forge 发行版按
+  依赖闭环组装，全部 Apache-2.0 / BSD 系原许可）；
+- `tessdata\` —— chi_sim + eng 语言包（tessdata_fast，Apache-2.0）。
+
 ## 打包 Windows 免安装 exe（可选）
 
 Node 单可执行应用（SEA）方案，产物是一个 exe + 旁边放引擎与语言包：
