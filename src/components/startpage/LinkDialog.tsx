@@ -19,7 +19,6 @@ import {
   saveCustomIcon,
 } from "@/lib/startpage/custom-icons";
 import { CUSTOM_ICONS_EVENT, useCustomIcons } from "@/lib/startpage/custom-icons-react";
-import { useBgFreeze } from "@/hooks/use-start";
 import type { StartLink } from "@/lib/startpage/types";
 
 export interface LinkEditorState {
@@ -41,7 +40,6 @@ function LinkDialog({
   onDelete: (id: string) => void;
 }) {
   /* v8.7.155 背景冻结律：纱罩打开期暂停极光/kenburns（globals.cs-bg-frozen） */
-  useBgFreeze(state.open);
   /* 打开时才挂载表单，编辑目标变化时重建（状态自然重置） */
   return (
     <AnimatePresence>

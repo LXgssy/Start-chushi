@@ -25,7 +25,6 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { PresenceClass } from "./PresenceClass";
 import { useMorphHeight } from "./use-morph-height";
 import PresetPanel, { type PresetTab } from "./PresetPanel";
-import { useBgFreeze } from "@/hooks/use-start";
 /* v8.4.9 自绘套件（设计不变，零笔画交叉） */
 import {
   CsCheckSquare,
@@ -119,7 +118,6 @@ function PaletteInner({
 }) {
   /* v8.7.155 背景冻结律：PaletteInner 仅 open 挂载（AnimatePresence 门），
      挂载即冻结、卸载即解冻（useBgFreeze 引用计数） */
-  useBgFreeze(true);
   const [inputValue, setInputValue] = useState("");
   /* 选中高光门控（v1.1.3）：cmdk 恒有一个 data-selected 项作为键盘导航锚点，
      指针不在面板上时高光常驻，观感 = 「一直残留选中一个选项」。以 data-nav 三态门控：

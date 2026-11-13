@@ -57,7 +57,6 @@
  * ============================================================ */
 
 import { useEffect, useRef, useState } from "react";
-import { useBgFreeze } from "@/hooks/use-start";
 import { bridgeOcr, probePdfBridge, type PdfBridgeInfo } from "@/lib/startpage/pdf-bridge";
 import { browserOcrCanvas, preprocessCanvas } from "@/lib/startpage/ocr-engine";
 import { createPortal } from "react-dom";
@@ -1084,7 +1083,6 @@ export default function PdfTools({
   onClose: () => void;
 }) {
   /* v8.7.155 背景冻结律：纱罩打开期暂停极光/kenburns（globals.cs-bg-frozen） */
-  useBgFreeze(open);
   const [host] = useState<HTMLElement | null>(() =>
     typeof document === "undefined" ? null : document.body
   );

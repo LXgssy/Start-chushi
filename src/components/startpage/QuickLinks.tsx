@@ -83,7 +83,6 @@ import {
 } from "@/lib/startpage/link-folders";
 import { hostOf } from "@/lib/startpage/link-utils";
 import { inExtIframe, openExternalUrl } from "@/lib/startpage/nav";
-import { useBgFreeze } from "@/hooks/use-start";
 import {
   clearIconSource,
   orderedIconSources,
@@ -1934,6 +1933,8 @@ function QuickLinks({
   const insidePanelRef = useRef(false);
   const exitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const exitFolderId = useRef<string | null>(null);
+  /* v8.7.171 拖拽期面板元素缓存（isConnected 失效自动重查） */
+  const exitPanelElRef = useRef<HTMLElement | null>(null);
   /* v8.7.169 ②会话中出夹驻留是否已响（夹已被计时关闭）：响过 = 用户已用
      3 秒驻留表达了「拿出来」的明确意图——松手落账出夹（追加墙尾），
      修复「关夹后松手在墙面网格之外（over=null）磁贴留在已关的夹里」的
@@ -2019,10 +2020,9 @@ function QuickLinks({
   /** portal 渲染目标（收起存续窗共用）：exit 期的夹已离场但仍在播动画 */
   const popFolder = openFolder ?? exitFolder;
 
-  /* 拖拽会话期背景冻结（v8.7.155 三闸门律复用）：activeId 非空 = 拖拽中——
-     极光/壁纸 kenburns/视频暂停，毛玻璃磁贴的 backdrop 采样链全链静止，
-     多开场景下拖拽让位的合成成本大幅下降（掉帧根修 GPU 侧） */
-  useBgFreeze(activeId != null);
+  /* v8.7.171 拖拽期背景冻结退役（用户红线「不允许暂停背景动画」）：拖拽中
+     极光/kenburns 照跑，性能由极光降分辨率栅格化承担（globals 背景动画
+     永动律注释）——backdrop 采样源已从逐帧重绘大面降为合成平移静态纹理。 */
 
   /** 文件夹磁贴定位节点（popover 锚定用）：data-entry-id 由 Tile 挂在
    *  sortable 包裹层上，两形态（常驻/抽屉）磁贴都在 rootRef 子树内 */
@@ -2426,7 +2426,13 @@ function QuickLinks({
        中心回面板内 → 撤计时。实测结果同时写入 insidePanelRef 供 dragOver
        的地理闸读取（move 与 over 同一事件循环，读数恒新鲜）。 */
     if (dragStartedInsideRef.current) {
-      const panel = document.querySelector<HTMLElement>("[data-cl-folder-popover]");
+      /* v8.7.171：面板元素引用缓存于 dragStart（会话面板唯一、closure 内 isConnected
+         失效检测）——每帧免全文档 querySelector，仅保留一次 getBoundingClientRect */
+      if (!exitPanelElRef.current || !exitPanelElRef.current.isConnected) {
+        exitPanelElRef.current =
+          document.querySelector<HTMLElement>("[data-cl-folder-popover]");
+      }
+      const panel = exitPanelElRef.current;
       let inside = false;
       if (panel) {
         const pr = panel.getBoundingClientRect();

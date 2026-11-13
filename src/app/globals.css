@@ -380,15 +380,29 @@ html.dark .accent-bar {
   border-color: rgba(255, 255, 255, 0.06);
 }
 
-/* ---------- 极光光斑（仅 transform 动画，GPU 合成友好） ---------- */
+/* ---------- 极光光斑（v8.7.171 降分辨率栅格化：模糊一次性栅格，合成器平移）
+ * 旧实现：55vmax 级元素整面 filter: blur(96px)——blur 是逐帧 paint op，
+ * 四个大光斑 = 每帧四次千像素级高斯模糊重栅格（GPU/软渲染都是最大单笔）。
+ * 新实现（视觉数学等价）：blob 本体只做「动画容器」（drift transform 合成、
+ * will-change 保层身份），实际彩色模糊盘由 ::before 承载——25% 尺寸 +
+ * blur(24px) + scale(4)：高斯模糊尺度不变性 blur(24px)@25%×4 ≡ blur(96px)@100%，
+ * ::before 静止不动画 → 一次栅格成纹理，容器 transform 动画纯合成平移。
+ * GPU 栅格面积 1/16、每帧模糊重算 0 次；饱和度/色相/明度分布逐点等价。 */
 .aurora-blob {
   position: absolute;
-  border-radius: 9999px;
-  filter: blur(96px) saturate(130%);
-  will-change: transform;
-  transition-property: opacity, background-color;
-  transition-duration: 2500ms;
   pointer-events: none;
+  will-change: transform;
+}
+.aurora-blob::before {
+  content: "";
+  position: absolute;
+  inset: 37.5%;
+  border-radius: 9999px;
+  background: inherit;
+  filter: blur(24px) saturate(130%);
+  transform: scale(4);
+  transform-origin: 50% 50%;
+  transition: background-color 2500ms;
 }
 .aurora-a {
   width: 55vmax;
@@ -433,7 +447,7 @@ html.dark .accent-bar {
 }
 
 @media (max-width: 768px) {
-  .aurora-blob { filter: blur(56px) saturate(125%); }
+  .aurora-blob::before { filter: blur(14px) saturate(125%); }
 }
 
 /* ---------- 胶片颗粒与暗角（颗粒层独立合成，避免随下层重绘） ---------- */
@@ -467,23 +481,17 @@ html.dark .accent-bar {
   to   { transform: scale(1.12) translate3d(0, -1.6%, 0); }
 }
 
-/* ---------- v8.7.155 背景冻结律（多开掉帧根修·玻璃面省钱通道） ----------
- * 三类闸门把持续动画（极光 drift ×4 / 壁纸 kenburns）按需暂停，其余时刻
- * 原样——观感零变化，只砍「玻璃算不过来」的帧：
- *   ① html.cs-bg-frozen —— 满屏玻璃纱罩打开期（命令面板/链接编辑/PDF 工具
- *      箱/更新日志/开发者文档，useBgFreeze 计数挂类）：背景在 24px+ 高斯
- *      模糊之下，漂移动画每帧强制 backdrop-filter 重滤波，是开纱罩掉帧的
- *      主账；冻结后玻璃底静帧，滤波结果可缓存复用。纱罩之下看不出冻结。
- *   ② html.cs-drawer —— 快捷服务抽屉挂载期（QuickLinks 同步，存量类）：
- *      整页 28px 纱罩同账，同律冻结。
- *   ③ html.cs-hidden —— document.hidden（use-start-settings 同步）：隐藏页
- *      多开时动画时钟照走，回前台瞬间全部补帧挤兑；隐藏期直接停摆。
- * 注意学 cs-lite 律：animation-play-state 暂停保合成层身份（display:none
- * 会拆层重建，回 visible 时首帧抖动）——这里只用 play-state，层不拆。 */
-html.cs-bg-frozen .aurora-blob,
-html.cs-bg-frozen .kenburns,
-html.cs-drawer .aurora-blob,
-html.cs-drawer .kenburns,
+/* ---------- v8.7.171 背景动画永动律（用户红线：「不允许为了优化性能而阉割
+ * 页面效果，暂停背景动画对性能优化微乎其微」）----------
+ * v8.7.155 的三类「暂停背景动画」闸门全部退役：
+ *   ① cs-bg-frozen（纱罩期）②cs-drawer（抽屉期）③拖拽期 useBgFreeze——
+ * 可见状态下动画一律照跑，性能改由真实底层优化承担：
+ *   · 极光降分辨率栅格化（.aurora-blob::before 25% 尺寸+blur(24px)+scale(4)，
+ *     视觉等价 blur(96px)，模糊从每帧重算变一次性栅格）；
+ *   · 磁贴磨砂 backdrop 链的采样源（极光）从「逐帧重绘大面」降为「合成平移
+ *     静态纹理」，拖拽/纱罩/抽屉全场景的 backdrop 重滤波成本同步大降。
+ * 仅保留 html.cs-hidden（document.hidden 后台标签）：用户不可见、无观感
+ * 语义，纯省电（回前台不补帧挤兑）。play-state 暂停保合成层身份。 */
 html.cs-hidden .aurora-blob,
 html.cs-hidden .kenburns {
   animation-play-state: paused !important;

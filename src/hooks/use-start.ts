@@ -127,23 +127,7 @@ export function uid(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 }
 
-/* ---------- v8.7.155 背景冻结律：满屏玻璃纱罩打开期挂 html.cs-bg-frozen ----------
- * globals.css 据此暂停极光 drift / 壁纸 kenburns——纱罩（24px+ 高斯模糊）之下
- * 背景每帧漂移都会强制 backdrop-filter 全屏重滤波，是浮层打开期掉帧主账；
- * 纱罩之下看不出冻结，观感零变化。引用计数：浮层可叠开（面板上再开弹窗），
- * 只在最后一层关闭时摘类，防「上层关、下层还在」的半途解冻。 */
-let bgFreezeCount = 0;
-function bgFreezeApply() {
-  document.documentElement.classList.toggle("cs-bg-frozen", bgFreezeCount > 0);
-}
-export function useBgFreeze(active: boolean) {
-  useEffect(() => {
-    if (!active) return;
-    bgFreezeCount += 1;
-    bgFreezeApply();
-    return () => {
-      bgFreezeCount = Math.max(0, bgFreezeCount - 1);
-      bgFreezeApply();
-    };
-  }, [active]);
-}
+/* ---------- v8.7.171 useBgFreeze 退役 ----------
+ * 「暂停背景动画」闸门随可见动画永动律退役（globals.css 背景动画永动律
+ * 注释）：拖拽/纱罩/抽屉全场景动画照跑，性能由极光降分辨率栅格化承担。
+ * document.hidden 后台仍由 AuroraBackground 视频闸与 globals cs-hidden 管。 */

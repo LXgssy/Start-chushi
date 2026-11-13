@@ -12,7 +12,6 @@
  */
 
 import { useEffect, useState } from "react";
-import { useBgFreeze } from "@/hooks/use-start";
 import { createPortal } from "react-dom";
 import { AnimatePresence } from "framer-motion";
 import { PresenceClass } from "./PresenceClass";
@@ -160,8 +159,6 @@ export default function PresetDocs({
    * 惰性初始化（非 effect + setState，react-hooks 律）：SSR 渲染期
    * document 不存在 → null（组件渲染空）；客户端首渲染即拿到 body。
    * open=false 时 portal 内无任何 DOM 节点，水合零差异。 */
-  /* v8.7.155 背景冻结律：纱罩打开期暂停极光/kenburns（globals.cs-bg-frozen） */
-  useBgFreeze(open);
   const [host] = useState<HTMLElement | null>(() =>
     typeof document === "undefined" ? null : document.body
   );
