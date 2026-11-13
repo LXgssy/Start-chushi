@@ -59,6 +59,7 @@
     "docx": "^9.9.0",
     "embla-carousel-react": "^8.6.0",
     "fflate": "^0.8.3",
+    "fontkit": "^3.0.0",
     "framer-motion": "^12.23.2",
     "html2canvas": "^1.4.1",
     "input-otp": "^1.4.2",

@@ -17,8 +17,10 @@
  *   mammoth：Word(docx) → HTML（浏览器 browser 字段映射）；
  *   xlsx（SheetJS）：Excel 读（xlsx/xls → HTML 表格）与写（PDF → xlsx）；
  *   fflate：多文件 zip 打包（也用于 pptx 的 zip 直解）；
- *   html2canvas + jspdf：Word/Excel → HTML 排版 → 光栅化 → A4 分页；
- *   docx：PDF 文本 → .docx（每页标题 + 段落）；
+ *   fontkit + Noto Sans SC（随包 TTF 运行时子集化）：@cantoo/pdf-lib 嵌入
+ *     中文字形，Word/Excel/PPT→PDF 输出真实可选取文字层（v8.7.170 起，
+ *     html2canvas+jspdf 光栅管线退役——光栅件无文字层/不可选/不可搜）；
+ *   docx：PDF 文本 → .docx（每页标题 + 段落 + 飞鼠口径还原表格）；
  *   pptxgenjs：PDF 每页 2x PNG → 16:9 全幅图片型 .pptx。
  *
  * v8.7.166 新增 OCR 文字识别（双轨制，扫描件/图片型 PDF 逐页提取文本）：
@@ -47,7 +49,9 @@
  *      （.doc 明确告知需另存 .docx）。
  *
  * 保真度声明（诚实降级，UI 内注明）：
- *   Word/Excel → PDF 走「HTML 重排版 + 光栅化」（视觉保真、文字不可选）；
+ *   Word/Excel → PDF 走「结构重排版」（mammoth/SheetJS 提取内容后按 A4
+ *   版式语义重排，真实文字层可选可搜；复杂嵌套版式与艺术字不逐像素还原，
+ *   飞鼠同款口径的浏览器端实现——其 LibreOffice 桌面管线不可入浏览器）；
  *   PPT → PDF 走「文本重构」（提取每页标题与列点，不含原始图形元素）；
  *   PDF → Word/Excel 走「文本流转换」（版式简化为段落/表格行列）。
  * ============================================================ */
@@ -128,7 +132,7 @@ const TOOLS: ToolMeta[] = [
   {
     id: "word2pdf",
     name: "Word 转 PDF",
-    desc: "docx 文档转 PDF（HTML 重排版，视觉保真）",
+    desc: "docx 文档转 PDF（结构重排版，文字可选可搜）",
     icon: <FileType strokeWidth={1.5} />,
     group: "convert",
     accept: ".docx",
@@ -137,7 +141,7 @@ const TOOLS: ToolMeta[] = [
   {
     id: "excel2pdf",
     name: "Excel 转 PDF",
-    desc: "表格转 PDF，每张工作表一页（HTML 重排版）",
+    desc: "表格转 PDF，网格重排（文字可选可搜）",
     icon: <FileSpreadsheet strokeWidth={1.5} />,
     group: "convert",
     accept: ".xlsx,.xls",
@@ -306,91 +310,35 @@ function decodeXmlEntities(s: string) {
 
 /* ---------------- pdf.js 加载器（worker 路径与构建期 BASE_PATH 同律） ---------------- */
 
+import {
+  A4_H,
+  A4_W,
+  MARGIN,
+  CONTENT_W,
+  createCjkA4Doc,
+  layoutFlowA4,
+  wrapCjkText,
+  groupPdfItemsIntoLines,
+  cjkDisplayWidth,
+  type FlowBlock,
+  type PdfTextItem,
+} from "@/lib/startpage/pdf-cjk";
+
 async function loadPdfJs() {
   const pdfjs = await import("pdfjs-dist");
   pdfjs.GlobalWorkerOptions.workerSrc = `${(process.env.NEXT_PUBLIC_BASE_PATH as string) || ""}/pdf.worker.min.mjs`;
   return pdfjs;
 }
 
-/* ---------------- HTML → A4 PDF 管道（word2pdf / excel2pdf 共用） ----------------
- * v8.7.164 根修：排版容器迁入 srcdoc 同源 iframe——独立文档、零应用样式表。
- * 根因：html2canvas 克隆的是元素 ownerDocument 全文档样式（主文档含 Tailwind v4，
- * @theme 的 oklch() 色值在其 CSS 解析器里直接抛
- * “Attempting to parse an unsupported color function”，排版容器自身再干净也救不回）。
- * iframe 文档内只有我们手写的 hex 样式，克隆面从源头不含 oklch。 */
+/* ---------------- v8.7.170 文字层转换管线 ----------------
+ * 旧实现三大缺陷（用户实测「所有转换功能转换完都是有错误的」探针复现）：
+ *   ① word2pdf/excel2pdf 走 html2canvas 光栅——输出无文字层（不可选/不可搜/
+ *      放大糊，jsPDF JPEG 压缩后大文件），②ppt2pdf 走 jsPDF 默认 Helvetica——
+ *      CJK 字节被硬塞 Latin-1 输出乱码，③pdf2word/pdf2excel 表格不还原。
+ * 根修：统一走 @cantoo/pdf-lib + fontkit 运行时子集化嵌入 Noto Sans SC
+ * （真实可选文字层），表格走飞鼠行分组/对齐口径（见 pdf-cjk.ts 致谢）。 */
 
-/** 把已排版好的 HTML 容器光栅化并按 A4 竖版分页输出。
- *  容器要求：固定宽 794px（96dpi A4），高度任意，白底黑字自备样式 */
-async function renderHtmlToA4(container: HTMLElement, outName: string) {
-  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
-    import("html2canvas"),
-    import("jspdf"),
-  ]);
-  const canvas = await html2canvas(container, {
-    scale: 2,
-    backgroundColor: "#ffffff",
-    useCORS: true,
-    logging: false,
-  });
-  const pdf = new jsPDF({ unit: "pt", format: "a4", orientation: "portrait" });
-  const pw = pdf.internal.pageSize.getWidth();
-  const ph = pdf.internal.pageSize.getHeight();
-  const pxPerPt = canvas.width / pw;
-  const sliceH = Math.floor(ph * pxPerPt);
-  const pageCanvas = document.createElement("canvas");
-  const ctx2 = pageCanvas.getContext("2d")!;
-  let rendered = 0;
-  let page = 0;
-  while (rendered < canvas.height) {
-    const h = Math.min(sliceH, canvas.height - rendered);
-    pageCanvas.width = canvas.width;
-    pageCanvas.height = h;
-    ctx2.fillStyle = "#ffffff";
-    ctx2.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
-    ctx2.drawImage(canvas, 0, rendered, canvas.width, h, 0, 0, canvas.width, h);
-    if (page > 0) pdf.addPage();
-    pdf.addImage(pageCanvas.toDataURL("image/jpeg", 0.92), "JPEG", 0, 0, pw, h / pxPerPt);
-    rendered += h;
-    page += 1;
-  }
-  downloadBlob(pdf.output("blob"), outName);
-  return page;
-}
-
-/** Word/Excel 转换共用的离屏排版容器（794px A4 宽，中文衬线标题+无衬线正文）。
- *  v8.7.164 起容器住在 srcdoc 同源 iframe 里（返回 iframe 与其中的 .doc-root）。
- *  同步律：load 监听必须先于 appendChild 注册（否则可能吃别 about:blank 假 load），
- *  且轮询等 .doc-root 真身在场再返回——首张 about:blank 文档会被 srcdoc 替换，
- *  捕在旧文档上的容器 defaultView 会变 null（html2canvas 直接抛 not attached） */
-async function mountOffscreenDoc(html: string): Promise<{ iframe: HTMLIFrameElement; container: HTMLElement }> {
-  const iframe = document.createElement("iframe");
-  iframe.setAttribute("aria-hidden", "true");
-  iframe.style.cssText =
-    "position:fixed;left:-10000px;top:0;width:824px;height:1200px;border:0;background:#ffffff;";
-  iframe.srcdoc =
-    `<!doctype html><html><head><meta charset="utf-8"><style>` +
-    `html,body{margin:0;padding:0;background:#ffffff;}` +
-    `</style></head><body>${html}</body></html>`;
-  const loaded = new Promise<void>((res) => {
-    iframe.addEventListener("load", () => res(), { once: true });
-  });
-  document.body.appendChild(iframe);
-  await loaded;
-  /* 双保险：等到 srcdoc 文档真身（.doc-root 在场 + defaultView 存活）再返回 */
-  for (let i = 0; i < 120; i++) {
-    const d = iframe.contentDocument;
-    if (d && d.defaultView && d.querySelector(".doc-root")) break;
-    await new Promise((r) => setTimeout(r, 25));
-  }
-  const doc = iframe.contentDocument;
-  if (!doc || !doc.defaultView) throw new Error("离屏排版容器初始化失败");
-  const container = doc.querySelector<HTMLElement>(".doc-root") ?? doc.body;
-  return { iframe, container };
-}
-
-function unmountOffscreenDoc(iframe: HTMLIFrameElement) {
-  iframe.remove();
-}
+const H_SIZES: Record<string, number> = { H1: 18, H2: 15, H3: 13, H4: 12, H5: 11, H6: 10.5 };
 
 /* ---------------- 各功能实现（run 包装统一错误/状态） ---------------- */
 
@@ -447,7 +395,10 @@ async function toEmbeddable(file: File): Promise<{ data: ArrayBuffer; kind: "jpg
   }
 }
 
-/* ② Word 转 PDF：mammoth docx→HTML → 离屏排版 → A4 光栅分页 */
+/* ② Word 转 PDF：mammoth docx→块流 → @cantoo/pdf-lib CJK 文字层 A4 排版。
+ *    v8.7.170 根修：输出真实可选/可搜文字层（旧 html2canvas 光栅件无文字层，
+ *    jsPDF JPEG 压缩后大且糊）。版式语义（标题层级/段距/表格网格/跨页表头
+ *    重复）参考飞鼠格式转换口径。 */
 async function toolWord2pdf(
   files: File[],
   setStatus: (s: string) => void
@@ -461,29 +412,67 @@ async function toolWord2pdf(
     { styleMap: ["p[style-name='Title'] => h1.doc-title:fresh", "p[style-name='Heading 1'] => h1.doc-h1:fresh"] }
   );
   setStatus("排版并输出 PDF…");
-  const { iframe, container } = await mountOffscreenDoc(
-    `<style>
-      .doc-root{font-family:'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;font-size:15px;line-height:1.75;padding:56px 64px;width:794px;background:#ffffff;color:#1c1c22;}
-      .doc-root h1.doc-title{font-size:28px;font-weight:600;margin:0 0 18px;line-height:1.4;}
-      .doc-root h1.doc-h1{font-size:22px;font-weight:600;margin:26px 0 12px;}
-      .doc-root h2{font-size:18px;font-weight:600;margin:22px 0 10px;}
-      .doc-root h3{font-size:16px;font-weight:600;margin:18px 0 8px;}
-      .doc-root p{margin:0 0 12px;}
-      .doc-root table{border-collapse:collapse;width:100%;margin:12px 0;}
-      .doc-root td,.doc-root th{border:1px solid #d6d6de;padding:6px 10px;font-size:13px;}
-      .doc-root ul,.doc-root ol{margin:0 0 12px;padding-left:26px;}
-      .doc-root img{max-width:100%;}
-    </style><div class="doc-root">${html}</div>`
+  const blocks = htmlToBlocks(html);
+  const { doc, font, colors } = await createCjkA4Doc();
+  const pages = await layoutFlowA4(doc, font, colors, blocks, {
+    onNewPage: (pg, idx) => {
+      pg.drawText(`${idx + 1}`, { x: A4_W - MARGIN, y: MARGIN - 16, size: 8, font, color: colors.gray });
+    },
+  });
+  const bytes = await doc.save();
+  downloadBlob(
+    new Blob([bytes as unknown as BlobPart], { type: "application/pdf" }),
+    `${baseName(f.name)}.pdf`
   );
-  try {
-    const pages = await renderHtmlToA4(container, `${baseName(f.name)}.pdf`);
-    return `已生成「${baseName(f.name)}.pdf」（${pages} 页）`;
-  } finally {
-    unmountOffscreenDoc(iframe);
-  }
+  return `已生成「${baseName(f.name)}.pdf」（${pages} 页，可选取文字层）`;
 }
 
-/* ③ Excel 转 PDF：SheetJS 读 → 每张表 sheet_to_html → 排版 → A4 分页 */
+/** mammoth HTML → 排版块流（标题层级/段落/列表/表格/内嵌图） */
+function htmlToBlocks(html: string): FlowBlock[] {
+  const dom = new DOMParser().parseFromString(html, "text/html");
+  const blocks: FlowBlock[] = [];
+  const pushText = (text: string, size: number, gap: number, indent = 0) => {
+    const t = text.replace(/\s+/g, " ").trim();
+    if (t) blocks.push({ kind: "text", text: t, size, gapBefore: gap, indent, lineHeight: size * 1.5 });
+  };
+  const walk = (el: Element) => {
+    for (const node of Array.from(el.children)) {
+      const tag = node.tagName.toUpperCase();
+      if (/^H[1-6]$/.test(tag)) {
+        pushText(node.textContent || "", H_SIZES[tag] ?? 11, tag === "H1" ? 12 : 9);
+      } else if (tag === "P") {
+        /* 段落内嵌图（mammoth 输出 data URI img）：先图后文，图片不丢 */
+        for (const img of Array.from(node.querySelectorAll("img"))) {
+          if (/^data:image\/(png|jpeg);base64,/i.test(img.getAttribute("src") || "")) {
+            blocks.push({ kind: "img", dataUri: img.getAttribute("src")! });
+          }
+        }
+        pushText(node.textContent || "", 10.5, 4);
+      } else if (tag === "UL" || tag === "OL") {
+        Array.from(node.children).forEach((li, i) =>
+          pushText(`${tag === "OL" ? `${i + 1}. ` : "• "}${li.textContent || ""}`, 10.5, 2, 18)
+        );
+      } else if (tag === "TABLE") {
+        const rows: string[][] = [];
+        for (const tr of Array.from(node.querySelectorAll("tr"))) {
+          rows.push(Array.from(tr.querySelectorAll("td,th")).map((td) => (td.textContent || "").trim()));
+        }
+        if (rows.length) blocks.push({ kind: "table", rows, header: true });
+      } else if (node.children.length) {
+        walk(node);
+      } else {
+        pushText(node.textContent || "", 10.5, 4);
+      }
+    }
+  };
+  walk(dom.body);
+  if (!blocks.length) throw new Error("未从 Word 文档解析到内容");
+  return blocks;
+}
+
+/* ③ Excel 转 PDF：SheetJS 读表 → 网格块（首行表头/列宽 CJK 双宽计宽律/
+ *    跨页表头重复）→ @cantoo/pdf-lib 文字层 A4。
+ *    v8.7.170 根修：旧 sheet_to_html+html2canvas 光栅输出无文字层。 */
 async function toolExcel2pdf(
   files: File[],
   setStatus: (s: string) => void
@@ -493,34 +482,40 @@ async function toolExcel2pdf(
   setStatus("解析表格…");
   const XLSX = await import("xlsx");
   const wb = XLSX.read(await f.arrayBuffer(), { type: "array" });
-  setStatus(`渲染 ${wb.SheetNames.length} 张工作表…`);
-  let tables = "";
+  const blocks: FlowBlock[] = [];
   for (const sn of wb.SheetNames) {
-    /* v8.7.164：sheet_to_html 输出的是完整 HTML 文档（含 html/head/style 包裹），
-     * 嵌进我们自己的文档会引发生僻 CSS 解析错——只取 <table> 本体 */
-    const raw = XLSX.utils.sheet_to_html(wb.Sheets[sn], { header: "", footer: "" });
-    const m = raw.match(/<table[\s\S]*<\/table>/i);
-    tables += `<h2 class="sheet-name">${sn}</h2>${m ? m[0] : raw}`;
+    const aoa = XLSX.utils.sheet_to_json<string[]>(wb.Sheets[sn], {
+      header: 1,
+      defval: "",
+      raw: false,
+    });
+    const rows = (aoa as unknown[]).map((r) =>
+      Array.isArray(r) ? r.map((c) => String(c ?? "")) : [String(r ?? "")]
+    );
+    if (!rows.length) continue;
+    blocks.push({ kind: "table", title: sn, titleGap: blocks.length ? 14 : 0, rows, header: true });
   }
-  const { iframe, container } = await mountOffscreenDoc(
-    `<style>
-      .doc-root{font-family:'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;padding:48px 56px;color:#1c1c22;background:#ffffff;width:794px;}
-      .doc-root h2.sheet-name{font-size:16px;font-weight:600;margin:0 0 10px;}
-      .doc-root h2.sheet-name:not(:first-child){margin-top:28px;}
-      .doc-root table{border-collapse:collapse;width:100%;margin:0 0 8px;}
-      .doc-root td{border:1px solid #d9d9e0;padding:5px 9px;font-size:12px;line-height:1.5;white-space:nowrap;max-width:420px;overflow:hidden;text-overflow:ellipsis;}
-      .doc-root tr:first-child td{background:#f3f3f7;font-weight:600;}
-    </style><div class="doc-root">${tables}</div>`
+  if (!blocks.length) throw new Error("未从表格文件解析到内容");
+  setStatus("排版并输出 PDF…");
+  const { doc, font, colors } = await createCjkA4Doc();
+  const pages = await layoutFlowA4(doc, font, colors, blocks, {
+    onNewPage: (pg, idx) => {
+      pg.drawText(`${idx + 1}`, { x: A4_W - MARGIN, y: MARGIN - 16, size: 8, font, color: colors.gray });
+    },
+  });
+  const bytes = await doc.save();
+  downloadBlob(
+    new Blob([bytes as unknown as BlobPart], { type: "application/pdf" }),
+    `${baseName(f.name)}.pdf`
   );
-  try {
-    const pages = await renderHtmlToA4(container, `${baseName(f.name)}.pdf`);
-    return `已生成「${baseName(f.name)}.pdf」（${wb.SheetNames.length} 张表 / ${pages} 页）`;
-  } finally {
-    unmountOffscreenDoc(iframe);
-  }
+  return `已生成「${baseName(f.name)}.pdf」（${wb.SheetNames.length} 张表 / ${pages} 页，可选取文字层）`;
 }
 
-/* ④ PPT 转 PDF：pptx 是 zip（fflate 直解）→ 每页提取 <a:t> 文本 → 横版 PDF */
+/* ④ PPT 转 PDF：pptx 是 zip（fflate 直解）→ 每页提取 <a:t> 文本 →
+ *    @cantoo/pdf-lib CJK 文字层横版（960×540）。
+ *    v8.7.170 根修：旧 jsPDF 默认 Helvetica 不含 CJK 字形，中文全部输出
+ *    乱码（探针实证：GBK 字节被硬塞 Latin-1）——改子集化嵌入 Noto Sans SC，
+ *    标题/列点全部真实文字。 */
 async function toolPpt2pdf(
   files: File[],
   setStatus: (s: string) => void
@@ -529,7 +524,6 @@ async function toolPpt2pdf(
   const f = files[0];
   setStatus("解包演示文稿…");
   const { unzipSync, strFromU8 } = await import("fflate");
-  const { jsPDF } = await import("jspdf");
   const zipped = unzipSync(new Uint8Array(await f.arrayBuffer()));
   const slideNames = Object.keys(zipped)
     .filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n))
@@ -540,39 +534,56 @@ async function toolPpt2pdf(
     });
   if (!slideNames.length) throw new Error("未找到幻灯片内容（仅支持 .pptx）");
   setStatus(`转换 ${slideNames.length} 页…`);
-  const pdf = new jsPDF({ unit: "pt", format: [960, 540], orientation: "landscape" });
-  slideNames.forEach((name, i) => {
-    const xml = strFromU8(zipped[name]);
+  const { doc, font, colors, rgbRaw } = await createCjkA4Doc();
+  const SW = 960;
+  const SH = 540;
+  for (let i = 0; i < slideNames.length; i++) {
+    const xml = strFromU8(zipped[slideNames[i]]);
     const texts = [...xml.matchAll(/<a:t>([\s\S]*?)<\/a:t>/g)]
       .map((m) => decodeXmlEntities(m[1]).trim())
       .filter(Boolean);
-    if (i > 0) pdf.addPage([960, 540], "landscape");
-    /* 深底白字横版：标题 + 列点（文本重构方案） */
-    pdf.setFillColor(24, 24, 30);
-    pdf.rect(0, 0, 960, 540, "F");
-    pdf.setTextColor(250, 250, 252);
+    const pg = doc.addPage([SW, SH]);
+    /* 深底白字横版：标题 + 列点（文字重构方案，真实可选文字层） */
+    pg.drawRectangle({ x: 0, y: 0, width: SW, height: SH, color: colors.heading });
     if (texts.length) {
-      pdf.setFontSize(30);
-      const title = texts[0].slice(0, 42);
-      pdf.text(title, 72, 150);
-      pdf.setFontSize(16);
-      pdf.setTextColor(214, 214, 224);
-      let y = 220;
+      let ty = SH - 120;
+      for (const line of wrapCjkText(texts[0], SW - 144, 30, font).slice(0, 2)) {
+        pg.drawText(line, { x: 72, y: ty, size: 30, font, color: colors.white });
+        ty -= 42;
+      }
+      let y = ty - 26;
       for (const t of texts.slice(1, 9)) {
-        const line = t.length > 52 ? t.slice(0, 52) + "…" : t;
-        pdf.text(line, 96, y);
-        y += 34;
+        if (y < 72) break;
+        for (const line of wrapCjkText(t, SW - 192, 16, font)) {
+          if (y < 72) break;
+          pg.drawText(line, { x: 96, y, size: 16, font, color: rgbRaw.sub });
+          y -= 28;
+        }
+        y -= 8;
       }
     }
-    pdf.setFontSize(10);
-    pdf.setTextColor(120, 120, 132);
-    pdf.text(`${i + 1} / ${slideNames.length}`, 880, 512);
-  });
-  downloadBlob(pdf.output("blob"), `${baseName(f.name)}.pdf`);
-  return `已生成「${baseName(f.name)}.pdf」（${slideNames.length} 页，文本重构版式）`;
+    pg.drawText(`${i + 1} / ${slideNames.length}`, {
+      x: SW - 90,
+      y: 30,
+      size: 10,
+      font,
+      color: rgbRaw.pageNum,
+    });
+  }
+  const bytes = await doc.save();
+  downloadBlob(
+    new Blob([bytes as unknown as BlobPart], { type: "application/pdf" }),
+    `${baseName(f.name)}.pdf`
+  );
+  return `已生成「${baseName(f.name)}.pdf」（${slideNames.length} 页，文字重构版式）`;
 }
 
-/* ⑤ PDF 转 Word：pdf.js 文本 → docx（每页标题 + 段落行） */
+/* ⑤ PDF 转 Word：飞鼠行分组/表格对齐口径移植（牢蜂 LaoFeng，非商用许可）
+ *    → 段落 + 真实 docx Table + 高度启发式标题判级。
+ *    v8.7.170 根修：旧实现 y 容差拼行只出段落流，表格内容散落成普通段落
+ *    （探针实证「表格还原为 docx 表」FAIL）——现按 groupPdfItemsIntoLines
+ *    的片段对齐律升格表格行（相邻行同列数且逐列 x 对齐 ±10px），连续对齐
+ *    行合并为 docx Table；行高 ≥ 正文中位数 ×1.5 判一级标题、×1.25 判二级。 */
 async function toolPdf2word(
   files: File[],
   setStatus: (s: string) => void
@@ -582,26 +593,32 @@ async function toolPdf2word(
   const pdfjs = await loadPdfJs();
   setStatus("解析 PDF…");
   const doc = await pdfjs.getDocument({ data: await f.arrayBuffer() }).promise;
-  const { Document, Packer, Paragraph, HeadingLevel } = await import("docx");
-  const children: InstanceType<typeof Paragraph>[] = [];
+  const {
+    Document,
+    Packer,
+    Paragraph,
+    HeadingLevel,
+    TextRun,
+    Table,
+    TableRow,
+    TableCell,
+    WidthType,
+    BorderStyle,
+  } = await import("docx");
+  const children: (
+    | InstanceType<typeof Paragraph>
+    | InstanceType<typeof Table>
+  )[] = [];
+  let tableCount = 0;
   for (let i = 1; i <= doc.numPages; i++) {
-    setStatus(`提取第 ${i}/${doc.numPages} 页…`);
+    setStatus(`解析第 ${i}/${doc.numPages} 页…`);
     const page = await doc.getPage(i);
     const tc = await page.getTextContent();
-    const lines: string[] = [];
-    let cur = "";
-    let lastY: number | null = null;
-    for (const it of tc.items) {
-      if (!("str" in it)) continue;
-      const y = (it as { transform?: number[] }).transform?.[5] ?? 0;
-      if (lastY !== null && Math.abs(y - lastY) > 3 && cur) {
-        lines.push(cur);
-        cur = "";
-      }
-      cur += (cur && !cur.endsWith(" ") && it.str && " " ? " " : "") + it.str;
-      lastY = y;
-    }
-    if (cur.trim()) lines.push(cur.trim());
+    /* 飞鼠 groupPdfItemsIntoLines 口径：行聚类（高度自适应容差）+ CJK 相邻
+       零空格 + 片段切分 + aligned 表格行判定 */
+    const lines = groupPdfItemsIntoLines(tc.items as PdfTextItem[]);
+    const heights = lines.map((l) => l.height).sort((a, b) => a - b);
+    const bodyH = heights.length ? heights[Math.floor(heights.length / 2)] : 10;
     children.push(
       new Paragraph({
         text: `第 ${i} 页`,
@@ -609,19 +626,91 @@ async function toolPdf2word(
         pageBreakBefore: i > 1,
       })
     );
-    for (const line of lines) {
-      if (line.trim()) children.push(new Paragraph({ text: line.trim() }));
+    let k = 0;
+    while (k < lines.length) {
+      const line = lines[k];
+      if (line.cells.length > 1) {
+        /* 连续同列数对齐行 → docx Table（飞鼠表格行语义） */
+        const cols = line.cells.length;
+        const tbl: string[][] = [];
+        while (k < lines.length && lines[k].cells.length === cols) {
+          tbl.push(lines[k].cells);
+          k++;
+        }
+        if (tbl.length) {
+          tableCount += 1;
+          children.push(buildDocxTable(tbl, { Paragraph, TextRun, Table, TableRow, TableCell, WidthType, BorderStyle }));
+          continue;
+        }
+      }
+      const t = line.text.trim();
+      if (t) {
+        if (line.height >= bodyH * 1.5 && t.length < 40) {
+          children.push(new Paragraph({ text: t, heading: HeadingLevel.HEADING_1 }));
+        } else if (line.height >= bodyH * 1.25 && t.length < 60) {
+          children.push(new Paragraph({ text: t, heading: HeadingLevel.HEADING_2 }));
+        } else {
+          children.push(new Paragraph({ text: t }));
+        }
+      }
+      k++;
     }
   }
-  if (!children.length) throw new Error("未提取到文本（可能是扫描件）");
+  if (!children.length) throw new Error("未提取到文本（可能是扫描件，请用 OCR 文字识别）");
   const docx = new Document({ sections: [{ properties: {}, children }] });
   setStatus("生成 Word 文档…");
   const blob = await Packer.toBlob(docx);
   downloadBlob(blob, `${baseName(f.name)}.docx`);
-  return `已生成「${baseName(f.name)}.docx」（${doc.numPages} 页文本流）`;
+  return `已生成「${baseName(f.name)}.docx」（${doc.numPages} 页 / ${tableCount} 张表格，表格已还原为可编辑表）`;
 }
 
-/* ⑥ PDF 转 Excel：pdf.js 坐标聚类（y 容差成行、x 间隙拆列）→ SheetJS */
+/** docx Table 构建（等宽列 + 灰边框 + 中文 eastAsia 字体声明） */
+function buildDocxTable(
+  rows: string[][],
+  libs: {
+    Paragraph: typeof import("docx").Paragraph;
+    TextRun: typeof import("docx").TextRun;
+    Table: typeof import("docx").Table;
+    TableRow: typeof import("docx").TableRow;
+    TableCell: typeof import("docx").TableCell;
+    WidthType: typeof import("docx").WidthType;
+    BorderStyle: typeof import("docx").BorderStyle;
+  }
+): import("docx").Table {
+  const border = { style: libs.BorderStyle.SINGLE, size: 4, color: "BFBFBF" };
+  const borders = { top: border, bottom: border, left: border, right: border };
+  return new libs.Table({
+    width: { size: 100, type: libs.WidthType.PERCENTAGE },
+    rows: rows.map(
+      (cells) =>
+        new libs.TableRow({
+          children: cells.map(
+            (c) =>
+              new libs.TableCell({
+                width: { size: Math.floor(100 / Math.max(1, cells.length)), type: libs.WidthType.PERCENTAGE },
+                borders,
+                children: [
+                  new libs.Paragraph({
+                    children: [
+                      new libs.TextRun({
+                        text: String(c ?? ""),
+                        font: { eastAsia: "Microsoft YaHei", hAnsi: "Calibri" },
+                      }),
+                    ],
+                  }),
+                ],
+              })
+          ),
+        })
+    ),
+  });
+}
+
+/* ⑥ PDF 转 Excel：飞鼠行分组 + aligned 表格行口径（牢蜂 LaoFeng，非商用许可）
+ *    → SheetJS 网格 + 列宽（CJK 双宽计宽律）。
+ *    v8.7.170 根修：旧实现固定 y 容差 + x 间隙拆列——正文段落被切成碎格、
+ *    表头行对不齐（探针实证）。现 rows = lines.map(cells)：定位词单行整格、
+ *    对齐行升格单元格，列宽按内容 CJK 双宽计算（飞鼠 applyColumnWidths 简化口径）。 */
 async function toolPdf2excel(
   files: File[],
   setStatus: (s: string) => void
@@ -637,44 +726,11 @@ async function toolPdf2excel(
     setStatus(`还原第 ${i}/${doc.numPages} 页表格…`);
     const page = await doc.getPage(i);
     const tc = await page.getTextContent();
-    type Cell = { x: number; y: number; s: string };
-    const cells: Cell[] = [];
-    for (const it of tc.items) {
-      if (!("str" in it) || !it.str.trim()) continue;
-      const tr = (it as { transform?: number[] }).transform;
-      if (!tr) continue;
-      cells.push({ x: tr[4], y: tr[5], s: it.str.trim() });
-    }
-    cells.sort((a, b) => b.y - a.y || a.x - b.x);
-    /* 行聚类：y 差 ≤ 3.5 视为同一行；行内 x 间隙 > 14 拆列 */
-    const rows: string[][] = [];
-    let row: Cell[] = [];
-    let rowY: number | null = null;
-    const flush = () => {
-      if (!row.length) return;
-      row.sort((a, b) => a.x - b.x);
-      const cols: string[] = [];
-      let prevEnd = -1e9;
-      for (const c of row) {
-        if (prevEnd > -1e8 && c.x - prevEnd > 14) cols.push("");
-        cols.push(c.s);
-        prevEnd = c.x + c.s.length * 5.2;
-      }
-      rows.push(cols);
-      row = [];
-    };
-    for (const c of cells) {
-      if (rowY === null || Math.abs(c.y - rowY) <= 3.5) {
-        row.push(c);
-        rowY = rowY === null ? c.y : (rowY + c.y) / 2;
-      } else {
-        flush();
-        row = [c];
-        rowY = c.y;
-      }
-    }
-    flush();
+    /* 飞鼠 groupPdfItemsIntoRows 口径：rows = lines.map(cells) */
+    const lines = groupPdfItemsIntoLines(tc.items as PdfTextItem[]);
+    const rows = lines.map((l) => l.cells).filter((r) => r.some((c) => c.trim()));
     const ws = XLSX.utils.aoa_to_sheet(rows.length ? rows : [["（本页未提取到文本）"]]);
+    ws["!cols"] = computeXlsxColWidths(rows);
     XLSX.utils.book_append_sheet(wb, ws, `第${i}页`);
   }
   /* v8.7.164：XLSX.writeFile 在扩展页会丢下载名（blob 触发链不同），
@@ -686,7 +742,19 @@ async function toolPdf2excel(
     }),
     `${baseName(f.name)}.xlsx`
   );
-  return `已生成「${baseName(f.name)}.xlsx」（${doc.numPages} 张工作表）`;
+  return `已生成「${baseName(f.name)}.xlsx」（${doc.numPages} 张工作表，表格网格已还原）`;
+}
+
+/** xlsx 列宽（飞鼠 pdfCellDisplayWidth/applyColumnWidths 简化口径：内容宽 + 2，上限 48） */
+function computeXlsxColWidths(rows: string[][]): { wch: number }[] {
+  const cols = rows.reduce((m, r) => Math.max(m, r.length), 1);
+  const widths = Array<number>(cols).fill(8);
+  for (const row of rows) {
+    row.forEach((cell, i) => {
+      widths[i] = Math.max(widths[i], Math.min(cjkDisplayWidth(cell) + 2, 48));
+    });
+  }
+  return widths.map((w) => ({ wch: Math.round(w * 100) / 100 }));
 }
 
 /* ⑦ PDF 转 PPT：pdf.js 每页 2x PNG → pptxgenjs 16:9 全幅图片型 */

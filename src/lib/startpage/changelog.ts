@@ -22,6 +22,19 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
     {
+    version: "8.7.170",
+    date: "2026-11-13",
+    title: "PDF 工具箱转换链路根修：全部输出带真实文字层，表格完整还原",
+    channel: "page",
+    highlights: [
+      "Word 转 PDF / Excel 转 PDF / PPT 转 PDF 输出全部改为真实文字层：文字可选、可搜索、放大不模糊（旧版是图片拼的，选中不了也搜不到）",
+      "修复 PPT 转 PDF 中文全部乱码的问题",
+      "PDF 转 Word 表格还原为可编辑表格（不再散落成一段段文字），并自动识别标题层级",
+      "PDF 转 Excel 还原表格网格与列宽（不再把正文段落切成碎格）",
+      "转换内核与表格算法移植自开源项目「飞鼠格式转换」（作者 牢蜂 LaoFeng，非商用许可），中文字体 Noto Sans SC（OFL 开源许可）",
+    ],
+  },
+    {
     version: "8.7.169",
     date: "2026-11-13",
     title: "文件夹拖拽节奏重做：悬停满 3 秒才入夹，松手一镜到底飞进文件夹",

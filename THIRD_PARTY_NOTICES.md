@@ -39,8 +39,21 @@ Tesseract 5.2.0 引擎及其依赖库，自 **conda-forge 发行版**（win-64�
 3. OCR 工程口径：中英文固定语言集（chi_sim+eng）、300dpi、灰度归一化预处理、
    逐页识别与置信度意识（其 ocr.js）。
 
-相应地在扩展侧（`src/lib/startpage/ocr-engine.ts` 的预处理注释与 PdfTools
-关于文案）同样标注了该来源。本项目承诺：与飞鼠一样**永久开源非商用**，
+「初始」v8.7.170 的转换链路根修在此基础上扩大移植范围（`src/lib/startpage/
+pdf-cjk.ts` 与 PdfTools.tsx，算法口径移植、零依赖浏览器适配重写）：
+
+4. PDF 文本行分组口径（其 pdf-table.js `groupPdfItemsIntoLines`）：行聚类
+   高度自适应容差律、CJK 相邻零空格律、片段切分律（间隙 > max(14, 行高×1.6)）；
+5. 表格行对齐律（同文件 `aligned` 判定）：相邻行片段数一致且逐列 x 对齐
+   （±10px）才升格为表格单元格——单纯定位词永不成表；
+6. 列宽计宽律（同文件 `pdfCellDisplayWidth`/`applyColumnWidths`）：CJK/全角
+   计双宽、组合记号计零宽，xlsx 列宽按内容宽度计算；
+7. Word→PDF 版式语义参考（其 pdf-office-docx.js：标题层级/段距/表格网格/
+   跨页表头重复；其 LibreOffice 桌面管线不可入浏览器，本工具箱以
+   mammoth→结构重排版实现同目标）。
+
+相应地在 `src/lib/startpage/pdf-cjk.ts` 文件头、`PdfTools.tsx` 各转换函数
+注释与本节同样标注了该来源。本项目承诺：与飞鼠一样**永久开源非商用**，
 不做任何商用、售卖或套壳冒充。
 
 ## 随包分发的其它引擎库（v8.7.52 起的 PDF 工具箱）
@@ -53,8 +66,8 @@ Tesseract 5.2.0 引擎及其依赖库，自 **conda-forge 发行版**（win-64�
 | mammoth | docx → HTML | BSD-2-Clause |
 | SheetJS (xlsx) | xlsx/xls 读写 | Apache-2.0（Community Edition） |
 | fflate | zip 打包/解包 | MIT |
-| jsPDF | PDF 光栅输出 | MIT |
-| html2canvas | HTML 光栅化 | MIT |
+| fontkit | 字体解析/子集化（@cantoo/pdf-lib 嵌入） | MIT |
+| Noto Sans SC（TTF 随包） | CJK 文字层嵌入字体 | SIL Open Font License 1.1 |
 | docx | 文本 → docx | MIT |
 | pptxgenjs | 文本 → pptx | MIT |
 | lucide-react | 图标 | ISC |
