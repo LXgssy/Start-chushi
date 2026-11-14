@@ -104,12 +104,12 @@ import { PresenceClass } from "./PresenceClass";
 /** 磁贴 layout 动画：弹簧驱动，增删/重排/退出编辑均平滑归位（近临界阻尼，快速就位零反弹） */
 const LAYOUT_SPRING = { type: "spring" as const, stiffness: 420, damping: 41, mass: 0.9 };
 
-/* ---------- v8.7.172 拖拽手感五连修常量 ---------- */
-/** v8.7.172 ①入夹驻留军备时长：3s→1s（用户口径「将判定磁贴图标进入文件夹的
- *  3秒时长改成1秒，拖出文件夹也是同理」——双向 1s）。 */
-const FOLDER_DWELL_MS = 1000;
-/** v8.7.172 ①出夹驻留时长：夹内磁贴拖出面板矩形 1s 关夹放行（同上口径）。 */
-const FOLDER_DWELL_EXIT_MS = 1000;
+/* ---------- v8.7.173 拖拽手感常量 ---------- */
+/** v8.7.173 ①入夹驻留军备时长：1s→0.5s（用户口径「磁贴拖入和拖出文件夹的
+ *  判定时间改成0.5秒」——入夹+出夹双向 0.5s；v8.7.172 的 1s 退役）。 */
+const FOLDER_DWELL_MS = 500;
+/** v8.7.173 ①出夹驻留时长：夹内磁贴拖出面板矩形 0.5s 关夹放行（同上口径）。 */
+const FOLDER_DWELL_EXIT_MS = 500;
 /** v8.7.172 ⑥军备宽限（软清窗）：MeasuringStrategy.Always 下策略位移矩形致
  *  over 振荡——旧逐次硬清让 1s 计时永不满足；260ms 内回到同一夹续接剩余
  *  驻留，超窗才真清。 */
@@ -2001,6 +2001,9 @@ function QuickLinks({
   const exitFolderId = useRef<string | null>(null);
   /* v8.7.172 ①出夹探测节流簿（30Hz）：窗内沿用上次实测结果 */
   const exitProbeAt = useRef(0);
+  /* v8.7.173 ⑤右半让位判定节流簿（30Hz）：dragMove 每帧重判的
+     querySelector+gBCR 强制布局读退役——与出夹探测同窗复用 */
+  const yieldProbeAt = useRef(0);
   /* v8.7.171 拖拽期面板元素缓存（isConnected 失效自动重查） */
   const exitPanelElRef = useRef<HTMLElement | null>(null);
   /* v8.7.169 ②会话中出夹驻留是否已响（夹已被计时关闭）：响过 = 用户已用
@@ -2622,7 +2625,9 @@ function QuickLinks({
        会话（地理闸关）不参与——夹内排序走同夹子磁贴分支。 */
     const mTo = overIdRef.current;
     const mFrom = String(e.active.id);
-    if (mTo && mFrom !== mTo && !dragStartedInsideRef.current) {
+    const yieldProbeDue = performance.now() - yieldProbeAt.current >= EXIT_PROBE_MIN_MS;
+    if (yieldProbeDue) yieldProbeAt.current = performance.now();
+    if (mTo && mFrom !== mTo && !dragStartedInsideRef.current && yieldProbeDue) {
       const overEntry = links.find((x) => x.id === mTo);
       if (
         overEntry &&
@@ -3208,13 +3213,20 @@ function QuickLinks({
 
   return (
     <DndContext
-      sensors={sensors}
+      sensors={ghost ? [] : sensors}
       collisionDetection={closestCenter}
       /* v8.7.172 ⑤MeasuringStrategy.Always：开飞即摘后拖拽继续、墙面弹簧
          补位/让位全程在动——拖拽中持续重测 droppable 矩形，over 解析不再
          吃过期布局（静止测量策略在弹簧期间命中旧矩形）。over 振荡副作用由
-         军备软清宽限（⑥ softClearDwell 260ms）吸收。 */
-      measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
+         军备软清宽限（⑥ softClearDwell 260ms）吸收。
+         v8.7.173 ⑤重测去抖 60ms：每次重排触发全量 droppable gBCR 重测
+         （40+ 磁贴 ×1-2ms 批量布局读）——快速拖拽横穿数格时逐格级联重测
+         白烧拖拽链路，依赖变更触发侧按 60ms 去抖。ghost 布局占位克隆
+         （aria-hidden 不可交互）降级 BeforeDragging + 零传感器——其
+         DndContext 永不拖拽，Always 全量重测纯浪费。 */
+      measuring={{ droppable: ghost
+        ? { strategy: MeasuringStrategy.BeforeDragging }
+        : { strategy: MeasuringStrategy.Always, frequency: 60 } }}
       onDragStart={handleDragStart}
       onDragMove={handleDragMove}
       onDragOver={handleDragOver}
@@ -3360,7 +3372,7 @@ function QuickLinks({
                   <span className="relative block">
                     <motion.span
                       aria-hidden
-                      className="pointer-events-none absolute -inset-3 rounded-[26px] blur-lg"
+                      className="pointer-events-none absolute -inset-3 rounded-[26px] blur-lg will-change-transform"
                       style={{
                         background:
                           "radial-gradient(closest-side, var(--ui-accent), transparent 74%)",
@@ -3369,7 +3381,7 @@ function QuickLinks({
                     />
                     <motion.span
                       aria-hidden
-                      className="pointer-events-none absolute inset-0 rounded-[20px]"
+                      className="pointer-events-none absolute inset-0 rounded-[20px] will-change-transform"
                       style={{
                         boxShadow:
                           "0 2px 4px -2px rgba(0,0,0,.30), 0 18px 34px -14px rgba(0,0,0,.50), 0 8px 16px -10px rgba(0,0,0,.32)",

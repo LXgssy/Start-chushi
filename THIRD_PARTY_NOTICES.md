@@ -38,6 +38,21 @@ Tesseract 5.2.0 引擎及其依赖库，自 **conda-forge 发行版**（win-64�
 2. 本地请求守卫模式（仅本机直连 + 来源校验，其 `assertLocalWebRequest`）；
 3. OCR 工程口径：中英文固定语言集（chi_sim+eng）、300dpi、灰度归一化预处理、
    逐页识别与置信度意识（其 ocr.js）。
+「初始」v8.7.173 的 PDF 转 Word / PDF 转 Excel 在上述致谢基础上**直接移植**了
+该项目的转换引擎源码（显著署名保持，二次开发成果同样非商用）：
+
+1. `pdf-table-extractor.js` / `pdf-table-runtime.js` 两文件为**零逻辑改动
+   逐字节移植**（module.exports → ESM export 桥接除外），保留原作者文件级
+   口径与注释；网格并查集、锚点列聚类、算术自洽修复、跨页续表全部为原实现。
+2. `pdf-office.ts` 浏览器桥接层按其 `pdf-office-xlsx.js`（ExcelJS 写入器：
+   formatPdfWorkbookSheet / applyColumnWidths / addPdfTableNotes 口径）与
+   `pdf-office-docx.js`（makeTable / tableRows 口径）移植；矢量线提取为
+   浏览器侧 camelot-lattice 等价实现（其 native 路径依赖原生 docengine
+   二进制，浏览器环境不可用，详见源码头注）。
+3. 依许可要求显著标注：原作者 **牢蜂（LaoFeng）**，项目
+   github.com/LaoFeng-mouse/flyingmouse-format；《飞鼠格式非商用许可协议》
+   全文随上游仓库分发，本扩展同样**禁止商用**。
+
 
 「初始」v8.7.170 的转换链路根修在此基础上扩大移植范围（`src/lib/startpage/
 pdf-cjk.ts` 与 PdfTools.tsx，算法口径移植、零依赖浏览器适配重写）：

@@ -317,11 +317,15 @@ import {
   createCjkA4Doc,
   layoutFlowA4,
   wrapCjkText,
-  groupPdfItemsIntoLines,
-  cjkDisplayWidth,
   type FlowBlock,
-  type PdfTextItem,
 } from "@/lib/startpage/pdf-cjk";
+import {
+  extractOfficePage,
+  detectPageTables,
+  buildModel,
+  writeModelToXlsxBuffer,
+  writePagesToDocxBlob,
+} from "@/lib/startpage/pdf-office";
 
 async function loadPdfJs() {
   const pdfjs = await import("pdfjs-dist");
@@ -577,12 +581,13 @@ async function toolPpt2pdf(
   return `已生成「${baseName(f.name)}.pdf」（${slideNames.length} 页，文字重构版式）`;
 }
 
-/* ⑤ PDF 转 Word：飞鼠行分组/表格对齐口径移植（牢蜂 LaoFeng，非商用许可）
- *    → 段落 + 真实 docx Table + 高度启发式标题判级。
- *    v8.7.170 根修：旧实现 y 容差拼行只出段落流，表格内容散落成普通段落
- *    （探针实证「表格还原为 docx 表」FAIL）——现按 groupPdfItemsIntoLines
- *    的片段对齐律升格表格行（相邻行同列数且逐列 x 对齐 ±10px），连续对齐
- *    行合并为 docx Table；行高 ≥ 正文中位数 ×1.5 判一级标题、×1.25 判二级。 */
+/* ⑤ PDF 转 Word：v8.7.173 整体换用「飞鼠格式转换」引擎（牢蜂 LaoFeng，
+ *    github.com/LaoFeng-mouse/flyingmouse-format，《飞鼠格式非商用许可协议》）——
+ *    pdf-table-extractor.js（网格并查集/锚点列聚类/算术修复）零逻辑改动移植 +
+ *    pdf-office-docx.js makeTable/tableRows 口径（DXA 固定布局/纵向合并/
+ *    低置信底纹）+ rawBlocks 段落流（runs 级样式随行）。
+ *    v8.7.170 行分组版缺陷（复现实锤）：丢失 viewport 坐标变换 → 行序按
+ *    PDF 底部原点升序 = 全文倒序输出；本版从根上退役该管线（见 pdf-office.ts）。 */
 async function toolPdf2word(
   files: File[],
   setStatus: (s: string) => void
@@ -592,124 +597,37 @@ async function toolPdf2word(
   const pdfjs = await loadPdfJs();
   setStatus("解析 PDF…");
   const doc = await pdfjs.getDocument({ data: await f.arrayBuffer() }).promise;
-  const {
-    Document,
-    Packer,
-    Paragraph,
-    HeadingLevel,
-    TextRun,
-    Table,
-    TableRow,
-    TableCell,
-    WidthType,
-    BorderStyle,
-  } = await import("docx");
-  const children: (
-    | InstanceType<typeof Paragraph>
-    | InstanceType<typeof Table>
-  )[] = [];
-  let tableCount = 0;
+  const pageResults: Parameters<typeof writePagesToDocxBlob>[0] = [];
   for (let i = 1; i <= doc.numPages; i++) {
     setStatus(`解析第 ${i}/${doc.numPages} 页…`);
     const page = await doc.getPage(i);
-    const tc = await page.getTextContent();
-    /* 飞鼠 groupPdfItemsIntoLines 口径：行聚类（高度自适应容差）+ CJK 相邻
-       零空格 + 片段切分 + aligned 表格行判定 */
-    const lines = groupPdfItemsIntoLines(tc.items as PdfTextItem[]);
-    const heights = lines.map((l) => l.height).sort((a, b) => a - b);
-    const bodyH = heights.length ? heights[Math.floor(heights.length / 2)] : 10;
-    children.push(
-      new Paragraph({
-        text: `第 ${i} 页`,
-        heading: HeadingLevel.HEADING_2,
-        pageBreakBefore: i > 1,
-      })
-    );
-    let k = 0;
-    while (k < lines.length) {
-      const line = lines[k];
-      if (line.cells.length > 1) {
-        /* 连续同列数对齐行 → docx Table（飞鼠表格行语义） */
-        const cols = line.cells.length;
-        const tbl: string[][] = [];
-        while (k < lines.length && lines[k].cells.length === cols) {
-          tbl.push(lines[k].cells);
-          k++;
-        }
-        if (tbl.length) {
-          tableCount += 1;
-          children.push(buildDocxTable(tbl, { Paragraph, TextRun, Table, TableRow, TableCell, WidthType, BorderStyle }));
-          continue;
-        }
-      }
-      const t = line.text.trim();
-      if (t) {
-        if (line.height >= bodyH * 1.5 && t.length < 40) {
-          children.push(new Paragraph({ text: t, heading: HeadingLevel.HEADING_1 }));
-        } else if (line.height >= bodyH * 1.25 && t.length < 60) {
-          children.push(new Paragraph({ text: t, heading: HeadingLevel.HEADING_2 }));
-        } else {
-          children.push(new Paragraph({ text: t }));
-        }
-      }
-      k++;
-    }
+    const input = await extractOfficePage(page as never, i);
+    const detected = detectPageTables(input, "text");
+    pageResults.push({
+      pageNumber: i,
+      tables: (detected.tables || []) as never,
+      rawBlocks: (detected.rawBlocks || []) as never,
+    });
   }
-  if (!children.length) throw new Error("未提取到文本（可能是扫描件，请用 OCR 文字识别）");
-  const docx = new Document({ sections: [{ properties: {}, children }] });
+  const hasText = pageResults.some(
+    (p) => p.tables.length > 0 || p.rawBlocks.length > 0
+  );
+  if (!hasText) {
+    throw new Error("未从 PDF 提取到文本（可能是扫描件，请用「扫描件 OCR」工具）");
+  }
   setStatus("生成 Word 文档…");
-  const blob = await Packer.toBlob(docx);
+  const blob = await writePagesToDocxBlob(pageResults);
   downloadBlob(blob, `${baseName(f.name)}.docx`);
-  return `已生成「${baseName(f.name)}.docx」（${doc.numPages} 页 / ${tableCount} 张表格，表格已还原为可编辑表）`;
+  const tableCount = pageResults.reduce((n, p) => n + p.tables.length, 0);
+  return `已生成「${baseName(f.name)}.docx」（${doc.numPages} 页 / ${tableCount} 张表格，飞鼠引擎网格还原）`;
 }
 
-/** docx Table 构建（等宽列 + 灰边框 + 中文 eastAsia 字体声明） */
-function buildDocxTable(
-  rows: string[][],
-  libs: {
-    Paragraph: typeof import("docx").Paragraph;
-    TextRun: typeof import("docx").TextRun;
-    Table: typeof import("docx").Table;
-    TableRow: typeof import("docx").TableRow;
-    TableCell: typeof import("docx").TableCell;
-    WidthType: typeof import("docx").WidthType;
-    BorderStyle: typeof import("docx").BorderStyle;
-  }
-): import("docx").Table {
-  const border = { style: libs.BorderStyle.SINGLE, size: 4, color: "BFBFBF" };
-  const borders = { top: border, bottom: border, left: border, right: border };
-  return new libs.Table({
-    width: { size: 100, type: libs.WidthType.PERCENTAGE },
-    rows: rows.map(
-      (cells) =>
-        new libs.TableRow({
-          children: cells.map(
-            (c) =>
-              new libs.TableCell({
-                width: { size: Math.floor(100 / Math.max(1, cells.length)), type: libs.WidthType.PERCENTAGE },
-                borders,
-                children: [
-                  new libs.Paragraph({
-                    children: [
-                      new libs.TextRun({
-                        text: String(c ?? ""),
-                        font: { eastAsia: "Microsoft YaHei", hAnsi: "Calibri" },
-                      }),
-                    ],
-                  }),
-                ],
-              })
-          ),
-        })
-    ),
-  });
-}
-
-/* ⑥ PDF 转 Excel：飞鼠行分组 + aligned 表格行口径（牢蜂 LaoFeng，非商用许可）
- *    → SheetJS 网格 + 列宽（CJK 双宽计宽律）。
- *    v8.7.170 根修：旧实现固定 y 容差 + x 间隙拆列——正文段落被切成碎格、
- *    表头行对不齐（探针实证）。现 rows = lines.map(cells)：定位词单行整格、
- *    对齐行升格单元格，列宽按内容 CJK 双宽计算（飞鼠 applyColumnWidths 简化口径）。 */
+/* ⑥ PDF 转 Excel：v8.7.173 整体换用「飞鼠格式转换」引擎（牢蜂 LaoFeng，
+ *    github.com/LaoFeng-mouse/flyingmouse-format，《飞鼠格式非商用许可协议》）——
+ *    词元（200dpi 视口坐标）+ canvas 栅格线 → detectTablesOnPage（网格
+ *    并查集/锚点列聚类）→ buildWorkbookModel（跨页续接/sheet 命名/Raw 留档）
+ *    → ExcelJS 写入器（formatPdfWorkbookSheet/applyColumnWidths/
+ *    addPdfTableNotes 口径）。扫描件按飞鼠「宁可不给也不给错表」显式拒绝。 */
 async function toolPdf2excel(
   files: File[],
   setStatus: (s: string) => void
@@ -719,41 +637,28 @@ async function toolPdf2excel(
   const pdfjs = await loadPdfJs();
   setStatus("解析 PDF…");
   const doc = await pdfjs.getDocument({ data: await f.arrayBuffer() }).promise;
-  const XLSX = await import("xlsx");
-  const wb = XLSX.utils.book_new();
+  const detectedPages: ReturnType<typeof detectPageTables>[] = [];
   for (let i = 1; i <= doc.numPages; i++) {
     setStatus(`还原第 ${i}/${doc.numPages} 页表格…`);
     const page = await doc.getPage(i);
-    const tc = await page.getTextContent();
-    /* 飞鼠 groupPdfItemsIntoRows 口径：rows = lines.map(cells) */
-    const lines = groupPdfItemsIntoLines(tc.items as PdfTextItem[]);
-    const rows = lines.map((l) => l.cells).filter((r) => r.some((c) => c.trim()));
-    const ws = XLSX.utils.aoa_to_sheet(rows.length ? rows : [["（本页未提取到文本）"]]);
-    ws["!cols"] = computeXlsxColWidths(rows);
-    XLSX.utils.book_append_sheet(wb, ws, `第${i}页`);
+    const input = await extractOfficePage(page as never, i);
+    detectedPages.push(detectPageTables(input, "text"));
   }
-  /* v8.7.164：XLSX.writeFile 在扩展页会丢下载名（blob 触发链不同），
-   * 统一改 XLSX.write + downloadBlob 锚点下载 */
-  const bytes = XLSX.write(wb, { bookType: "xlsx", type: "array" }) as unknown as ArrayBuffer;
+  const model = buildModel(detectedPages as never);
+  const tableSheets = model.sheets.filter((s: { name: string }) => !s.name.endsWith("-Raw"));
+  if (!tableSheets.length) {
+    throw new Error("未检测到表格网格（可能是扫描件——请先用「扫描件 OCR」识别文字，或换文本型 PDF 重试）");
+  }
+  setStatus("生成 Excel 工作簿…");
+  const bytes = await writeModelToXlsxBuffer(model as never);
   downloadBlob(
     new Blob([bytes as unknown as BlobPart], {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     }),
     `${baseName(f.name)}.xlsx`
   );
-  return `已生成「${baseName(f.name)}.xlsx」（${doc.numPages} 张工作表，表格网格已还原）`;
-}
-
-/** xlsx 列宽（飞鼠 pdfCellDisplayWidth/applyColumnWidths 简化口径：内容宽 + 2，上限 48） */
-function computeXlsxColWidths(rows: string[][]): { wch: number }[] {
-  const cols = rows.reduce((m, r) => Math.max(m, r.length), 1);
-  const widths = Array<number>(cols).fill(8);
-  for (const row of rows) {
-    row.forEach((cell, i) => {
-      widths[i] = Math.max(widths[i], Math.min(cjkDisplayWidth(cell) + 2, 48));
-    });
-  }
-  return widths.map((w) => ({ wch: Math.round(w * 100) / 100 }));
+  const rawSheets = model.sheets.length - tableSheets.length;
+  return `已生成「${baseName(f.name)}.xlsx」（${tableSheets.length} 张表格工作表${rawSheets ? ` + ${rawSheets} 张原文留档` : ""}，飞鼠引擎网格还原）`;
 }
 
 /* ⑦ PDF 转 PPT：pdf.js 每页 2x PNG → pptxgenjs 16:9 全幅图片型 */

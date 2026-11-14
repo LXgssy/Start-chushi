@@ -166,7 +166,14 @@ await dragTo("t2", (await tilePt("fd0")).x + 20, (await tilePt("fd0")).y);
 {
   const before = ids(await linksRead()).join(",");
   const p = await tilePt("fd9");
-  await dragTo("t1", p.x - 20, p.y);
+  const q = await tilePt("t1");
+  await page.mouse.move((await tilePt("t1")).x, (await tilePt("t1")).y);
+  await page.mouse.down();
+  for (let i = 1; i <= 5; i++) {
+    await page.mouse.move(q.x + ((p.x - 20 - q.x) * i) / 5, q.y + ((p.y - q.y) * i) / 5);
+    await page.waitForTimeout(28);
+  }
+  await page.mouse.up();
   await page.waitForTimeout(1200);
   const after = ids(await linksRead()).join(",");
   T("B2 链接拖到夹左半短松手 → 排序零变更", before === after);
@@ -186,9 +193,9 @@ await reseed();
     await page.mouse.move(p0.x + ((p.x - 20 - p0.x) * i) / 10, p0.y + ((p.y - p0.y) * i) / 10);
     await page.waitForTimeout(28);
   }
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(200);
   const early = await dropHintScale("fd0");
-  // 军备轮询：over 翻转滞后 50-300ms（dnd-kit 碰撞管线），1s 计时自翻转起算
+  // 军备轮询：over 翻转滞后 50-300ms（dnd-kit 碰撞管线），0.5s 计时自翻转起算
   // ——轮询至 scale>1.10（预算 2.5s），并断言不超调
   let armed = 0;
   const armT0 = Date.now();
@@ -197,8 +204,8 @@ await reseed();
     if (armed > 1.1) break;
     await page.waitForTimeout(120);
   }
-  T("A1 悬停 500ms 零反馈（scale < 1.10）", early < 1.1);
-  T("A2 满 1s 军备亮反馈（scale ≈ 1.12，轮询窗内点亮）", armed > 1.1 && armed < 1.2);
+  T("A1 悬停 200ms 零反馈（scale < 1.10）", early < 1.1);
+  T("A2 满 0.5s 军备亮反馈（scale ≈ 1.12，轮询窗内点亮）", armed > 1.1 && armed < 1.2);
   T("A0 军备期夹页不开", !(await popoverOpen()));
   const wallBefore = ids(await linksRead()).join(",");
   await page.mouse.up();
@@ -286,10 +293,10 @@ await reseed();
     await page.mouse.move(p0.x + ((tx - p0.x) * i) / 10, p0.y + ((ty - p0.y) * i) / 10);
     await page.waitForTimeout(28);
   }
-  await page.waitForTimeout(400);
-  T("C1 出面板 0.4s 驻留未满 → 夹页保持", await popoverOpen());
+  await page.waitForTimeout(120);
+  T("C1 出面板 0.25s 驻留未满 → 夹页保持", await popoverOpen());
   await page.waitForTimeout(1100);
-  T("C2 出面板满 1s → 夹页自动关闭", !(await popoverOpen()));
+  T("C2 出面板满 0.5s → 夹页自动关闭", !(await popoverOpen()));
   await page.mouse.up();
   await page.waitForTimeout(1800);
   const ls = await linksRead();

@@ -68,6 +68,18 @@ await page.evaluate(() => {
   requestAnimationFrame(loop);
 });
 const snapFrames = async () => page.evaluate(() => {
+  if (!window.__frames) {
+    /* reload 后自愈：本轮零样本返回，采样器重装供下一轮 */
+    window.__frames = [];
+    let last0 = performance.now();
+    const loop0 = (t) => {
+      window.__frames.push(t - last0);
+      last0 = t;
+      if (window.__sampling !== false) requestAnimationFrame(loop0);
+    };
+    requestAnimationFrame(loop0);
+    return { n: 0, long: 0, avg: 0, p95: 0 };
+  }
   const f = window.__frames.splice(0);
   const sorted = [...f].sort((a, b) => a - b);
   const long = f.filter((x) => x > 32).length;
@@ -103,10 +115,67 @@ const result = { tag: TAG, scenes: {} };
   result.scenes.drag = await snapFrames();
 }
 
+
+/* ---------- 场景 D：抽屉页拖拽磁贴横穿（用户口径「抽屉页面更严重」专项） ---------- */
+{
+  /* 切抽屉形态并唤出 */
+  await page.evaluate(() => { const st = JSON.parse(localStorage.getItem("start:settings") || "{}"); st.linksForm = "drawer"; localStorage.setItem("start:settings", JSON.stringify(st)); });
+  await page.reload({ waitUntil: "load" });
+  await page.waitForTimeout(1500);
+  /* reload 清掉了启动采样器——重装 */
+  await page.evaluate(() => {
+    window.__frames = [];
+    let last = performance.now();
+    const loop = (t) => {
+      window.__frames.push(t - last);
+      last = t;
+      if (window.__sampling !== false) requestAnimationFrame(loop);
+    };
+    requestAnimationFrame(loop);
+  });
+  await page.mouse.click(640, 760);
+  await page.keyboard.press("Alt+v");
+  await page.waitForTimeout(1200);
+  const tile = await page.locator('.cl-links-drawer [data-entry-id="p0"]').first().boundingBox();
+  const tile2 = await page.locator('.cl-links-drawer [data-entry-id="p39"]').first().boundingBox();
+  const ax = tile.x + tile.width / 2, ay = tile.y + Math.min(28, tile.height / 2);
+  const bx = tile2.x + tile2.width / 2, by = tile2.y + Math.min(28, tile2.height / 2);
+  await page.mouse.move(ax, ay);
+  await page.mouse.down();
+  for (let i = 1; i <= 20; i++) { await page.mouse.move(ax + ((bx - ax) * i) / 20, ay + ((by - ay) * i) / 20); await page.waitForTimeout(16); }
+  for (let i = 1; i <= 20; i++) { await page.mouse.move(bx + ((ax - bx) * i) / 20, by + ((ay - by) * i) / 20); await page.waitForTimeout(16); }
+  for (let i = 1; i <= 20; i++) { await page.mouse.move(ax + ((bx - ax) * i) / 20, ay + ((by - ay) * i) / 20); await page.waitForTimeout(16); }
+  await page.mouse.up();
+  await page.waitForTimeout(600);
+  result.scenes.drawerDrag = await snapFrames();
+  /* 恢复 docked（后续场景口径不变）：先收抽屉再切形态 */
+  await page.keyboard.press("Alt+v");
+  await page.waitForTimeout(800);
+  await page.evaluate(() => { const st = JSON.parse(localStorage.getItem("start:settings") || "{}"); st.linksForm = "docked"; localStorage.setItem("start:settings", JSON.stringify(st)); });
+  await page.reload({ waitUntil: "load" });
+  await page.waitForTimeout(1500);
+}
+
 /* ---------- 场景 B：右键 → PDF 工具箱（重面板呼出，纱罩+backdrop 全开） ---------- */
 {
-  await page.click("body", { button: "right", position: { x: 900, y: 650 } });
-  await page.waitForTimeout(300);
+  /* 动态找空白壁纸点（40 磁贴重排后固定坐标可能压在磁贴上=磁贴右键菜单） */
+  const spot = await page.evaluate(() => {
+    const occupied = [...document.querySelectorAll("[data-cl-tile], .cl-dock, [data-cl-dockwidget], a, button")]
+      .map((el) => el.getBoundingClientRect());
+    const ok = (x, y) => {
+      const el = document.elementFromPoint(x, y);
+      if (!el) return false;
+      const tag = el.tagName;
+      const interactive = el.closest("a, button, input, [data-cl-tile], .cl-dock, [data-cl-dockwidget], [role=button]");
+      return (tag === "BODY" || tag === "HTML" || tag === "MAIN" || (tag === "DIV" && !interactive)) && !occupied.some((r) => x >= r.left - 4 && x <= r.right + 4 && y >= r.top - 4 && y <= r.bottom + 4);
+    };
+    for (const [x, y] of [[1270, 400], [10, 400], [1270, 100], [10, 100], [640, 800], [900, 650]]) {
+      if (ok(x, y)) return { x, y };
+    }
+    return { x: 900, y: 650 };
+  });
+  await page.mouse.click(spot.x, spot.y, { button: "right" });
+  await page.waitForTimeout(500);
   const before = await snapFrames();
   await page.locator("text=PDF 工具箱").first().click();
   await page.waitForTimeout(1200);

@@ -1,0 +1,335 @@
+/*
+ * pdf-table-runtime.js — 「飞鼠格式转换」PDF 文本坐标→词元/栅格线检测运行时（原样移植 v8.7.173）
+ * 来源：github.com/LaoFeng-mouse/flyingmouse-format（pdf-table-runtime.js，《飞鼠格式非商用许可协议》）
+ * 作者：牢蜂 LaoFeng。视口坐标系变换（/Rotate 与 CropBox 安全）、词元样式解析、
+ * 栅格水平/垂直线检测均为零逻辑改动移植；OCR 相关导出仅扫描件链路使用。
+ */
+function clamp(value, minimum, maximum) {
+  return Math.min(maximum, Math.max(minimum, value));
+}
+
+function cleanNumber(value) {
+  const rounded = Math.round(value * 1000) / 1000;
+  return Object.is(rounded, -0) ? 0 : rounded;
+}
+
+function multiplyMatrices(left, right) {
+  return [
+    left[0] * right[0] + left[2] * right[1],
+    left[1] * right[0] + left[3] * right[1],
+    left[0] * right[2] + left[2] * right[3],
+    left[1] * right[2] + left[3] * right[3],
+    left[0] * right[4] + left[2] * right[5] + left[4],
+    left[1] * right[4] + left[3] * right[5] + left[5]
+  ];
+}
+
+// Internal PDF.js font ids are not installed font names. Only resolved font
+// names identify a face; an unresolved generic family remains generic.
+function pdfWordStyle(item, textContent, matrix, viewport) {
+  const metadata = textContent?.styles?.[item.fontName];
+  if (!metadata || typeof metadata !== "object") return null;
+  const style = {};
+  if (typeof metadata.fontFamily === "string" && metadata.fontFamily.trim()) style.fontFamily = metadata.fontFamily.trim();
+  const sourceName = typeof metadata.fontName === "string" ? metadata.fontName.trim() : "";
+  if (sourceName) {
+    style.sourceFontName = sourceName;
+    const name = sourceName.replace(/^[A-Z]{6}\+/, "");
+    if (/^FangSong(?:[-,]|$)/i.test(name)) style.fontName = "仿宋";
+    else if (/^SimSun(?:[-,]|$)/i.test(name)) style.fontName = "宋体";
+    else if (/^TimesNewRoman(?:PS)?(?:[-,]|MT|$)/i.test(name)) style.fontName = "Times New Roman";
+    else if (/^Arial(?:[-,]|MT|$)/i.test(name)) style.fontName = "Arial";
+    else if (!/^(?:KSO[\da-f]+|g_\w+|serif|sans-serif|monospace)(?:[-,]|$)/i.test(name)) style.fontName = name;
+    if (/bold/i.test(name)) style.bold = true;
+    if (/italic|oblique/i.test(name)) style.italic = true;
+  }
+  for (const key of ["bold", "italic"]) if (typeof metadata[key] === "boolean") style[key] = metadata[key];
+  // Native PDFs may embolden a regular face with text stroking (Tr 2).
+  // Only the independently aligned operator trace can establish this flag.
+  if (item.sourceBold === true) style.bold = true;
+  // The transformed font vector includes PDF UserUnit and rotation. Dividing
+  // by explicit viewport scale yields points, not rendered pixel height.
+  const scale = Number(viewport?.scale);
+  const size = Math.hypot(matrix[2], matrix[3]) / scale;
+  if (Number.isFinite(scale) && scale > 0 && Number.isFinite(size) && size > 0) style.fontSizePt = cleanNumber(size);
+  return style;
+}
+
+function pdfTextContentToWords({ textContent, viewport }) {
+  const items = textContent && Array.isArray(textContent.items) ? textContent.items : [];
+  const viewportTransform = viewport && Array.isArray(viewport.transform)
+    ? viewport.transform.map(Number)
+    : [1, 0, 0, 1, 0, 0];
+  const scale = Math.max(0.000001, Number(viewport && viewport.scale) || 1);
+
+  return items.flatMap((item) => {
+    const text = String(item && item.str != null ? item.str : "").trim();
+    if (!text || !item || !Array.isArray(item.transform) || item.transform.length < 6) return [];
+    const matrix = multiplyMatrices(viewportTransform, item.transform.map(Number));
+    if (!matrix.every(Number.isFinite)) return [];
+
+    const advanceLength = Math.max(0, Number(item.width) || 0) * scale;
+    const viewportXAxisLength = Math.hypot(viewportTransform[0], viewportTransform[1]) || scale;
+    const advanceX = viewportTransform[0] / viewportXAxisLength * advanceLength;
+    const advanceY = viewportTransform[1] / viewportXAxisLength * advanceLength;
+    let ascenderX = matrix[2];
+    let ascenderY = matrix[3];
+    const requestedHeight = Math.max(0, Number(item.height) || 0) * scale;
+    const matrixHeight = Math.hypot(ascenderX, ascenderY);
+    if (requestedHeight && matrixHeight) {
+      ascenderX *= requestedHeight / matrixHeight;
+      ascenderY *= requestedHeight / matrixHeight;
+    }
+    const corners = [
+      [matrix[4], matrix[5]],
+      [matrix[4] + advanceX, matrix[5] + advanceY],
+      [matrix[4] + ascenderX, matrix[5] + ascenderY],
+      [matrix[4] + advanceX + ascenderX, matrix[5] + advanceY + ascenderY]
+    ];
+    const xs = corners.map((point) => point[0]);
+    const ys = corners.map((point) => point[1]);
+    const x = Math.min(...xs);
+    const y = Math.min(...ys);
+    const style = pdfWordStyle(item, textContent, matrix, viewport);
+    return [{
+      text,
+      x: cleanNumber(x),
+      y: cleanNumber(y),
+      width: cleanNumber(Math.max(...xs) - x),
+      height: cleanNumber(Math.max(...ys) - y),
+      confidence: 1,
+      ...(style ? { style } : {})
+    }];
+  });
+}
+
+function normalizeConfidence(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return clamp(numeric > 1 ? numeric / 100 : numeric, 0, 1);
+}
+
+function normalizeOcrResult(result) {
+  const root = result && result.data ? result.data : result;
+  if (!root || typeof root !== "object") return [];
+  const candidates = [];
+  const seenObjects = new Set();
+
+  function visit(value) {
+    if (!value || typeof value !== "object" || seenObjects.has(value)) return;
+    seenObjects.add(value);
+    if (Array.isArray(value)) {
+      value.forEach(visit);
+      return;
+    }
+    const childKeys = ["blocks", "paragraphs", "lines", "words"];
+    const populatedChildren = childKeys.filter((key) => Array.isArray(value[key]) && value[key].length);
+    if (populatedChildren.length) {
+      populatedChildren.forEach((key) => visit(value[key]));
+      return;
+    }
+    const bbox = value.bbox;
+    if (bbox && value.text != null && [bbox.x0, bbox.y0, bbox.x1, bbox.y1].every((entry) => Number.isFinite(Number(entry)))) {
+      candidates.push(value);
+      return;
+    }
+  }
+  visit(root);
+
+  const seenWords = new Set();
+  const words = candidates.flatMap((entry) => {
+    const text = String(entry.text || "").trim();
+    if (!text) return [];
+    const bbox = entry.bbox;
+    const x = Number(bbox.x0);
+    const y = Number(bbox.y0);
+    const width = Math.max(0, Number(bbox.x1) - x);
+    const height = Math.max(0, Number(bbox.y1) - y);
+    const key = `${text}\u0000${x}\u0000${y}\u0000${width}\u0000${height}`;
+    if (seenWords.has(key)) return [];
+    seenWords.add(key);
+    return [{ text, x, y, width, height, confidence: normalizeConfidence(entry.confidence) }];
+  }).sort((left, right) => left.y - right.y || left.x - right.x);
+  return mergeOcrChineseWords(words);
+}
+
+// 中文 OCR 拆字合并：Tesseract 常把密集中文按「单字」拆成独立 word 且坐标抖动
+// （实测 `零 申 报 确认 表` 各字独立、同行 y 差可达 13px），导致列锚点聚类失败。
+// 把「同行 + x 邻近（含小重叠）」的中文碎片合并成词（仅限含汉字的 word，英文/数字不动）。
+function mergeOcrChineseWords(words) {
+  const merged = [];
+  for (const word of [...words].sort((a, b) => a.y - b.y || a.x - b.x)) {
+    const prev = merged.length ? merged[merged.length - 1] : null;
+    const isCn = (text) => /[\u4e00-\u9fff]/.test(text);
+    if (prev && isCn(prev.text) && isCn(word.text)) {
+      const prevCenterY = prev.y + prev.height / 2;
+      const centerY = word.y + word.height / 2;
+      const gap = word.x - (prev.x + prev.width);
+      if (Math.abs(centerY - prevCenterY) <= 12 && gap <= 14 && gap >= -60) {
+        prev.text += word.text;
+        prev.width = word.x + word.width - prev.x;
+        prev.height = Math.max(prev.height, word.height);
+        prev.confidence = Math.min(prev.confidence ?? 1, word.confidence ?? 1);
+        continue;
+      }
+    }
+    merged.push({ ...word });
+  }
+  return merged;
+}
+
+// 文本级中文空格合并：汉字之间的空格删除（`纳税 人 名 称` → `纳税人名称`），
+// 汉字与英文/数字之间的空格保留（防拆词）。
+function mergeCnSpaces(text) {
+  return String(text || "").replace(/([\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])/g, "$1");
+}
+
+function hasEffectiveText(words) {
+  const meaningful = words.filter((word) => /[\p{L}\p{N}]/u.test(word.text));
+  const characterCount = meaningful.reduce((sum, word) => sum + word.text.replace(/\s/g, "").length, 0);
+  return meaningful.length >= 2 || characterCount >= 3;
+}
+
+function pixelIntensity(data, offset, channels) {
+  if (channels === 1 || channels === 2) return Number(data[offset]);
+  return (Number(data[offset]) + Number(data[offset + 1]) + Number(data[offset + 2])) / 3;
+}
+
+function findRuns(length, isDark, minimumLength) {
+  const runs = [];
+  let start = -1;
+  for (let position = 0; position <= length; position += 1) {
+    const dark = position < length && isDark(position);
+    if (dark && start < 0) start = position;
+    if (!dark && start >= 0) {
+      const end = position - 1;
+      if (end - start + 1 >= minimumLength) runs.push({ start, end });
+      start = -1;
+    }
+  }
+  return runs;
+}
+
+function overlapRatio(first, second) {
+  const overlap = Math.max(0, Math.min(first.end, second.end) - Math.max(first.start, second.start) + 1);
+  return overlap / Math.max(1, Math.min(first.end - first.start + 1, second.end - second.start + 1));
+}
+
+function mergeParallelRuns(candidates) {
+  const sorted = [...candidates].sort((left, right) => left.axis - right.axis || left.start - right.start);
+  const groups = [];
+  for (const candidate of sorted) {
+    const group = groups[groups.length - 1];
+    const last = group && group.members[group.members.length - 1];
+    if (group && candidate.axis - last.axis <= 1 && overlapRatio(candidate, last) >= 0.7) {
+      group.members.push(candidate);
+      group.start = Math.min(group.start, candidate.start);
+      group.end = Math.max(group.end, candidate.end);
+    } else {
+      groups.push({ members: [candidate], start: candidate.start, end: candidate.end });
+    }
+  }
+  return groups.map((group) => ({
+    axis: group.members.reduce((sum, entry) => sum + entry.axis, 0) / group.members.length,
+    start: group.start,
+    end: group.end,
+    thickness: group.members[group.members.length - 1].axis - group.members[0].axis + 1
+  }));
+}
+
+function detectTableLinesFromRaw(options) {
+  const data = options && options.data;
+  const width = Number(options && options.width);
+  const height = Number(options && options.height);
+  const channels = Math.max(1, Number(options && options.channels) || 1);
+  if (!data || !Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) return [];
+  if (data.length < width * height * channels) throw new Error("Raw image buffer is smaller than its dimensions");
+  const threshold = Number.isFinite(Number(options.threshold)) ? Number(options.threshold) : 160;
+  const ratio = clamp(Number(options.minLengthRatio) || 0.35, 0.05, 1);
+  // 垂直线用独立的、更小的比例：表格竖线（列分隔线/外框）横贯整个表格高度，
+  // 但表格往往只占页面高度的一小部分，且整页高度可达上千像素。若沿用 height * ratio
+  // （默认 0.35 ≈ 页高 35%），横贯表格区域的竖线会被滤掉（实测 750px 竖线在 2340px
+  // 页上只占 32%，过不了 819px 阈值），导致扫描件识别不到列结构。
+  // 但也不能过低：文字笔画（单个字竖笔）约占页高 5~10%，降到 0.05 会把字形竖笔当竖线，
+  // 碎片化表格网格、拉低 OCR 置信度（实测从 65%+ 掉到 56% 触发 LOW_QUALITY 门禁）。
+  // 取 0.20：既收下真实的 32% 表格竖线，又滤掉 10.5% 的字形竖笔，两侧留足裕量。
+  const verticalRatio = clamp(Number(options.verticalMinLengthRatio) || 0.20, 0.05, 1);
+  // 绝对下限（像素）：小页面（如测试构造图 300-500px 高）上比例阈值换算的绝对像素太少，
+  // 会把字形竖笔（最长 ~40px）误当竖线；真实 A4 扫描页 0.05 ≈ 117px 安全。
+  // 取「比例换算值」与「绝对下限」的较大者。
+  const verticalMinLength = Math.max(Math.ceil(height * verticalRatio), Number(options.minVerticalLength) || 0);
+  const darkAt = (x, y) => pixelIntensity(data, (y * width + x) * channels, channels) <= threshold;
+  const horizontal = [];
+  const vertical = [];
+  for (let y = 0; y < height; y += 1) {
+    for (const run of findRuns(width, (x) => darkAt(x, y), Math.ceil(width * ratio))) {
+      horizontal.push({ axis: y, start: run.start, end: run.end });
+    }
+  }
+  for (let x = 0; x < width; x += 1) {
+    for (const run of findRuns(height, (y) => darkAt(x, y), verticalMinLength)) {
+      vertical.push({ axis: x, start: run.start, end: run.end });
+    }
+  }
+  return [
+    ...mergeParallelRuns(horizontal).map((line) => ({ x1: line.start, y1: cleanNumber(line.axis), x2: line.end, y2: cleanNumber(line.axis), thickness: line.thickness })),
+    ...mergeParallelRuns(vertical).map((line) => ({ x1: cleanNumber(line.axis), y1: line.start, x2: cleanNumber(line.axis), y2: line.end, thickness: line.thickness }))
+  ];
+}
+
+async function buildPdfTableWorkbook(pages, dependencies) {
+  const injected = dependencies || {};
+  const detectTablesOnPage = injected.detectTablesOnPage || extractorExports.detectTablesOnPage;
+  const buildWorkbookModel = injected.buildWorkbookModel || extractorExports.buildWorkbookModel;
+  const detectLines = injected.detectLines || detectTableLinesFromRaw;
+  const renderPage = injected.renderPage;
+  const ocrPage = injected.ocrPage;
+  if (!pages || (!pages[Symbol.iterator] && !pages[Symbol.asyncIterator])) {
+    throw new TypeError("pages must be iterable");
+  }
+
+  const detectedPages = [];
+  for await (const page of pages) {
+    let words = pdfTextContentToWords({ textContent: page.textContent, viewport: page.viewport });
+    let source = "pdf-text";
+    if (!hasEffectiveText(words) && !page.blank) {
+      if (!ocrPage) {
+        const error = new Error("PDF table extraction requires OCR for this scanned page.");
+        error.code = "PDF_TABLE_OCR_REQUIRED";
+        error.messages = {
+          zhCN: "此页是扫描图片，PDF 表格提取需要 OCR 引擎；请确认完整版资源完整后重试。",
+          enUS: "This page is a scanned image. PDF table extraction requires the OCR engine; verify the full engine bundle and try again."
+        };
+        throw error;
+      }
+      const ocrWords = normalizeOcrResult(await ocrPage(page));
+      if (!hasEffectiveText(ocrWords)) {
+        const error = new Error("OCR did not return usable words for PDF table extraction.");
+        error.code = "PDF_TABLE_OCR_EMPTY";
+        error.messages = {
+          zhCN: "OCR 未能从此扫描页识别出可用文字，未生成可能误导的 Excel；请提高扫描清晰度后重试。",
+          enUS: "OCR found no usable text on this scanned page, so no misleading Excel file was generated. Try a clearer scan."
+        };
+        throw error;
+      }
+      words = ocrWords;
+      source = "ocr";
+    }
+    const raw = page.raw || (renderPage ? await renderPage(page) : null);
+    const lines = raw ? await detectLines(raw) : [];
+    detectedPages.push(await detectTablesOnPage({
+      pageNumber: page.pageNumber,
+      width: page.width || (page.viewport && page.viewport.width),
+      height: page.height || (page.viewport && page.viewport.height),
+      ...(Number.isFinite(Number(page.viewport?.scale)) && Number(page.viewport.scale) > 0
+        ? { pagePointScale: 1 / Number(page.viewport.scale) } : {}),
+      source,
+      words,
+      lines
+    }));
+  }
+  return buildWorkbookModel(detectedPages);
+}
+
+/* —— ESM 导出桥接（移植层）—— */
+export { pdfTextContentToWords, normalizeOcrResult, mergeOcrChineseWords, mergeCnSpaces, detectTableLinesFromRaw, buildPdfTableWorkbook };
