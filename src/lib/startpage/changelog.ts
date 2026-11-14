@@ -22,6 +22,19 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
     {
+    version: "8.7.174",
+    date: "2026-11-14",
+    title: "扫描件 PDF 转换兜底：OCR 词元还原表格与段落（飞鼠口径完整移植）",
+    channel: "page",
+    highlights: [
+      "扫描件 PDF → Word：自动 OCR 识别并生成段落文档（飞鼠 convertScannedPdfToOcrDocx 口径，中文拆字空格合并）",
+      "扫描件 PDF → Excel：OCR 词元 + 表格线检测直接还原网格工作表（飞鼠 buildPdfTableWorkbook OCR 路径移植），识别质量过低时按「宁可不给也不给错表」明确拒绝",
+      "OCR 前先擦除表格框线（飞鼠 preparePdfTableOcrImage 口径：横线全擦、竖线须跨两条横线）——修复框线导致表格内容整块漏识别",
+      "OCR worker 会话级复用（飞鼠单 worker 口径），多页与连续转换不再重建",
+      "原生（有文字层）PDF 转换链路保持飞鼠引擎口径不变",
+    ],
+  },
+    {
     version: "8.7.173",
     date: "2026-11-14",
     title: "PDF 转换全面重做：直接采用「飞鼠格式转换」引擎，表格网格与行序精确还原",

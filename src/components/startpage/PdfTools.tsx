@@ -321,11 +321,14 @@ import {
 } from "@/lib/startpage/pdf-cjk";
 import {
   extractOfficePage,
+  extractOcrPage,
+  hasEffectiveText,
   detectPageTables,
   buildModel,
   writeModelToXlsxBuffer,
   writePagesToDocxBlob,
 } from "@/lib/startpage/pdf-office";
+import { mergeCnSpaces } from "@/lib/startpage/pdf-table-runtime";
 
 async function loadPdfJs() {
   const pdfjs = await import("pdfjs-dist");
@@ -342,6 +345,10 @@ async function loadPdfJs() {
  * （真实可选文字层），表格走飞鼠行分组/对齐口径（见 pdf-cjk.ts 致谢）。 */
 
 const H_SIZES: Record<string, number> = { H1: 18, H2: 15, H3: 13, H4: 12, H5: 11, H6: 10.5 };
+
+/* OCR worker 会话级单例（v8.7.174 实锤律：扩展环境第 2+ 次 createWorker
+ * 挂起——逐转换新建/销毁不可用；建一次全程复用，页面生命周期结束自动回收） */
+const OCR_HOLDER: import("@/lib/startpage/ocr-engine").OcrWorkerHolder = {};
 
 /* ---------------- 各功能实现（run 包装统一错误/状态） ---------------- */
 
@@ -598,10 +605,36 @@ async function toolPdf2word(
   setStatus("解析 PDF…");
   const doc = await pdfjs.getDocument({ data: await f.arrayBuffer() }).promise;
   const pageResults: Parameters<typeof writePagesToDocxBlob>[0] = [];
+  let ocrPageCount = 0;
   for (let i = 1; i <= doc.numPages; i++) {
     setStatus(`解析第 ${i}/${doc.numPages} 页…`);
     const page = await doc.getPage(i);
-    const input = await extractOfficePage(page as never, i);
+    /* 逐页判定（飞鼠 fillMissingPdfPageText 口径）：原生文字层缺效→OCR 兜底 */
+    let input = await extractOfficePage(page as never, i);
+    let usedOcr = false;
+    if (!hasEffectiveText(input.words)) {
+      input = await extractOcrPage(page as never, i, "chi_sim+eng", (m) => setStatus(m), OCR_HOLDER);
+      usedOcr = true;
+      ocrPageCount += 1;
+    }
+    if (usedOcr) {
+      /* 飞鼠 convertScannedPdfToOcrDocx（skipTableRebuild: true）口径：
+         扫描页 = OCR 正文行 → 段落流（不重建表格），中文拆字空格合并 */
+      const rows = String(input.text || "")
+        .split(/\r?\n/)
+        .map((line) => mergeCnSpaces(line).trim())
+        .filter(Boolean);
+      pageResults.push({
+        pageNumber: i,
+        tables: [],
+        rawBlocks: rows.map((text, rowIdx) => ({
+          text,
+          y: rowIdx,
+          style: { fontSizePt: 11 },
+        })) as never,
+      });
+      continue;
+    }
     const detected = detectPageTables(input, "text");
     pageResults.push({
       pageNumber: i,
@@ -613,13 +646,14 @@ async function toolPdf2word(
     (p) => p.tables.length > 0 || p.rawBlocks.length > 0
   );
   if (!hasText) {
-    throw new Error("未从 PDF 提取到文本（可能是扫描件，请用「扫描件 OCR」工具）");
+    throw new Error("这个 PDF 没有可提取的文字，且 OCR 未能识别出内容；请确认扫描清晰度后重试，或使用「扫描件 OCR」工具。");
   }
   setStatus("生成 Word 文档…");
   const blob = await writePagesToDocxBlob(pageResults);
   downloadBlob(blob, `${baseName(f.name)}.docx`);
   const tableCount = pageResults.reduce((n, p) => n + p.tables.length, 0);
-  return `已生成「${baseName(f.name)}.docx」（${doc.numPages} 页 / ${tableCount} 张表格，飞鼠引擎网格还原）`;
+  const scanNote = ocrPageCount ? ` / OCR 识别 ${ocrPageCount} 页` : "";
+  return `已生成「${baseName(f.name)}.docx」（${doc.numPages} 页${scanNote} / ${tableCount} 张表格，飞鼠引擎网格还原）`;
 }
 
 /* ⑥ PDF 转 Excel：v8.7.173 整体换用「飞鼠格式转换」引擎（牢蜂 LaoFeng，
@@ -638,16 +672,37 @@ async function toolPdf2excel(
   setStatus("解析 PDF…");
   const doc = await pdfjs.getDocument({ data: await f.arrayBuffer() }).promise;
   const detectedPages: ReturnType<typeof detectPageTables>[] = [];
+  const ocrPageNumbers: number[] = [];
   for (let i = 1; i <= doc.numPages; i++) {
     setStatus(`还原第 ${i}/${doc.numPages} 页表格…`);
     const page = await doc.getPage(i);
-    const input = await extractOfficePage(page as never, i);
-    detectedPages.push(detectPageTables(input, "text"));
+    /* 逐页判定（飞鼠 buildPdfTableWorkbook 口径）：原生文字层缺效→OCR 词元
+       兜底（200dpi 渲染+预处理+tesseract blocks），表格网格照常提取 */
+    let input = await extractOfficePage(page as never, i);
+    let usedOcr = false;
+    if (!hasEffectiveText(input.words)) {
+      input = await extractOcrPage(page as never, i, "chi_sim+eng", (m) => setStatus(m), OCR_HOLDER);
+      usedOcr = true;
+      ocrPageNumbers.push(i);
+    }
+    detectedPages.push(detectPageTables(input, usedOcr ? "ocr" : "text"));
   }
   const model = buildModel(detectedPages as never);
   const tableSheets = model.sheets.filter((s: { name: string }) => !s.name.endsWith("-Raw"));
+  /* 飞鼠 assertPdfTableOcrQuality（OCR_QUALITY_THRESHOLD = 0.65）：OCR 页表格
+     最低置信度不足 → 拒绝（模糊/倾斜/阴影/分辨率不足） */
+  if (ocrPageNumbers.length && tableSheets.length) {
+    const summary = (model as { summary?: { source?: string; confidence?: number }[] }).summary || [];
+    const ocrConfidences = summary
+      .filter((s2) => s2.source === "ocr" && Number(s2.confidence) > 0)
+      .map((s2) => Number(s2.confidence));
+    const worst = ocrConfidences.length ? Math.min(...ocrConfidences) : 1;
+    if (worst < 0.65) {
+      throw new Error(`扫描件 OCR 识别质量过低（置信度 ${Math.round(worst * 100)}%），无法准确转换表格。可能原因是图片模糊、倾斜、阴影或分辨率不足；请提供更清晰的扫描件后重试。`);
+    }
+  }
   if (!tableSheets.length) {
-    throw new Error("未检测到表格网格（可能是扫描件——请先用「扫描件 OCR」识别文字，或换文本型 PDF 重试）");
+    throw new Error("未在该 PDF 中检测到表格，无法生成 Excel。若它是由图片合成的 PDF 或扫描件，请改用「PDF 转 Word」（走 OCR 识别文字），或使用「扫描件 OCR」工具。");
   }
   setStatus("生成 Excel 工作簿…");
   const bytes = await writeModelToXlsxBuffer(model as never);
@@ -658,7 +713,8 @@ async function toolPdf2excel(
     `${baseName(f.name)}.xlsx`
   );
   const rawSheets = model.sheets.length - tableSheets.length;
-  return `已生成「${baseName(f.name)}.xlsx」（${tableSheets.length} 张表格工作表${rawSheets ? ` + ${rawSheets} 张原文留档` : ""}，飞鼠引擎网格还原）`;
+  const scanNote = ocrPageNumbers.length ? ` / OCR 识别 ${ocrPageNumbers.length} 页` : "";
+  return `已生成「${baseName(f.name)}.xlsx」（${tableSheets.length} 张表格工作表${rawSheets ? ` + ${rawSheets} 张原文留档` : ""}${scanNote}，飞鼠引擎网格还原）`;
 }
 
 /* ⑦ PDF 转 PPT：pdf.js 每页 2x PNG → pptxgenjs 16:9 全幅图片型 */

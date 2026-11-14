@@ -20,7 +20,12 @@ import {
   detectTablesOnPage,
   buildWorkbookModel,
 } from "./pdf-table-extractor";
-import { pdfTextContentToWords, detectTableLinesFromRaw } from "./pdf-table-runtime";
+import {
+  pdfTextContentToWords,
+  detectTableLinesFromRaw,
+  normalizeOcrResult,
+  mergeCnSpaces,
+} from "./pdf-table-runtime";
 
 const RENDER_DPI = 200;
 const PDF_PT = 72;
@@ -50,11 +55,20 @@ function pdfCellDisplayWidth(value: unknown): number {
     )), 0);
 }
 
+/** 飞鼠 hasEffectiveText：页面上是否有值得转换的有效文字（≥2 词元或 ≥3 字符） */
+export function hasEffectiveText(words: { text: string }[]): boolean {
+  const meaningful = words.filter((word) => /[\p{L}\p{N}]/u.test(word.text));
+  const characterCount = meaningful.reduce((sum, word) => sum + word.text.replace(/\s/g, "").length, 0);
+  return meaningful.length >= 2 || characterCount >= 3;
+}
+
 /** pdfjs 单页引擎输入（词元 + 栅格线，统一 200dpi 视口坐标系） */
 export interface OfficePageInput {
   pageNumber: number;
   width: number;
   height: number;
+  /** OCR 页正文文本（原生页为空）——飞鼠 convertScannedPdfToOcrDocx 段落源 */
+  text?: string;
   words: { text: string; x: number; y: number; width: number; height: number; confidence: number; style?: Record<string, unknown> }[];
   lines: { x1: number; y1: number; x2: number; y2: number; thickness?: number }[];
 }
@@ -75,6 +89,97 @@ function resolveFontNames(textContent: Record<string, unknown>, page: unknown): 
   } catch {
     /* 内部 API 形态变化不阻塞（泛型族兜底） */
   }
+}
+
+/** 单页渲染为 200dpi 画布（原生/OCR 两轨共用；白底，预处理交调用方） */
+async function renderPageCanvas(
+  page: import("pdfjs-dist").PDFPageProxy,
+  viewport: { width: number; height: number; transform: number[] }
+): Promise<HTMLCanvasElement | null> {
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.floor(viewport.width);
+  canvas.height = Math.floor(viewport.height);
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return null;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  await page.render({ canvasContext: ctx as CanvasRenderingContext2D, viewport: viewport as never, background: "#ffffff" }).promise;
+  return canvas;
+}
+
+/** 扫描页 OCR 词元适配（飞鼠 buildPdfTableWorkbook ocrPage 口径）：
+ *  200dpi 渲染 → 灰度对比度预处理（飞鼠 prepareImageForOcr 口径）→
+ *  tesseract 词元（blocks bbox）→ normalizeOcrResult（含中文拆字合并）。
+ *  词元坐标=画布像素=200dpi 视口坐标，与栅格线同系直喂 detectTablesOnPage。 */
+export async function extractOcrPage(
+  page: import("pdfjs-dist").PDFPageProxy,
+  pageNumber: number,
+  lang: "chi_sim+eng" | "chi_sim" | "eng",
+  onProgress?: (msg: string) => void,
+  ocrHolder?: import("./ocr-engine").OcrWorkerHolder
+): Promise<OfficePageInput> {
+  const { preprocessCanvas, browserOcrWords } = await import("./ocr-engine");
+  const viewport = page.getViewport({ scale: SCALE, rotation: (page as unknown as { rotate?: number }).rotate || 0 });
+  const lines: OfficePageInput["lines"] = [];
+  let words: OfficePageInput["words"] = [];
+  let ocrText = "";
+  try {
+    onProgress?.(`OCR 识别第 ${pageNumber} 页…`);
+    const canvas = await renderPageCanvas(page, viewport);
+    if (canvas) {
+      /* 栅格线（扫描件表格框线主源） */
+      try {
+        const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
+        const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        lines.push(...(detectTableLinesFromRaw({
+          data: new Uint8Array(img.data.buffer),
+          width: canvas.width,
+          height: canvas.height,
+          channels: 4,
+        }) as OfficePageInput["lines"]));
+      } catch {
+        /* 线检测失败不阻塞 OCR */
+      }
+      /* 飞鼠 preparePdfTableOcrImage 口径：OCR 前擦表格线——框线会破坏
+         tesseract 页面分割（实锤：不擦线时表格内容整块漏识别，只读出标题）。
+         横线全擦；竖线须跨越 ≥2 条横线才擦（防字形竖笔被误擦）。 */
+      try {
+        const ctx2 = canvas.getContext("2d", { willReadFrequently: true })!;
+        const img2 = ctx2.getImageData(0, 0, canvas.width, canvas.height);
+        const rawLines = detectTableLinesFromRaw({
+          data: new Uint8Array(img2.data.buffer),
+          width: canvas.width,
+          height: canvas.height,
+          channels: 4,
+          verticalMinLengthRatio: 0.05,
+        }) as { x1: number; y1: number; x2: number; y2: number; thickness?: number }[];
+        const horiz = rawLines.filter((l) => Math.abs(l.y2 - l.y1) <= Math.abs(l.x2 - l.x1));
+        const vert = rawLines.filter((l) => Math.abs(l.y2 - l.y1) > Math.abs(l.x2 - l.x1))
+          .filter((v) => horiz.filter((h) =>
+            h.y1 >= v.y1 - 3 && h.y1 <= v.y2 + 3 && v.x1 >= h.x1 - 3 && v.x1 <= h.x2 + 3
+          ).length >= 2);
+        ctx2.fillStyle = "#ffffff";
+        const pad = 3;
+        for (const h of horiz) {
+          ctx2.fillRect(Math.min(h.x1, h.x2) - pad, (h.y1 + h.y2) / 2 - Math.max(2, (h.thickness || 1) / 2) - pad,
+            Math.abs(h.x2 - h.x1) + pad * 2, Math.max(2, h.thickness || 1) + pad * 2);
+        }
+        for (const v of vert) {
+          ctx2.fillRect((v.x1 + v.x2) / 2 - Math.max(2, (v.thickness || 1) / 2) - pad, Math.min(v.y1, v.y2) - pad,
+            Math.max(2, v.thickness || 1) + pad * 2, Math.abs(v.y2 - v.y1) + pad * 2);
+        }
+      } catch {
+        /* 擦线失败不阻塞 OCR（退化原样识别） */
+      }
+      preprocessCanvas(canvas);
+      const { text, raw } = await browserOcrWords(canvas, lang, RENDER_DPI, undefined, ocrHolder);
+      words = normalizeOcrResult(raw) as OfficePageInput["words"];
+      ocrText = String(text || "");
+    }
+  } finally {
+    page.cleanup();
+  }
+  return { pageNumber, width: viewport.width, height: viewport.height, words, lines, text: ocrText };
 }
 
 /** 单页：文本词元 + 200dpi 栅格线（飞鼠 hybrid 口径：文本+光栅线双源） */
@@ -128,7 +233,7 @@ export async function extractOfficePage(
 }
 
 /** 页模型 → 飞鼠 detectTablesOnPage（跨页续接前的逐页产物） */
-export function detectPageTables(page: OfficePageInput, source: "text") {
+export function detectPageTables(page: OfficePageInput, source: "text" | "ocr") {
   return detectTablesOnPage({
     pageNumber: page.pageNumber,
     width: page.width,

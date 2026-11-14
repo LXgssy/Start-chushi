@@ -62,13 +62,13 @@ export interface BrowserOcrProgress {
   progress: number;
 }
 
-/** 浏览器引擎识别一张画布。每次独立建 worker、用毕即焚（省内存，免并发坑）。
- *  onProgress 可选，progress ∈ [0,1]。 */
-export async function browserOcrCanvas(
-  canvas: HTMLCanvasElement,
+/** 建一个 OCR worker（用毕即焚）。dpi：渲染分辨率声明（飞鼠口径——扫描件
+ *  转换链 200dpi 渲染，OCR 工具链 300dpi）。 */
+async function createOcrWorker(
   lang: Lang,
+  dpi: number,
   onProgress?: (p: BrowserOcrProgress) => void,
-): Promise<string> {
+) {
   const { createWorker } = await import("tesseract.js");
   const worker = await createWorker(lang, 1, {
     workerPath: assetUrl("/ocr/tesseract-worker.min.js"),
@@ -88,13 +88,71 @@ export async function browserOcrCanvas(
       }
     },
   });
+  await worker.setParameters({
+    preserve_interword_spaces: "1",
+    user_defined_dpi: String(dpi),
+  });
+  return worker;
+}
+
+/** 浏览器引擎识别一张画布。每次独立建 worker、用毕即焚（省内存，免并发坑）。
+ *  onProgress 可选，progress ∈ [0,1]。 */
+export async function browserOcrCanvas(
+  canvas: HTMLCanvasElement,
+  lang: Lang,
+  onProgress?: (p: BrowserOcrProgress) => void,
+): Promise<string> {
+  const worker = await createOcrWorker(lang, 300, onProgress);
   try {
-    await worker.setParameters({
-      preserve_interword_spaces: "1",
-      user_defined_dpi: "300",
-    });
     const { data } = await worker.recognize(canvas);
     return String(data?.text ?? "");
+  } finally {
+    await worker.terminate().catch(() => {});
+  }
+}
+
+/** OCR worker 共享句柄：一次转换全程复用（飞鼠 buildPdfTableWorkbook 口径
+ *  `if (!worker) worker = await createOcrWorker()`——逐页新建 worker 在扩展
+ *  环境会翻车：第 3+ 个 worker 创建挂起（WASM 内存/线程预算），多页转换
+ *  卡死。用毕经 terminateOcrWorker 统一回收。 */
+export interface OcrWorkerHolder {
+  worker?: Awaited<ReturnType<typeof createOcrWorker>>;
+}
+
+/** 回收共享 worker（幂等；异常不阻塞主流程） */
+export async function terminateOcrWorker(holder: OcrWorkerHolder): Promise<void> {
+  const worker = holder.worker;
+  holder.worker = undefined;
+  if (worker) {
+    try {
+      await worker.terminate();
+    } catch {
+      /* 回收失败不影响产物 */
+    }
+  }
+}
+
+/** 浏览器引擎识别一张画布并返回词元（含 bbox + 置信度）。
+ *  v8.7.174 转换链扫描件兜底用：tesseract.js blocks 通道直出词元树，交
+ *  飞鼠 normalizeOcrResult（pdf-table-runtime 移植件）归一成
+ *  { text,x,y,width,height,confidence } 词元表（画布像素坐标）。
+ *  recognize 输出 { text, blocks } 双通道，正文文本同轮取回。 */
+export async function browserOcrWords(
+  canvas: HTMLCanvasElement,
+  lang: Lang,
+  dpi: number,
+  onProgress?: (p: BrowserOcrProgress) => void,
+  holder?: OcrWorkerHolder
+): Promise<{ text: string; raw: unknown }> {
+  if (holder) {
+    if (!holder.worker) holder.worker = await createOcrWorker(lang, dpi, onProgress);
+    const { data } = await holder.worker.recognize(canvas, {}, { blocks: true } as never);
+    return { text: String(data?.text ?? ""), raw: data };
+  }
+  const worker = await createOcrWorker(lang, dpi, onProgress);
+  try {
+    const { data } = await worker.recognize(canvas, {}, { blocks: true } as never);
+    return { text: String(data?.text ?? ""), raw: data };
   } finally {
     await worker.terminate().catch(() => {});
   }
