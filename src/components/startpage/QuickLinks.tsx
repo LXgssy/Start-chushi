@@ -52,6 +52,7 @@ import { Check, Folder, FolderMinus, FolderOpen, FolderPlus, Pencil, X } from "l
 import {
   DndContext,
   DragOverlay,
+  MeasuringStrategy,
   MouseSensor,
   closestCenter,
   useDroppable,
@@ -73,12 +74,15 @@ import type {
   StartLink,
 } from "@/lib/startpage/types";
 import {
+  commitFlyIntoFolder,
   dissolveFolder,
   isFolder,
   locateLink,
   patchFolder,
   putLinkIntoFolder,
+  removeLinkEverywhere,
   reorderWall,
+  reorderWallAfter,
   takeLinkOutOfFolder,
 } from "@/lib/startpage/link-folders";
 import { hostOf } from "@/lib/startpage/link-utils";
@@ -99,6 +103,34 @@ import { PresenceClass } from "./PresenceClass";
 
 /** 磁贴 layout 动画：弹簧驱动，增删/重排/退出编辑均平滑归位（近临界阻尼，快速就位零反弹） */
 const LAYOUT_SPRING = { type: "spring" as const, stiffness: 420, damping: 41, mass: 0.9 };
+
+/* ---------- v8.7.172 拖拽手感五连修常量 ---------- */
+/** v8.7.172 ①入夹驻留军备时长：3s→1s（用户口径「将判定磁贴图标进入文件夹的
+ *  3秒时长改成1秒，拖出文件夹也是同理」——双向 1s）。 */
+const FOLDER_DWELL_MS = 1000;
+/** v8.7.172 ①出夹驻留时长：夹内磁贴拖出面板矩形 1s 关夹放行（同上口径）。 */
+const FOLDER_DWELL_EXIT_MS = 1000;
+/** v8.7.172 ⑥军备宽限（软清窗）：MeasuringStrategy.Always 下策略位移矩形致
+ *  over 振荡——旧逐次硬清让 1s 计时永不满足；260ms 内回到同一夹续接剩余
+ *  驻留，超窗才真清。 */
+const DWELL_GRACE_MS = 260;
+/** v8.7.172 ③一镜到底吸入时长（ms）：旧 WAAPI 静态关键帧同值，改 rAF 逐帧
+ *  追踪 + easeInOutQuart 吸入曲线。 */
+const FLY_MS = 420;
+/** v8.7.172 ②双侧让位迟滞带（px）：拖拽矩形中心与指针存在数px漂移（诊断
+ *  实证：夹正中 3px 漂移误触让位清军备）——已判定一侧须越过中线 ±12px 才
+ *  翻转，正中静置不再抖动。 */
+const YIELD_HYSTERESIS_PX = 12;
+/** v8.7.172 ①出夹探测节流（ms）：gBCR 是强制布局读，pointer move 事件
+ *  ~120Hz 逐帧调用白烧拖拽链路——30Hz 对 1s 驻留判定精度余量 33 倍。 */
+const EXIT_PROBE_MIN_MS = 33;
+
+/** v8.7.172 ③吸入曲线：easeInOutQuart——慢起、加速穿越、缓收落格的
+ *  「被文件夹吸进去」手感（旧 cubic-bezier(0.22,1,0.36,1) 前段过冲太快，
+ *  无吸入感）。 */
+function easeInOutQuart(p: number): number {
+  return p < 0.5 ? 8 * p * p * p * p : 1 - Math.pow(-2 * p + 2, 4) / 2;
+}
 
 /** 长按位移容差（px）：真机手指静置也有 1-3px 抖动，超出容差才算滚动意图 */
 const LONG_PRESS_SLOP_PX = 10;
@@ -629,6 +661,7 @@ function FolderTileVisual({
   folderIconStyle = "grid2",
   intro = false,
   sm = false,
+  onIntroDone,
 }: {
   folder: StartFolder;
   iconStyle: IconStyle;
@@ -637,6 +670,11 @@ function FolderTileVisual({
   folderIconStyle?: FolderIconStyle;
   intro?: boolean;
   sm?: boolean;
+  /** v8.7.172 ②′intro latch（v8.6.21 只修了链接磁贴 TileIcon，文件夹磁贴
+   *  缺席=intro 类永久在场→让位移 DOM 必重播入场动画）：入场播完（body 通道
+   *  最晚结束）即回调摘 intro——根治「拖拽让位/右半让位时文件夹磁贴重播
+   *  入场动画」。animationEnd 自子层冒泡，shell 一处监听全覆盖。 */
+  onIntroDone?: () => void;
 }) {
   const n = folder.children.length;
   /* v8.7.168 白色半透明律：夹名色相派生退役（hueOf 仅余链接磁贴使用），
@@ -651,6 +689,11 @@ function FolderTileVisual({
         (sm ? "h-14 w-14 rounded-[18px] " : "h-16 w-16 rounded-[20px] ") +
         (intro ? "link-intro-tile" : "")
       }
+      onAnimationEnd={(e) => {
+        /* v8.7.172 ②′与 TileIcon 同律：body 通道（0.95s）最晚结束=入场播完，
+           摘 intro 后让位移 DOM 再无动画可重播 */
+        if (e.animationName === "intro-tile-body" && onIntroDone) onIntroDone();
+      }}
     >
       <span
         aria-hidden
@@ -777,7 +820,14 @@ function TileVisual({
         }
       >
         {isFolder(entry) ? (
-          <FolderTileVisual folder={entry} iconStyle={iconStyle} folderIconStyle={folderIconStyle} intro={showIntro} sm={sm} />
+          <FolderTileVisual
+            folder={entry}
+            iconStyle={iconStyle}
+            folderIconStyle={folderIconStyle}
+            intro={showIntro}
+            sm={sm}
+            onIntroDone={() => setIntroDone(true)}
+          />
         ) : (
           <TileIcon
             link={entry}
@@ -1557,14 +1607,18 @@ function FadeVeil({
   );
 }
 
-/** v8.7.169 ③一镜到底飞入幽灵载荷：起点 = 拖拽浮层图标矩形（sx/sy/sw/sh），
- *  终点 = 夹磁贴迷你格目标格左上角与边长（tx/ty/ts），entry 随行渲染幽灵
- *  图标（复用 TileIcon 外壳，所见即所飞）。 */
+/** v8.7.172 ③一镜到底飞入幽灵载荷：起点 = 拖拽浮层图标矩形（sx/sy/sw/sh），
+ *  初值终点 = 夹磁贴迷你格目标格左上角与边长（tx/ty/ts）；fn = 夹子磁贴数
+ *  快照（目标格满格律推演入参——开飞即摘后 links 里已无本磁贴，rAF 逐帧
+ *  重推演只能依赖快照计数；落账前夹 children 不变，快照恒真）。
+ *  entry 随行渲染幽灵图标（复用 TileIcon 外壳，所见即所飞）；落账走
+ *  commitFlyIntoFolder 对象寻址（entry 即凭证，entryId 仅留调试）。 */
 interface FolderFly {
   entry: StartLink;
   entryId: string;
   folderId: string;
   sm: boolean;
+  fn: number;
   sx: number;
   sy: number;
   sw: number;
@@ -1904,16 +1958,29 @@ function QuickLinks({
      · v8.7.169 ①：拖拽悬停文件夹的 500ms 自动开夹退役（用户口径「放入
        文件夹时不要打开文件夹」）——dwellTimer 改挂 3 秒驻留军备（见下）。 */
   const [openFolderId, setOpenFolderId] = useState<string | null>(null);
-  /* v8.7.169 ①磁贴悬停文件夹 3 秒驻留军备（用户口径「磁贴悬停在文件夹上
-     3 秒后才应该出现放大反馈并且三秒后用户松手磁贴才应该可以放入文件夹」）：
-     dwellFolderId = 当前悬停计时中的夹（换目标即重计）；armedFolderId =
-     悬停满 3s 的夹——此刻才亮放大反馈（dropHint scale 1.12）并放行入夹；
-     3s 内松手零变更（磁贴飞回原位，不入夹）。拖文件夹不参与军备（夹×夹
-     是实时让位排序）。 */
+  /* v8.7.172 ①磁贴悬停文件夹 1 秒驻留军备（v8.7.169 3 秒军备随用户口径
+     「将判定磁贴图标进入文件夹的3秒时长改成1秒」退役）：dwellFolderId =
+     当前悬停计时中的夹（换目标即重计）；armedFolderId = 悬停满 1s 的夹
+     ——此刻才亮放大反馈（dropHint scale 1.12）并放行入夹；1s 内松手零
+     变更（磁贴飞回原位，不入夹）。拖文件夹不参与军备（夹×夹是实时让位
+     排序）。军备进度由 dwellStartedAt 记账（软清宽限续接用，见
+     softClearDwell）。 */
   const dwellTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dwellFolderId = useRef<string | null>(null);
   const armedFolderId = useRef<string | null>(null);
-  /* v8.7.168 ①/v8.7.169 ①拖拽悬停文件夹反馈：军备满 3s 才亮出（TileVisual
+  const dwellStartedAt = useRef(0);
+  /* v8.7.172 ⑥军备宽限（软清窗）：MeasuringStrategy.Always 下策略位移矩形
+     致 over 振荡（落点在夹/邻位间秒翻），逐次硬清让 1s 计时永不满足——
+     悬停目标短暂抖走不清账，260ms 内返场续接剩余驻留。 */
+  const dwellGraceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /* v8.7.172 ②右半让位判定簿：{ 目标 id, 上次判定侧 }——双侧判定 + 12px
+     迟滞带共用（dragOver 翻转时判定 / dragMove 越线时重判，同目标记忆上次
+     判定侧防数px漂移抖动）。 */
+  const yieldSideRef = useRef<{ id: string; side: "l" | "r" } | null>(null);
+  /* v8.7.172 ②move 侧判定记忆：dragOver 只在落点翻转时触发，指针在同一
+     磁贴上越过中线只有 move 能看见——over 记簿，move 每帧重判。 */
+  const overIdRef = useRef<string | null>(null);
+  /* v8.7.172 ①拖拽悬停文件夹反馈：军备满 1s 才亮出（TileVisual
      scale 1.12，用户口径「文件夹轻微放大来反馈给用户告诉用户现在松手就
      可以放到文件夹里」）；悬停他处/松手清空。 */
   const [dropHintId, setDropHintId] = useState<string | null>(null);
@@ -1921,32 +1988,33 @@ function QuickLinks({
      某夹子磁贴）时，dragOver 的出夹类分支一律先过地理闸（拖拽浮层中心仍
      在本夹面板矩形内 → 视为夹内误掠，忽略墙面落点零变更）。 */
   const dragStartedInsideRef = useRef(false);
-  /* v8.7.169 ②夹内拖拽 3 秒出夹驻留（用户口径「用户将文件夹内的磁贴拖出
-     文件夹面板内3秒文件夹页面应该关闭，执行关闭动画回到磁贴墙页面让用户
-     把磁贴放回」）：dragOriginFolderId = 会话起点夹；insidePanelRef 每次
-     dragMove 实测浮层中心是否仍在本夹面板矩形内（dragOver 只在落点翻转时
-     触发，pointer 停住不再触发——驻留计时必须挂在每帧都能跑的 move 上）；
-     浮层中心出面板矩形满 3s → 关闭该夹（popover 正常收起动画回磁贴墙），
-     拖拽会话继续、此后出夹放行。驻留未满期间出夹分支一律零变更（地理闸
-     关闭，v8.7.168 ②防误掠语义顺延）。 */
+  /* v8.7.172 ①夹内拖拽 1 秒出夹驻留（v8.7.169 3 秒驻留随用户口径
+     「拖出文件夹也是同理」改 1s；监测仍挂 dragMove 每帧——dragOver 只在
+     落点翻转触发、pointer 停住不再触发——驻留计时必须挂在每帧都能跑的
+     move 上，探测 gBCR 30Hz 节流）：浮层中心出本夹面板矩形起 1s 计时，满
+     → 关闭该夹（popover 正常收起动画回磁贴墙），拖拽会话继续、此后出夹
+     放行。驻留未满期间出夹分支一律零变更（地理闸关闭，v8.7.168 ②防误掠
+     语义顺延）。 */
   const dragOriginFolderId = useRef<string | null>(null);
   const insidePanelRef = useRef(false);
   const exitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const exitFolderId = useRef<string | null>(null);
+  /* v8.7.172 ①出夹探测节流簿（30Hz）：窗内沿用上次实测结果 */
+  const exitProbeAt = useRef(0);
   /* v8.7.171 拖拽期面板元素缓存（isConnected 失效自动重查） */
   const exitPanelElRef = useRef<HTMLElement | null>(null);
   /* v8.7.169 ②会话中出夹驻留是否已响（夹已被计时关闭）：响过 = 用户已用
-     3 秒驻留表达了「拿出来」的明确意图——松手落账出夹（追加墙尾），
+     驻留表达了「拿出来」的明确意图——松手落账出夹（追加墙尾），
      修复「关夹后松手在墙面网格之外（over=null）磁贴留在已关的夹里」的
      隐形失落；军备飞入路径优先，dragOver 已实时出夹的幂等零变更。 */
   const exitFiredRef = useRef(false);
-  /* v8.7.169 ③一镜到底飞入（用户口径「用户松手后磁贴图标直接一镜到底进入
-     到文件夹图标的对应位置」）：军备满 3s 后松手 = 入夹，浮层即刻隐去、
-     拖槽（placeholder）保留——幽灵元素从浮层图标矩形 WAAPI 一镜飞向夹磁
-     贴迷你格目标格（FolderMiniCells 满格律同源定位，尾格/「+N」计数格），
-     落格淡出瞬间才真正 putLinkIntoFolder——墙面收口与夹内显形与幽灵落点
-     同帧接力，全程无切镜。期间 DragOverlay dropAnimation 置 null（回飞
-     动画让位给幽灵），activeId 保持（拖槽不塌、布局静止=落点矩形恒定）。 */
+  /* v8.7.172 ③一镜到底飞入（v8.7.169 ③重做）：军备满 1s 后松手 = 入夹，
+     开飞即摘（removeLinkEverywhere 墙面即刻收口，原位只剩 220ms 标准退场
+     淡出——旧拖槽保留策略磁贴残留 ~550-900ms）+ 幽灵元素 rAF 逐帧追踪
+     夹磁贴实时矩形（补位/让位弹簧期间夹在动，静态关键帧落点漂移）
+     easeInOutQuart 吸入到目标格，落格淡出瞬间 commitFlyIntoFolder 对象
+     寻址落账——墙面收口、夹内显形与幽灵落点同帧接力，全程无切镜。期间
+     DragOverlay dropAnimation 置 null（回飞动画让位给幽灵）。 */
   const [folderFly, setFolderFly] = useState<FolderFly | null>(null);
   const folderFlyRef = useRef<FolderFly | null>(null);
   const ghostRef = useRef<HTMLDivElement | null>(null);
@@ -2298,8 +2366,66 @@ function QuickLinks({
       clearTimeout(dwellTimer.current);
       dwellTimer.current = null;
     }
+    if (dwellGraceTimer.current) {
+      clearTimeout(dwellGraceTimer.current);
+      dwellGraceTimer.current = null;
+    }
     dwellFolderId.current = null;
     armedFolderId.current = null;
+    dwellStartedAt.current = 0;
+  }
+
+  /* v8.7.172 ①开军备：满 FOLDER_DWELL_MS（1s）亮反馈并放行入夹 */
+  function armDwell(to: string) {
+    dwellFolderId.current = to;
+    dwellStartedAt.current = performance.now();
+    dwellTimer.current = setTimeout(() => {
+      dwellTimer.current = null;
+      dwellFolderId.current = null;
+      armedFolderId.current = to;
+      setDropHintId(to);
+    }, FOLDER_DWELL_MS);
+  }
+
+  /* v8.7.172 ⑥同夹续接：军备仍在 = 直接亮反馈；timer 在场 = 进度未损不动
+     （同目标 dragOver 复入不另起炉灶）；未满 = 宽限窗内按已耗时续接剩余
+     驻留（进度不清零——MeasuringStrategy.Always 的 over 振荡不再反复
+     吞掉计时）。 */
+  function resumeDwell(to: string) {
+    if (dwellTimer.current) return;
+    if (dwellGraceTimer.current) {
+      clearTimeout(dwellGraceTimer.current);
+      dwellGraceTimer.current = null;
+    }
+    dwellFolderId.current = to;
+    if (armedFolderId.current === to) {
+      setDropHintId(to);
+      return;
+    }
+    const remain = FOLDER_DWELL_MS - (performance.now() - dwellStartedAt.current);
+    dwellTimer.current = setTimeout(() => {
+      dwellTimer.current = null;
+      dwellFolderId.current = null;
+      armedFolderId.current = to;
+      setDropHintId(to);
+    }, Math.max(60, remain));
+  }
+
+  /* v8.7.172 ⑥软清军备：悬停目标短暂抖走（over 振荡）不清账——dwellFolderId/
+     startedAt 保留作续接锚，260ms 宽限窗内返场 resumeDwell 续接剩余驻留，
+     超窗才真清（armDwell 起点重计）。 */
+  function softClearDwell() {
+    if (dwellTimer.current) {
+      clearTimeout(dwellTimer.current);
+      dwellTimer.current = null;
+    }
+    if (dwellGraceTimer.current) return;
+    dwellGraceTimer.current = setTimeout(() => {
+      dwellGraceTimer.current = null;
+      dwellFolderId.current = null;
+      armedFolderId.current = null;
+      dwellStartedAt.current = 0;
+    }, DWELL_GRACE_MS);
   }
 
   /* v8.7.169 ②出夹驻留计时清理（回面板内/松手/新会话） */
@@ -2311,42 +2437,34 @@ function QuickLinks({
     exitFolderId.current = null;
   }
 
-  /* v8.7.169 ③飞入落账：真正的入夹发生在幽灵落格瞬间（拖槽保留到那一刻，
-     墙面布局全程静止——落点矩形恒定的前提）。幂等：flyFlushedRef 单飞；
-     落账同帧收口拖槽（setActiveId(null)）+ 摘接收反馈（dropHint 回 1）。 */
+  /* v8.7.172 ③飞入落账：真正的入夹发生在幽灵落格瞬间。开飞即摘后墙面已无
+     此磁贴（removeLinkEverywhere）——落账改 commitFlyIntoFolder 对象寻址
+     （旧 locateLink id 寻址在摘除态落空=磁贴凭空丢失隐患）。幂等：flyFlushedRef
+     单飞；落账同帧收口拖槽（setActiveId(null)）+ 摘接收反馈（dropHint 回 1）。 */
   function flushFolderFly() {
     if (flyFlushedRef.current) return;
     flyFlushedRef.current = true;
     const f = folderFlyRef.current;
     folderFlyRef.current = null;
     if (f) {
-      setLinks((prev) =>
-        locateLink(prev, f.entryId) ? putLinkIntoFolder(prev, f.entryId, f.folderId)[0] : prev,
-      );
+      setLinks((prev) => commitFlyIntoFolder(prev, f.entry, f.folderId));
     }
     setActiveId(null);
     setDropHintId(null);
     setFolderFly(null);
   }
 
-  /* v8.7.169 ③开飞：军备满 3s 且落点 = 墙上文件夹磁贴。先把手感变换归零
-     （tilt/lift 弹簧瞬时落位——量测矩形=所见矩形），再量两矩形：浮层图标
-     壳（data-cl-drag-icon）/ 夹磁贴迷你格（data-cl-folder-grid）；目标格
-     按 FolderMiniCells 满格律推演（n≤full 补尾格，n>full 落「+N」计数格；
-     空夹无格子 → tile-body 中心）。夹磁贴 dropHint scale 1.12 在场——量测
-     矩形已含缩放，比例式推演自洽。返回 false = 量测失手（元素不在场），
-     回退普通落账路径。 */
-  function startFolderFly(entryId: string, folderId: string, folder: StartFolder): boolean {
-    tilt.jump(0);
-    liftScale.jump(1);
-    glowO.jump(0);
-    shadowO.jump(0);
-    const iconEl = document.querySelector<HTMLElement>("[data-cl-drag-icon]");
-    const tileEl = document.querySelector<HTMLElement>(
+  /* v8.7.172 ③④目标格推演共享函数：夹磁贴迷你格目标格矩形（满格律同源：
+     n≤full 补尾格，n>full 落「+N」计数格；grid2 pad9 gap3 / grid3 pad7 gap2，
+     docked 56px sm 自适配）。量测作用域 rootRef（④三处之一：drawer 页
+     cl-layout-ghost 隐形克隆先入文档抢命中，全局 document.querySelector
+     量测到克隆矩形 =「向下方缩小」根因）；rAF 逐帧重测（开飞即摘引发
+     补位/让位弹簧，夹矩形全程在动）与开飞初值共用同一推演。 */
+  function folderCellTarget(folderId: string, n: number): { tx: number; ty: number; ts: number } | null {
+    const tileEl = rootRef.current?.querySelector<HTMLElement>(
       `[data-entry-id="${CSS.escape(folderId)}"]`,
     );
-    if (!iconEl || !tileEl) return false;
-    const ir = iconEl.getBoundingClientRect();
+    if (!tileEl || !tileEl.isConnected) return null;
     const grid = tileEl.querySelector<HTMLElement>("[data-cl-folder-grid]");
     const body = tileEl.querySelector<HTMLElement>(".tile-body") ?? tileEl;
     const tr = (grid ?? body).getBoundingClientRect();
@@ -2357,15 +2475,38 @@ function QuickLinks({
     const gap = grid3 ? 2 : 3;
     const tilePx = form === "docked" ? 56 : 64;
     const s = tr.width / tilePx;
-    const n = folder.children.length;
     const idx = Math.min(n, full - 1);
     const row = Math.floor(idx / cols);
     const col = idx % cols;
     const cell = grid
       ? (tr.width - s * (2 * pad + (cols - 1) * gap)) / cols
       : Math.min(24, tr.width * 0.34);
-    const tx = tr.left + s * pad + col * (cell + s * gap);
-    const ty = tr.top + s * pad + row * (cell + s * gap);
+    return {
+      tx: tr.left + s * pad + col * (cell + s * gap),
+      ty: tr.top + s * pad + row * (cell + s * gap),
+      ts: cell,
+    };
+  }
+
+  /* v8.7.172 ③开飞：军备满 1s 且落点 = 墙上文件夹磁贴。先把手感变换归零
+     （tilt/lift 弹簧瞬时落位——量测矩形=所见矩形），再量两矩形：浮层图标
+     壳（data-cl-drag-icon，overlay portal 在 body——全局查询）/ 夹磁贴
+     迷你格（folderCellTarget，rootRef 作用域）；目标格按 FolderMiniCells
+     满格律推演（fn = 夹子磁贴数快照）。夹磁贴 dropHint scale 1.12 在场
+     ——量测矩形已含缩放，比例式推演自洽。随即开飞即摘（removeLinkEverywhere
+     ——墙面即刻收口，原位 220ms 标准退场淡出；邻居补位/让位弹簧启动，
+     幽灵 rAF 逐帧追踪实时矩形）。返回 false = 量测失手（元素不在场），
+     回退普通落账路径。 */
+  function startFolderFly(entryId: string, folderId: string, folder: StartFolder): boolean {
+    tilt.jump(0);
+    liftScale.jump(1);
+    glowO.jump(0);
+    shadowO.jump(0);
+    const iconEl = document.querySelector<HTMLElement>("[data-cl-drag-icon]");
+    if (!iconEl) return false;
+    const t0 = folderCellTarget(folderId, folder.children.length);
+    if (!t0) return false;
+    const ir = iconEl.getBoundingClientRect();
     const loc = locateLink(links, entryId);
     const link = loc
       ? loc.folder
@@ -2379,16 +2520,22 @@ function QuickLinks({
       entryId,
       folderId,
       sm: form === "docked",
+      fn: folder.children.length,
       sx: ir.left,
       sy: ir.top,
       sw: ir.width,
       sh: ir.height,
-      tx,
-      ty,
-      ts: cell,
+      tx: t0.tx,
+      ty: t0.ty,
+      ts: t0.ts,
     };
     folderFlyRef.current = fly;
     setFolderFly(fly);
+    /* v8.7.172 ③开飞即摘：磁贴从数据面即刻消失（id 寻址从此落空，落账只能
+       走 commitFlyIntoFolder 对象入参）——原位只剩 220ms 标准退场淡出，
+       墙面补位/让位弹簧同帧启动；旧「拖槽保留到落格」策略的 ~550-900ms
+       残留（用户所见「图标会在被拖进文件夹前的位置出现一秒」）退役。 */
+    setLinks((prev) => removeLinkEverywhere(prev, entryId)[0]);
     return true;
   }
 
@@ -2413,49 +2560,95 @@ function QuickLinks({
     insidePanelRef.current = dragStartedInsideRef.current;
     exitFiredRef.current = false;
     clearExitDwell();
+    /* v8.7.172 ②让位判定簿随新会话清场（判定/迟滞按会话隔离） */
+    overIdRef.current = null;
+    yieldSideRef.current = null;
   }
 
   /* 横向速度 → 倾斜角（夹在 ±7°），停下回正 */
   function handleDragMove(e: DragMoveEvent) {
     const rect = e.active.rect.current.translated;
     if (!rect) return;
-    /* ---------- v8.7.169 ②夹内拖拽出夹驻留监测（每帧实测）----------
+    /* ---------- v8.7.169 ②夹内拖拽出夹驻留监测（move 每帧；v8.7.172 ①探测
+       30Hz 节流 + 驻留 1s）----------
        dragOver 只在落点翻转时触发、pointer 停住不再触发——驻留计时必须
-       挂在每帧都能跑的 move 上：浮层中心出本夹面板矩形 → 起 3s 计时，满
+       挂在每帧都能跑的 move 上：浮层中心出本夹面板矩形 → 起 1s 计时，满
        → 关闭本夹（popover 正常收起动画回磁贴墙，拖拽继续、出夹放行）；
        中心回面板内 → 撤计时。实测结果同时写入 insidePanelRef 供 dragOver
-       的地理闸读取（move 与 over 同一事件循环，读数恒新鲜）。 */
+       的地理闸读取。gBCR 是强制布局读（pointer move ~120Hz 逐帧调用白烧
+       拖拽链路）——EXIT_PROBE_MIN_MS 节流窗内沿用上次实测结果，30Hz 对
+       1s 驻留判定精度余量 33 倍。 */
     if (dragStartedInsideRef.current) {
-      /* v8.7.171：面板元素引用缓存于 dragStart（会话面板唯一、closure 内 isConnected
-         失效检测）——每帧免全文档 querySelector，仅保留一次 getBoundingClientRect */
-      if (!exitPanelElRef.current || !exitPanelElRef.current.isConnected) {
-        exitPanelElRef.current =
-          document.querySelector<HTMLElement>("[data-cl-folder-popover]");
-      }
-      const panel = exitPanelElRef.current;
-      let inside = false;
-      if (panel) {
-        const pr = panel.getBoundingClientRect();
-        const cx = rect.left + rect.width / 2;
-        const cy = rect.top + rect.height / 2;
-        inside = cx >= pr.left && cx <= pr.right && cy >= pr.top && cy <= pr.bottom;
-      }
-      insidePanelRef.current = inside;
-      const fid = dragOriginFolderId.current;
-      if (!inside && panel && fid) {
-        if (exitFolderId.current !== fid) {
-          clearExitDwell();
-          exitFolderId.current = fid;
-          exitTimer.current = setTimeout(() => {
-            exitTimer.current = null;
-            exitFolderId.current = null;
-            exitFiredRef.current = true;
-            /* 只关会话起点夹：军备/他夹状态不受牵连 */
-            setOpenFolderId((cur) => (cur === fid ? null : cur));
-          }, 3000);
+      const nowMs = performance.now();
+      if (nowMs - exitProbeAt.current >= EXIT_PROBE_MIN_MS) {
+        exitProbeAt.current = nowMs;
+        /* v8.7.171：面板元素引用缓存于 dragStart（会话面板唯一、closure 内 isConnected
+           失效检测）——探测帧免全文档 querySelector */
+        if (!exitPanelElRef.current || !exitPanelElRef.current.isConnected) {
+          exitPanelElRef.current =
+            document.querySelector<HTMLElement>("[data-cl-folder-popover]");
         }
-      } else if (inside) {
-        clearExitDwell();
+        const panel = exitPanelElRef.current;
+        let inside = false;
+        if (panel) {
+          const pr = panel.getBoundingClientRect();
+          const cx = rect.left + rect.width / 2;
+          const cy = rect.top + rect.height / 2;
+          inside = cx >= pr.left && cx <= pr.right && cy >= pr.top && cy <= pr.bottom;
+        }
+        insidePanelRef.current = inside;
+        const fid = dragOriginFolderId.current;
+        if (!inside && panel && fid) {
+          if (exitFolderId.current !== fid) {
+            clearExitDwell();
+            exitFolderId.current = fid;
+            exitTimer.current = setTimeout(() => {
+              exitTimer.current = null;
+              exitFolderId.current = null;
+              exitFiredRef.current = true;
+              /* 只关会话起点夹：军备/他夹状态不受牵连 */
+              setOpenFolderId((cur) => (cur === fid ? null : cur));
+            }, FOLDER_DWELL_EXIT_MS);
+          }
+        } else if (inside) {
+          clearExitDwell();
+        }
+      }
+    }
+    /* ---------- v8.7.172 ②右半让位的 move 侧判定 ----------
+       dragOver 只在落点翻转时触发；指针在同一磁贴上越过中线（左半⇄右半）
+       只有 move 能看见——overIdRef 记住当前目标，move 每帧按同一双侧判定
+       + 12px 迟滞重算，翻转即让位（setLinks 幂等：已就位零变更）。夹内
+       会话（地理闸关）不参与——夹内排序走同夹子磁贴分支。 */
+    const mTo = overIdRef.current;
+    const mFrom = String(e.active.id);
+    if (mTo && mFrom !== mTo && !dragStartedInsideRef.current) {
+      const overEntry = links.find((x) => x.id === mTo);
+      if (
+        overEntry &&
+        mTo !== openFolderId &&
+        mTo !== "cl-wall-zone" &&
+        mTo !== "cl-folder-zone"
+      ) {
+        const mFolderActive = links.some((x) => x.id === mFrom && isFolder(x));
+        const overIsFolder = isFolder(overEntry);
+        /* 判定前先取上次侧（yieldSideFor 会写入新判定）——翻转才让位 */
+        const prevSide = yieldSideRef.current;
+        const side = yieldSideFor(mTo, rect);
+        if (prevSide && prevSide.id === mTo && prevSide.side !== side) {
+          setLinks((prev) => yieldReorder(prev, mFrom, mTo, side, mFolderActive));
+          /* 链接拖过夹磁贴：翻右半 = 排序意图，军备清（与 dragOver 右半分支
+             同语义）；翻回左半 = 悬停意图回归，重新起 1s 计时（timer 在场/
+             已军备则不动） */
+          if (overIsFolder && !mFolderActive) {
+            if (side === "r") {
+              clearDwell();
+              setDropHintId((cur) => (cur === null ? cur : null));
+            } else if (!dwellTimer.current && armedFolderId.current !== mTo) {
+              armDwell(mTo);
+            }
+          }
+        }
       }
     }
     const now = performance.now();
@@ -2467,60 +2660,122 @@ function QuickLinks({
     tilt.set(Math.max(-7, Math.min(7, vx * 0.012)));
   }
 
+  /* ---------- v8.7.172 ②双侧让位判定（12px 迟滞带）----------
+     拖拽矩形中心相对 over 磁贴中心的水平偏移定左右半；±12px 死区保上次
+     判定（新目标默认左半）——诊断实证拖拽矩形中心与指针存在数px漂移，
+     夹正中 3px 漂移旧逻辑会误触让位清军备。量测作用域 rootRef（④三处之
+     三：drawer 页 cl-layout-ghost 隐形克隆先入文档抢命中，全局查询量测到
+     克隆矩形=判定全错）。 */
+  function yieldSideFor(to: string, rect: { left: number; width: number } | null): "l" | "r" {
+    let side: "l" | "r" = "l";
+    if (rect) {
+      const overEl = rootRef.current?.querySelector<HTMLElement>(
+        `[data-entry-id="${CSS.escape(to)}"]`,
+      );
+      const or = overEl?.getBoundingClientRect();
+      if (or && or.width > 0) {
+        const off = rect.left + rect.width / 2 - (or.left + or.width / 2);
+        const prev = yieldSideRef.current;
+        if (off > YIELD_HYSTERESIS_PX) side = "r";
+        else if (off < -YIELD_HYSTERESIS_PX) side = "l";
+        else side = prev && prev.id === to ? prev.side : "l";
+      }
+    }
+    yieldSideRef.current = { id: to, side };
+    return side;
+  }
+
+  /* v8.7.172 ②让位应用（setLinks 侧）：按「拖的是夹/链接 × over 是夹/链接」
+     分派插前（reorderWall）/插后（reorderWallAfter）：
+     · over = 墙上链接磁贴：双侧皆让位（链接/文件夹拖拽同权）；
+     · over = 墙上夹磁贴 + 拖链接：右半让位（用户口径「拖拽磁贴到文件夹的
+       右边时，文件夹磁贴不会主动让位」），左半粘滞（军备驻留语义——不被
+       弹开、「追着夹子跑」不复发）；
+     · over = 墙上夹磁贴 + 拖文件夹：夹×夹实时让位（双侧）；
+     · 夹内子磁贴掠过墙上夹磁贴：move 侧零变更（军备放行入夹在 dragOver）。 */
+  function yieldReorder(
+    prev: StartEntry[],
+    from: string,
+    to: string,
+    side: "l" | "r",
+    folderActive: boolean
+  ): StartEntry[] {
+    const overEntry = prev.find((x) => x.id === to);
+    if (!overEntry) return prev;
+    if (isFolder(overEntry)) {
+      if (locateLink(prev, from)?.folder) return prev;
+      if (!folderActive) return side === "r" ? reorderWallAfter(prev, from, to) : prev;
+      return side === "r" ? reorderWallAfter(prev, from, to) : reorderWall(prev, from, to);
+    }
+    return side === "r" ? reorderWallAfter(prev, from, to) : reorderWall(prev, from, to);
+  }
+
   /* ---------- v8.7.156 跨容器拖拽让位（墙 ⇄ 文件夹） ----------
-     · 墙内磁贴互让：链接/文件夹均实时 splice 让位（v8.7.165 恢复 v8.7.162
-       手感，拖叠建夹的粘滞前提随其退役）；
+     · 墙内磁贴互让：链接/文件夹实时 splice 让位（v8.7.165 恢复 v8.7.162
+       手感；v8.7.172 ②升级双侧判定：左半插前/右半插后 + 12px 迟滞带，
+       dragMove 越线重判）；
      · 拖到夹内子磁贴/夹区 = 入夹（putLinkIntoFolder）；
      · 夹内子磁贴拖到墙上磁贴 = 出夹插位（takeLinkOutOfFolder）；
-     · v8.7.169 ①：悬停文件夹磁贴 500ms 自动展开退役（用户口径「放入
-       文件夹时不要打开文件夹」）——改 3 秒驻留军备：满 3s 亮放大反馈并
-       放行入夹（松手 = 一镜到底飞入，见 handleDragEnd）；3s 内松手零
-       变更（磁贴飞回原位）。展开态夹磁贴 = 吸收落点语义不变；
-     · v8.7.169 ②：夹内磁贴拖出面板矩形驻留 3s → 关闭该夹回磁贴墙
+     · v8.7.172 ①：悬停文件夹磁贴 1s 驻留军备（v8.7.169 3 秒随用户口径
+       「将判定磁贴图标进入文件夹的3秒时长改成1秒」退役）——满 1s 亮放大
+       反馈并放行入夹（松手 = 一镜到底飞入，见 handleDragEnd）；1s 内松手
+       零变更（磁贴飞回原位）。链接拖到夹磁贴右半 = 让位（不军备）；拖
+       文件夹不军备（夹×夹实时让位排序）。展开态夹磁贴 = 吸收落点语义不变；
+     · v8.7.172 ①：夹内磁贴拖出面板矩形驻留 1s → 关闭该夹回磁贴墙
        （监测在 handleDragMove，出夹分支在驻留未满期间继续关闸）。 */
   function handleDragOver(e: DragOverEvent) {
     const from = String(e.active.id);
     const to = e.over ? String(e.over.id) : null;
     if (!to || from === to) {
-      clearDwell();
+      overIdRef.current = null;
+      softClearDwell();
       return;
     }
+    overIdRef.current = to;
     /* 拖的是否文件夹（拖拽会话中类型不变，闭包读当前 links 足够） */
     const isFolderActive = links.some((x) => x.id === from && isFolder(x));
 
     /* ---------- v8.7.169 ②出夹地理闸（v8.7.168 ②根修顺延 + 驻留联动）----------
-       夹内会话的 insidePanel 由 handleDragMove 每帧实测（insidePanelRef），
+       夹内会话的 insidePanel 由 handleDragMove 实测（insidePanelRef），
        dragOver 只读不量；出夹驻留未满（exitTimer 在场）时闸门同样关闭——
-       3s 计时一响（夹已关闭）面板即不存在，闸门自然放行。 */
+       1s 计时一响（夹已关闭）面板即不存在，闸门自然放行。 */
     const gateShut =
       dragStartedInsideRef.current &&
       (insidePanelRef.current || exitTimer.current != null);
 
     /* ---------- 两分支互斥守门 ----------
-       A. over = 墙上文件夹磁贴（未展开）→ 拖链接 3s 驻留军备（拖文件夹
-          不军备，夹×夹实时让位排序）；
-       B. 其余（顶层链接/空白/夹区/掠过/夹内）→ 不驻留。 */
+       A. over = 墙上文件夹磁贴（未展开）→ 拖链接左半 1s 驻留军备（右半
+          让位；拖文件夹不军备，夹×夹实时让位排序）；
+       B. 其余（顶层链接/空白/夹区/掠过/夹内）→ 软清军备（⑥ 260ms 宽限，
+          over 振荡返场续接剩余驻留）。 */
     const overWallEntry = links.find((x) => x.id === to);
+    const side =
+      overWallEntry && to !== openFolderId
+        ? yieldSideFor(to, e.active.rect.current.translated)
+        : null;
     if (overWallEntry && isFolder(overWallEntry) && to !== openFolderId) {
       if (isFolderActive) {
-        /* A-文件夹：不军备不反馈（旧 500ms 自动开夹对拖夹也无意义） */
+        /* A-文件夹：不军备不反馈（夹×夹实时让位排序） */
         clearDwell();
         setDropHintId((cur) => (cur === null ? cur : null));
-      } else if (dwellFolderId.current !== to) {
-        /* A-链接：3s 军备——换目标/重进即重计；军备前旧反馈先灭 */
+      } else if (side === "r") {
+        /* A-链接右半：排序意图（用户口径「拖拽磁贴到文件夹的右边时，
+           文件夹磁贴不会主动让位」）——军备清、让位走下方 setLinks */
         clearDwell();
-        dwellFolderId.current = to;
-        dwellTimer.current = setTimeout(() => {
-          dwellTimer.current = null;
-          dwellFolderId.current = null;
-          armedFolderId.current = to;
-          setDropHintId(to);
-        }, 3000);
+        setDropHintId((cur) => (cur === null ? cur : null));
+      } else if (armedFolderId.current === to || dwellFolderId.current === to) {
+        /* A-链接左半同夹返场：军备保/续接（⑥软清宽限——进度不清零） */
+        resumeDwell(to);
+      } else {
+        /* A-链接左半新目标：1s 军备——换目标/重进即重计；军备前旧反馈先灭 */
+        clearDwell();
+        armDwell(to);
         setDropHintId((cur) => (cur === null ? cur : null));
       }
     } else {
-      /* B. 其余：清时不驻留（①反馈同清） */
-      clearDwell();
+      /* B. 其余：软清不清账（⑥ 260ms 宽限——MeasuringStrategy.Always 的
+         策略位移矩形致 over 振荡，逐次硬清让 1s 计时永不满足） */
+      softClearDwell();
       setDropHintId((cur) => (cur === null ? cur : null));
     }
 
@@ -2529,7 +2784,7 @@ function QuickLinks({
 
       if (to === "cl-wall-zone") {
         /* 墙面空白区：夹内磁贴拖出 → 出夹追加到墙尾；墙面拖拽会话无操作。
-           v8.7.169 ②地理闸：面板矩形内/出夹驻留未满 = 零变更（满 3s 夹已
+           v8.7.169 ②地理闸：面板矩形内/出夹驻留未满 = 零变更（满 1s 夹已
            关闭，闸门自然放行） */
         return fromLoc?.folder
           ? gateShut
@@ -2548,14 +2803,13 @@ function QuickLinks({
       const overEntry = prev.find((x) => x.id === to);
       if (overEntry && isFolder(overEntry)) {
         /* over = 墙上文件夹磁贴：
-           - 拖的是夹内子磁贴 → 军备满 3s 后出夹进该夹（追加尾），未满零
+           - 拖的是夹内子磁贴 → 军备满 1s 后出夹进该夹（追加尾），未满零
              变更（v8.7.169 ①军备律对夹→夹同样生效）；
            - 该夹 popover 已展开（手动点的）→ 落点即入夹——展开就是
              「打开盖子」，指针仍停在夹磁贴上松手 = 收进去；
-           - 拖链接掠过未军备 → 【粘滞】：不触发邻位排序（文件夹不被弹开、
-             军备不被 over 翻转重置——否则「追着夹子跑」，3s 驻留永不响）。
-             链接与文件夹的相对排序由夹旁链接磁贴的让位挪动承担；文件夹
-             之间排序走「拖文件夹到另一文件夹」分支（下方 reorderWall）。 */
+           - 拖链接掠过 → 左半【粘滞】（军备律——不被弹开、军备不被 over
+             翻转重置）；右半【让位】（v8.7.172 ②——用户口径「拖到文件夹
+             右边夹不让位」）。 */
         if (fromLoc?.folder) {
           /* v8.7.169 ②地理闸 + ①军备：面板内/驻留未满/未军备 = 零变更 */
           if (fromLoc.folder.id !== to)
@@ -2567,8 +2821,7 @@ function QuickLinks({
           return prev;
         }
         if (to === openFolderId) return putLinkIntoFolder(prev, from, to)[0];
-        if (isFolderActive) return reorderWall(prev, from, to);
-        return prev;
+        return yieldReorder(prev, from, to, side ?? "l", isFolderActive);
       }
 
       const toLoc = locateLink(prev, to);
@@ -2590,16 +2843,15 @@ function QuickLinks({
       if (fromLoc?.folder && !toLoc.folder) {
         /* 夹内 → 墙上磁贴：出夹插到该磁贴位置。
            v8.7.169 ②地理闸：面板矩形内/出夹驻留未满 = 零变更（over 解析
-           穿透弹层命中墙面磁贴的误掠防护顺延；满 3s 夹已关闭，闸门放行） */
+           穿透弹层命中墙面磁贴的误掠防护顺延；满 1s 夹已关闭，闸门放行） */
         return gateShut ? prev : takeLinkOutOfFolder(prev, from, toLoc.wallIndex)[0];
       }
       if (!fromLoc?.folder && toLoc.folder) {
         /* 墙内 → 夹内子磁贴：入夹插到该子磁贴位置 */
         return putLinkIntoFolder(prev, from, toLoc.folder.id, toLoc.childIndex)[0];
       }
-      /* 墙内互让（v8.7.165 恢复实时让位，v8.7.162 手感）：链接/文件夹
-         拖过邻位即时交换；拖叠建夹的粘滞前提随其退役。 */
-      return reorderWall(prev, from, to);
+      /* 墙内互让（v8.7.172 ②双侧让位）：左半插前/右半插后 + 迟滞带。 */
+      return yieldReorder(prev, from, to, side ?? "l", isFolderActive);
     });
   }
 
@@ -2613,20 +2865,24 @@ function QuickLinks({
     dragStartedInsideRef.current = false;
     dragOriginFolderId.current = null;
     dragSample.current = null;
+    overIdRef.current = null;
+    yieldSideRef.current = null;
     tilt.set(0);
     liftScale.set(1);
     glowO.set(0);
     shadowO.set(0);
-    /* ---------- v8.7.169 ①③军备入夹 + 一镜到底飞入 ----------
-       落点 = 墙上文件夹磁贴且该夹军备满 3s → 开飞（startFolderFly 量测两
-       矩形并接管入夹时点）：浮层即刻隐去（dropAnimation null + 内容卸载）、
-       拖槽保留（activeId 暂不归零）、dropHint 保持（夹维持 1.12 接收姿态），
-       幽灵 420ms 一镜飞向迷你格目标格，落格淡出瞬间 flushFolderFly 落账
-       （putLinkIntoFolder + 拖槽收口 + 反馈摘除）。
-       未军备（3s 内松手）= 零变更不入夹（旧「免开层入夹」兜底随军备律
-       退役——用户口径「三秒后用户松手磁贴才应该可以放入文件夹」）；磁贴
-       飞回原位，实时让位已在悬停期完成排序（v8.7.162 手感）。
-       reduceMotion：军备满 3s 仍入夹但无幽灵（即刻落账零动画）。
+    /* ---------- v8.7.172 ①③军备入夹 + 一镜到底吸入 ----------
+       落点 = 墙上文件夹磁贴且该夹军备满 1s → 开飞（startFolderFly 量测两
+       矩形、开飞即摘并接管入夹时点）：浮层即刻隐去（dropAnimation null +
+       内容卸载）、墙面即刻收口（removeLinkEverywhere——原位 220ms 标准退场
+       淡出，邻居补位/让位弹簧启动），dropHint 保持（夹维持 1.12 接收姿态），
+       幽灵 rAF 逐帧追踪夹磁贴实时矩形 easeInOutQuart 吸入迷你格目标格，
+       落格淡出瞬间 flushFolderFly 落账（commitFlyIntoFolder 对象寻址 +
+       拖槽收口 + 反馈摘除）。
+       未军备（1s 内松手）= 零变更不入夹（旧「免开层入夹」兜底随军备律
+       退役——用户口径「判定进入文件夹后才可放入」）；磁贴飞回原位，实时
+       让位已在悬停期完成排序（双侧让位，v8.7.172 ②）。
+       reduceMotion：军备满 1s 仍入夹但无幽灵（即刻落账零动画）。
        拖文件夹：locateLink 不命中 / armed 不可能等于落点 → 零变更。 */
     let flyStarted = false;
     let putDone = false;
@@ -2651,43 +2907,64 @@ function QuickLinks({
       setDropHintId(null);
       setActiveId(null);
     }
-    /* flyStarted：activeId 留场（拖槽不塌、墙面布局静止），dropHint 保持
+    /* flyStarted：activeId 留场（拖槽收口延后到落格瞬间），dropHint 保持
        （夹 1.12 接收姿态）——落格瞬间 flushFolderFly 一并归零，见
-       folderFly effect（幽灵动画 + 落账 + 兜底）。 */
+       folderFly effect（rAF 吸入 + 落账 + 兜底）。 */
   }
 
-  /* v8.7.169 ③幽灵飞行动画（WAAPI 合成器驱动，零 React 重渲染）：420ms
-     一镜 translate+scale 飞向目标格，落格 130ms 淡出，淡出尽头 flushFolderFly
-     落账（拖槽收口 + 夹内显形 + 接收反馈摘除同帧接力）。900ms 兜底 = WAAPI
-     在后台标签被节流时也能收敛；清理路径 cancel 动画并在未落账时补落
-     （抽屉关闭/卸载不吞磁贴——setLinks 指向父层状态，卸载后仍生效）。 */
+  /* v8.7.172 ③一镜到底吸入（rAF 逐帧追踪 + easeInOutQuart 吸入曲线，零
+     React 重渲染）：开飞即摘后墙面补位/让位弹簧全程在动——夹磁贴矩形
+     逐帧重测（folderCellTarget 共享函数，rootRef 作用域），幽灵每帧插值
+     到「实时目标格」；420ms 吸入（慢起-加速-缓收的「被文件夹吸进去」
+     手感）+ 落格 130ms 淡出，淡出尽头 flushFolderFly 落账（拖槽收口 +
+     夹内显形 + 接收反馈摘除同帧接力）。900ms 兜底 = rAF 在后台标签被
+     节流时也能收敛；清理路径停帧并在未落账时补落（抽屉关闭/卸载不吞
+     磁贴——setLinks 指向父层状态，卸载后仍生效）。 */
   useEffect(() => {
     const f = folderFly;
     if (!f) return;
     const el = ghostRef.current;
     if (!el) return;
+    let raf = 0;
+    let fading = false;
     let finished = false;
     const finish = () => {
       if (finished) return;
       finished = true;
+      cancelAnimationFrame(raf);
       flushFolderFly();
     };
-    const anim = el.animate(
-      [
-        { transform: "translate(0px, 0px) scale(1)" },
-        {
-          transform: `translate(${f.tx - f.sx}px, ${f.ty - f.sy}px) scale(${f.ts / f.sw})`,
-        },
-      ],
-      { duration: 420, easing: "cubic-bezier(0.22, 1, 0.36, 1)", fill: "forwards" },
-    );
-    anim.onfinish = () => {
+    const t0 = performance.now();
+    const tgt = { x: f.tx, y: f.ty, s: f.ts / f.sw };
+    const step = () => {
+      if (finished || fading) return;
+      /* 逐帧追踪：目标格矩形是动的（补位/让位弹簧）——rootRef 作用域实时
+         重测；量测失手沿用上帧目标（夹短暂离场不中断动画） */
+      const live = folderCellTarget(f.folderId, f.fn);
+      if (live) {
+        tgt.x = live.tx;
+        tgt.y = live.ty;
+        tgt.s = live.ts / f.sw;
+      }
+      const p = Math.min(1, (performance.now() - t0) / FLY_MS);
+      const e4 = easeInOutQuart(p);
+      const x = f.sx + (tgt.x - f.sx) * e4;
+      const y = f.sy + (tgt.y - f.sy) * e4;
+      const s = 1 + (tgt.s - 1) * e4;
+      el.style.transform = `translate(${x - f.sx}px, ${y - f.sy}px) scale(${s})`;
+      if (p < 1) {
+        raf = requestAnimationFrame(step);
+        return;
+      }
+      /* 落格：停帧 + 淡出（合成器 WAAPI），淡出尽头落账接力 */
+      fading = true;
       el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 130, fill: "forwards" })
         .onfinish = finish;
     };
+    raf = requestAnimationFrame(step);
     const bail = window.setTimeout(finish, 900);
     return () => {
-      anim.cancel();
+      cancelAnimationFrame(raf);
       window.clearTimeout(bail);
       flushFolderFly();
     };
@@ -2748,9 +3025,13 @@ function QuickLinks({
   const measureFade = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    setFade({
-      top: el.scrollTop > 4,
-      bottom: el.scrollTop < el.scrollHeight - el.clientHeight - 4,
+    /* v8.7.172 ⑤同值幂等：贴边自动滚动/弹簧补位期 onScroll+RO 每帧连发，
+       旧 setFade 每次新建对象=每帧全树重渲染——同值返回同引用让 React
+       bail out（状态纤维等值短路），拖拽链路逐帧重渲染退役。 */
+    setFade((prev) => {
+      const top = el.scrollTop > 4;
+      const bottom = el.scrollTop < el.scrollHeight - el.clientHeight - 4;
+      return prev.top === top && prev.bottom === bottom ? prev : { top, bottom };
     });
   }, []);
   useEffect(() => {
@@ -2929,6 +3210,11 @@ function QuickLinks({
     <DndContext
       sensors={sensors}
       collisionDetection={closestCenter}
+      /* v8.7.172 ⑤MeasuringStrategy.Always：开飞即摘后拖拽继续、墙面弹簧
+         补位/让位全程在动——拖拽中持续重测 droppable 矩形，over 解析不再
+         吃过期布局（静止测量策略在弹簧期间命中旧矩形）。over 振荡副作用由
+         军备软清宽限（⑥ softClearDwell 260ms）吸收。 */
+      measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
       onDragStart={handleDragStart}
       onDragMove={handleDragMove}
       onDragOver={handleDragOver}
@@ -3052,9 +3338,10 @@ function QuickLinks({
         : null}
 
       {/* 拖拽浮层：portal 到 body（两形态共用），z 抬到纱罩（z-45）之上保证拖动全程可见。
-          v8.7.169 ③军备飞入落点：folderFly 在场时 dropAnimation 置 null
+          v8.7.172 ③军备飞入落点：folderFly 在场时 dropAnimation 置 null
           （dnd-kit 回飞动画让位给幽灵，config null 直接短路）且内容卸载
-          ——浮层即刻隐去，磁贴图标由幽灵接管一镜到底（避免双重动画）。 */}
+          （开飞即摘后 activeEntry 定位也落空）——浮层即刻隐去，磁贴图标由
+          幽灵接管一镜到底（避免双重动画）。 */}
       {portalReady
         ? createPortal(
             <DragOverlay
@@ -3110,10 +3397,10 @@ function QuickLinks({
           )
         : null}
 
-      {/* v8.7.169 ③一镜到底飞入幽灵：复用 TileIcon 外壳（所见即所飞），WAAPI
-          合成器驱动 translate+scale 直达夹磁贴迷你格目标格，落格淡出让位
-          （folderFly effect 播放动画并在收尾 flushFolderFly 落账）。
-          pointer-events-none + z-[80]（高于拖拽浮层 z-60 与夹层）。 */}
+      {/* v8.7.172 ③一镜到底吸入幽灵：复用 TileIcon 外壳（所见即所飞），rAF
+          逐帧追踪夹磁贴实时矩形（rootRef 作用域）easeInOutQuart 吸入迷你格
+          目标格，落格淡出让位（folderFly effect 驱动并在收尾 flushFolderFly
+          落账）。pointer-events-none + z-[80]（高于拖拽浮层 z-60 与夹层）。 */}
       {folderFly && portalReady
         ? createPortal(
             <div

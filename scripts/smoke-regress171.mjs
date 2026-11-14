@@ -10,7 +10,8 @@ import fs from "node:fs";
 import { createHash } from "node:crypto";
 import { execSync } from "node:child_process";
 
-const ZIP = "/home/z/beta-wt/download/v8.7.171/ChuShi-NewTab-v8.7.171.zip";
+const VER_EXPECT = process.env.REG_VER || "8.7.171";
+const ZIP = process.env.REG_ZIP || "/home/z/beta-wt/download/v8.7.171/ChuShi-NewTab-v8.7.171.zip";
 const STAGE = "/tmp/ext-reg171";
 const PROFILE = "/tmp/ext-reg171-profile";
 const CHROME = "/home/z/.cache/ms-playwright/chromium-1200/chrome-linux64/chrome";
@@ -109,7 +110,7 @@ T("R1 index 直开磁贴墙渲染", (await page.locator('[data-entry-id="t1"]').
     if ((await logBtn.count()) > 0) {
       await logBtn.click();
       await page.waitForTimeout(600);
-      const head = await page.evaluate(() => document.body.innerText.includes("8.7.171"));
+      const head = await page.evaluate((v) => document.body.innerText.includes(v), VER_EXPECT);
       T("R4 更新日志首条 8.7.171", head);
       await page.keyboard.press("Escape");
       await page.waitForTimeout(300);

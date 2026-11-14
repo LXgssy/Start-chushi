@@ -124,6 +124,72 @@ export function reorderWall(entries: StartEntry[], fromId: string, toId: string)
   return next;
 }
 
+/** v8.7.172 ②右侧让位：把 from 条目插到 to 条目右侧（拖拽矩形落点在 to 的
+ *  右半 → 「排到它后面」语义）。与 reorderWall（插前）成对构成双侧让位；
+ *  from 已紧邻 to 右侧时零变更（move 侧逐帧重判的幂等前提）。 */
+export function reorderWallAfter(
+  entries: StartEntry[],
+  fromId: string,
+  toId: string
+): StartEntry[] {
+  const fi = entries.findIndex((e) => e.id === fromId);
+  const ti = entries.findIndex((e) => e.id === toId);
+  if (fi < 0 || ti < 0 || fi === ti) return entries;
+  if (fi === ti + 1) return entries;
+  const next = [...entries];
+  const [moved] = next.splice(fi, 1);
+  /* 摘除后 to 的实时索引（fi < ti 时整体左移过一位，不可复用旧 ti） */
+  const at = next.findIndex((e) => e.id === toId);
+  next.splice(at + 1, 0, moved);
+  return next;
+}
+
+/** v8.7.172 ③开飞即摘：把链接从任何位置（顶层/任意夹）摘除并带回链接对象
+ *  ——一镜到底幽灵接管视觉的瞬间墙面即刻收口（原位只剩 220ms 标准退场淡出）；
+ *  摘除后磁贴凭 id 再也找不到，落账必须走 commitFlyIntoFolder 对象入参。
+ *  返回 [新数组, 被摘的链接]；找不到返回原数组 + null。 */
+export function removeLinkEverywhere(
+  entries: StartEntry[],
+  linkId: string
+): [StartEntry[], StartLink | null] {
+  const loc = locateLink(entries, linkId);
+  if (!loc) return [entries, null];
+  if (loc.folder) {
+    const link = loc.folder.children[loc.childIndex];
+    return [
+      patchFolder(entries, loc.folder.id, (f) => ({
+        ...f,
+        children: f.children.filter((c) => c.id !== linkId),
+      })),
+      link,
+    ];
+  }
+  return [entries.filter((e) => e.id !== linkId), entries[loc.wallIndex] as StartLink];
+}
+
+/** v8.7.172 ③飞入落账（对象寻址）：幽灵携带的链接对象落账入夹——开飞即摘
+ *  后墙上已无此 id（旧 id 寻址 locateLink 落空会静默丢磁贴），以对象入参重挂。
+ *  幂等：目标夹已有同 id 子磁贴（dragOver 实时落账过的兜底场景）不重复插入；
+ *  index 缺省 = 追加末尾；目标夹不存在/非夹时原样返回。 */
+export function commitFlyIntoFolder(
+  entries: StartEntry[],
+  link: StartLink,
+  folderId: string,
+  index?: number
+): StartEntry[] {
+  const fi = entries.findIndex((e) => e.id === folderId);
+  if (fi < 0) return entries;
+  const f = entries[fi];
+  if (!isFolder(f)) return entries;
+  if (f.children.some((c) => c.id === link.id)) return entries;
+  const children = [...f.children];
+  const at = index == null || index < 0 || index > children.length ? children.length : index;
+  children.splice(at, 0, link);
+  const next = [...entries];
+  next[fi] = { ...f, children };
+  return next;
+}
+
 /** 新建文件夹（三种建夹入口共用：右键 / ⌘K / 拖叠） */
 export function createFolder(name = "新建文件夹", children: StartLink[] = []): StartFolder {
   return {
