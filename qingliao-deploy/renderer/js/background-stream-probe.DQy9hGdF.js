@@ -1,0 +1,1 @@
+"use strict";import{r as t,j as e}from"./vendor-react-dom.VXXUQRTu.js";import"./index.DVzvDWjP.js";import"./app-core.DXuijtOY.js";const s=function(){const[o,r]=t.useState("http://127.0.0.1:18765/stream?count=20&interval=1000&pauseAt=3&pauseMs=45000"),[a,n]=t.useState("Ready");return t.useRef(null),e.jsx("p",{children:"Prototype disabled"})};export{s as component};

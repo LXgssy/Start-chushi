@@ -1,0 +1,1 @@
+"use strict";function n(i){return Math.min(1,Math.max(0,i))}function t(i){return i.unified_token_limit>0?n(1-i.unified_token_usage/i.unified_token_limit):n(i.remaining_quota_unified)}function a(i){return Number((t(i)*100).toFixed(1))}function m(i,e){return new Intl.NumberFormat(e,{style:"percent",maximumFractionDigits:1}).format(n(i))}export{t as a,m as f,a as g};

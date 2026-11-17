@@ -1,0 +1,193 @@
+.msg-block {
+  font-size: var(--chatbox-msg-font-size, 14px);
+
+  /* 避免用户复制时，复制到文字的样式 */
+  user-select: text;
+}
+
+  .msg-block .msg-content h1 {
+    font-size: 1.3em;
+  }
+
+  .msg-block .msg-content h2 {
+    font-size: 1.2em;
+  }
+
+  .msg-block .msg-content h3 {
+    font-size: 1.1em;
+  }
+
+  .msg-block .msg-content p {
+    margin: 0.5rem 0 0.5rem 0;
+  }
+
+  .msg-block .msg-content-small p {
+    margin: 0.3rem 0 0.2rem 0;
+  }
+
+  .msg-block .msg-content ol {
+    padding-inline-start: 25px;
+  }
+
+  .msg-block .msg-content ul {
+    padding-inline-start: 25px;
+  }
+
+  .msg-block .msg-content img {
+    width: 100%;
+    max-width: 40rem;
+  }
+
+  .msg-block .msg-content {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+  }
+
+  .msg-block .msg-content hr {
+    border: none;
+    height: 1px;
+    background-color: var(--chatbox-border-primary);
+    transform: scaleY(0.5);
+    transform-origin: center;
+    margin: 1em 0;
+  }
+
+/* Bubble layout: ensure user message links match bubble text color (white on brand background) */
+.bubble-user-msg .msg-content a {
+  color: var(--chatbox-tint-white);
+  text-decoration: underline;
+}
+
+.bubble-user-msg .msg-content a:visited {
+  color: var(--chatbox-tint-white);
+}
+
+.bubble-user-msg .msg-content a:hover {
+  color: var(--chatbox-tint-white);
+  text-decoration: underline;
+}
+
+.bubble-user-msg .msg-content .inline-code {
+  background-color: color-mix(in srgb, #3b3b3b 30%, transparent);
+}
+
+.code-block-container,
+.code-block-header,
+.shiki-code-wrapper,
+.shiki-code-fallback pre {
+  background-color: var(--chatbox-background-primary);
+}
+
+.shiki-code-wrapper pre.shiki {
+  background-color: var(--chatbox-background-primary) !important;
+}
+
+.assistant-msg:not(.bubble-msg) .code-block-container,
+.assistant-msg:not(.bubble-msg) .code-block-header,
+.assistant-msg:not(.bubble-msg) .shiki-code-wrapper,
+.assistant-msg:not(.bubble-msg) .shiki-code-fallback pre {
+  background-color: var(--chatbox-background-secondary);
+}
+
+.assistant-msg:not(.bubble-msg) .shiki-code-wrapper pre.shiki {
+  background-color: var(--chatbox-background-secondary) !important;
+}
+
+/* // markdown table */
+.msg-block table {
+    background-color: var(--chatbox-background-primary);
+    margin: 0 auto var(--chatbox-spacing-md);
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 1em;
+    line-height: 1.2;
+    border: 1px solid var(--chatbox-border-primary);
+    border-radius: var(--chatbox-radius-lg);
+    overflow: hidden;
+  }
+.msg-block table th,
+  .msg-block table td {
+    padding: 0.5em 1.2em;
+    border-right: 1px solid var(--chatbox-border-primary);
+    border-bottom: 1px solid var(--chatbox-border-primary);
+    text-align: center;
+  }
+.msg-block table th:last-child,
+  .msg-block table td:last-child {
+    border-right: none;
+  }
+.msg-block table tr:last-child td {
+    border-bottom: none;
+  }
+.msg-block table th {
+    background-color: var(--chatbox-background-secondary);
+    font-weight: bold;
+    color: var(--chatbox-tint-primary);
+  }
+.msg-block table tr:nth-child(even) {
+    background-color: var(--chatbox-background-gray-secondary);
+  }
+
+/* // message */
+html[data-theme="light"] {
+  /* // .system-msg {
+    //     background-color: #fafafa;
+    // } */
+}
+html[data-theme="light"] .assistant-msg {
+    /* background-color: #fafafa; */
+  }
+html[data-theme="dark"] {
+  /* // .system-msg { */
+  /* //     background-color: #212121; */
+  /* // } */
+}
+html[data-theme="dark"] .assistant-msg {
+    /* background-color: #212121; */
+  }
+
+.loading {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #1976d2;
+  border-bottom-color: transparent;
+  border-radius: 50%;
+  display: inline-block;
+  box-sizing: border-box;
+  animation: loadingrotation 0.4s linear infinite;
+}
+
+.chatbox-streaming-text-fade,
+[data-streaming-fade-key] {
+  display: inline;
+  position: relative;
+  animation: chatbox-streaming-text-fade 300ms ease-out both;
+}
+
+@keyframes chatbox-streaming-text-fade {
+  from {
+    opacity: 0;
+    top: 2px;
+  }
+  to {
+    opacity: 1;
+    top: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chatbox-streaming-text-fade,
+  [data-streaming-fade-key] {
+    animation: none;
+  }
+}
+
+@keyframes loadingrotation {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}

@@ -1,0 +1,1 @@
+"use strict";const e="dev-tools:show-guide-dev-buttons",o="dev-tools:force-show-new-user-scenario-cards";function t(){return typeof window>"u"?!1:window.localStorage.getItem(e)==="true"}function n(){return typeof window>"u"?!1:window.localStorage.getItem(o)==="true"}export{t as a,n as g};

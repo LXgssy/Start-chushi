@@ -1,0 +1,1 @@
+"use strict";const a="relative flex flex-col justify-between gap-xs rounded-lg bg-chatbox-background-primary px-3 py-2 shadow-sm",t="min-h-[92px]",o={border:"1px solid var(--chatbox-border-primary)"},r="min(200px, 30vh)",s="disabled:!opacity-100 !bg-chatbox-background-tertiary !text-chatbox-tint-white";export{r as I,s as S,o as a,a as b,t as c};

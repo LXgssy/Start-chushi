@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <script>window.chatbox_release_date="2026-11-17";</script>
+
+    <base href="/">
+
+    <meta charset="utf-8" />
+    <meta name="viewport" content="height=device-height, width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="轻聊" />
+    <meta name="theme-color" content="#000000" />
+    <meta
+      name="description"
+      content="轻聊 —— 本地优先、无需登录的中文 AI 对话客户端。所有数据仅保存在你的浏览器中。"
+    />
+    <link rel="apple-touch-icon" href="./images/logo192.B8Q1jKGP.png" />
+    <link rel="icon" href="./images/favicon.DFigWhDf.ico" sizes="any" />
+    <title>轻聊 · AI 对话助手</title>
+    <script>
+      // The source HTML is a Vite entry and cannot run when opened as file:// in a browser.
+      // Electron also loads this file through file://, so its preload bridge must bypass this guard.
+      if (window.location.protocol === 'file:' && !window.electronAPI) {
+        window.addEventListener('DOMContentLoaded', function () {
+          var root = document.getElementById('root')
+          var splash = document.querySelector('.splash-screen')
+          if (splash) splash.remove()
+          if (root) {
+            root.innerHTML =
+              '<div class="startup-error">轻聊需要通过 Web 服务器访问。请在部署站点打开本页面。</div>'
+          }
+        })
+      }
+    </script>
+    <script>
+      var initialTheme = localStorage.getItem("initial-theme");
+      if (initialTheme === "light" || initialTheme === "dark") {
+        document.documentElement.setAttribute("data-theme", initialTheme);
+        document.documentElement.setAttribute(
+          "data-mantine-color-scheme",
+          initialTheme
+        );
+      }
+    </script>
+    <script>
+      /* 轻聊全局滚轮兜底 v3：
+         1) 原生滚动正常 → 无任何干预；
+         2) 滚轮被转为横向滚动（应用自有劫持，如横向标签条）→ 不干预；
+         3) 其余情况（隐形滚动锁 react-remove-scroll、异常内核等导致滚轮失效）→ 一帧后手动补滚。
+         真模态的背板没有可滚祖先，findScroller 返回 null，天然不会误滚背板。 */
+      ;(function () {
+        if (window.__qingliaoWheelFix) return
+        window.__qingliaoWheelFix = true
+        var LINE = 16
+        function normDelta(e) {
+          var d = e.deltaY !== 0 ? e.deltaY : e.deltaX
+          if (e.deltaMode === 1) d = d * LINE
+          else if (e.deltaMode === 2) d = d * Math.max(400, document.documentElement.clientHeight || 600)
+          return d
+        }
+        function findScroller(el, vertical, delta) {
+          var cur = el
+          var depth = 0
+          while (cur && cur.nodeType === 1 && depth < 40) {
+            var cs = null
+            try { cs = window.getComputedStyle(cur) } catch (err) { return null }
+            if (cs) {
+              var ovf = vertical ? cs.overflowY : cs.overflowX
+              if (ovf === 'auto' || ovf === 'scroll' || ovf === 'overlay') {
+                var size = vertical ? cur.scrollHeight : cur.scrollWidth
+                var view = vertical ? cur.clientHeight : cur.clientWidth
+                if (size > view + 1) {
+                  var pos = vertical ? cur.scrollTop : cur.scrollLeft
+                  var max = size - view
+                  if ((delta < 0 && pos > 0) || (delta > 0 && pos < max - 1)) return cur
+                }
+              }
+            }
+            cur = cur.parentElement
+            depth++
+          }
+          return null
+        }
+        function findHorizontalScroller(el) {
+          var cur = el
+          var depth = 0
+          while (cur && cur.nodeType === 1 && depth < 40) {
+            try {
+              var cs = window.getComputedStyle(cur)
+              if ((cs.overflowX === 'auto' || cs.overflowX === 'scroll') && cur.scrollWidth > cur.clientWidth + 1) return cur
+            } catch (err) { return null }
+            cur = cur.parentElement
+            depth++
+          }
+          return null
+        }
+        document.addEventListener('wheel', function (e) {
+          if (e.ctrlKey) return
+          var delta = normDelta(e)
+          if (!delta) return
+          var vertical = e.deltaY !== 0
+          var target = e.target
+          if (!target || target.nodeType !== 1) return
+          // 应用把滚轮转成横向滚动（横向标签条等）：记录横条基线，动过就让位
+          var hx = null
+          var hxBefore = null
+          if (vertical && Math.abs(e.deltaX) < Math.abs(e.deltaY)) {
+            hx = findHorizontalScroller(target)
+            if (hx) hxBefore = hx.scrollLeft
+          }
+          var sc = findScroller(target, vertical, delta)
+          if (!sc) return
+          var before = vertical ? sc.scrollTop : sc.scrollLeft
+          requestAnimationFrame(function () {
+            if (vertical ? sc.scrollTop !== before : sc.scrollLeft !== before) return // 原生滚动已生效
+            if (hx && hx.scrollLeft !== hxBefore) return // 手势被转成横向滚动
+            // 原生没滚且横向劫持未发生：强制补滚（对抗隐形滚动锁与异常内核）。
+            // 注：真模态的背板没有可滚祖先，findScroller 会返回 null，此处天然不误滚。
+            var max = vertical ? sc.scrollHeight - sc.clientHeight : sc.scrollWidth - sc.clientWidth
+            var next = Math.max(0, Math.min(max, before + delta))
+            if (next !== before) {
+              if (vertical) sc.scrollTop = next
+              else sc.scrollLeft = next
+            }
+          })
+        }, { capture: true, passive: true })
+      })()
+    </script>
+    <style>
+      html[data-theme="dark"] {
+        background-color: #242424;
+      }
+
+      .splash-screen {
+        position: fixed;
+        z-index: 99999;
+        top: 0;
+        left: 0;
+        height: 100%;
+        width: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        opacity: 1;
+        background-color: #fff;
+        overflow: hidden;
+      }
+      html[data-theme="dark"] .splash-screen {
+        background-color: #242424;
+      }
+
+      .splash-center {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .splash-logo {
+        width: 84px;
+        height: 84px;
+        display: block;
+      }
+
+      .splash-title {
+        margin-top: 18px;
+        font-size: 26px;
+        font-weight: 700;
+        letter-spacing: 0.35em;
+        text-indent: 0.35em; /* 抵消最后一个字母的字距，保证严格居中 */
+        color: #24292f;
+        text-align: center;
+      }
+      html[data-theme="dark"] .splash-title {
+        color: #e8eaed;
+      }
+
+      .splash-sub {
+        margin-top: 10px;
+        font-size: 12.5px;
+        color: #8b949e;
+        text-align: center;
+      }
+
+      .splash-progress {
+        margin-top: 22px;
+        width: 220px;
+        height: 4px;
+        border-radius: 2px;
+        background: #e9ecef;
+        overflow: hidden;
+      }
+      html[data-theme="dark"] .splash-progress {
+        background: #3a3f44;
+      }
+
+      .splash-progress-bar {
+        height: 100%;
+        width: 0%;
+        border-radius: 2px;
+        background: linear-gradient(90deg, #3b82f6, #06b6d4);
+        transition: width 0.12s linear;
+      }
+
+      .splash-status {
+        margin-top: 10px;
+        font-size: 11.5px;
+        color: #8b949e;
+        height: 16px;
+        text-align: center;
+      }
+
+      .startup-error {
+        font-family: system-ui, sans-serif;
+        color: #333;
+        padding: 24px;
+        text-align: center;
+      }
+    </style>
+    <script type="module" crossorigin src="./js/index.DVzvDWjP.js"></script>
+    <link rel="modulepreload" crossorigin href="./js/vendor-zod.CslnaJ1E.js">
+    <link rel="modulepreload" crossorigin href="./js/vendor-ai.Dd4rTq4H.js">
+    <link rel="modulepreload" crossorigin href="./js/vendor-react-dom.VXXUQRTu.js">
+    <link rel="modulepreload" crossorigin href="./js/vendor-lodash.BtAbTfM4.js">
+    <link rel="modulepreload" crossorigin href="./js/vendor-mcp.CYDz-Vjm.js">
+    <link rel="modulepreload" crossorigin href="./js/vendor-katex.5mu6VaVU.js">
+    <link rel="modulepreload" crossorigin href="./js/vendor-misc.Wd1I1B6f.js">
+    <link rel="modulepreload" crossorigin href="./js/vendor-tokenizer.cjWNRriW.js">
+    <link rel="modulepreload" crossorigin href="./js/app-core.DXuijtOY.js">
+    <link rel="modulepreload" crossorigin href="./js/vendor-ui.BcKUR8xq.js">
+    <link rel="modulepreload" crossorigin href="./js/vendor-charts.Dhu5xNod.js">
+    <link rel="modulepreload" crossorigin href="./js/vendor-markdown.Suc4cEV2.js">
+    <link rel="modulepreload" crossorigin href="./js/vendor-diagrams.rlCoDlyO.js">
+    <link rel="modulepreload" crossorigin href="./js/vendor-mermaid.BCryww4T.js">
+    <link rel="modulepreload" crossorigin href="./js/vendor-shiki.CcH1M5mg.js">
+    <link rel="stylesheet" crossorigin href="./styles/vendor-katex.rWi2Ou9U.css">
+    <link rel="stylesheet" crossorigin href="./styles/vendor-misc.DOUWfOG-.css">
+    <link rel="stylesheet" crossorigin href="./styles/vendor-ui.n5guthqQ.css">
+    <link rel="stylesheet" crossorigin href="./styles/index.DkovqrcM.css">
+  </head>
+  <body>
+    <div id="root"></div>
+    <div id="log-root"></div>
+
+    <div class="splash-screen" id="splashScreen">
+      <div class="splash-center">
+        <svg class="splash-logo" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <defs>
+            <linearGradient id="splashQlGrad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#3b82f6" />
+              <stop offset="1" stop-color="#06b6d4" />
+            </linearGradient>
+          </defs>
+          <circle cx="24" cy="24" r="22" fill="url(#splashQlGrad)" />
+          <path
+            d="M14.4 16.4h19.2a3.4 3.4 0 0 1 3.4 3.4v10a3.4 3.4 0 0 1-3.4 3.4H22.2L16 38.8v-5.6h-1.6a3.4 3.4 0 0 1-3.4-3.4v-10a3.4 3.4 0 0 1 3.4-3.4z"
+            fill="#ffffff"
+          />
+          <circle cx="18.8" cy="24.8" r="2.1" fill="url(#splashQlGrad)" />
+          <circle cx="25.2" cy="24.8" r="2.1" fill="url(#splashQlGrad)" />
+        </svg>
+        <div class="splash-title">轻聊</div>
+        <div class="splash-sub">本地优先 · 无需登录的 AI 对话</div>
+        <div class="splash-progress" id="splashProgress">
+          <div class="splash-progress-bar" id="splashBar"></div>
+        </div>
+        <div class="splash-status" id="splashStatus"></div>
+      </div>
+    </div>
+
+    <script>
+      // 轻聊启动：进度条仅跟踪应用自身启动（秒级完成）；
+      // Service Worker 立即注册，运行时自动缓存已用资源，第二次访问秒开。
+      ;(function () {
+        var bar = document.getElementById('splashBar')
+        var status = document.getElementById('splashStatus')
+        var screen = document.getElementById('splashScreen')
+        var done = false
+        var t0 = Date.now()
+        var pct = 6
+        function setPct(p) {
+          if (bar) bar.style.width = Math.max(0, Math.min(100, p)) + '%'
+        }
+        function say(t) {
+          if (status) status.textContent = t
+        }
+        function finish() {
+          if (done) return
+          done = true
+          // 关键保险：立即禁止 splash 拦截鼠标/滚轮，避免遮罩吞事件
+          if (screen) screen.style.pointerEvents = 'none'
+          setPct(100)
+          say('')
+          setTimeout(function () {
+            if (screen) {
+              screen.style.transition = 'opacity .25s'
+              screen.style.opacity = '0'
+              setTimeout(function () {
+                if (screen && screen.parentNode) screen.parentNode.removeChild(screen)
+              }, 260)
+            }
+          }, 120)
+        }
+        // 进度缓动：数秒内推进到 88%，应用挂载后立即完成
+        var anim = setInterval(function () {
+          if (done) {
+            clearInterval(anim)
+            return
+          }
+          pct += (88 - pct) * 0.045
+          setPct(pct)
+        }, 80)
+        // 轮询应用是否已挂载（#root 出现真实子元素即就绪）
+        var poll = setInterval(function () {
+          var root = document.getElementById('root')
+          if (root) {
+            var kids = root.children
+            for (var i = 0; i < kids.length; i++) {
+              var tag = kids[i].tagName
+              if (tag !== 'STYLE' && tag !== 'SCRIPT' && tag !== 'LINK') {
+                clearInterval(poll)
+                finish()
+                return
+              }
+            }
+          }
+          if (Date.now() - t0 > 15000) {
+            clearInterval(poll)
+            finish()
+          }
+        }, 150)
+        // 双重兑底：无论发生什么，20 秒后强制移除 splash 并放开交互
+        setTimeout(function () {
+          if (screen && screen.parentNode) screen.parentNode.removeChild(screen)
+        }, 20000)
+        // Service Worker：缓存优先，二次访问秒开
+        if (location.protocol === 'https:' && 'serviceWorker' in navigator) {
+          navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(function () {})
+        }
+      })()
+    </script>
+  </body>
+</html>
