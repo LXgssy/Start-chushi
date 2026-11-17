@@ -109,15 +109,6 @@ async function deleteRemote(paths) {
 }
 
 async function main() {
-  for (const base of BACKENDS) {
-    try {
-      const r = await fetch(base + '/host/site/content?domain=qingliao-ai', { headers: { 'User-Agent': 'Mozilla/5.0 (linux) RTHHostHelper/6.2.2' } })
-      const t = await r.text()
-      console.log(`PROBE ${new URL(base).host} → ${r.status} ${t.slice(0, 30)}`)
-    } catch (e) {
-      console.log(`PROBE ${new URL(base).host} → NETERR`)
-    }
-  }
   const { readdirSync, statSync } = await import('node:fs')
   const { join, relative } = await import('node:path')
   const username = await verify()
