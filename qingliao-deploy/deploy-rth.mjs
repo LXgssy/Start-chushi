@@ -109,19 +109,6 @@ async function deleteRemote(paths) {
 }
 
 async function main() {
-  // ── WAF 探测：各后端各路径的无鉴权连通性（区分 WAF 403 与应用层响应）──
-  for (const base of BACKENDS) {
-    for (const path of ['/host/site/content?domain=qingliao-ai', '/api-key-v2/verification?key=probe']) {
-      try {
-        const r = await fetch(base + path, { headers: { 'User-Agent': 'Mozilla/5.0 (linux) RTHHostHelper/6.2.2' } })
-        const t = await r.text()
-        console.log(`PROBE ${new URL(base).host}${path.split('?')[0]} → ${r.status} ${t.slice(0, 40).replace(/\n/g, ' ')}`)
-      } catch (e) {
-        console.log(`PROBE ${new URL(base).host}${path.split('?')[0]} → NETERR ${String(e.message || e).slice(0, 60)}`)
-      }
-    }
-  }
-  // ── 探测结束 ──
   const { readdirSync, statSync } = await import('node:fs')
   const { join, relative } = await import('node:path')
   const username = await verify()
