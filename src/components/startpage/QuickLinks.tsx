@@ -52,6 +52,7 @@ import { Check, Folder, FolderMinus, FolderOpen, FolderPlus, Pencil, X } from "l
 import {
   DndContext,
   DragOverlay,
+  type CollisionDetection,
   MeasuringStrategy,
   MouseSensor,
   closestCenter,
@@ -108,6 +109,55 @@ const LAYOUT_SPRING = { type: "spring" as const, stiffness: 420, damping: 41, ma
 /** v8.7.173 ①入夹驻留军备时长：1s→0.5s（用户口径「磁贴拖入和拖出文件夹的
  *  判定时间改成0.5秒」——入夹+出夹双向 0.5s；v8.7.172 的 1s 退役）。 */
 const FOLDER_DWELL_MS = 500;
+
+/* v8.7.175 入夹面积律（用户口径「只要图标有三分之二的范围在文件夹的磁贴
+ * 图标范围里就判定为这个图标要入夹」）：拖拽磁贴矩形与夹磁贴槽位的交叠
+ * ≥ 拖拽矩形自身面积的 2/3 → 入夹意图。closestCenter 的中心距离口径
+ * 入夹命中范围太小（必须把图标中心送到夹中心跟前）。 */
+const FOLDER_ENTER_AREA_RATIO = 2 / 3;
+
+/** 拖拽矩形与目标矩形交叠面积 / 拖拽矩形面积（0=不相交，1=完全被含）。
+ *  只读 left/top/width/height——DOMRect 与 dnd-kit Rect 两口径通用。 */
+function areaEnterRatio(
+  active: { left: number; top: number; width: number; height: number } | null | undefined,
+  target: { left: number; top: number; width: number; height: number } | null | undefined
+): number {
+  if (!active || !target || active.width <= 0 || active.height <= 0) return 0;
+  const ix = Math.min(active.left + active.width, target.left + target.width) - Math.max(active.left, target.left);
+  const iy = Math.min(active.top + active.height, target.top + target.height) - Math.max(active.top, target.top);
+  if (ix <= 0 || iy <= 0) return 0;
+  return (ix * iy) / (active.width * active.height);
+}
+
+/** 入夹面积律的行对齐口径：拖拽幽灵骑在图标行线上（指针居中的矩形比
+ *  磁贴槽位高半个标签带），竖向天然亏 17/90——纯面积比在网格布局下永
+ *  远够不到 2/3（实测 0.63 封顶）。行对齐 = 把拖拽矩形对齐到目标槽位
+ *  所在行再量交叠（同行的入夹看横向包含度=用户视觉所见）；跨行（竖向
+ *  重叠 <40% 槽高）判 0。 */
+function rowEnterRatio(
+  active: { left: number; top: number; width: number; height: number } | null | undefined,
+  slot: { left: number; top: number; width: number; height: number } | null | undefined
+): number {
+  if (!active || !slot || slot.height <= 0 || active.width <= 0) return 0;
+  const iy = Math.min(active.top + active.height, slot.top + slot.height) - Math.max(active.top, slot.top);
+  if (iy <= 0 || iy < slot.height * 0.4) return 0;
+  return areaEnterRatio({ left: active.left, top: slot.top, width: active.width, height: slot.height }, slot);
+}
+
+/** 槽位矩形：剥离元素的 transform 平移（让位/军备动画会把活体矩形推走，
+ *  槽位矩形=磁贴在网格上占位的稳定位置，与用户视觉对齐目标一致）。 */
+function slotRectOf(el: HTMLElement | null | undefined): { left: number; top: number; width: number; height: number } | null {
+  if (!el) return null;
+  const raw = el.getBoundingClientRect();
+  const tf = getComputedStyle(el).transform;
+  if (!tf || tf === "none") return { left: raw.left, top: raw.top, width: raw.width, height: raw.height };
+  try {
+    const m = new DOMMatrixReadOnly(tf);
+    return { left: raw.left - m.e, top: raw.top - m.f, width: raw.width, height: raw.height };
+  } catch {
+    return { left: raw.left, top: raw.top, width: raw.width, height: raw.height };
+  }
+}
 /** v8.7.173 ①出夹驻留时长：夹内磁贴拖出面板矩形 0.5s 关夹放行（同上口径）。 */
 const FOLDER_DWELL_EXIT_MS = 500;
 /** v8.7.172 ⑥军备宽限（软清窗）：MeasuringStrategy.Always 下策略位移矩形致
@@ -1966,6 +2016,13 @@ function QuickLinks({
      排序）。军备进度由 dwellStartedAt 记账（软清宽限续接用，见
      softClearDwell）。 */
   const dwellTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /* v8.7.175 入夹面积律：墙上夹磁贴 id 集（渲染期刷新）；拖拽会话级
+     稳定矩形缓存（指针锚定，见 folderAreaCollision）+ 拖文件夹豁免标记 */
+  const folderIdsRef = useRef<Set<string>>(new Set());
+  folderIdsRef.current = new Set(links.filter((x) => isFolder(x)).map((x) => x.id));
+  const dragIsFolderRef = useRef(false);
+  const dragRectCacheRef = useRef<{ w: number; h: number; dx: number; dy: number } | null>(null);
+  const stableDragRectRef = useRef<{ left: number; top: number; width: number; height: number } | null>(null);
   const dwellFolderId = useRef<string | null>(null);
   const armedFolderId = useRef<string | null>(null);
   const dwellStartedAt = useRef(0);
@@ -2382,9 +2439,21 @@ function QuickLinks({
   function armDwell(to: string) {
     dwellFolderId.current = to;
     dwellStartedAt.current = performance.now();
+    /* v8.7.175 竞态修复：起手+响铃都清残留宽限定时器——旧序「越过磁贴
+       间隙 → softClear 起宽限（260ms）→ 复入续接 → 军备响铃 → 宽限定时
+       器随后兜进来无条件抹掉 armedFolderId」让军备凭空蒸发（用户体感
+       「入夹判定范围太小」的真身：军备被偷而非范围小）。 */
+    if (dwellGraceTimer.current) {
+      clearTimeout(dwellGraceTimer.current);
+      dwellGraceTimer.current = null;
+    }
     dwellTimer.current = setTimeout(() => {
       dwellTimer.current = null;
       dwellFolderId.current = null;
+      if (dwellGraceTimer.current) {
+        clearTimeout(dwellGraceTimer.current);
+        dwellGraceTimer.current = null;
+      }
       armedFolderId.current = to;
       setDropHintId(to);
     }, FOLDER_DWELL_MS);
@@ -2409,6 +2478,10 @@ function QuickLinks({
     dwellTimer.current = setTimeout(() => {
       dwellTimer.current = null;
       dwellFolderId.current = null;
+      if (dwellGraceTimer.current) {
+        clearTimeout(dwellGraceTimer.current);
+        dwellGraceTimer.current = null;
+      }
       armedFolderId.current = to;
       setDropHintId(to);
     }, Math.max(60, remain));
@@ -2423,8 +2496,15 @@ function QuickLinks({
       dwellTimer.current = null;
     }
     if (dwellGraceTimer.current) return;
+    /* v8.7.175 宽限回调守卫：宽限到期时若 over 仍在本夹（over 振荡未真
+       离场——dnd-kit over 不变不发事件，一旦这里误抹 armedFolderId 就
+       永无 dragOver 来重军备=军备哑火），保住军备不清账；真离场才清。 */
+    const graceFolderId = dwellFolderId.current ?? armedFolderId.current;
     dwellGraceTimer.current = setTimeout(() => {
       dwellGraceTimer.current = null;
+      if (graceFolderId && overIdRef.current === graceFolderId) {
+        return;
+      }
       dwellFolderId.current = null;
       armedFolderId.current = null;
       dwellStartedAt.current = 0;
@@ -2557,6 +2637,9 @@ function QuickLinks({
     /* v8.7.168 ②：会话起点是否在夹内（拖的是文件夹子磁贴）——出夹地理闸前提 */
     const startLoc = locateLink(links, String(e.active.id));
     dragStartedInsideRef.current = !!startLoc?.folder;
+    dragIsFolderRef.current = links.some((x) => x.id === String(e.active.id) && isFolder(x));
+    dragRectCacheRef.current = null;
+    stableDragRectRef.current = null;
     /* v8.7.169 ②：起点夹 id（3 秒出夹驻留的关闭目标）；面板内初值 = 起点在
        夹内（首个 move 前的 dragOver 不至于闸门大开），后续 move 实测刷新 */
     dragOriginFolderId.current = startLoc?.folder?.id ?? null;
@@ -2646,7 +2729,7 @@ function QuickLinks({
              同语义）；翻回左半 = 悬停意图回归，重新起 1s 计时（timer 在场/
              已军备则不动） */
           if (overIsFolder && !mFolderActive) {
-            if (side === "r") {
+            if (side === "r" && !folderEnterIntent(stableDragRectRef.current ?? rect, mTo)) {
               clearDwell();
               setDropHintId((cur) => (cur === null ? cur : null));
             } else if (!dwellTimer.current && armedFolderId.current !== mTo) {
@@ -2677,7 +2760,9 @@ function QuickLinks({
       const overEl = rootRef.current?.querySelector<HTMLElement>(
         `[data-entry-id="${CSS.escape(to)}"]`,
       );
-      const or = overEl?.getBoundingClientRect();
+      /* 槽位矩形（剥离让位/军备 transform 位移）：活体矩形在让位 reflow
+         中滑移，中心比较随之跳变→侧别翻转→军备反复清零（实测）。 */
+      const or = slotRectOf(overEl);
       if (or && or.width > 0) {
         const off = rect.left + rect.width / 2 - (or.left + or.width / 2);
         const prev = yieldSideRef.current;
@@ -2728,6 +2813,46 @@ function QuickLinks({
        文件夹不军备（夹×夹实时让位排序）。展开态夹磁贴 = 吸收落点语义不变；
      · v8.7.172 ①：夹内磁贴拖出面板矩形驻留 1s → 关闭该夹回磁贴墙
        （监测在 handleDragMove，出夹分支在驻留未满期间继续关闸）。 */
+  /* ---------- v8.7.175 稳定拖拽矩形维护碰撞器 ----------
+     让位 reflow 会改写被拖磁贴自己的槽位，dnd-kit 重测 translated 矩形
+     随之跳变（实测 549↔645px 摆动）——侧别/面积判定全被带崩。指针坐标
+     恒定（幽灵 1:1 跟指针），首事件缓存尺寸后统一用 指针居中矩形 反推
+     （抓取偏移不进判定口径——首碰撞冻结的抓取几何实测会把矩形错位
+     20+px）。同行同尺寸网格下 ≥2/3 交叠带恒在夹槽位内，closestCenter
+     本就命中本夹——命中不需要改道；面积律的价值在侧别语义（右压 ≥2/3
+     = 入夹意图不让位），见 folderEnterIntent。 */
+  const folderAreaCollision: CollisionDetection = (args) => {
+    const ptr = args.pointerCoordinates;
+    const cr = args.collisionRect;
+    if (ptr && cr) {
+      if (!dragRectCacheRef.current) {
+        dragRectCacheRef.current = { w: cr.width, h: cr.height, dx: 0, dy: 0 };
+      }
+      const c2 = dragRectCacheRef.current;
+      stableDragRectRef.current = {
+        left: ptr.x - c2.w / 2,
+        top: ptr.y - c2.h / 2,
+        width: c2.w,
+        height: c2.h,
+      };
+    }
+    return closestCenter(args);
+  };
+
+  /* 入夹意图判定：over 磁贴（夹）槽位与稳定拖拽矩形行对齐交叠 ≥2/3
+     自身面积。量测取 [data-entry-id] 包裹层槽位矩形（剥离 transform），
+     量测作用域 rootRef（④三处之三：克隆矩形防线）。 */
+  function folderEnterIntent(
+    activeRect: { left: number; top: number; width: number; height: number } | null | undefined,
+    to: string
+  ): boolean {
+    if (!activeRect) return false;
+    const overEl = rootRef.current?.querySelector<HTMLElement>(
+      `[data-entry-id="${CSS.escape(to)}"]`
+    );
+    return rowEnterRatio(activeRect, slotRectOf(overEl)) >= FOLDER_ENTER_AREA_RATIO;
+  }
+
   function handleDragOver(e: DragOverEvent) {
     const from = String(e.active.id);
     const to = e.over ? String(e.over.id) : null;
@@ -2756,16 +2881,24 @@ function QuickLinks({
     const overWallEntry = links.find((x) => x.id === to);
     const side =
       overWallEntry && to !== openFolderId
-        ? yieldSideFor(to, e.active.rect.current.translated)
+        ? yieldSideFor(to, stableDragRectRef.current ?? e.active.rect.current.translated)
         : null;
+    /* v8.7.175 入夹面积律：≥2/3 面积压在夹磁贴槽位上 = 入夹意图——
+       无论几何中心落在夹的左半还是右半，都走「左半粘滞军备」语义
+       （右半让位仅在 <2/3 时保留排序意图）。 */
+    const entryIntent =
+      overWallEntry && isFolder(overWallEntry) && to !== openFolderId
+        ? folderEnterIntent(stableDragRectRef.current ?? e.active.rect.current.translated, to)
+        : false;
     if (overWallEntry && isFolder(overWallEntry) && to !== openFolderId) {
       if (isFolderActive) {
         /* A-文件夹：不军备不反馈（夹×夹实时让位排序） */
         clearDwell();
         setDropHintId((cur) => (cur === null ? cur : null));
-      } else if (side === "r") {
-        /* A-链接右半：排序意图（用户口径「拖拽磁贴到文件夹的右边时，
-           文件夹磁贴不会主动让位」）——军备清、让位走下方 setLinks */
+      } else if (side === "r" && !entryIntent) {
+        /* A-链接右半：<2/3 重叠 = 排序意图（用户口径「拖拽磁贴到文件夹的
+           右边时，文件夹磁贴不会主动让位」）——军备清、让位走下方 setLinks；
+           ≥2/3 重叠 = 入夹意图（面积律），不在此清军备 */
         clearDwell();
         setDropHintId((cur) => (cur === null ? cur : null));
       } else if (armedFolderId.current === to || dwellFolderId.current === to) {
@@ -2826,7 +2959,7 @@ function QuickLinks({
           return prev;
         }
         if (to === openFolderId) return putLinkIntoFolder(prev, from, to)[0];
-        return yieldReorder(prev, from, to, side ?? "l", isFolderActive);
+        return yieldReorder(prev, from, to, entryIntent ? "l" : (side ?? "l"), isFolderActive);
       }
 
       const toLoc = locateLink(prev, to);
@@ -2861,6 +2994,9 @@ function QuickLinks({
   }
 
   function handleDragEnd(e: DragEndEvent) {
+    dragIsFolderRef.current = false;
+    dragRectCacheRef.current = null;
+    stableDragRectRef.current = null;
     const from = String(e.active.id);
     const overId = e.over ? String(e.over.id) : null;
     /* v8.7.169 ①军备读数先于清理（clearDwell 会清 armedFolderId） */
@@ -3214,7 +3350,7 @@ function QuickLinks({
   return (
     <DndContext
       sensors={ghost ? [] : sensors}
-      collisionDetection={closestCenter}
+      collisionDetection={folderAreaCollision}
       /* v8.7.172 ⑤MeasuringStrategy.Always：开飞即摘后拖拽继续、墙面弹簧
          补位/让位全程在动——拖拽中持续重测 droppable 矩形，over 解析不再
          吃过期布局（静止测量策略在弹簧期间命中旧矩形）。over 振荡副作用由
