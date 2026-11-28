@@ -156,11 +156,27 @@ await dragTo("fd9", (await tilePt("fd0")).x - 20, (await tilePt("fd0")).y);
   const ls = await linksWait((l) => l.map((e) => e.id).join(",") === "t2,t1,fd9,fd0");
   T("B6 夹拖到夹左半 → 插前 [t2,t1,fd9,fd0]", !!ls);
 }
-// B1 链接拖到夹右半 = 夹让位（t2 → fd0 后）
-await dragTo("t2", (await tilePt("fd0")).x + 20, (await tilePt("fd0")).y);
+// B1 链接拖到夹右半 <2/3 = 夹让位（t2 → fd0 后）。v8.7.175 入夹面积律：图标
+// ≥2/3 压夹（中心偏移 ≤ W/3）= 入夹意图不让位，右半让位只在 <2/3（此处
+// +0.42W，重叠 58%）——旧 +20px（重叠 75%）自 v8.7.176 起属入夹带，见 B1b。
 {
+  const pf = await tilePt("fd0");
+  await dragTo("t2", pf.x + Math.round(pf.box.width * 0.42), pf.y);
   const ls = await linksWait((l) => l.findIndex((e) => e.id === "fd0") >= 0 && l.findIndex((e) => e.id === "t2") === l.findIndex((e) => e.id === "fd0") + 1);
-  T("B1 链接拖到夹右半 → 夹让位（fd0 紧邻 t2 左侧）", !!ls);
+  T("B1 链接拖到夹右半 <2/3 → 夹让位（fd0 紧邻 t2 左侧）", !!ls);
+}
+// B1b 链接（夹右侧紧邻的 t2）从右滑到夹右半 ≥2/3（+20px，重叠 75%）短松手 =
+// 入夹意图不让位、未满 0.5s 驻留不入夹 → 墙序零变更（v8.7.176：move 侧让位
+// 闸补齐；从右进带同样起计时）。不用左侧的 t1——它会途经 fd9，出 fd9 右半
+// 的实时让位排序本就该改墙序，与本题无关。
+{
+  /* DOM 直读墙序（内存态即时；linksRead 吃 800ms 延迟落盘会假通过） */
+  const domOrder = () => page.evaluate(() => [...document.querySelectorAll("[data-entry-id]")].map((e) => e.getAttribute("data-entry-id")).join(","));
+  const before = await domOrder();
+  const pf = await tilePt("fd0");
+  await dragTo("t2", pf.x + 20, pf.y);
+  const after = await domOrder();
+  T("B1b 链接拖到夹右半 ≥2/3 短松手 → 零变更（不让位不入夹）", before === after, `${before} → ${after}`);
 }
 // B2 链接拖到夹左半 = 粘滞零变更（短悬停 < 1s 松手）
 {
@@ -318,10 +334,12 @@ await reseed({ linksForm: "drawer" });
   });
   T("F1 抽屉唤出磁贴墙可见（alt+v）", visible);
   const p1 = await tilePt("t1", 0, 0, ".cl-links-drawer");
-  const pf = await tilePt("fd0", 20, 0, ".cl-links-drawer");
+  /* v8.7.176：右半让位只在 <2/3（+0.42W）；+20px 属入夹带（见 B1b） */
+  const pf0 = await tilePt("fd0", 0, 0, ".cl-links-drawer");
+  const pf = await tilePt("fd0", Math.round(pf0.box.width * 0.42), 0, ".cl-links-drawer");
   await dragTo("t1", pf.x, pf.y, 0, ".cl-links-drawer");
   const ls = await linksWait((l) => l.findIndex((e) => e.id === "fd0") >= 0 && l.findIndex((e) => e.id === "t1") === l.findIndex((e) => e.id === "fd0") + 1);
-  T("F2 抽屉内链接拖到夹右半 → 夹让位（t1 紧邻 fd0 左侧）", !!ls);
+  T("F2 抽屉内链接拖到夹右半 <2/3 → 夹让位（t1 紧邻 fd0 左侧）", !!ls);
 }
 
 // ---------- 全程 pageerror ----------

@@ -2017,11 +2017,16 @@ function QuickLinks({
      softClearDwell）。 */
   const dwellTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   /* v8.7.175 入夹面积律：墙上夹磁贴 id 集（渲染期刷新）；拖拽会话级
-     稳定矩形缓存（指针锚定，见 folderAreaCollision）+ 拖文件夹豁免标记 */
+     稳定矩形缓存（幽灵真身，见 folderAreaCollision）+ 拖文件夹豁免标记 */
   const folderIdsRef = useRef<Set<string>>(new Set());
   folderIdsRef.current = new Set(links.filter((x) => isFolder(x)).map((x) => x.id));
   const dragIsFolderRef = useRef(false);
-  const dragRectCacheRef = useRef<{ w: number; h: number; dx: number; dy: number } | null>(null);
+  /* v8.7.176 幽灵真身矩形锚：dragStart 抓取点（activatorEvent = 传感器平移
+     原点的按下事件坐标）+ 起手槽位矩形（DOM 实测）。稳定矩形 = 起手矩形 +
+     指针位移 = 浮层所见矩形 1:1（v8.7.175 的「指针居中矩形」不含抓取偏移，
+     图标 56px 内随手抓偏 ±20px 即让 2/3 判定整体漂移）。 */
+  const dragOriginPtrRef = useRef<{ x: number; y: number } | null>(null);
+  const dragStartRectRef = useRef<{ left: number; top: number; width: number; height: number } | null>(null);
   const stableDragRectRef = useRef<{ left: number; top: number; width: number; height: number } | null>(null);
   const dwellFolderId = useRef<string | null>(null);
   const armedFolderId = useRef<string | null>(null);
@@ -2037,6 +2042,9 @@ function QuickLinks({
   /* v8.7.172 ②move 侧判定记忆：dragOver 只在落点翻转时触发，指针在同一
      磁贴上越过中线只有 move 能看见——over 记簿，move 每帧重判。 */
   const overIdRef = useRef<string | null>(null);
+  /* v8.7.176 ②军备意愿簿：{ 目标夹 id, 上次意愿 }——move 侧每探测帧核对
+     「左半 或 ≥2/3 入夹意图」，只在翻转沿起计时/清军备让位。 */
+  const yieldWantRef = useRef<{ id: string; want: boolean } | null>(null);
   /* v8.7.172 ①拖拽悬停文件夹反馈：军备满 1s 才亮出（TileVisual
      scale 1.12，用户口径「文件夹轻微放大来反馈给用户告诉用户现在松手就
      可以放到文件夹里」）；悬停他处/松手清空。 */
@@ -2638,7 +2646,25 @@ function QuickLinks({
     const startLoc = locateLink(links, String(e.active.id));
     dragStartedInsideRef.current = !!startLoc?.folder;
     dragIsFolderRef.current = links.some((x) => x.id === String(e.active.id) && isFolder(x));
-    dragRectCacheRef.current = null;
+    const actEv = e.activatorEvent as unknown as
+      | { clientX?: number; clientY?: number; x?: number; y?: number }
+      | null;
+    dragOriginPtrRef.current =
+      actEv && typeof actEv.clientX === "number" && typeof actEv.clientY === "number"
+        ? { x: actEv.clientX, y: actEv.clientY }
+        : actEv && typeof actEv.x === "number" && typeof actEv.y === "number"
+          ? { x: actEv.x, y: actEv.y }
+          : null;
+    /* 起手槽位矩形取 DOM 实测（e.active.rect.current.initial 此刻为 null）；
+       夹内子磁贴在弹层里寻不到元素 → 留 null，由碰撞器首帧从 collisionRect
+       反推（首帧 translated 尚未经历 reflow，等于真身） */
+    const startEl = rootRef.current?.querySelector<HTMLElement>(
+      `[data-entry-id="${CSS.escape(String(e.active.id))}"]`
+    );
+    const startRaw = startEl?.getBoundingClientRect();
+    dragStartRectRef.current = startRaw
+      ? { left: startRaw.left, top: startRaw.top, width: startRaw.width, height: startRaw.height }
+      : null;
     stableDragRectRef.current = null;
     /* v8.7.169 ②：起点夹 id（3 秒出夹驻留的关闭目标）；面板内初值 = 起点在
        夹内（首个 move 前的 dragOver 不至于闸门大开），后续 move 实测刷新 */
@@ -2649,6 +2675,7 @@ function QuickLinks({
     /* v8.7.172 ②让位判定簿随新会话清场（判定/迟滞按会话隔离） */
     overIdRef.current = null;
     yieldSideRef.current = null;
+    yieldWantRef.current = null;
   }
 
   /* 横向速度 → 倾斜角（夹在 ±7°），停下回正 */
@@ -2720,20 +2747,38 @@ function QuickLinks({
       ) {
         const mFolderActive = links.some((x) => x.id === mFrom && isFolder(x));
         const overIsFolder = isFolder(overEntry);
+        /* v8.7.176：侧别/入夹意图统一用幽灵真身矩形（translated 矩形在让位
+           reflow 后跳变，拿它定侧 = 指针没动侧别自己翻） */
+        const srect = stableDragRectRef.current ?? rect;
         /* 判定前先取上次侧（yieldSideFor 会写入新判定）——翻转才让位 */
         const prevSide = yieldSideRef.current;
-        const side = yieldSideFor(mTo, rect);
-        if (prevSide && prevSide.id === mTo && prevSide.side !== side) {
+        const side = yieldSideFor(mTo, srect);
+        const mIntent = overIsFolder && !mFolderActive ? folderEnterIntent(srect, mTo) : false;
+        if (prevSide && prevSide.id === mTo && prevSide.side !== side && !mIntent) {
           setLinks((prev) => yieldReorder(prev, mFrom, mTo, side, mFolderActive));
-          /* 链接拖过夹磁贴：翻右半 = 排序意图，军备清（与 dragOver 右半分支
-             同语义）；翻回左半 = 悬停意图回归，重新起 1s 计时（timer 在场/
-             已军备则不动） */
-          if (overIsFolder && !mFolderActive) {
-            if (side === "r" && !folderEnterIntent(stableDragRectRef.current ?? rect, mTo)) {
+        }
+        if (overIsFolder && !mFolderActive) {
+          /* v8.7.176 让位闸 + 军备意愿翻转沿。v8.7.175 面积律只在 dragOver
+             设闸，move 侧翻转分支漏闸——指针停在夹中心右侧 12~27px（重叠
+             2/3~85%，正是面积律该收的带）必被让位 reflow 抽走，随后
+             translated 跳变、over 翻走、宽限兜底抹军备 = 用户口径「图标悬
+             在文件夹上，文件夹有概率反应不过来」的真身。
+             军备意愿 = 左半 或 ≥2/3 入夹意图，每探测帧核对、只在翻转沿动作：
+             进意愿带（含指针在同一落点从右半 <2/3 滑进 ≥2/3——over 未翻、
+             侧别未翻，旧版永不起计时）→ 起计时（宽限窗内不另起炉灶，进度
+             不清零）；出意愿带 → 清军备灭反馈，右半让位照旧（排序意图）。 */
+          const want = side === "l" || mIntent;
+          const lw = yieldWantRef.current;
+          if (!lw || lw.id !== mTo || lw.want !== want) {
+            yieldWantRef.current = { id: mTo, want };
+            if (want) {
+              if (!dwellTimer.current && !dwellGraceTimer.current && armedFolderId.current !== mTo) {
+                armDwell(mTo);
+              }
+            } else {
               clearDwell();
               setDropHintId((cur) => (cur === null ? cur : null));
-            } else if (!dwellTimer.current && armedFolderId.current !== mTo) {
-              armDwell(mTo);
+              setLinks((prev) => yieldReorder(prev, mFrom, mTo, "r", mFolderActive));
             }
           }
         }
@@ -2813,28 +2858,43 @@ function QuickLinks({
        文件夹不军备（夹×夹实时让位排序）。展开态夹磁贴 = 吸收落点语义不变；
      · v8.7.172 ①：夹内磁贴拖出面板矩形驻留 1s → 关闭该夹回磁贴墙
        （监测在 handleDragMove，出夹分支在驻留未满期间继续关闸）。 */
-  /* ---------- v8.7.175 稳定拖拽矩形维护碰撞器 ----------
+  /* ---------- v8.7.175/v8.7.176 稳定拖拽矩形维护碰撞器 ----------
      让位 reflow 会改写被拖磁贴自己的槽位，dnd-kit 重测 translated 矩形
      随之跳变（实测 549↔645px 摆动）——侧别/面积判定全被带崩。指针坐标
-     恒定（幽灵 1:1 跟指针），首事件缓存尺寸后统一用 指针居中矩形 反推
-     （抓取偏移不进判定口径——首碰撞冻结的抓取几何实测会把矩形错位
-     20+px）。同行同尺寸网格下 ≥2/3 交叠带恒在夹槽位内，closestCenter
-     本就命中本夹——命中不需要改道；面积律的价值在侧别语义（右压 ≥2/3
-     = 入夹意图不让位），见 folderEnterIntent。 */
+     与幽灵 1:1 同步，统一由「起手槽位矩形 + 指针位移」反推幽灵真身矩形：
+     v8.7.175 用指针居中近似（抓取偏移不入账，56px 图标内抓偏 ±20px 判定
+     带整体漂移），v8.7.176 改为抓取点锚定（dragStart 记原点）。
+     命中钉（v8.7.176）：链接墙面会话、幽灵真身 ≥2/3 压在墙上某夹槽位 →
+     over 直接钉到该夹。closestCenter 吃的是会跳变的 translated 矩形——
+     补位/让位弹簧期间指针一动不动 over 也会翻走 → 软清宽限兜底抹军备
+     →「图标明明压在夹上，夹却没反应」。 */
   const folderAreaCollision: CollisionDetection = (args) => {
     const ptr = args.pointerCoordinates;
     const cr = args.collisionRect;
     if (ptr && cr) {
-      if (!dragRectCacheRef.current) {
-        dragRectCacheRef.current = { w: cr.width, h: cr.height, dx: 0, dy: 0 };
+      const d = dragOriginPtrRef.current ? { x: ptr.x - dragOriginPtrRef.current.x, y: ptr.y - dragOriginPtrRef.current.y } : null;
+      if (!dragStartRectRef.current) {
+        dragStartRectRef.current = d
+          ? { left: cr.left - d.x, top: cr.top - d.y, width: cr.width, height: cr.height }
+          : null;
       }
-      const c2 = dragRectCacheRef.current;
-      stableDragRectRef.current = {
-        left: ptr.x - c2.w / 2,
-        top: ptr.y - c2.h / 2,
-        width: c2.w,
-        height: c2.h,
-      };
+      const start = dragStartRectRef.current;
+      stableDragRectRef.current = start && d
+        ? { left: start.left + d.x, top: start.top + d.y, width: start.width, height: start.height }
+        : { left: ptr.x - cr.width / 2, top: ptr.y - cr.height / 2, width: cr.width, height: cr.height };
+    }
+    const sr = stableDragRectRef.current;
+    const actId = args.active ? String(args.active.id) : null;
+    if (sr && actId && !dragIsFolderRef.current && !dragStartedInsideRef.current) {
+      for (const fid of folderIdsRef.current) {
+        if (fid === actId || fid === openFolderId) continue;
+        const fEl = rootRef.current?.querySelector<HTMLElement>(
+          `[data-entry-id="${CSS.escape(fid)}"]`
+        );
+        if (rowEnterRatio(sr, slotRectOf(fEl)) >= FOLDER_ENTER_AREA_RATIO) {
+          return [{ id: fid }];
+        }
+      }
     }
     return closestCenter(args);
   };
@@ -2995,7 +3055,8 @@ function QuickLinks({
 
   function handleDragEnd(e: DragEndEvent) {
     dragIsFolderRef.current = false;
-    dragRectCacheRef.current = null;
+    dragOriginPtrRef.current = null;
+    dragStartRectRef.current = null;
     stableDragRectRef.current = null;
     const from = String(e.active.id);
     const overId = e.over ? String(e.over.id) : null;
@@ -3008,6 +3069,7 @@ function QuickLinks({
     dragSample.current = null;
     overIdRef.current = null;
     yieldSideRef.current = null;
+    yieldWantRef.current = null;
     tilt.set(0);
     liftScale.set(1);
     glowO.set(0);
